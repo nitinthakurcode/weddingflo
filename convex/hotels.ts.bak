@@ -1,0 +1,132 @@
+import { v } from 'convex/values';
+import { mutation, query } from './_generated/server';
+
+export const get = query({
+  args: { hotelId: v.id('hotels') },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    return await ctx.db.get(args.hotelId);
+  },
+});
+
+export const list = query({
+  args: { clientId: v.id('clients') },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    return await ctx.db
+      .query('hotels')
+      .withIndex('by_client', (q) => q.eq('client_id', args.clientId))
+      .collect();
+  },
+});
+
+export const create = mutation({
+  args: {
+    company_id: v.id('companies'),
+    client_id: v.id('clients'),
+    hotel_name: v.string(),
+    address: v.string(),
+    coordinates: v.optional(
+      v.object({
+        lat: v.number(),
+        lng: v.number(),
+      })
+    ),
+    phone: v.string(),
+    email: v.optional(v.string()),
+    website: v.optional(v.string()),
+    room_types: v.array(
+      v.object({
+        type: v.string(),
+        capacity: v.number(),
+        rate_per_night: v.number(),
+        total_rooms: v.number(),
+        blocked_rooms: v.number(),
+        available_rooms: v.number(),
+      })
+    ),
+    amenities: v.array(v.string()),
+    rating: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    const now = Date.now();
+    return await ctx.db.insert('hotels', {
+      ...args,
+      created_at: now,
+      updated_at: now,
+    });
+  },
+});
+
+export const update = mutation({
+  args: {
+    hotelId: v.id('hotels'),
+    hotel_name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    amenities: v.optional(v.array(v.string())),
+    rating: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    const { hotelId, ...updates } = args;
+    await ctx.db.patch(hotelId, { ...updates, updated_at: Date.now() });
+    return hotelId;
+  },
+});
+
+export const updateRoomInventory = mutation({
+  args: {
+    hotelId: v.id('hotels'),
+    room_types: v.array(
+      v.object({
+        type: v.string(),
+        capacity: v.number(),
+        rate_per_night: v.number(),
+        total_rooms: v.number(),
+        blocked_rooms: v.number(),
+        available_rooms: v.number(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    await ctx.db.patch(args.hotelId, {
+      room_types: args.room_types,
+      updated_at: Date.now(),
+    });
+    return args.hotelId;
+  },
+});
+
+export const getAvailableRooms = query({
+  args: { hotelId: v.id('hotels') },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    const hotel = await ctx.db.get(args.hotelId);
+    if (!hotel) throw new Error('Hotel not found');
+
+    return hotel.room_types.filter((rt) => rt.available_rooms > 0);
+  },
+});
+
+export const deleteHotel = mutation({
+  args: { hotelId: v.id('hotels') },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    await ctx.db.delete(args.hotelId);
+    return { success: true };
+  },
+});
