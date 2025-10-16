@@ -116,7 +116,7 @@ export default function QRLandingPage({ params }: PageProps) {
 
   if (isValidating) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-pink-50 p-4">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="text-center space-y-4">
@@ -131,7 +131,7 @@ export default function QRLandingPage({ params }: PageProps) {
 
   if (error && !tokenData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-pink-50 p-4">
         <Card className="w-full max-w-md border-destructive">
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -157,7 +157,7 @@ export default function QRLandingPage({ params }: PageProps) {
 
   if (submitSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-pink-50 p-4">
         <Card className="w-full max-w-md border-green-500">
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -182,7 +182,7 @@ export default function QRLandingPage({ params }: PageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-50 p-4 py-12">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 to-pink-50 p-4 py-12">
       <div className="container mx-auto max-w-2xl">
         <Card>
           <CardHeader>

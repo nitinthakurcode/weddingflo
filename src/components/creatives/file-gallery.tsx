@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import NextImage from 'next/image';
 import { CreativeFile } from '@/types/creative';
 import { Button } from '@/components/ui/button';
 import { X, Download, FileText, Image, Video, File } from 'lucide-react';
@@ -75,12 +76,14 @@ export function FileGallery({ files, onRemove, readonly = false }: FileGalleryPr
               onClick={() => setSelectedFile(file)}
             >
               {/* Preview or Icon */}
-              <div className="aspect-square bg-muted flex items-center justify-center">
+              <div className="aspect-square bg-muted flex items-center justify-center relative">
                 {isImage && file.url ? (
-                  <img
+                  <NextImage
                     src={file.url}
                     alt={file.name}
-                    className="w-full h-full object-cover"
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                   />
                 ) : (
                   <FileIcon className="h-12 w-12 text-muted-foreground" />
@@ -155,11 +158,16 @@ export function FileGallery({ files, onRemove, readonly = false }: FileGalleryPr
             </Button>
 
             {selectedFile.type.startsWith('image/') && selectedFile.url ? (
-              <img
-                src={selectedFile.url}
-                alt={selectedFile.name}
-                className="w-full h-full object-contain rounded-lg"
-              />
+              <div className="relative w-full h-full min-h-[400px]">
+                <NextImage
+                  src={selectedFile.url}
+                  alt={selectedFile.name}
+                  fill
+                  className="object-contain rounded-lg"
+                  sizes="(max-width: 1024px) 100vw, 1024px"
+                  priority
+                />
+              </div>
             ) : (
               <div className="bg-background rounded-lg p-8 text-center">
                 <FileText className="mx-auto h-24 w-24 text-muted-foreground mb-4" />

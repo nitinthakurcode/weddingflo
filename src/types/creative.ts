@@ -96,7 +96,7 @@ export const CREATIVE_STATUS_COLORS: Record<CreativeStatus, string> = {
   in_progress: 'bg-blue-200 text-blue-700',
   review: 'bg-yellow-200 text-yellow-700',
   approved: 'bg-green-200 text-green-700',
-  completed: 'bg-purple-200 text-purple-700',
+  completed: 'bg-primary/20 text-primary',
   cancelled: 'bg-red-200 text-red-700',
 };
 

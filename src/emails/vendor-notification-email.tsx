@@ -130,7 +130,7 @@ export function VendorNotificationEmail({
       <Hr style={hr} />
 
       <Text style={footer}>
-        If you have any questions or concerns, please don't hesitate to contact
+        If you have any questions or concerns, please don&apos;t hesitate to contact
         us. Thank you for your partnership!
       </Text>
     </EmailLayout>

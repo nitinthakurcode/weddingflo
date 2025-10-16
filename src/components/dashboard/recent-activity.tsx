@@ -37,7 +37,7 @@ const getActivityColor = (action: string) => {
   if (action.includes('create')) return 'text-green-600 bg-green-100';
   if (action.includes('update')) return 'text-blue-600 bg-blue-100';
   if (action.includes('delete')) return 'text-red-600 bg-red-100';
-  if (action.includes('complete')) return 'text-purple-600 bg-purple-100';
+  if (action.includes('complete')) return 'text-primary bg-primary/10';
   return 'text-gray-600 bg-gray-100';
 };
 

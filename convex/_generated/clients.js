@@ -3,18 +3,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.updatePlanningStage = exports.updateAIInsights = exports.deleteClient = exports.update = exports.create = exports.search = exports.list = exports.get = void 0;
 const values_1 = require("convex/values");
 const server_1 = require("./_generated/server");
+const permissions_1 = require("./permissions");
 /**
  * Get a client by ID
  */
 exports.get = (0, server_1.query)({
     args: { clientId: values_1.v.id('clients') },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:view');
         const client = await ctx.db.get(args.clientId);
         if (!client)
             throw new Error('Client not found');
+        // Verify client belongs to user's company
+        await (0, permissions_1.requireSameCompany)(ctx, client.company_id);
         return client;
     },
 });
@@ -24,9 +25,9 @@ exports.get = (0, server_1.query)({
 exports.list = (0, server_1.query)({
     args: { companyId: values_1.v.id('companies') },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:view');
+        // Verify user can access this company's data
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const clients = await ctx.db
             .query('clients')
             .withIndex('by_company', (q) => q.eq('company_id', args.companyId))
@@ -43,9 +44,9 @@ exports.search = (0, server_1.query)({
         query: values_1.v.string(),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:view');
+        // Verify user can access this company's data
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const results = await ctx.db
             .query('clients')
             .withSearchIndex('search_clients', (q) => q.search('client_name', args.query).eq('company_id', args.companyId))
@@ -72,9 +73,9 @@ exports.create = (0, server_1.mutation)({
         planning_stage: values_1.v.union(values_1.v.literal('inquiry'), values_1.v.literal('consultation'), values_1.v.literal('early_planning'), values_1.v.literal('mid_planning'), values_1.v.literal('final_details'), values_1.v.literal('week_of'), values_1.v.literal('completed')),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:create');
+        // Verify user can create clients for this company
+        await (0, permissions_1.requireSameCompany)(ctx, args.company_id);
         const now = Date.now();
         const clientId = await ctx.db.insert('clients', {
             company_id: args.company_id,
@@ -116,12 +117,12 @@ exports.update = (0, server_1.mutation)({
         })),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:edit');
         const client = await ctx.db.get(args.clientId);
         if (!client)
             throw new Error('Client not found');
+        // Verify client belongs to user's company
+        await (0, permissions_1.requireSameCompany)(ctx, client.company_id);
         await ctx.db.patch(args.clientId, {
             ...(args.client_name && { client_name: args.client_name }),
             ...(args.email && { email: args.email }),
@@ -140,12 +141,12 @@ exports.update = (0, server_1.mutation)({
 exports.deleteClient = (0, server_1.mutation)({
     args: { clientId: values_1.v.id('clients') },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:delete');
         const client = await ctx.db.get(args.clientId);
         if (!client)
             throw new Error('Client not found');
+        // Verify client belongs to user's company
+        await (0, permissions_1.requireSameCompany)(ctx, client.company_id);
         await ctx.db.delete(args.clientId);
         return { success: true };
     },
@@ -185,12 +186,12 @@ exports.updatePlanningStage = (0, server_1.mutation)({
         planning_stage: values_1.v.union(values_1.v.literal('inquiry'), values_1.v.literal('consultation'), values_1.v.literal('early_planning'), values_1.v.literal('mid_planning'), values_1.v.literal('final_details'), values_1.v.literal('week_of'), values_1.v.literal('completed')),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'clients:edit');
         const client = await ctx.db.get(args.clientId);
         if (!client)
             throw new Error('Client not found');
+        // Verify client belongs to user's company
+        await (0, permissions_1.requireSameCompany)(ctx, client.company_id);
         await ctx.db.patch(args.clientId, {
             planning_stage: args.planning_stage,
             updated_at: Date.now(),

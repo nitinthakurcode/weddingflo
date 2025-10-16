@@ -6,6 +6,9 @@ import { api } from '@/convex/_generated/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
+// Force dynamic rendering for this page
+export const dynamic = 'force-dynamic';
+
 export default function AuthDebugPage() {
   const { isSignedIn, userId } = useAuth();
   const { user } = useUser();

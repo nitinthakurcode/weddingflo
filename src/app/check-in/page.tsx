@@ -1,16 +1,25 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/../convex/_generated/api';
-import { QRScannerComponent } from '@/components/qr/qr-scanner-component';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, XCircle, Users, ArrowLeft } from 'lucide-react';
 import { decryptQRToken } from '@/lib/qr/qr-encryptor';
+
+// Dynamically import QR Scanner to reduce initial bundle size
+const QRScannerComponent = dynamic(
+  () => import('@/components/qr/qr-scanner-component').then(mod => ({ default: mod.QRScannerComponent })),
+  {
+    loading: () => <div className="h-[400px] flex items-center justify-center bg-muted/20 rounded-lg animate-pulse"><span className="text-sm text-muted-foreground">Loading scanner...</span></div>,
+    ssr: false
+  }
+);
 
 interface CheckInResult {
   success: boolean;

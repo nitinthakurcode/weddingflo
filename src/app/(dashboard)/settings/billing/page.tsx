@@ -12,6 +12,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 
+// Force dynamic rendering for this page
+export const dynamic = 'force-dynamic';
+
 export default function BillingPage() {
   const { user } = useUser();
   const searchParams = useSearchParams();
@@ -224,7 +227,7 @@ export default function BillingPage() {
           </p>
           <a
             href="/onboard"
-            className="mt-4 inline-block rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+            className="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-white hover:bg-primary"
           >
             Go to Onboarding
           </a>
@@ -237,7 +240,7 @@ export default function BillingPage() {
   if (!subscription || !usage) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-gray-600">Loading subscription details...</p>
       </div>
     );

@@ -15,6 +15,7 @@ exports.default = (0, server_1.defineSchema)({
             primary_color: values_1.v.string(),
             secondary_color: values_1.v.string(),
             accent_color: values_1.v.string(),
+            text_color: values_1.v.optional(values_1.v.string()), // Manual text color override
             font_family: values_1.v.string(),
             custom_css: values_1.v.optional(values_1.v.string()),
         }),
@@ -30,7 +31,7 @@ exports.default = (0, server_1.defineSchema)({
         // Subscription with Stripe integration
         subscription: values_1.v.object({
             tier: values_1.v.union(values_1.v.literal('starter'), values_1.v.literal('professional'), values_1.v.literal('enterprise')),
-            status: values_1.v.union(values_1.v.literal('active'), values_1.v.literal('trial'), values_1.v.literal('past_due'), values_1.v.literal('canceled'), values_1.v.literal('incomplete'), values_1.v.literal('incomplete_expired'), values_1.v.literal('trialing'), values_1.v.literal('unpaid')),
+            status: values_1.v.union(values_1.v.literal('active'), values_1.v.literal('trial'), values_1.v.literal('past_due'), values_1.v.literal('canceled'), values_1.v.literal('incomplete'), values_1.v.literal('incomplete_expired'), values_1.v.literal('trialing'), values_1.v.literal('unpaid'), values_1.v.literal('paused')),
             trial_ends_at: values_1.v.optional(values_1.v.number()),
             billing_cycle: values_1.v.string(),
             // Stripe IDs

@@ -65,7 +65,7 @@ export function SpendingTimelineChart({ data, isLoading }: SpendingTimelineProps
       return (
         <div className="bg-background border rounded-lg shadow-lg p-3">
           <p className="font-semibold">{payload[0].payload.date}</p>
-          <p className="text-sm text-purple-600">
+          <p className="text-sm text-primary">
             Amount: {formatCurrency(payload[0].value)}
           </p>
           {payload[1] && (

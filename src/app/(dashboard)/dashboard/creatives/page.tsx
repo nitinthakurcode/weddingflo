@@ -191,17 +191,24 @@ export default function CreativesPage() {
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Creative Projects</h2>
-          <p className="text-muted-foreground">
-            Manage wedding invitations, designs, and creative assets
-          </p>
+      {/* Hero section with gradient */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-200 via-primary-100 to-secondary-200 p-6 sm:p-8 border-2 border-primary-300 shadow-lg -mx-4 md:-mx-8 mb-6">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <div className="relative flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Creative Projects</h2>
+            <p className="text-sm sm:text-base text-gray-700 mt-1">
+              Manage wedding invitations, designs, and creative assets
+            </p>
+          </div>
+          <Button
+            onClick={handleAddJob}
+            className="bg-white hover:bg-gray-50 text-gray-900 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
+          >
+            <Plus className="mr-2 h-4 w-4 font-bold" />
+            <span className="font-bold">Add Project</span>
+          </Button>
         </div>
-        <Button onClick={handleAddJob}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Project
-        </Button>
       </div>
 
       <CreativeStatsCards

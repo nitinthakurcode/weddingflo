@@ -16,8 +16,10 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       value: stats.total,
       icon: Calendar,
       description: 'All events',
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-100',
+      textColor: '#1e1b4b', // Indigo-950
+      bgColor: '#e0e7ff', // Indigo-100
+      iconBgStyle: { background: 'linear-gradient(to bottom right, #4f46e5, #6366f1)' }, // Indigo gradient
+      borderColor: '#a5b4fc', // Indigo-300
       filter: 'all',
     },
     {
@@ -25,8 +27,10 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       value: stats.upcoming,
       icon: TrendingUp,
       description: 'Events coming up',
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-100',
+      textColor: '#500724', // Pink-950
+      bgColor: '#fce7f3', // Pink-100
+      iconBgStyle: { background: 'linear-gradient(to bottom right, #db2777, #ec4899)' }, // Pink gradient
+      borderColor: '#fbcfe8', // Pink-200
       filter: 'upcoming',
     },
     {
@@ -34,8 +38,10 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       value: stats.completed,
       icon: CalendarCheck,
       description: 'Events finished',
-      color: 'text-green-600',
-      bgColor: 'bg-green-100',
+      textColor: '#064e3b', // Emerald-900
+      bgColor: '#d1fae5', // Emerald-100
+      iconBgStyle: { background: 'linear-gradient(to bottom right, #10b981, #059669)' }, // Emerald gradient
+      borderColor: '#a7f3d0', // Emerald-200
       filter: 'completed',
     },
     {
@@ -43,8 +49,10 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       value: stats.total_guests.toLocaleString(),
       icon: Users,
       description: 'Across all events',
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-100',
+      textColor: '#78350f', // Amber-900
+      bgColor: '#fef3c7', // Amber-100
+      iconBgStyle: { background: 'linear-gradient(to bottom right, #d97706, #f59e0b)' }, // Amber gradient
+      borderColor: '#fde68a', // Amber-200
       filter: 'all',
     },
     {
@@ -52,8 +60,10 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       value: `$${stats.total_budget.toLocaleString()}`,
       icon: DollarSign,
       description: 'Allocated budget',
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-100',
+      textColor: '#581c87', // Purple-900
+      bgColor: '#f3e8ff', // Purple-100
+      iconBgStyle: { background: 'linear-gradient(to bottom right, #9333ea, #a855f7)' }, // Purple gradient
+      borderColor: '#e9d5ff', // Purple-200
       filter: 'all',
     },
   ];
@@ -63,9 +73,15 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       {statsData.map((stat) => (
         <Card
           key={stat.title}
-          className={onFilterChange && stat.filter
-            ? "cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] active:scale-100 active:shadow-sm touch-manipulation select-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-            : "opacity-75 border-dashed"}
+          className={`overflow-hidden border-2 backdrop-blur-sm shadow-lg hover:shadow-2xl ${
+            onFilterChange && stat.filter
+              ? "cursor-pointer transition-all hover:scale-[1.03] hover:-translate-y-1 active:scale-100 touch-manipulation select-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              : "opacity-90"
+          }`}
+          style={{
+            backgroundColor: stat.bgColor,
+            borderColor: stat.borderColor,
+          }}
           onClick={(e) => {
             if (onFilterChange && stat.filter) {
               e.stopPropagation();
@@ -82,19 +98,19 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
           }}
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pointer-events-none">
-            <CardTitle className="text-sm font-medium flex items-center gap-1">
+            <CardTitle className="text-sm font-semibold flex items-center gap-1.5 text-foreground">
               {stat.title}
               {onFilterChange && stat.filter && (
-                <Filter className="h-3 w-3 text-blue-500" />
+                <Filter className="h-3 w-3 text-primary animate-pulse" />
               )}
             </CardTitle>
-            <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
+            <div className="p-2.5 rounded-xl shadow-lg shadow-black/20" style={stat.iconBgStyle}>
+              <stat.icon className="h-5 w-5 text-white" />
             </div>
           </CardHeader>
           <CardContent className="pointer-events-none">
-            <div className="text-2xl font-bold">{stat.value}</div>
-            <p className="text-xs text-muted-foreground">{stat.description}</p>
+            <div className="text-3xl font-bold tracking-tight" style={{ color: stat.textColor }}>{stat.value}</div>
+            <p className="text-xs text-muted-foreground mt-2 font-medium">{stat.description}</p>
           </CardContent>
         </Card>
       ))}

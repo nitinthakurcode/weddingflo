@@ -95,7 +95,7 @@ export default function OnboardPage() {
           <p className="mt-2 text-gray-600">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 rounded-md bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+            className="mt-4 rounded-md bg-primary px-4 py-2 text-white hover:bg-primary"
           >
             Try Again
           </button>

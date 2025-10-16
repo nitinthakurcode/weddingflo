@@ -26,7 +26,7 @@ export function AIActionButtons({ onAction }: AIActionButtonsProps) {
       icon: Calendar,
       label: 'Check Timeline',
       prompt: 'Review my timeline and check for any conflicts or issues.',
-      color: 'text-purple-600',
+      color: 'text-primary',
     },
     {
       icon: Mail,

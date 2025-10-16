@@ -18,8 +18,8 @@ export function StatCard({
   icon: Icon,
   change,
   changeLabel,
-  iconColor = 'text-blue-600',
-  iconBgColor = 'bg-blue-100',
+  iconColor = 'text-primary-600',
+  iconBgColor = 'bg-primary-100',
 }: StatCardProps) {
   const isPositive = change !== undefined && change >= 0;
 
@@ -35,7 +35,7 @@ export function StatCard({
                 <span
                   className={cn(
                     'text-xs sm:text-sm font-medium',
-                    isPositive ? 'text-green-600' : 'text-red-600'
+                    isPositive ? 'text-emerald-600' : 'text-rose-600'
                   )}
                 >
                   {isPositive ? '+' : ''}

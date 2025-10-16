@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from 'convex/react';
+import dynamic from 'next/dynamic';
 import { api } from '@/convex/_generated/api';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { DashboardStatsCards } from '@/components/dashboard/dashboard-stats-cards';
@@ -8,11 +9,19 @@ import { RecentActivity } from '@/components/dashboard/recent-activity';
 import { QuickActions } from '@/components/dashboard/quick-actions';
 import { AlertsPanel } from '@/components/dashboard/alerts-panel';
 import { UpcomingEventsWidget } from '@/components/dashboard/upcoming-events-widget';
-import { DashboardCharts } from '@/components/dashboard/dashboard-charts';
 import { AIInsightsPanel } from '@/components/dashboard/ai-insights-panel';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+
+// Dynamically import heavy chart components to reduce bundle size
+const DashboardCharts = dynamic(
+  () => import('@/components/dashboard/dashboard-charts').then(mod => ({ default: mod.DashboardCharts })),
+  {
+    loading: () => <div className="h-[400px] flex items-center justify-center bg-muted/20 rounded-lg animate-pulse"><span className="text-sm text-muted-foreground">Loading charts...</span></div>,
+    ssr: false
+  }
+);
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -129,12 +138,19 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Hero Section */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 break-words">Dashboard</h1>
-        <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 break-words">
-          Welcome back! Here&apos;s what&apos;s happening with {selectedClient.client_name}&apos;s wedding.
-        </p>
+      {/* Hero Section with Gradient */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-100 via-primary-50 to-secondary-100 border-2 border-primary-300 p-6 sm:p-8 shadow-lg">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-primary-200 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-secondary-200 rounded-full blur-3xl opacity-50 translate-y-1/2 -translate-x-1/2" />
+
+        <div className="relative">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-primary-900 break-words">
+            Dashboard
+          </h1>
+          <p className="mt-2 sm:mt-3 text-base sm:text-lg font-medium text-primary-800 break-words">
+            Welcome back! Here&apos;s what&apos;s happening with <span className="text-primary-950 font-semibold">{selectedClient.client_name}&apos;s</span> wedding.
+          </p>
+        </div>
       </div>
 
       {/* Stat Cards */}

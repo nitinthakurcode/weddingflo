@@ -41,6 +41,10 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       await initializeDB();
       console.log('✅ IndexedDB initialized');
 
+      // TEMPORARILY DISABLED - Service Worker causing cache issues
+      console.warn('⚠️ Service Worker DISABLED for development');
+      return;
+
       // Register service worker
       const registration = await registerServiceWorker({
         onInstalled: () => {

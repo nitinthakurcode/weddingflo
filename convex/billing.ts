@@ -87,7 +87,8 @@ export const updateSubscriptionFromStripe = mutation({
         v.literal('incomplete'),
         v.literal('incomplete_expired'),
         v.literal('trialing'),
-        v.literal('unpaid')
+        v.literal('unpaid'),
+        v.literal('paused')
       ),
       current_period_start: v.optional(v.number()),
       current_period_end: v.optional(v.number()),

@@ -51,7 +51,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
         <SheetHeader className="border-b p-6">
           <SheetTitle>
             <div className="flex items-center space-x-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <span className="text-lg font-bold text-white">W</span>
               </div>
               <span className="text-xl font-bold text-gray-900">
@@ -88,7 +88,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
                 className={cn(
                   'flex items-center space-x-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   isActive
-                    ? 'bg-purple-50 text-purple-700'
+                    ? 'bg-primary/5 text-primary'
                     : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
                 )}
               >

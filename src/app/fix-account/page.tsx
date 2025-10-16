@@ -40,7 +40,7 @@ export default function FixAccountPage() {
         <button
           onClick={handleSync}
           disabled={loading}
-          className="w-full rounded-lg bg-purple-600 px-4 py-3 font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+          className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-white hover:bg-primary disabled:opacity-50"
         >
           {loading ? 'Syncing...' : 'Sync Company Data'}
         </button>

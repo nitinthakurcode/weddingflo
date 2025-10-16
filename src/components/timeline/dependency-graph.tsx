@@ -77,7 +77,7 @@ export function DependencyGraph({ activities }: DependencyGraphProps) {
                               {dependentActivity?.activity || 'Unknown Activity'}
                             </p>
                             {dependentActivity && (
-                              <p className="text-xs text-gray-600 mt-1">
+                              <p className="text-xs text-muted-foreground mt-1">
                                 {dependentActivity.start_time} -{' '}
                                 {dependentActivity.end_time}
                               </p>

@@ -44,7 +44,7 @@ export function ConflictList({ conflicts }: ConflictListProps) {
       <div className="text-center py-12 text-gray-500">
         <Info className="h-12 w-12 mx-auto mb-3 text-green-500" />
         <p className="text-lg font-medium text-gray-900">No Conflicts Found</p>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Your timeline is conflict-free!
         </p>
       </div>
@@ -68,7 +68,7 @@ export function ConflictList({ conflicts }: ConflictListProps) {
                 <Badge className={severityConfig[severity as keyof typeof severityConfig].badgeClass}>
                   {severity.toUpperCase()} PRIORITY
                 </Badge>
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-muted-foreground">
                   {severityConflicts.length} conflict{severityConflicts.length > 1 ? 's' : ''}
                 </span>
               </div>

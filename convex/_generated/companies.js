@@ -1,17 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateUsageStats = exports.updateSubscription = exports.updateAIConfig = exports.updateBranding = exports.update = exports.create = exports.getByCustomDomain = exports.getBySubdomain = exports.get = void 0;
+exports.listAll = exports.generateUploadUrl = exports.getCurrentUserCompany = exports.updateUsageStats = exports.updateSubscription = exports.updateAIConfig = exports.updateBranding = exports.update = exports.create = exports.getByCustomDomain = exports.getBySubdomain = exports.get = void 0;
 const values_1 = require("convex/values");
 const server_1 = require("./_generated/server");
+const permissions_1 = require("./permissions");
 /**
  * Get a company by ID
  */
 exports.get = (0, server_1.query)({
     args: { companyId: values_1.v.id('companies') },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'company:view');
+        // Verify user can access this company
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const company = await ctx.db.get(args.companyId);
         if (!company)
             throw new Error('Company not found');
@@ -58,6 +59,7 @@ exports.create = (0, server_1.mutation)({
             primary_color: values_1.v.string(),
             secondary_color: values_1.v.string(),
             accent_color: values_1.v.string(),
+            text_color: values_1.v.optional(values_1.v.string()),
             font_family: values_1.v.string(),
             custom_css: values_1.v.optional(values_1.v.string()),
         }),
@@ -116,9 +118,9 @@ exports.update = (0, server_1.mutation)({
         custom_domain: values_1.v.optional(values_1.v.string()),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'company:edit');
+        // Verify user can edit this company
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const company = await ctx.db.get(args.companyId);
         if (!company)
             throw new Error('Company not found');
@@ -142,14 +144,15 @@ exports.updateBranding = (0, server_1.mutation)({
             primary_color: values_1.v.string(),
             secondary_color: values_1.v.string(),
             accent_color: values_1.v.string(),
+            text_color: values_1.v.optional(values_1.v.string()),
             font_family: values_1.v.string(),
             custom_css: values_1.v.optional(values_1.v.string()),
         }),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'company:branding');
+        // Verify user can edit this company's branding
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const company = await ctx.db.get(args.companyId);
         if (!company)
             throw new Error('Company not found');
@@ -176,9 +179,9 @@ exports.updateAIConfig = (0, server_1.mutation)({
         }),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'company:ai_config');
+        // Verify user can edit this company's AI config
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const company = await ctx.db.get(args.companyId);
         if (!company)
             throw new Error('Company not found');
@@ -203,9 +206,9 @@ exports.updateSubscription = (0, server_1.mutation)({
         }),
     },
     handler: async (ctx, args) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity)
-            throw new Error('Not authenticated');
+        await (0, permissions_1.requirePermission)(ctx, 'company:billing');
+        // Verify user can edit this company's billing
+        await (0, permissions_1.requireSameCompany)(ctx, args.companyId);
         const company = await ctx.db.get(args.companyId);
         if (!company)
             throw new Error('Company not found');
@@ -239,5 +242,93 @@ exports.updateUsageStats = (0, server_1.mutation)({
             updated_at: Date.now(),
         });
         return args.companyId;
+    },
+});
+/**
+ * Get current user's company
+ * Returns null if user is not authenticated or has no company
+ */
+exports.getCurrentUserCompany = (0, server_1.query)({
+    args: {},
+    handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) {
+            console.log('⚠️ getCurrentUserCompany: No identity');
+            return null;
+        }
+        const user = await ctx.db
+            .query('users')
+            .withIndex('by_clerk_id', (q) => q.eq('clerk_id', identity.subject))
+            .first();
+        if (!user) {
+            console.log('⚠️ getCurrentUserCompany: User not found for clerk_id:', identity.subject);
+            return null;
+        }
+        const company = await ctx.db.get(user.company_id);
+        if (!company) {
+            console.log('⚠️ getCurrentUserCompany: Company not found for company_id:', user.company_id);
+            return null;
+        }
+        // Enrich with logo/icon URLs if they have storage IDs
+        let enrichedBranding = company.branding;
+        console.log('✅ getCurrentUserCompany: Success', {
+            companyId: company._id,
+            companyName: company.company_name,
+            hasBranding: !!company.branding,
+            primaryColor: company.branding?.primary_color
+        });
+        return {
+            ...company,
+            branding: enrichedBranding
+        };
+    },
+});
+/**
+ * Generate upload URL for company logo/icons
+ */
+exports.generateUploadUrl = (0, server_1.mutation)({
+    handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity)
+            throw new Error('Not authenticated');
+        return await ctx.storage.generateUploadUrl();
+    },
+});
+/**
+ * List all companies (Super Admin only)
+ */
+exports.listAll = (0, server_1.query)({
+    args: {},
+    handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity)
+            throw new Error('Not authenticated');
+        // Get current user to check if super admin
+        const user = await ctx.db
+            .query('users')
+            .withIndex('by_clerk_id', (q) => q.eq('clerk_id', identity.subject))
+            .first();
+        if (!user)
+            throw new Error('User not found');
+        if (user.role !== 'super_admin') {
+            throw new Error('Unauthorized: Only super admins can list all companies');
+        }
+        // Get all companies with usage stats
+        const companies = await ctx.db.query('companies').collect();
+        // Enrich each company with user count
+        const enrichedCompanies = await Promise.all(companies.map(async (company) => {
+            const users = await ctx.db
+                .query('users')
+                .withIndex('by_company', (q) => q.eq('company_id', company._id))
+                .collect();
+            return {
+                ...company,
+                usage_stats: {
+                    ...company.usage_stats,
+                    total_users: users.length,
+                },
+            };
+        }));
+        return enrichedCompanies;
     },
 });

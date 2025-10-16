@@ -90,7 +90,7 @@ export function TimelineControls({
             variant="outline"
             size="sm"
             onClick={() => onZoomChange('hour')}
-            className={currentZoom === 'hour' ? 'bg-purple-50' : ''}
+            className={currentZoom === 'hour' ? 'bg-primary/5' : ''}
           >
             <ZoomOut className="h-4 w-4 mr-1" />
             1h
@@ -99,7 +99,7 @@ export function TimelineControls({
             variant="outline"
             size="sm"
             onClick={() => onZoomChange('half_hour')}
-            className={currentZoom === 'half_hour' ? 'bg-purple-50' : ''}
+            className={currentZoom === 'half_hour' ? 'bg-primary/5' : ''}
           >
             30m
           </Button>
@@ -107,7 +107,7 @@ export function TimelineControls({
             variant="outline"
             size="sm"
             onClick={() => onZoomChange('quarter_hour')}
-            className={currentZoom === 'quarter_hour' ? 'bg-purple-50' : ''}
+            className={currentZoom === 'quarter_hour' ? 'bg-primary/5' : ''}
           >
             <ZoomIn className="h-4 w-4 mr-1" />
             15m

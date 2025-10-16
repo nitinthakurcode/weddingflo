@@ -55,6 +55,21 @@ export const getCurrent = query({
 });
 
 /**
+ * Get current user by Clerk ID (for permissions)
+ */
+export const getCurrentUser = query({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query('users')
+      .withIndex('by_clerk_id', (q) => q.eq('clerk_id', args.clerkId))
+      .first();
+
+    return user;
+  },
+});
+
+/**
  * List users by company
  */
 export const listByCompany = query({
@@ -440,3 +455,117 @@ export const onboardUserInternal = internalMutation({
     return userId;
   },
 });
+
+
+/**
+ * Get all team members for current user's company
+ */
+export const getTeamMembers = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    const currentUser = await ctx.db
+      .query('users')
+      .withIndex('by_clerk_id', (q) => q.eq('clerk_id', identity.subject))
+      .first();
+
+    if (!currentUser) throw new Error('Current user not found');
+
+    const teamMembers = await ctx.db
+      .query('users')
+      .withIndex('by_company', (q) => q.eq('company_id', currentUser.company_id))
+      .collect();
+
+    return teamMembers;
+  },
+});
+
+/**
+ * Update user role (admin only)
+ */
+export const updateUserRole = mutation({
+  args: {
+    userId: v.id('users'),
+    role: v.union(
+      v.literal('super_admin'),
+      v.literal('company_admin'),
+      v.literal('staff'),
+      v.literal('client_viewer')
+    ),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    const currentUser = await ctx.db
+      .query('users')
+      .withIndex('by_clerk_id', (q) => q.eq('clerk_id', identity.subject))
+      .first();
+
+    if (!currentUser) throw new Error('User not found');
+
+    if (currentUser.role !== 'company_admin' && currentUser.role !== 'super_admin') {
+      throw new Error('Unauthorized: Only admins can change roles');
+    }
+
+    await ctx.db.patch(args.userId, { role: args.role });
+
+    return args.userId;
+  },
+});
+
+/**
+ * Remove user from team (admin only)
+ */
+export const removeTeamMember = mutation({
+  args: {
+    userId: v.id('users'),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+
+    const currentUser = await ctx.db
+      .query('users')
+      .withIndex('by_clerk_id', (q) => q.eq('clerk_id', identity.subject))
+      .first();
+
+    if (!currentUser) throw new Error('User not found');
+
+    if (currentUser.role !== 'company_admin' && currentUser.role !== 'super_admin') {
+      throw new Error('Unauthorized: Only admins can remove team members');
+    }
+
+    const userToRemove = await ctx.db.get(args.userId);
+    if (!userToRemove) throw new Error('User to remove not found');
+
+    if (userToRemove._id === currentUser._id) {
+      throw new Error('Cannot remove yourself from the team');
+    }
+
+    if (userToRemove.company_id !== currentUser.company_id) {
+      throw new Error('Unauthorized: User is not in your company');
+    }
+
+    await ctx.db.delete(args.userId);
+
+    return { success: true };
+  },
+});
+
+/**
+ * Make user super admin - Internal mutation (no auth required)
+ * USE WITH CAUTION: Only for initial setup or emergency access
+ */
+export const makeSuperAdmin = internalMutation({
+  args: {
+    userId: v.id('users'),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, { role: 'super_admin' });
+    return { success: true };
+  },
+});
+

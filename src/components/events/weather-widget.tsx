@@ -54,7 +54,7 @@ export function WeatherWidget({ weather, eventDate, city }: WeatherWidgetProps) 
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-3xl font-bold">{weather.temperature}°</p>
-                <p className="text-sm text-gray-600 capitalize">{weather.condition}</p>
+                <p className="text-sm text-muted-foreground capitalize">{weather.condition}</p>
               </div>
               <WeatherIcon className="h-12 w-12 text-gray-400" />
             </div>
@@ -64,7 +64,7 @@ export function WeatherWidget({ weather, eventDate, city }: WeatherWidgetProps) 
                 <div className="flex items-center gap-2">
                   <Droplets className="h-4 w-4 text-blue-500" />
                   <div>
-                    <p className="text-xs text-gray-600">Humidity</p>
+                    <p className="text-xs text-muted-foreground">Humidity</p>
                     <p className="font-medium">{weather.humidity}%</p>
                   </div>
                 </div>
@@ -74,7 +74,7 @@ export function WeatherWidget({ weather, eventDate, city }: WeatherWidgetProps) 
                 <div className="flex items-center gap-2">
                   <Wind className="h-4 w-4 text-gray-500" />
                   <div>
-                    <p className="text-xs text-gray-600">Wind</p>
+                    <p className="text-xs text-muted-foreground">Wind</p>
                     <p className="font-medium">{weather.wind_speed} mph</p>
                   </div>
                 </div>
@@ -84,7 +84,7 @@ export function WeatherWidget({ weather, eventDate, city }: WeatherWidgetProps) 
                 <div className="flex items-center gap-2">
                   <CloudRain className="h-4 w-4 text-blue-500" />
                   <div>
-                    <p className="text-xs text-gray-600">Rain Chance</p>
+                    <p className="text-xs text-muted-foreground">Rain Chance</p>
                     <p className="font-medium">{weather.precipitation_chance}%</p>
                   </div>
                 </div>

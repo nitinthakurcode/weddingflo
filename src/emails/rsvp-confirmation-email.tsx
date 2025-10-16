@@ -67,7 +67,7 @@ export function RsvpConfirmationEmail({
       <Text style={text}>Hi {guestName},</Text>
 
       <Text style={text}>
-        Thank you for your response! We've received your RSVP for {eventName}.
+        Thank you for your response! We&apos;ve received your RSVP for {eventName}.
       </Text>
 
       {/* Status Card */}
@@ -147,7 +147,7 @@ export function RsvpConfirmationEmail({
           <Hr style={hr} />
 
           <Text style={footer}>
-            We're so excited to celebrate with you! If you need to make any
+            We&apos;re so excited to celebrate with you! If you need to make any
             changes to your RSVP, please let us know as soon as possible.
           </Text>
         </>
@@ -155,14 +155,14 @@ export function RsvpConfirmationEmail({
 
       {attendingStatus === 'no' && (
         <Text style={footer}>
-          We're sorry you won't be able to join us, but we appreciate you
-          letting us know. We'll miss you!
+          We&apos;re sorry you won&apos;t be able to join us, but we appreciate you
+          letting us know. We&apos;ll miss you!
         </Text>
       )}
 
       {attendingStatus === 'maybe' && (
         <Text style={footer}>
-          We understand you're not sure yet. Please let us know your final
+          We understand you&apos;re not sure yet. Please let us know your final
           decision as soon as you can. We hope to see you there!
         </Text>
       )}

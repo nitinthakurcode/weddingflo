@@ -1,3 +1,5 @@
+'use client';
+
 import { Button } from '@/components/ui/button'
 import { FileQuestion, Home, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
@@ -7,8 +9,8 @@ export default function NotFound() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4">
       <div className="w-full max-w-md space-y-6 text-center">
         <div className="flex justify-center">
-          <div className="rounded-full bg-blue-100 p-4">
-            <FileQuestion className="h-12 w-12 text-blue-600" />
+          <div className="rounded-full bg-primary-100 p-4">
+            <FileQuestion className="h-12 w-12 text-primary-600" />
           </div>
         </div>
 
@@ -18,7 +20,7 @@ export default function NotFound() {
             Page not found
           </h2>
           <p className="text-gray-600">
-            Sorry, we couldn't find the page you're looking for.
+            Sorry, we couldn&apos;t find the page you&apos;re looking for.
           </p>
         </div>
 

@@ -46,7 +46,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
       {/* Calendar Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
-          <CalendarIcon className="h-5 w-5 text-gray-600" />
+          <CalendarIcon className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-xl font-semibold">
             {format(currentDate, 'MMMM yyyy')}
           </h2>
@@ -71,7 +71,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
           {weekDays.map((day) => (
             <div
               key={day}
-              className="text-center text-sm font-medium text-gray-600 py-2"
+              className="text-center text-sm font-medium text-muted-foreground py-2"
             >
               {day}
             </div>
@@ -91,14 +91,14 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
                 className={cn(
                   'min-h-[100px] border rounded-lg p-2 transition-colors',
                   isCurrentMonth ? 'bg-white' : 'bg-gray-50',
-                  dayEvents.length > 0 && 'hover:bg-purple-50 cursor-pointer'
+                  dayEvents.length > 0 && 'hover:bg-primary/5 cursor-pointer'
                 )}
               >
                 <div className="flex justify-between items-start mb-1">
                   <span
                     className={cn(
                       'text-sm font-medium',
-                      isToday && 'bg-purple-600 text-white rounded-full w-6 h-6 flex items-center justify-center',
+                      isToday && 'bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center',
                       !isCurrentMonth && 'text-gray-400'
                     )}
                   >
@@ -116,7 +116,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
                     <button
                       key={event._id}
                       onClick={() => onEventClick?.(event)}
-                      className="w-full text-left text-xs bg-purple-100 text-purple-800 rounded px-2 py-1 hover:bg-purple-200 transition-colors truncate"
+                      className="w-full text-left text-xs bg-primary/10 text-primary rounded px-2 py-1 hover:bg-primary/20 transition-colors truncate"
                     >
                       {event.event_name}
                     </button>

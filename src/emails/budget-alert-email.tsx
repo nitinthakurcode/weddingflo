@@ -168,12 +168,12 @@ export function BudgetAlertEmail({
         </Text>
       ) : percentageSpent > 80 ? (
         <Text style={footer}>
-          You're approaching your budget limit. Keep an eye on upcoming expenses
+          You&apos;re approaching your budget limit. Keep an eye on upcoming expenses
           to stay within budget.
         </Text>
       ) : (
         <Text style={footer}>
-          You're doing great! Keep tracking your expenses to ensure you stay on
+          You&apos;re doing great! Keep tracking your expenses to ensure you stay on
           budget.
         </Text>
       )}

@@ -15,6 +15,7 @@ export default defineSchema({
       primary_color: v.string(),
       secondary_color: v.string(),
       accent_color: v.string(),
+      text_color: v.optional(v.string()), // Manual text color override
       font_family: v.string(),
       custom_css: v.optional(v.string()),
     }),
@@ -44,7 +45,8 @@ export default defineSchema({
         v.literal('incomplete'),
         v.literal('incomplete_expired'),
         v.literal('trialing'),
-        v.literal('unpaid')
+        v.literal('unpaid'),
+        v.literal('paused')
       ),
       trial_ends_at: v.optional(v.number()),
       billing_cycle: v.string(),

@@ -13,7 +13,7 @@ import * as path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-01-27.acacia',
+  apiVersion: '2025-02-24.acacia',
 });
 
 async function setupProducts() {

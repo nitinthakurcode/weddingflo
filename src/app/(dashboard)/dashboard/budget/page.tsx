@@ -1,20 +1,36 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus, Download, Upload } from 'lucide-react';
 import { BudgetSummaryCards } from '@/components/budget/budget-summary-cards';
-import { CategoryBreakdown } from '@/components/budget/category-breakdown';
-import { SpendingTimelineChart } from '@/components/budget/spending-timeline';
 import { BudgetItemsTable } from '@/components/budget/budget-items-table';
 import { BudgetItemDialog } from '@/components/budget/budget-item-dialog';
 import { BudgetItem } from '@/types/budget';
 import { useToast } from '@/hooks/use-toast';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { calculateBudgetStats, calculateCategoryBreakdown, calculateSpendingTimeline } from '@/lib/budget-calculations';
+
+// Dynamically import heavy chart components to reduce bundle size
+const CategoryBreakdown = dynamic(
+  () => import('@/components/budget/category-breakdown').then(mod => ({ default: mod.CategoryBreakdown })),
+  {
+    loading: () => <div className="h-[300px] flex items-center justify-center bg-muted/20 rounded-lg animate-pulse"><span className="text-sm text-muted-foreground">Loading chart...</span></div>,
+    ssr: false
+  }
+);
+
+const SpendingTimelineChart = dynamic(
+  () => import('@/components/budget/spending-timeline').then(mod => ({ default: mod.SpendingTimelineChart })),
+  {
+    loading: () => <div className="h-[300px] flex items-center justify-center bg-muted/20 rounded-lg animate-pulse"><span className="text-sm text-muted-foreground">Loading chart...</span></div>,
+    ssr: false
+  }
+);
 
 export default function BudgetPage() {
   const { toast } = useToast();
@@ -216,33 +232,36 @@ export default function BudgetPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Mobile-friendly header */}
-      <div className="space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight break-words">Budget</h2>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1 break-words">
-            Track and manage your wedding expenses
-          </p>
-        </div>
-        {/* Action buttons - responsive layout */}
-        <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:ml-4">
-          <Button
-            variant="outline"
-            onClick={handleExport}
-            size="sm"
-            className="flex-1 sm:flex-initial"
-          >
-            <Download className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="text-xs sm:text-sm">Export</span>
-          </Button>
-          <Button
-            onClick={handleAddItem}
-            size="sm"
-            className="flex-1 sm:flex-initial"
-          >
-            <Plus className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="text-xs sm:text-sm">Add Item</span>
-          </Button>
+      {/* Hero section with gradient */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-200 via-primary-100 to-secondary-200 p-6 sm:p-8 border-2 border-primary-300 shadow-lg">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <div className="relative space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white break-words">Budget</h2>
+            <p className="text-sm sm:text-base text-primary-800 mt-1 break-words">
+              Track and manage your wedding expenses
+            </p>
+          </div>
+          {/* Action buttons - responsive layout */}
+          <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:ml-4">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              size="sm"
+              className="flex-1 sm:flex-initial bg-white/10 border-white/20 text-gray-900 hover:bg-white/20"
+            >
+              <Download className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Export</span>
+            </Button>
+            <Button
+              onClick={handleAddItem}
+              size="sm"
+              className="flex-1 sm:flex-initial bg-white hover:bg-gray-50 text-gray-900 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
+            >
+              <Plus className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4 font-bold" />
+              <span className="text-xs sm:text-sm font-bold">Add Item</span>
+            </Button>
+          </div>
         </div>
       </div>
 

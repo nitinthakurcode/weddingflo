@@ -32,11 +32,11 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
           <div
             className={cn(
               'w-8 h-8 rounded-full flex items-center justify-center',
-              isAI ? 'bg-purple-100' : 'bg-blue-100'
+              isAI ? 'bg-primary/10' : 'bg-blue-100'
             )}
           >
             {isAI ? (
-              <Bot className="h-4 w-4 text-purple-600" />
+              <Bot className="h-4 w-4 text-primary" />
             ) : (
               <User className="h-4 w-4 text-blue-600" />
             )}
@@ -52,7 +52,7 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
               {message.sender_name}
             </span>
             {isAI && (
-              <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">
+              <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
                 AI
               </span>
             )}
@@ -66,7 +66,7 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
             isOwnMessage
               ? 'bg-blue-600 text-white rounded-br-sm'
               : isAI
-              ? 'bg-purple-50 text-gray-900 border border-purple-200 rounded-bl-sm'
+              ? 'bg-primary/5 text-gray-900 border border-primary/20 rounded-bl-sm'
               : 'bg-gray-100 text-gray-900 rounded-bl-sm'
           )}
         >

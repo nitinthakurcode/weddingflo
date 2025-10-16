@@ -21,33 +21,33 @@ interface EventCardProps {
 }
 
 const eventTypeColors: Record<string, string> = {
-  ceremony: 'bg-purple-100 text-purple-800',
-  reception: 'bg-pink-100 text-pink-800',
-  sangeet: 'bg-orange-100 text-orange-800',
-  mehendi: 'bg-green-100 text-green-800',
-  haldi: 'bg-yellow-100 text-yellow-800',
-  engagement: 'bg-blue-100 text-blue-800',
-  cocktail: 'bg-indigo-100 text-indigo-800',
-  rehearsal: 'bg-gray-100 text-gray-800',
-  other: 'bg-gray-100 text-gray-800',
+  ceremony: 'bg-gradient-to-r from-primary to-pink-600 text-white shadow-lg',
+  reception: 'bg-gradient-to-r from-pink-500 to-pink-700 text-white shadow-lg',
+  sangeet: 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg',
+  mehendi: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg',
+  haldi: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-lg',
+  engagement: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-lg',
+  cocktail: 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg',
+  rehearsal: 'bg-gradient-to-r from-gray-500 to-gray-700 text-white shadow-lg',
+  other: 'bg-gradient-to-r from-gray-400 to-gray-600 text-white shadow-lg',
 };
 
 const statusColors: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-800',
-  confirmed: 'bg-green-100 text-green-800',
-  completed: 'bg-blue-100 text-blue-800',
-  cancelled: 'bg-red-100 text-red-800',
+  draft: 'bg-gradient-to-r from-gray-400 to-gray-600 text-white shadow-md',
+  confirmed: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
+  completed: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-md',
+  cancelled: 'bg-gradient-to-r from-red-500 to-red-700 text-white shadow-md',
 };
 
 export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
   const eventDate = new Date(event.event_date);
 
   return (
-    <Card className="hover:shadow-lg transition-shadow">
+    <Card className="border-2 border-primary/20 hover:border-primary/40 hover:shadow-2xl transition-all hover:scale-[1.02] bg-gradient-to-br from-primary/5 via-transparent to-transparent">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-gray-900">
+            <h3 className="text-lg font-bold text-primary">
               {event.event_name}
             </h3>
             <div className="flex items-center gap-2 mt-2">
@@ -89,23 +89,23 @@ export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Calendar className="h-4 w-4" />
           <span>{format(eventDate, 'EEEE, MMMM d, yyyy')}</span>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="h-4 w-4" />
           <span>
             {event.event_start_time} - {event.event_end_time}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <MapPin className="h-4 w-4" />
           <span className="truncate">
             {event.venue_details.name}, {event.venue_details.city}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Users className="h-4 w-4" />
           <span>
             {event.actual_guests || event.estimated_guests} guests
@@ -113,7 +113,7 @@ export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
           </span>
         </div>
         {event.description && (
-          <p className="text-sm text-gray-600 line-clamp-2 mt-2">
+          <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
             {event.description}
           </p>
         )}
@@ -122,12 +122,12 @@ export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
         <CardFooter className="flex items-center justify-between border-t pt-4">
           {event.budget_allocated && (
             <div className="text-sm">
-              <span className="text-gray-600">Budget: </span>
-              <span className="font-semibold text-gray-900">
+              <span className="text-muted-foreground">Budget: </span>
+              <span className="font-semibold text-foreground">
                 ${event.budget_allocated.toLocaleString()}
               </span>
               {event.budget_spent && (
-                <span className="text-gray-600">
+                <span className="text-muted-foreground">
                   {' '}
                   / ${event.budget_spent.toLocaleString()} spent
                 </span>

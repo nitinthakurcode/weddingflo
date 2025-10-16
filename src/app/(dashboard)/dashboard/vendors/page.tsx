@@ -359,24 +359,27 @@ export default function VendorsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Mobile-friendly header */}
-      <div className="space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight break-words">Vendor Management</h2>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1 break-words">
-            Track and manage your wedding vendors
-          </p>
-        </div>
-        {/* Action button - responsive */}
-        <div className="sm:ml-4">
-          <Button
-            onClick={handleAddVendor}
-            size="sm"
-            className="w-full sm:w-auto"
-          >
-            <Plus className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="text-xs sm:text-sm">Add Vendor</span>
-          </Button>
+      {/* Hero section with gradient */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-200 via-primary-100 to-secondary-200 p-6 sm:p-8 border-2 border-primary-300 shadow-lg">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <div className="relative space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white break-words">Vendor Management</h2>
+            <p className="text-sm sm:text-base text-primary-800 mt-1 break-words">
+              Track and manage your wedding vendors
+            </p>
+          </div>
+          {/* Action button - responsive */}
+          <div className="sm:ml-4">
+            <Button
+              onClick={handleAddVendor}
+              size="sm"
+              className="w-full sm:w-auto bg-white hover:bg-gray-50 text-gray-900 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
+            >
+              <Plus className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4 font-bold" />
+              <span className="text-xs sm:text-sm font-bold">Add Vendor</span>
+            </Button>
+          </div>
         </div>
       </div>
 

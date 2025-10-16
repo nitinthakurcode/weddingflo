@@ -17,7 +17,7 @@ interface TimelineGridProps {
 
 const activityTypeColors: Record<string, { bg: string; border: string; text: string }> = {
   setup: { bg: 'bg-gray-200', border: 'border-gray-400', text: 'text-gray-900' },
-  ceremony: { bg: 'bg-purple-200', border: 'border-purple-500', text: 'text-purple-900' },
+  ceremony: { bg: 'bg-primary/20', border: 'border-primary', text: 'text-primary' },
   reception: { bg: 'bg-pink-200', border: 'border-pink-500', text: 'text-pink-900' },
   entertainment: { bg: 'bg-orange-200', border: 'border-orange-500', text: 'text-orange-900' },
   break: { bg: 'bg-blue-200', border: 'border-blue-500', text: 'text-blue-900' },
@@ -45,12 +45,12 @@ export function TimelineGrid({
           <div className="w-32 flex-shrink-0 p-3 border-r font-medium text-sm">
             Activity
           </div>
-          <div className="flex-1 flex">
+          <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${timeSlots.length}, 1fr)` }}>
             {timeSlots.map((time) => (
               <div
                 key={time}
-                className="flex-1 p-2 text-center text-xs font-medium text-gray-600 border-r last:border-r-0"
-                style={{ minWidth: '60px' }}
+                className="p-2 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0"
+                style={{ minWidth: '80px' }}
               >
                 {formatTimeDisplay(time)}
               </div>
@@ -98,12 +98,12 @@ export function TimelineGrid({
                 {/* Timeline Column */}
                 <div className="flex-1 relative h-16">
                   {/* Grid Lines */}
-                  <div className="absolute inset-0 flex">
+                  <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${timeSlots.length}, 1fr)` }}>
                     {timeSlots.map((time) => (
                       <div
                         key={time}
-                        className="flex-1 border-r last:border-r-0"
-                        style={{ minWidth: '60px' }}
+                        className="border-r last:border-r-0"
+                        style={{ minWidth: '80px' }}
                       />
                     ))}
                   </div>
@@ -148,11 +148,11 @@ export function TimelineGrid({
       {/* Legend */}
       <div className="border-t p-4 bg-gray-50">
         <div className="flex flex-wrap gap-3">
-          <p className="text-xs font-medium text-gray-600 mr-2">Legend:</p>
+          <p className="text-xs font-medium text-muted-foreground mr-2">Legend:</p>
           {Object.entries(activityTypeColors).map(([type, colors]) => (
             <div key={type} className="flex items-center gap-1">
               <div className={cn('w-3 h-3 rounded border-2', colors.bg, colors.border)} />
-              <span className="text-xs text-gray-600 capitalize">{type}</span>
+              <span className="text-xs text-muted-foreground capitalize">{type}</span>
             </div>
           ))}
         </div>

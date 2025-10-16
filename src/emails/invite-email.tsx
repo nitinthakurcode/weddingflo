@@ -44,7 +44,7 @@ export function InviteEmail({
       companyLogo={companyLogo}
       primaryColor={primaryColor}
     >
-      <Heading style={h1}>You're Invited! 💒</Heading>
+      <Heading style={h1}>You&apos;re Invited! 💒</Heading>
 
       <Text style={text}>Dear {guestName},</Text>
 

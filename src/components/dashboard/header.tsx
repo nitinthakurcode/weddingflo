@@ -31,21 +31,34 @@ export function Header() {
 
   return (
     <>
-      <header className="flex h-14 sm:h-16 items-center justify-between border-b bg-white px-3 sm:px-4 md:px-6">
+      <header className="relative flex h-14 sm:h-16 items-center justify-between border-b backdrop-blur-md px-3 sm:px-4 md:px-6 shadow-sm"
+        style={{
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          borderBottomColor: 'rgba(99, 102, 241, 0.1)',
+        }}
+      >
+        {/* Elite gradient accent line - Indigo to Pink */}
+        <div className="absolute bottom-0 left-0 right-0 h-[3px] opacity-70"
+          style={{
+            background: 'linear-gradient(to right, transparent, #6366f1, #ec4899, transparent)',
+          }}
+        />
+
         {/* Mobile menu button */}
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden flex-shrink-0"
+          className="lg:hidden flex-shrink-0 hover:bg-primary/10 transition-colors"
           onClick={() => setMobileNavOpen(true)}
         >
-          <Menu className="h-5 w-5 sm:h-6 sm:w-6" />
+          <Menu className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
         </Button>
 
-        {/* Logo on mobile */}
+        {/* Logo on mobile - Elite Design */}
         <div className="lg:hidden flex-1 flex justify-center">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-600">
-            <span className="text-sm font-bold text-white">W</span>
+          <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary to-secondary shadow-lg shadow-primary/20 ring-2 ring-primary/10 ring-offset-2">
+            <span className="text-base font-bold text-primary-foreground tracking-tight">W</span>
+            <div className="absolute inset-0 rounded-xl bg-gradient-to-t from-black/10 to-transparent" />
           </div>
         </div>
 
@@ -59,13 +72,13 @@ export function Header() {
               <input
                 id="search"
                 name="search"
-                className="block w-full rounded-md border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                className="block w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm placeholder-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="Search clients, events, guests..."
                 type="search"
               />
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                 <svg
-                  className="h-5 w-5 text-gray-400"
+                  className="h-5 w-5 text-muted-foreground"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -82,20 +95,20 @@ export function Header() {
           </div>
         </div>
 
-        {/* Right side actions */}
-        <div className="flex items-center space-x-1 sm:space-x-2 md:space-x-4 flex-shrink-0">
+        {/* Right side actions - Elite Styling */}
+        <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 flex-shrink-0">
           {/* Messages Button */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => router.push('/messages')}
-            className="relative h-8 w-8 sm:h-10 sm:w-10"
+            className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-xl hover:bg-primary/10 hover:text-primary transition-all duration-200 hover:scale-105"
           >
             <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
             {totalUnreadMessages > 0 && (
               <Badge
                 variant="destructive"
-                className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 h-4 w-4 sm:h-5 sm:w-5 flex items-center justify-center p-0 text-[10px] sm:text-xs"
+                className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] font-semibold shadow-lg animate-pulse"
               >
                 {totalUnreadMessages > 9 ? '9+' : totalUnreadMessages}
               </Badge>
@@ -108,7 +121,40 @@ export function Header() {
           <UserButton
             appearance={{
               elements: {
-                avatarBox: 'h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9',
+                avatarBox: {
+                  width: '48px',
+                  height: '48px',
+                  minWidth: '48px',
+                  minHeight: '48px',
+                  maxWidth: '48px',
+                  maxHeight: '48px',
+                  border: '2px solid #6366f1',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  aspectRatio: '1',
+                },
+                avatarImage: {
+                  objectFit: 'cover',
+                  objectPosition: 'center',
+                  width: '100%',
+                  height: '100%',
+                  aspectRatio: '1',
+                  display: 'block',
+                },
+                userButtonPopoverCard: {
+                  boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)',
+                },
+                userButtonPopoverActionButton__manageAccount: {
+                  '&:hover': {
+                    backgroundColor: 'rgba(99, 102, 241, 0.05)',
+                  },
+                },
+                userButtonPopoverActionButton__signOut: {
+                  '&:hover': {
+                    backgroundColor: '#fef2f2',
+                    color: '#dc2626',
+                  },
+                },
               },
             }}
             afterSignOutUrl="/sign-in"

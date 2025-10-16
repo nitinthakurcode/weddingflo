@@ -25,22 +25,22 @@ interface ActivityCardProps {
 }
 
 const activityTypeColors: Record<string, string> = {
-  setup: 'bg-gray-100 text-gray-800',
-  ceremony: 'bg-purple-100 text-purple-800',
-  reception: 'bg-pink-100 text-pink-800',
-  entertainment: 'bg-orange-100 text-orange-800',
-  break: 'bg-blue-100 text-blue-800',
-  photography: 'bg-green-100 text-green-800',
-  catering: 'bg-yellow-100 text-yellow-800',
-  cleanup: 'bg-gray-100 text-gray-800',
-  other: 'bg-gray-100 text-gray-800',
+  setup: 'bg-gradient-to-r from-gray-400 to-gray-600 text-white shadow-lg',
+  ceremony: 'bg-gradient-to-r from-primary to-pink-600 text-white shadow-lg',
+  reception: 'bg-gradient-to-r from-pink-500 to-pink-700 text-white shadow-lg',
+  entertainment: 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg',
+  break: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-lg',
+  photography: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg',
+  catering: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-lg',
+  cleanup: 'bg-gradient-to-r from-gray-500 to-gray-700 text-white shadow-lg',
+  other: 'bg-gradient-to-r from-purple-400 to-purple-600 text-white shadow-lg',
 };
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  in_progress: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  cancelled: 'bg-red-100 text-red-800',
+  pending: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-md',
+  in_progress: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-md',
+  completed: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
+  cancelled: 'bg-gradient-to-r from-red-500 to-red-700 text-white shadow-md',
 };
 
 export function ActivityCard({
@@ -70,8 +70,10 @@ export function ActivityCard({
   const cardContent = (
     <Card
       className={cn(
-        'p-4 hover:shadow-md transition-shadow',
-        hasConflict && 'border-red-500 border-2',
+        'p-4 border-2 hover:shadow-2xl transition-all hover:scale-[1.02]',
+        hasConflict
+          ? 'border-red-500 bg-gradient-to-br from-red-50/50 via-transparent to-transparent'
+          : 'border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-transparent hover:border-primary/30',
         isDragging && 'opacity-50',
         draggable && 'cursor-move'
       )}
@@ -82,9 +84,9 @@ export function ActivityCard({
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <h4 className="font-semibold text-gray-900">{activity.activity}</h4>
+            <h4 className="font-bold text-primary">{activity.activity}</h4>
             {hasConflict && (
-              <AlertCircle className="h-4 w-4 text-red-500" />
+              <AlertCircle className="h-4 w-4 text-red-500 animate-pulse" />
             )}
           </div>
 
@@ -97,7 +99,7 @@ export function ActivityCard({
             </Badge>
           </div>
 
-          <div className="space-y-2 text-sm text-gray-600">
+          <div className="space-y-2 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
               <span>
@@ -123,7 +125,7 @@ export function ActivityCard({
           </div>
 
           {activity.activity_description && (
-            <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+            <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
               {activity.activity_description}
             </p>
           )}

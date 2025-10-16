@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { requirePermission, requireSameCompany } from './permissions';
 
 /**
  * Get a client by ID
@@ -7,11 +8,13 @@ import { mutation, query } from './_generated/server';
 export const get = query({
   args: { clientId: v.id('clients') },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:view');
 
     const client = await ctx.db.get(args.clientId);
     if (!client) throw new Error('Client not found');
+
+    // Verify client belongs to user's company
+    await requireSameCompany(ctx, client.company_id);
 
     return client;
   },
@@ -23,8 +26,10 @@ export const get = query({
 export const list = query({
   args: { companyId: v.id('companies') },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:view');
+
+    // Verify user can access this company's data
+    await requireSameCompany(ctx, args.companyId);
 
     const clients = await ctx.db
       .query('clients')
@@ -44,8 +49,10 @@ export const search = query({
     query: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:view');
+
+    // Verify user can access this company's data
+    await requireSameCompany(ctx, args.companyId);
 
     const results = await ctx.db
       .query('clients')
@@ -87,8 +94,10 @@ export const create = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:create');
+
+    // Verify user can create clients for this company
+    await requireSameCompany(ctx, args.company_id);
 
     const now = Date.now();
     const clientId = await ctx.db.insert('clients', {
@@ -135,11 +144,13 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:edit');
 
     const client = await ctx.db.get(args.clientId);
     if (!client) throw new Error('Client not found');
+
+    // Verify client belongs to user's company
+    await requireSameCompany(ctx, client.company_id);
 
     await ctx.db.patch(args.clientId, {
       ...(args.client_name && { client_name: args.client_name }),
@@ -161,11 +172,13 @@ export const update = mutation({
 export const deleteClient = mutation({
   args: { clientId: v.id('clients') },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:delete');
 
     const client = await ctx.db.get(args.clientId);
     if (!client) throw new Error('Client not found');
+
+    // Verify client belongs to user's company
+    await requireSameCompany(ctx, client.company_id);
 
     await ctx.db.delete(args.clientId);
     return { success: true };
@@ -217,11 +230,13 @@ export const updatePlanningStage = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
+    await requirePermission(ctx, 'clients:edit');
 
     const client = await ctx.db.get(args.clientId);
     if (!client) throw new Error('Client not found');
+
+    // Verify client belongs to user's company
+    await requireSameCompany(ctx, client.company_id);
 
     await ctx.db.patch(args.clientId, {
       planning_stage: args.planning_stage,

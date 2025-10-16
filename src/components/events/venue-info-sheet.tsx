@@ -38,14 +38,14 @@ export function VenueInfoSheet({
           {/* Address Section */}
           <div className="space-y-3">
             <div className="flex items-start gap-3">
-              <MapPin className="h-5 w-5 text-gray-600 mt-0.5" />
+              <MapPin className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="font-medium text-gray-900">Address</p>
-                <p className="text-sm text-gray-600">{venue.address}</p>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">{venue.address}</p>
+                <p className="text-sm text-muted-foreground">
                   {venue.city}, {venue.state} {venue.postal_code}
                 </p>
-                <p className="text-sm text-gray-600">{venue.country}</p>
+                <p className="text-sm text-muted-foreground">{venue.country}</p>
               </div>
             </div>
 
@@ -69,9 +69,9 @@ export function VenueInfoSheet({
 
                 {venue.contact_name && (
                   <div className="flex items-center gap-3">
-                    <Users className="h-5 w-5 text-gray-600" />
+                    <Users className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <p className="text-sm text-gray-600">Contact Person</p>
+                      <p className="text-sm text-muted-foreground">Contact Person</p>
                       <p className="font-medium text-gray-900">{venue.contact_name}</p>
                     </div>
                   </div>
@@ -79,12 +79,12 @@ export function VenueInfoSheet({
 
                 {venue.contact_phone && (
                   <div className="flex items-center gap-3">
-                    <Phone className="h-5 w-5 text-gray-600" />
+                    <Phone className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <p className="text-sm text-gray-600">Phone</p>
+                      <p className="text-sm text-muted-foreground">Phone</p>
                       <a
                         href={`tel:${venue.contact_phone}`}
-                        className="font-medium text-purple-600 hover:text-purple-700"
+                        className="font-medium text-primary hover:text-primary"
                       >
                         {venue.contact_phone}
                       </a>
@@ -94,12 +94,12 @@ export function VenueInfoSheet({
 
                 {venue.contact_email && (
                   <div className="flex items-center gap-3">
-                    <Mail className="h-5 w-5 text-gray-600" />
+                    <Mail className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <p className="text-sm text-gray-600">Email</p>
+                      <p className="text-sm text-muted-foreground">Email</p>
                       <a
                         href={`mailto:${venue.contact_email}`}
-                        className="font-medium text-purple-600 hover:text-purple-700"
+                        className="font-medium text-primary hover:text-primary"
                       >
                         {venue.contact_email}
                       </a>
@@ -118,9 +118,9 @@ export function VenueInfoSheet({
 
             {venue.capacity && (
               <div className="flex items-center gap-3">
-                <Users className="h-5 w-5 text-gray-600" />
+                <Users className="h-5 w-5 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-gray-600">Capacity</p>
+                  <p className="text-sm text-muted-foreground">Capacity</p>
                   <p className="font-medium text-gray-900">{venue.capacity} guests</p>
                 </div>
               </div>
@@ -128,7 +128,7 @@ export function VenueInfoSheet({
 
             {venue.notes && (
               <div>
-                <p className="text-sm text-gray-600 mb-2">Additional Notes</p>
+                <p className="text-sm text-muted-foreground mb-2">Additional Notes</p>
                 <p className="text-sm text-gray-900 bg-gray-50 p-3 rounded-lg">
                   {venue.notes}
                 </p>

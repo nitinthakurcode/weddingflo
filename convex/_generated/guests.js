@@ -162,7 +162,7 @@ exports.create = (0, server_1.mutation)({
     },
 });
 /**
- * Bulk create guests
+ * Bulk create or update guests (upsert)
  */
 exports.bulkCreate = (0, server_1.mutation)({
     args: {
@@ -184,33 +184,71 @@ exports.bulkCreate = (0, server_1.mutation)({
         // TEMPORARY WORKAROUND: Allow queries for testing
         if (!identity)
             throw new Error('Not authenticated');
+        // Get all existing guests for this client
+        const existingGuests = await ctx.db
+            .query('guests')
+            .withIndex('by_client', (q) => q.eq('client_id', args.client_id))
+            .collect();
         const now = Date.now();
-        const guestIds = [];
+        const created = [];
+        const updated = [];
         for (const guest of args.guests) {
-            const qrToken = `${args.client_id}-${guest.serial_number}-${now}`;
-            const guestId = await ctx.db.insert('guests', {
-                company_id: args.company_id,
-                client_id: args.client_id,
-                serial_number: guest.serial_number,
-                guest_name: guest.guest_name,
-                phone_number: guest.phone_number,
-                email: guest.email,
-                number_of_packs: guest.number_of_packs,
-                additional_guest_names: guest.additional_guest_names,
-                guest_category: guest.guest_category,
-                events_attending: guest.events_attending,
-                dietary_restrictions: [],
-                seating_preferences: [],
-                qr_code_token: qrToken,
-                qr_scan_count: 0,
-                form_submitted: false,
-                checked_in: false,
-                created_at: now,
-                updated_at: now,
+            // Find existing guest by name (case-insensitive), email, or phone
+            const existingGuest = existingGuests.find((existing) => {
+                const nameMatch = existing.guest_name.toLowerCase() === guest.guest_name.toLowerCase();
+                const emailMatch = guest.email && existing.email &&
+                    existing.email.toLowerCase() === guest.email.toLowerCase();
+                const phoneMatch = guest.phone_number && existing.phone_number &&
+                    existing.phone_number === guest.phone_number;
+                return nameMatch || emailMatch || phoneMatch;
             });
-            guestIds.push(guestId);
+            if (existingGuest) {
+                // UPDATE existing guest
+                await ctx.db.patch(existingGuest._id, {
+                    guest_name: guest.guest_name, // Update name in case of case changes
+                    phone_number: guest.phone_number,
+                    email: guest.email,
+                    number_of_packs: guest.number_of_packs,
+                    additional_guest_names: guest.additional_guest_names,
+                    guest_category: guest.guest_category,
+                    events_attending: guest.events_attending,
+                    updated_at: now,
+                });
+                updated.push(guest.guest_name);
+            }
+            else {
+                // CREATE new guest
+                const qrToken = `${args.client_id}-${guest.serial_number}-${now}`;
+                await ctx.db.insert('guests', {
+                    company_id: args.company_id,
+                    client_id: args.client_id,
+                    serial_number: guest.serial_number,
+                    guest_name: guest.guest_name,
+                    phone_number: guest.phone_number,
+                    email: guest.email,
+                    number_of_packs: guest.number_of_packs,
+                    additional_guest_names: guest.additional_guest_names,
+                    guest_category: guest.guest_category,
+                    events_attending: guest.events_attending,
+                    dietary_restrictions: [],
+                    seating_preferences: [],
+                    qr_code_token: qrToken,
+                    qr_scan_count: 0,
+                    form_submitted: false,
+                    checked_in: false,
+                    created_at: now,
+                    updated_at: now,
+                });
+                created.push(guest.guest_name);
+            }
         }
-        return { count: guestIds.length, guestIds };
+        return {
+            created: created.length,
+            createdNames: created,
+            updated: updated.length,
+            updatedNames: updated,
+            total: created.length + updated.length,
+        };
     },
 });
 /**

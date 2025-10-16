@@ -53,7 +53,7 @@ export function AIAssistantPanel({ clientId, companyId, onClose }: AIAssistantPa
       {/* Header */}
       <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-purple-600" />
+          <Sparkles className="h-5 w-5 text-primary" />
           <h3 className="font-semibold">AI Assistant</h3>
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
@@ -146,7 +146,7 @@ export function AIAssistantPanel({ clientId, companyId, onClose }: AIAssistantPa
               {suggestions.map((suggestion, index) => (
                 <div
                   key={index}
-                  className="p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2"
+                  className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-2"
                 >
                   <p className="text-sm">{suggestion}</p>
                   <Button

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.log = exports.listByUser = exports.listByClient = exports.listByCompany = void 0;
+exports.create = exports.log = exports.listByUser = exports.listByClient = exports.listByCompany = void 0;
 const values_1 = require("convex/values");
 const server_1 = require("./_generated/server");
 exports.listByCompany = (0, server_1.query)({
@@ -69,6 +69,48 @@ exports.log = (0, server_1.mutation)({
     handler: async (ctx, args) => {
         return await ctx.db.insert('activity_log', {
             ...args,
+            created_at: Date.now(),
+        });
+    },
+});
+/**
+ * Create activity log entry (alias for easier use)
+ */
+exports.create = (0, server_1.mutation)({
+    args: {
+        action: values_1.v.string(),
+        entityType: values_1.v.string(),
+        entityId: values_1.v.string(),
+        changes: values_1.v.optional(values_1.v.any()),
+        previousValue: values_1.v.optional(values_1.v.any()),
+        newValue: values_1.v.optional(values_1.v.any()),
+        clientId: values_1.v.optional(values_1.v.id('clients')),
+        userAgent: values_1.v.optional(values_1.v.string()),
+        deviceType: values_1.v.optional(values_1.v.string()),
+    },
+    handler: async (ctx, args) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity)
+            throw new Error('Not authenticated');
+        // Get current user
+        const user = await ctx.db
+            .query('users')
+            .withIndex('by_clerk_id', (q) => q.eq('clerk_id', identity.subject))
+            .first();
+        if (!user)
+            throw new Error('User not found');
+        return await ctx.db.insert('activity_log', {
+            company_id: user.company_id,
+            client_id: args.clientId,
+            user_id: identity.subject,
+            action: args.action,
+            entity_type: args.entityType,
+            entity_id: args.entityId,
+            changes: args.changes,
+            previous_value: args.previousValue,
+            new_value: args.newValue,
+            user_agent: args.userAgent,
+            device_type: args.deviceType,
             created_at: Date.now(),
         });
     },

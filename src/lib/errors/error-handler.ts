@@ -162,7 +162,7 @@ export function getUserFriendlyMessage(error: unknown): string {
   }
 
   if (error instanceof AuthorizationError) {
-    return 'You don't have permission to perform this action.'
+    return 'You do not have permission to perform this action.'
   }
 
   if (error instanceof NotFoundError) {

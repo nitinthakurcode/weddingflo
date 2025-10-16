@@ -96,8 +96,8 @@ export function ReminderEmail({
       <Hr style={hr} />
 
       <Text style={footer}>
-        We can't wait to see you! If you have any last-minute questions, please
-        don't hesitate to reach out.
+        We can&apos;t wait to see you! If you have any last-minute questions, please
+        don&apos;t hesitate to reach out.
       </Text>
     </EmailLayout>
   );

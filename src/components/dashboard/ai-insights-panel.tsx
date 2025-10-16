@@ -35,11 +35,11 @@ export function AIInsightsPanel({
   const getInsightStyles = (type: AIInsight['type']) => {
     switch (type) {
       case 'success':
-        return 'text-green-600 bg-green-50';
+        return 'text-emerald-600 bg-emerald-50';
       case 'warning':
-        return 'text-yellow-600 bg-yellow-50';
+        return 'text-amber-600 bg-amber-50';
       case 'info':
-        return 'text-blue-600 bg-blue-50';
+        return 'text-primary-600 bg-primary-50';
     }
   };
 
@@ -83,7 +83,7 @@ export function AIInsightsPanel({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-purple-600" />
+          <Sparkles className="h-5 w-5 text-primary" />
           <CardTitle>AI Insights</CardTitle>
         </div>
         <Button variant="outline" size="sm" className="text-xs">
@@ -93,16 +93,16 @@ export function AIInsightsPanel({
       <CardContent>
         <div className="space-y-4">
           {/* Completion Progress */}
-          <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+          <div className="p-4 bg-gradient-to-r from-primary-50 to-secondary-50 rounded-lg border border-primary-200">
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-semibold text-sm">Planning Progress</h4>
-              <span className="text-2xl font-bold text-purple-600">
+              <span className="text-2xl font-bold text-primary-600">
                 {completionPercentage.toFixed(0)}%
               </span>
             </div>
             <div className="w-full bg-white rounded-full h-2 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-purple-600 to-pink-600 rounded-full transition-all"
+                className="h-full bg-gradient-to-r from-primary-500 to-secondary-600 rounded-full transition-all"
                 style={{ width: `${completionPercentage}%` }}
               />
             </div>
@@ -138,7 +138,7 @@ export function AIInsightsPanel({
               <p className="text-xs text-muted-foreground mb-1">Timeline</p>
               <p
                 className={`text-sm font-semibold capitalize ${
-                  timelineStatus === 'on_track' ? 'text-green-600' : 'text-yellow-600'
+                  timelineStatus === 'on_track' ? 'text-emerald-600' : 'text-amber-600'
                 }`}
               >
                 {timelineStatus.replace('_', ' ')}
@@ -148,7 +148,7 @@ export function AIInsightsPanel({
               <p className="text-xs text-muted-foreground mb-1">Budget</p>
               <p
                 className={`text-sm font-semibold capitalize ${
-                  budgetHealth === 'good' ? 'text-green-600' : 'text-yellow-600'
+                  budgetHealth === 'good' ? 'text-emerald-600' : 'text-amber-600'
                 }`}
               >
                 {budgetHealth}

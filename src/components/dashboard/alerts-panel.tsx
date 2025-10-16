@@ -32,22 +32,22 @@ export function AlertsPanel({ alerts }: AlertsPanelProps) {
   const getAlertStyles = (type: Alert['type']) => {
     switch (type) {
       case 'error':
-        return 'border-red-200 bg-red-50';
+        return 'border-rose-200 bg-rose-50';
       case 'warning':
-        return 'border-yellow-200 bg-yellow-50';
+        return 'border-amber-200 bg-amber-50';
       case 'info':
-        return 'border-blue-200 bg-blue-50';
+        return 'border-primary-200 bg-primary-50';
     }
   };
 
   const getIconStyles = (type: Alert['type']) => {
     switch (type) {
       case 'error':
-        return 'text-red-600';
+        return 'text-rose-600';
       case 'warning':
-        return 'text-yellow-600';
+        return 'text-amber-600';
       case 'info':
-        return 'text-blue-600';
+        return 'text-primary-600';
     }
   };
 

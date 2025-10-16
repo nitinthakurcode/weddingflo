@@ -71,7 +71,7 @@ exports.updateSubscriptionFromStripe = (0, server_1.mutation)({
             stripe_subscription_id: values_1.v.optional(values_1.v.string()),
             stripe_price_id: values_1.v.optional(values_1.v.string()),
             tier: values_1.v.union(values_1.v.literal('starter'), values_1.v.literal('professional'), values_1.v.literal('enterprise')),
-            status: values_1.v.union(values_1.v.literal('active'), values_1.v.literal('trial'), values_1.v.literal('past_due'), values_1.v.literal('canceled'), values_1.v.literal('incomplete'), values_1.v.literal('incomplete_expired'), values_1.v.literal('trialing'), values_1.v.literal('unpaid')),
+            status: values_1.v.union(values_1.v.literal('active'), values_1.v.literal('trial'), values_1.v.literal('past_due'), values_1.v.literal('canceled'), values_1.v.literal('incomplete'), values_1.v.literal('incomplete_expired'), values_1.v.literal('trialing'), values_1.v.literal('unpaid'), values_1.v.literal('paused')),
             current_period_start: values_1.v.optional(values_1.v.number()),
             current_period_end: values_1.v.optional(values_1.v.number()),
             cancel_at_period_end: values_1.v.optional(values_1.v.boolean()),

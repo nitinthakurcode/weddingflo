@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import {
   Dialog,
@@ -34,6 +34,7 @@ export function BulkImportDialog({
   const [previewData, setPreviewData] = useState<BulkImportRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bulkCreate = useMutation(api.guests.bulkCreate);
+  const existingGuests = useQuery(api.guests.list, { clientId });
 
   const downloadTemplate = () => {
     const template = `guest_name,guest_email,guest_phone,guest_category,guest_side,plus_one_allowed,plus_one_name,meal_preference,accommodation_needed
@@ -106,36 +107,72 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
     try {
       setIsImporting(true);
 
-      const guests = previewData.map((row, index) => ({
-        serial_number: index + 1,
-        guest_name: row.guest_name,
-        email: row.guest_email || undefined,
-        phone_number: row.guest_phone || undefined,
-        guest_category: row.guest_category || undefined,
-        number_of_packs: row.plus_one_allowed === 'true' ? 2 : 1,
-        additional_guest_names: row.plus_one_name ? [row.plus_one_name] : [],
-        events_attending: [],
-        dietary_restrictions: row.meal_preference ? [row.meal_preference] : [],
-        seating_preferences: [],
-      }));
+      // Validate and filter guests
+      const validGuests = previewData
+        .filter((row) => {
+          // Filter out rows with missing or empty guest_name
+          return row.guest_name && row.guest_name.trim() !== '';
+        })
+        .map((row, index) => {
+          return {
+            serial_number: index + 1,
+            guest_name: row.guest_name.trim(),
+            email: row.guest_email?.trim() || undefined,
+            phone_number: row.guest_phone?.trim() || undefined,
+            guest_category: row.guest_category?.trim() || undefined,
+            number_of_packs: row.plus_one_allowed === 'true' ? 2 : 1,
+            additional_guest_names: row.plus_one_name ? [row.plus_one_name.trim()] : [],
+            events_attending: [],
+          };
+        });
 
-      await bulkCreate({
-        guests,
+      if (validGuests.length === 0) {
+        toast({
+          title: 'No Valid Guests',
+          description: 'All rows are missing required guest_name field',
+          variant: 'destructive',
+        });
+        setIsImporting(false);
+        return;
+      }
+
+      if (validGuests.length < previewData.length) {
+        toast({
+          title: 'Warning',
+          description: `Skipped ${previewData.length - validGuests.length} rows with missing names`,
+          variant: 'destructive',
+        });
+      }
+
+      const result = await bulkCreate({
+        guests: validGuests,
         company_id: companyId,
         client_id: clientId
       });
 
+      // Build result message
+      const messages = [];
+      if (result.created > 0) {
+        messages.push(`Created ${result.created} new guest${result.created > 1 ? 's' : ''}`);
+      }
+      if (result.updated > 0) {
+        messages.push(`Updated ${result.updated} existing guest${result.updated > 1 ? 's' : ''}`);
+      }
+
       toast({
-        title: 'Success',
-        description: `Imported ${guests.length} guests successfully`,
+        title: 'Import Complete',
+        description: messages.length > 0
+          ? messages.join('. ') + '.'
+          : 'No changes made',
       });
 
       setPreviewData([]);
       onOpenChange(false);
     } catch (error) {
+      console.error('Import error:', error);
       toast({
         title: 'Error',
-        description: 'Failed to import guests',
+        description: error instanceof Error ? error.message : 'Failed to import guests',
         variant: 'destructive',
       });
     } finally {
@@ -195,21 +232,68 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
                 <table className="w-full text-sm">
                   <thead className="bg-muted">
                     <tr>
+                      <th className="px-2 py-1 text-left">Status</th>
                       <th className="px-2 py-1 text-left">Name</th>
                       <th className="px-2 py-1 text-left">Email</th>
                       <th className="px-2 py-1 text-left">Category</th>
-                      <th className="px-2 py-1 text-left">Side</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {previewData.slice(0, 10).map((row, index) => (
-                      <tr key={index} className="border-t">
-                        <td className="px-2 py-1">{row.guest_name}</td>
-                        <td className="px-2 py-1">{row.guest_email}</td>
-                        <td className="px-2 py-1">{row.guest_category}</td>
-                        <td className="px-2 py-1">{row.guest_side}</td>
-                      </tr>
-                    ))}
+                    {previewData.slice(0, 10).map((row, index) => {
+                      const isInvalid = !row.guest_name || row.guest_name.trim() === '';
+
+                      // Check if guest already exists
+                      const existingGuest = existingGuests?.find((existing) => {
+                        const nameMatch = existing.guest_name.toLowerCase() === row.guest_name?.toLowerCase();
+                        const emailMatch = row.guest_email && existing.email &&
+                          existing.email.toLowerCase() === row.guest_email.toLowerCase();
+                        const phoneMatch = row.guest_phone && existing.phone_number &&
+                          existing.phone_number === row.guest_phone;
+                        return nameMatch || emailMatch || phoneMatch;
+                      });
+
+                      const willUpdate = !isInvalid && existingGuest;
+                      const willCreate = !isInvalid && !existingGuest;
+
+                      return (
+                        <tr
+                          key={index}
+                          className={`border-t ${
+                            isInvalid ? 'bg-red-50' :
+                            willUpdate ? 'bg-blue-50' :
+                            willCreate ? 'bg-green-50' : ''
+                          }`}
+                          title={
+                            isInvalid ? 'Missing guest name - will be skipped' :
+                            willUpdate ? 'Guest exists - will be updated' :
+                            'New guest - will be created'
+                          }
+                        >
+                          <td className="px-2 py-1">
+                            {isInvalid && (
+                              <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded">
+                                SKIP
+                              </span>
+                            )}
+                            {willUpdate && (
+                              <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
+                                UPDATE
+                              </span>
+                            )}
+                            {willCreate && (
+                              <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded">
+                                NEW
+                              </span>
+                            )}
+                          </td>
+                          <td className={`px-2 py-1 ${isInvalid ? 'text-red-600 font-semibold' : ''}`}>
+                            {row.guest_name || '⚠️ Missing'}
+                          </td>
+                          <td className="px-2 py-1">{row.guest_email}</td>
+                          <td className="px-2 py-1">{row.guest_category}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
                 {previewData.length > 10 && (
