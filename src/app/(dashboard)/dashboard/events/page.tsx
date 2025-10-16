@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EventDialog } from '@/components/events/event-dialog';
@@ -15,50 +16,84 @@ import { Plus, Calendar, List } from 'lucide-react';
 import { EventFormValues } from '@/lib/validations/event.schema';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { useToast } from '@/hooks/use-toast';
-import { Id } from '@/convex/_generated/dataModel';
 
 export default function EventsPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_user_id', user?.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
+  const { data: clients, isLoading: isLoadingClients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser?.company_id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
-  // Fetch event briefs
-  const rawEvents = useQuery(api.eventBrief.list, clientId ? { clientId } : 'skip');
+  // Fetch events
+  const { data: rawEvents, isLoading: isLoadingEvents } = useQuery({
+    queryKey: ['events', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
 
   // Map to Event type
   const events: Event[] = (rawEvents || []).map((evt) => ({
-    _id: evt._id as any as Id<'events'>,
-    _creationTime: evt._creationTime,
+    _id: evt.id as any,
+    _creationTime: new Date(evt.created_at).getTime(),
     company_id: evt.company_id,
     client_id: evt.client_id,
     event_name: evt.event_name,
     event_type: evt.event_type as any,
-    event_date: evt.date,
-    event_start_time: evt.start_time,
-    event_end_time: evt.end_time,
-    event_status: 'confirmed' as const,
-    venue_details: {
-      name: evt.venue,
-      address: evt.venue_address || '',
+    event_date: new Date(evt.event_date).getTime(),
+    event_start_time: evt.event_start_time,
+    event_end_time: evt.event_end_time,
+    event_status: evt.event_status || 'confirmed' as const,
+    venue_details: evt.venue_details || {
+      name: '',
+      address: '',
       city: '',
       state: '',
       country: '',
-      capacity: evt.venue_capacity,
-      lat: evt.venue_coordinates?.lat,
-      lng: evt.venue_coordinates?.lng,
+      capacity: 0,
     },
-    estimated_guests: evt.venue_capacity || 0,
-    description: evt.activity_description,
-    tags: [],
+    estimated_guests: evt.estimated_guests || 0,
+    description: evt.description,
+    tags: evt.tags || [],
     created_at: evt.created_at,
     updated_at: evt.updated_at,
   }));
@@ -77,9 +112,46 @@ export default function EventsPage() {
     total_budget: events.reduce((sum, e) => sum + (e.budget_allocated || 0), 0),
   };
 
-  const createEvent = useMutation(api.eventBrief.create);
-  const updateEvent = useMutation(api.eventBrief.update);
-  const deleteEventBrief = useMutation(api.eventBrief.deleteEventBrief);
+  const createEvent = useMutation({
+    mutationFn: async (eventData: any) => {
+      const { data, error } = await supabase
+        .from('events')
+        .insert(eventData)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+    },
+  });
+
+  const updateEvent = useMutation({
+    mutationFn: async ({ eventId, ...eventData }: any) => {
+      const { data, error } = await supabase
+        .from('events')
+        .update(eventData)
+        .eq('id', eventId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+    },
+  });
+
+  const deleteEventBrief = useMutation({
+    mutationFn: async (eventId: string) => {
+      const { error } = await supabase.from('events').delete().eq('id', eventId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+    },
+  });
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isVenueSheetOpen, setIsVenueSheetOpen] = useState(false);
@@ -127,32 +199,20 @@ export default function EventsPage() {
     }
 
     try {
-      const startHour = parseInt(data.event_start_time.split(':')[0]);
-      const endHour = parseInt(data.event_end_time.split(':')[0]);
-      const durationHours = endHour - startHour;
-
-      await createEvent({
+      await createEvent.mutateAsync({
         company_id: currentUser.company_id,
         client_id: clientId,
         event_name: data.event_name,
         event_type: data.event_type,
-        date: data.event_date,
-        start_time: data.event_start_time,
-        end_time: data.event_end_time,
-        duration_hours: durationHours,
-        venue: data.venue_details.name,
-        venue_address: data.venue_details.address,
-        venue_coordinates: data.venue_details.lat && data.venue_details.lng ? {
-          lat: data.venue_details.lat,
-          lng: data.venue_details.lng,
-        } : undefined,
-        venue_capacity: data.venue_details.capacity,
-        activity: data.event_name,
-        activity_description: data.description,
-        required_vendors: [],
-        required_equipment: [],
-        already_booked: false,
-        notes: data.special_instructions,
+        event_date: data.event_date,
+        event_start_time: data.event_start_time,
+        event_end_time: data.event_end_time,
+        event_status: 'confirmed',
+        venue_details: data.venue_details,
+        estimated_guests: data.venue_details.capacity || 0,
+        description: data.description,
+        special_instructions: data.special_instructions,
+        tags: [],
       });
 
       toast({
@@ -173,17 +233,14 @@ export default function EventsPage() {
     if (!selectedEvent) return;
 
     try {
-      await updateEvent({
-        eventBriefId: selectedEvent._id as any as Id<'event_brief'>,
+      await updateEvent.mutateAsync({
+        eventId: selectedEvent._id,
         event_name: data.event_name,
-        start_time: data.event_start_time,
-        end_time: data.event_end_time,
-        venue: data.venue_details.name,
-        activity: data.event_name,
-        required_vendors: [],
-        required_equipment: [],
-        already_booked: false,
-        notes: data.special_instructions,
+        event_start_time: data.event_start_time,
+        event_end_time: data.event_end_time,
+        venue_details: data.venue_details,
+        description: data.description,
+        special_instructions: data.special_instructions,
       });
 
       toast({
@@ -202,9 +259,7 @@ export default function EventsPage() {
 
   const handleDeleteEvent = async (eventId: string) => {
     try {
-      await deleteEventBrief({
-        eventBriefId: eventId as any as Id<'event_brief'>,
-      });
+      await deleteEventBrief.mutateAsync(eventId);
 
       toast({
         title: 'Success',
@@ -235,12 +290,12 @@ export default function EventsPage() {
   };
 
   // Loading state
-  if (currentUser === undefined) {
+  if (!user || isLoadingUser) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -254,7 +309,7 @@ export default function EventsPage() {
   }
 
   // Loading clients and events
-  if (clients === undefined || rawEvents === undefined) {
+  if (isLoadingClients || isLoadingEvents) {
     return <PageLoader />;
   }
 

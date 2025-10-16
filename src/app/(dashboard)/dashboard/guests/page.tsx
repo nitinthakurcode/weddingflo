@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus, Upload, Download } from 'lucide-react';
@@ -23,21 +24,79 @@ import type { SeatingOptimizationResult } from '@/lib/ai/seating-optimizer';
 
 export default function GuestsPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_user_id', user?.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
+  const { data: clients, isLoading: isLoadingClients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser?.company_id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now (in production, add client selector)
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
-  const guests = useQuery(api.guests.list, clientId ? { clientId } : 'skip');
-  const deleteGuest = useMutation(api.guests.deleteGuest);
-  const checkIn = useMutation(api.guests.checkIn);
+  const { data: guests, isLoading: isLoadingGuests } = useQuery({
+    queryKey: ['guests', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('guests')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
+
+  const deleteGuest = useMutation({
+    mutationFn: async (guestId: string) => {
+      const { error } = await supabase.from('guests').delete().eq('id', guestId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
+    },
+  });
+
+  const checkIn = useMutation({
+    mutationFn: async ({ guestId, checked_in_by }: { guestId: string; checked_in_by: string }) => {
+      const { error } = await supabase
+        .from('guests')
+        .update({ checked_in: true, checked_in_by, checked_in_at: new Date().toISOString() })
+        .eq('id', guestId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
+    },
+  });
 
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [guestDialogOpen, setGuestDialogOpen] = useState(false);
@@ -79,7 +138,7 @@ export default function GuestsPage() {
     }
 
     try {
-      await deleteGuest({ guestId: guest._id });
+      await deleteGuest.mutateAsync(guest.id);
       toast({
         title: 'Success',
         description: 'Guest deleted successfully',
@@ -99,12 +158,12 @@ export default function GuestsPage() {
   };
 
   const handleCheckIn = async (guest: Guest) => {
-    if (!currentUser?._id) return;
+    if (!currentUser?.id) return;
 
     try {
-      await checkIn({
-        guestId: guest._id,
-        checked_in_by: currentUser._id,
+      await checkIn.mutateAsync({
+        guestId: guest.id,
+        checked_in_by: currentUser.id,
       });
       toast({
         title: 'Success',
@@ -171,12 +230,12 @@ export default function GuestsPage() {
   ];
 
   // Loading state
-  if (currentUser === undefined) {
+  if (!user || isLoadingUser) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -190,7 +249,7 @@ export default function GuestsPage() {
   }
 
   // Loading clients and guests
-  if (clients === undefined || guests === undefined) {
+  if (isLoadingClients || isLoadingGuests) {
     return <PageLoader />;
   }
 
@@ -210,17 +269,17 @@ export default function GuestsPage() {
 
   // Calculate stats (using only available schema fields)
   const stats: GuestStats = {
-    total: guests.length,
-    invited: guests.length, // All guests are considered invited
-    confirmed: guests.filter((g) => g.form_submitted).length,
-    checked_in: guests.filter((g) => g.checked_in).length,
+    total: guests?.length || 0,
+    invited: guests?.length || 0, // All guests are considered invited
+    confirmed: guests?.filter((g) => g.form_submitted).length || 0,
+    checked_in: guests?.filter((g) => g.checked_in).length || 0,
     accommodation_needed: 0, // Field not in schema
-    pending: guests.filter((g) => !g.form_submitted).length,
+    pending: guests?.filter((g) => !g.form_submitted).length || 0,
   };
 
   // Filter guests based on active filter (using available fields only)
   const filteredGuests = (() => {
-    if (!activeFilter) return guests;
+    if (!activeFilter || !guests) return guests || [];
 
     switch (activeFilter) {
       case 'all':
@@ -254,8 +313,8 @@ export default function GuestsPage() {
           {/* Action buttons - responsive layout */}
           <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:ml-4">
             <SeatingOptimizerDialog
-              guests={guests.map(g => ({
-                id: g._id,
+              guests={(guests || []).map(g => ({
+                id: g.id,
                 name: g.guest_name,
                 relationship: g.guest_category,
                 dietaryRestrictions: g.dietary_restrictions ? [g.dietary_restrictions] : [],
@@ -302,7 +361,7 @@ export default function GuestsPage() {
       {activeFilter && (
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
-            Showing {filteredGuests.length} of {guests.length} guests
+            Showing {filteredGuests.length} of {guests?.length || 0} guests
           </span>
           <Button
             variant="ghost"
@@ -341,8 +400,8 @@ export default function GuestsPage() {
               <SeatingSuggestions result={seatingResult} />
               <SeatingChartView
                 assignments={seatingResult.assignments}
-                guests={guests.map(g => ({
-                  id: g._id,
+                guests={(guests || []).map(g => ({
+                  id: g.id,
                   name: g.guest_name,
                 }))}
               />
@@ -353,8 +412,8 @@ export default function GuestsPage() {
                 No seating arrangement yet. Click the AI Seating Optimizer button to generate one.
               </p>
               <SeatingOptimizerDialog
-                guests={guests.map(g => ({
-                  id: g._id,
+                guests={(guests || []).map(g => ({
+                  id: g.id,
                   name: g.guest_name,
                   relationship: g.guest_category,
                   dietaryRestrictions: g.dietary_restrictions ? [g.dietary_restrictions] : [],
@@ -367,14 +426,14 @@ export default function GuestsPage() {
         </TabsContent>
 
         <TabsContent value="check-in" className="space-y-4">
-          <CheckInScanner clientId={clientId} userId={currentUser._id} />
+          <CheckInScanner clientId={clientId} userId={currentUser.id} />
         </TabsContent>
 
         <TabsContent value="qr-codes" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredGuests.map((guest) => (
               <div
-                key={guest._id}
+                key={guest.id}
                 className="border rounded-lg p-4 cursor-pointer hover:bg-muted/50 transition-colors"
                 onClick={() => handleViewQR(guest)}
               >

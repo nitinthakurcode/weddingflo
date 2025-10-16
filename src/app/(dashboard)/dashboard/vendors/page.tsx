@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
-import { Id } from '@/convex/_generated/dataModel';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/select';
 
 interface Vendor {
-  _id: Id<'vendors'>;
+  id: string;
   name: string;
   category: string;
   contactName?: string;
@@ -43,53 +43,119 @@ interface Vendor {
   rating?: number;
   wouldRecommend?: boolean;
   notes?: string;
+  created_at?: string;
 }
 
 export default function VendorsPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_user_id', user?.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
+  const { data: clients, isLoading: isLoadingClients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser?.company_id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now (in production, add client selector)
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
   // Get or create wedding for this client
-  const weddings = useQuery(
-    api.weddings.getByClient,
-    clientId ? { clientId } : 'skip'
-  );
-  const createDefaultWedding = useMutation(api.weddings.createDefault);
+  const { data: weddings, isLoading: isLoadingWeddings } = useQuery({
+    queryKey: ['weddings', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('weddings')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
+
+  const createDefaultWedding = useMutation({
+    mutationFn: async (clientId: string) => {
+      const { data, error } = await supabase
+        .from('weddings')
+        .insert({
+          client_id: clientId,
+          wedding_date: new Date().toISOString(),
+          status: 'planning',
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['weddings'] });
+    },
+  });
 
   // Auto-create wedding if client exists but has no wedding
   const [weddingCreated, setWeddingCreated] = useState(false);
 
   useEffect(() => {
     if (clientId && weddings && weddings.length === 0 && !weddingCreated) {
-      createDefaultWedding({ clientId })
+      createDefaultWedding.mutateAsync(clientId)
         .then(() => setWeddingCreated(true))
         .catch((err) => console.error('Failed to create wedding:', err));
     }
-  }, [clientId, weddings, weddingCreated, createDefaultWedding]);
+  }, [clientId, weddings, weddingCreated]);
 
-  const weddingId = weddings?.[0]?._id;
+  const weddingId = weddings?.[0]?.id;
 
-  // Query vendors and stats
-  const vendors = useQuery(
-    api.vendors.getVendorsByWedding,
-    weddingId ? { weddingId } : 'skip'
-  );
-  const stats = useQuery(
-    api.vendors.getVendorStats,
-    weddingId ? { weddingId } : 'skip'
-  );
+  // Query vendors
+  const { data: vendors, isLoading: isLoadingVendors } = useQuery({
+    queryKey: ['vendors', weddingId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('vendors')
+        .select('*')
+        .eq('wedding_id', weddingId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!weddingId,
+  });
 
-  const deleteVendor = useMutation(api.vendors.deleteVendor);
+  const deleteVendor = useMutation({
+    mutationFn: async (vendorId: string) => {
+      const { error } = await supabase.from('vendors').delete().eq('id', vendorId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+    },
+  });
 
   const [selectedVendor, setSelectedVendor] = useState<Vendor | undefined>();
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
@@ -126,7 +192,7 @@ export default function VendorsPage() {
     }
 
     try {
-      await deleteVendor({ vendorId: vendor._id });
+      await deleteVendor.mutateAsync(vendor.id);
       toast({
         title: 'Success',
         description: 'Vendor deleted successfully',
@@ -314,13 +380,22 @@ export default function VendorsPage() {
     }, {} as Record<string, Vendor[]>);
   };
 
+  // Calculate stats from vendors data
+  const stats = vendors ? {
+    totalVendors: vendors.length,
+    confirmedVendors: vendors.filter((v) => v.status === 'confirmed' || v.status === 'booked').length,
+    totalValue: vendors.reduce((sum, v) => sum + (v.totalCost || 0), 0),
+    totalPaid: vendors.reduce((sum, v) => sum + ((v.totalCost || 0) - (v.balance ?? v.totalCost || 0)), 0),
+    totalOutstanding: vendors.reduce((sum, v) => sum + (v.balance ?? v.totalCost || 0), 0),
+  } : null;
+
   // Loading state
-  if (currentUser === undefined) {
+  if (!user || isLoadingUser) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -334,12 +409,12 @@ export default function VendorsPage() {
   }
 
   // Loading clients, weddings, and vendors
-  if (clients === undefined || weddings === undefined) {
+  if (isLoadingClients || isLoadingWeddings) {
     return <PageLoader />;
   }
 
   // Wait for wedding to be created or vendors to load
-  if (weddingId && (vendors === undefined || stats === undefined)) {
+  if (weddingId && isLoadingVendors) {
     return <PageLoader />;
   }
 
