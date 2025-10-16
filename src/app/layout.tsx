@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { AnalyticsProvider } from './providers/analytics-provider';
 import { ThemeInjector } from './providers/theme-injector';
+import { QueryProvider } from './providers/query-provider';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 
@@ -94,13 +95,15 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} font-sans`}>
         <AuthProvider>
-          <ThemeInjector />
-          <AnalyticsProvider>
-            <PWAProvider>
-              {children}
-              <Toaster />
-            </PWAProvider>
-          </AnalyticsProvider>
+          <QueryProvider>
+            <ThemeInjector />
+            <AnalyticsProvider>
+              <PWAProvider>
+                {children}
+                <Toaster />
+              </PWAProvider>
+            </AnalyticsProvider>
+          </QueryProvider>
         </AuthProvider>
         <Analytics />
         <SpeedInsights />
