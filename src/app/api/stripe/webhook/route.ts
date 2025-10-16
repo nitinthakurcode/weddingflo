@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe/stripe-client';
 import { STRIPE_CONFIG } from '@/lib/stripe/config';
 import { getPlanByPriceId } from '@/lib/stripe/plans';
-import { fetchQuery, fetchMutation } from 'convex/nextjs';
-import { api } from '@/convex/_generated/api';
+import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
 import Stripe from 'stripe';
 
 export async function POST(req: NextRequest) {
@@ -93,34 +92,34 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   // Update company subscription
-  await fetchMutation(api.billing.updateSubscriptionFromStripe, {
-    companyId: companyId as any,
-    stripeData: {
+  const supabase = createServerSupabaseAdminClient();
+  await supabase
+    .from('companies')
+    .update({
       stripe_customer_id: subscription.customer as string,
       stripe_subscription_id: subscription.id,
-      stripe_price_id: priceId,
-      tier: plan.id,
-      status: subscription.status === 'active' ? 'active' : subscription.status,
-      current_period_start: subscription.current_period_start * 1000,
-      current_period_end: subscription.current_period_end * 1000,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-    },
-  });
+      subscription_tier: plan.id,
+      subscription_status: subscription.status === 'active' ? 'active' : subscription.status,
+      subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString(),
+    })
+    .eq('id', companyId);
 
   console.log(`Subscription created for company ${companyId}`);
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  const companyId = subscription.metadata?.companyId;
-  if (!companyId) {
-    // Try to find company by customer ID
-    const company = await fetchQuery(api.billing.getCompanyByStripeCustomerId, {
-      stripeCustomerId: subscription.customer as string,
-    });
-    if (!company) {
-      console.error('No company found for subscription');
-      return;
-    }
+  const supabase = createServerSupabaseAdminClient();
+
+  // Try to find company by customer ID
+  const { data: company } = await supabase
+    .from('companies')
+    .select('*')
+    .eq('stripe_customer_id', subscription.customer as string)
+    .single();
+
+  if (!company) {
+    console.error('No company found for subscription');
+    return;
   }
 
   const priceId = subscription.items.data[0]?.price.id;
@@ -131,38 +130,29 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
 
-  const company = await fetchQuery(api.billing.getCompanyByStripeCustomerId, {
-    stripeCustomerId: subscription.customer as string,
-  });
-
-  if (!company) {
-    console.error('Company not found');
-    return;
-  }
-
   // Update company subscription
-  await fetchMutation(api.billing.updateSubscriptionFromStripe, {
-    companyId: company._id,
-    stripeData: {
+  await supabase
+    .from('companies')
+    .update({
       stripe_customer_id: subscription.customer as string,
       stripe_subscription_id: subscription.id,
-      stripe_price_id: priceId,
-      tier: plan.id,
-      status: subscription.status === 'active' ? 'active' : subscription.status,
-      current_period_start: subscription.current_period_start * 1000,
-      current_period_end: subscription.current_period_end * 1000,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-      canceled_at: subscription.canceled_at ? subscription.canceled_at * 1000 : undefined,
-    },
-  });
+      subscription_tier: plan.id,
+      subscription_status: subscription.status === 'active' ? 'active' : subscription.status,
+      subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString(),
+    })
+    .eq('id', company.id);
 
-  console.log(`Subscription updated for company ${company._id}`);
+  console.log(`Subscription updated for company ${company.id}`);
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  const company = await fetchQuery(api.billing.getCompanyByStripeCustomerId, {
-    stripeCustomerId: subscription.customer as string,
-  });
+  const supabase = createServerSupabaseAdminClient();
+
+  const { data: company } = await supabase
+    .from('companies')
+    .select('*')
+    .eq('stripe_customer_id', subscription.customer as string)
+    .single();
 
   if (!company) {
     console.error('Company not found');
@@ -170,32 +160,32 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   }
 
   // Update subscription status to canceled
-  await fetchMutation(api.billing.updateSubscriptionFromStripe, {
-    companyId: company._id,
-    stripeData: {
-      stripe_customer_id: subscription.customer as string,
-      stripe_subscription_id: subscription.id,
-      tier: company.subscription.tier,
-      status: 'canceled',
-      canceled_at: Date.now(),
-    },
-  });
+  await supabase
+    .from('companies')
+    .update({
+      subscription_status: 'canceled',
+    })
+    .eq('id', company.id);
 
-  console.log(`Subscription canceled for company ${company._id}`);
+  console.log(`Subscription canceled for company ${company.id}`);
 }
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
-  const company = await fetchQuery(api.billing.getCompanyByStripeCustomerId, {
-    stripeCustomerId: customerId,
-  });
+  const supabase = createServerSupabaseAdminClient();
+
+  const { data: company } = await supabase
+    .from('companies')
+    .select('*')
+    .eq('stripe_customer_id', customerId)
+    .single();
 
   if (!company) {
     console.error('Company not found for invoice payment');
     return;
   }
 
-  console.log(`Payment succeeded for company ${company._id}, amount: ${invoice.amount_paid}`);
+  console.log(`Payment succeeded for company ${company.id}, amount: ${invoice.amount_paid}`);
 
   // Here you could:
   // 1. Send a receipt email
@@ -205,16 +195,20 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
-  const company = await fetchQuery(api.billing.getCompanyByStripeCustomerId, {
-    stripeCustomerId: customerId,
-  });
+  const supabase = createServerSupabaseAdminClient();
+
+  const { data: company } = await supabase
+    .from('companies')
+    .select('*')
+    .eq('stripe_customer_id', customerId)
+    .single();
 
   if (!company) {
     console.error('Company not found for failed invoice');
     return;
   }
 
-  console.error(`Payment failed for company ${company._id}`);
+  console.error(`Payment failed for company ${company.id}`);
 
   // Here you could:
   // 1. Send alert email to admin

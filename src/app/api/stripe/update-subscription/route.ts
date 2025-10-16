@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { stripe } from '@/lib/stripe/stripe-client';
-import { fetchQuery } from 'convex/nextjs';
-import { api } from '@/convex/_generated/api';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, getToken } = await auth();
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -22,17 +21,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Get company data with auth
-    const token = await getToken({ template: 'convex' });
-    const company = await fetchQuery(
-      api.companies.get,
-      { companyId },
-      { token: token ?? undefined }
-    );
-    if (!company) {
+    const supabase = await createServerSupabaseClient();
+    const { data: company, error } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', companyId)
+      .single();
+
+    if (error || !company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const subscriptionId = company.subscription.stripe_subscription_id;
+    const subscriptionId = company.stripe_subscription_id;
     if (!subscriptionId) {
       return NextResponse.json({ error: 'No active subscription found' }, { status: 400 });
     }

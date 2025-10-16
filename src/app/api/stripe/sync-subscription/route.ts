@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { stripe } from '@/lib/stripe/stripe-client';
 import { getPlanByPriceId } from '@/lib/stripe/plans';
-import { fetchQuery, fetchMutation } from 'convex/nextjs';
-import { api } from '@/convex/_generated/api';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
  * Manual sync endpoint to update subscription from Stripe
@@ -11,7 +10,7 @@ import { api } from '@/convex/_generated/api';
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId, getToken } = await auth();
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -24,18 +23,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Get company data
-    const token = await getToken({ template: 'convex' });
-    const company = await fetchQuery(
-      api.companies.get,
-      { companyId },
-      { token: token ?? undefined }
-    );
+    const supabase = await createServerSupabaseClient();
+    const { data: company, error } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', companyId)
+      .single();
 
-    if (!company) {
+    if (error || !company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const customerId = company.subscription.stripe_customer_id;
+    const customerId = company.stripe_customer_id;
     if (!customerId) {
       return NextResponse.json({ error: 'No Stripe customer ID found' }, { status: 400 });
     }
@@ -69,25 +68,19 @@ export async function POST(req: NextRequest) {
       status: subscription.status,
     });
 
-    // Update company subscription in Convex
-    await fetchMutation(
-      api.billing.updateSubscriptionFromStripe,
-      {
-        companyId: companyId as any,
-        stripeData: {
-          stripe_customer_id: subscription.customer as string,
-          stripe_subscription_id: subscription.id,
-          stripe_price_id: priceId,
-          tier: plan.id,
-          status: subscription.status === 'active' ? 'active' : subscription.status,
-          current_period_start: subscription.current_period_start * 1000,
-          current_period_end: subscription.current_period_end * 1000,
-          cancel_at_period_end: subscription.cancel_at_period_end,
-          canceled_at: subscription.canceled_at ? subscription.canceled_at * 1000 : undefined,
-        },
-      },
-      { token: token ?? undefined }
-    );
+    // Update company subscription in Supabase
+    const updateData = {
+      stripe_customer_id: subscription.customer as string,
+      stripe_subscription_id: subscription.id,
+      subscription_tier: plan.id,
+      subscription_status: subscription.status === 'active' ? 'active' : subscription.status,
+      subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString(),
+    };
+
+    await supabase
+      .from('companies')
+      .update(updateData)
+      .eq('id', companyId);
 
     console.log('✅ Subscription synced successfully');
 

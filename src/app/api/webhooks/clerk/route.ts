@@ -1,10 +1,7 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { WebhookEvent } from '@clerk/nextjs/server';
-import { ConvexHttpClient } from 'convex/browser';
-import { api } from '@/convex/_generated/api';
-
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
 
 export async function POST(req: Request) {
   // Get the headers
@@ -54,13 +51,22 @@ export async function POST(req: Request) {
     }
 
     try {
-      // Call Convex mutation to create user, company, and sample client
-      await convex.mutation(api.users.onboardUser, {
-        clerkId: id,
+      const supabase = createServerSupabaseAdminClient();
+
+      // Create user in Supabase
+      const { error: userError } = await supabase.from('users').insert({
+        clerk_id: id,
         email: email_addresses[0]?.email_address || '',
-        name: `${first_name || ''} ${last_name || ''}`.trim() || 'User',
-        avatarUrl: image_url,
+        first_name: first_name || null,
+        last_name: last_name || null,
+        avatar_url: image_url || null,
+        role: 'planner',
       });
+
+      if (userError) {
+        console.error('Error creating user:', userError);
+        return new Response('Error creating user in database', { status: 500 });
+      }
 
       console.log('✅ User onboarded successfully:', id);
       return new Response('User created', { status: 200 });
@@ -78,18 +84,24 @@ export async function POST(req: Request) {
     }
 
     try {
-      // Update user in Convex
-      const user = await convex.query(api.users.getByClerkId, { clerkId: id });
+      const supabase = createServerSupabaseAdminClient();
 
-      if (user) {
-        await convex.mutation(api.users.update, {
-          userId: user._id,
-          name: `${first_name || ''} ${last_name || ''}`.trim() || undefined,
-          avatar_url: image_url,
-        });
-        console.log('✅ User updated successfully:', id);
+      // Update user in Supabase
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          first_name: first_name || null,
+          last_name: last_name || null,
+          avatar_url: image_url || null,
+        })
+        .eq('clerk_id', id);
+
+      if (updateError) {
+        console.error('Error updating user:', updateError);
+        return new Response('Error updating user in database', { status: 500 });
       }
 
+      console.log('✅ User updated successfully:', id);
       return new Response('User updated', { status: 200 });
     } catch (error) {
       console.error('Error updating user:', error);
@@ -105,13 +117,12 @@ export async function POST(req: Request) {
     }
 
     try {
-      const user = await convex.query(api.users.getByClerkId, { clerkId: id });
+      // In production, you might want to soft-delete or archive instead
+      console.log('⚠️  User deletion requested for:', id);
 
-      if (user) {
-        // In production, you might want to soft-delete or archive instead
-        console.log('⚠️  User deletion requested for:', id);
-        // await convex.mutation(api.users.delete, { userId: user._id });
-      }
+      // Uncomment to enable hard delete:
+      // const supabase = createServerSupabaseAdminClient();
+      // await supabase.from('users').delete().eq('clerk_id', id);
 
       return new Response('User deletion handled', { status: 200 });
     } catch (error) {

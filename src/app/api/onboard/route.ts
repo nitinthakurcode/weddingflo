@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ConvexHttpClient } from 'convex/browser';
-import { api } from '@/convex/_generated/api';
-
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,22 +15,38 @@ export async function POST(request: NextRequest) {
 
     console.log('[API] Onboarding user:', clerkId);
 
-    // Call the onboardUser mutation (requires auth, but we'll use admin token)
-    // For now, let's use a workaround: store in a temporary table and have a Convex cron job process it
-    // OR use the internal mutation via an action
+    const supabase = createServerSupabaseAdminClient();
 
-    // Actually, we can't call internal mutations from the client
-    // Let's use the regular mutation with Clerk token
-    const userId = await convex.mutation(api.users.onboardUser, {
-      clerkId,
-      email,
-      name,
-      avatarUrl,
-    });
+    // Parse first and last name from full name
+    const nameParts = name.trim().split(' ');
+    const firstName = nameParts[0] || null;
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
 
-    console.log('[API] User onboarded successfully:', userId);
+    // Create user in Supabase
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .insert({
+        clerk_id: clerkId,
+        email: email,
+        first_name: firstName,
+        last_name: lastName,
+        avatar_url: avatarUrl || null,
+        role: 'planner',
+      })
+      .select()
+      .single();
 
-    return NextResponse.json({ success: true, userId });
+    if (userError) {
+      console.error('[API] Error creating user:', userError);
+      return NextResponse.json(
+        { error: userError.message || 'Failed to create user' },
+        { status: 500 }
+      );
+    }
+
+    console.log('[API] User onboarded successfully:', userData.id);
+
+    return NextResponse.json({ success: true, userId: userData.id });
   } catch (error) {
     console.error('[API] Onboarding error:', error);
     return NextResponse.json(
