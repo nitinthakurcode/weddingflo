@@ -1,4 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
+// Supabase types - no Convex dependencies
 
 export type CreativeType =
   | 'invitation'
@@ -23,15 +23,15 @@ export type CreativeStatus =
   | 'cancelled';
 
 export interface CreativeJob {
-  _id: Id<'creative_jobs'>;
-  weddingId: Id<'weddings'>;
+  id: string; // UUID
+  weddingId: string; // UUID
   type: CreativeType;
   title: string;
   description?: string;
   status: CreativeStatus;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assigned_to?: string;
-  vendor_id?: Id<'vendors'>;
+  vendor_id?: string; // UUID
   due_date?: string;
   completed_date?: string;
   progress: number; // 0-100
@@ -40,8 +40,8 @@ export interface CreativeJob {
   files: CreativeFile[];
   feedback?: string;
   notes?: string;
-  created_at: number;
-  updated_at: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CreativeFile {
@@ -49,10 +49,10 @@ export interface CreativeFile {
   name: string;
   type: string; // mime type
   size: number;
-  storage_id?: Id<'_storage'>;
+  storage_id?: string; // UUID
   url?: string;
   thumbnail_url?: string;
-  uploaded_at: number;
+  uploaded_at: string;
   version: number;
 }
 

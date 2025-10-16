@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import { ConvexClientProvider } from './ConvexClientProvider';
+import { AuthProvider } from './AuthProvider';
 import { Toaster } from '@/components/ui/toaster';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { AnalyticsProvider } from './providers/analytics-provider';
@@ -93,7 +93,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="WeddingFlow Pro" />
       </head>
       <body className={`${inter.variable} font-sans`}>
-        <ConvexClientProvider>
+        <AuthProvider>
           <ThemeInjector />
           <AnalyticsProvider>
             <PWAProvider>
@@ -101,7 +101,7 @@ export default function RootLayout({
               <Toaster />
             </PWAProvider>
           </AnalyticsProvider>
-        </ConvexClientProvider>
+        </AuthProvider>
         <Analytics />
         <SpeedInsights />
       </body>

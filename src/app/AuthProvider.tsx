@@ -4,12 +4,12 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { ReactNode } from 'react';
 
 /**
- * Clerk Provider without Convex
+ * Auth Provider
  *
  * This provider wraps the app with Clerk authentication.
- * We've removed Convex as we're now using Supabase for database.
+ * We're using Supabase for database operations.
  */
-export function ConvexClientProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <ClerkProvider
       publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!}

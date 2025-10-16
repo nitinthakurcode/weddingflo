@@ -1,5 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
-
+// Supabase types - no Convex dependencies
 export type GuestCategory =
   | 'bride_family'
   | 'groom_family'
@@ -22,10 +21,10 @@ export type MealPreference =
   | 'custom';
 
 export interface Guest {
-  _id: Id<'guests'>;
-  _creationTime: number;
-  company_id: Id<'companies'>;
-  client_id: Id<'clients'>;
+  id: string; // UUID
+  created_at: string;
+  company_id: string;
+  client_id: string;
 
   // Basic info (matching Convex schema)
   serial_number: number;
@@ -62,7 +61,7 @@ export interface Guest {
   // Check-in status
   checked_in: boolean;
   checked_in_at?: number;
-  checked_in_by?: Id<'users'>;
+  checked_in_by?: string; // UUID
   checked_in_location?: {
     lat: number;
     lng: number;
@@ -72,8 +71,7 @@ export interface Guest {
   ai_suggested_table?: number;
   ai_compatibility_score?: number;
 
-  created_at: number;
-  updated_at: number;
+  updated_at: string;
 }
 
 export interface GuestFormData {

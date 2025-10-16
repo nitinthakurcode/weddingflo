@@ -1,5 +1,4 @@
-import { Id } from "../../convex/_generated/dataModel";
-
+// Supabase types - no Convex dependencies
 export type VendorCategory =
   | "venue"
   | "catering"
@@ -30,9 +29,9 @@ export interface VendorPayment {
 }
 
 export interface Vendor {
-  _id: Id<"vendors">;
-  _creationTime: number;
-  weddingId: Id<"weddings">;
+  id: string; // UUID
+  created_at: string;
+  weddingId: string;
   name: string;
   category: VendorCategory;
   contactName?: string;
@@ -48,9 +47,9 @@ export interface Vendor {
   depositPaidDate?: string;
   balance?: number;
   payments: VendorPayment[];
-  budgetItemId?: Id<"event_budget">;
+  budgetItemId?: string; // UUID
   contractUrl?: string;
-  contractStorageId?: Id<"_storage">;
+  contractStorageId?: string; // UUID
   rating?: number;
   performanceNotes?: string;
   wouldRecommend?: boolean;
@@ -74,8 +73,8 @@ export interface CreateVendorInput {
   depositPaidDate?: string;
   balance?: number;
   payments?: VendorPayment[];
-  budgetItemId?: Id<"event_budget">;
-  contractStorageId?: Id<"_storage">;
+  budgetItemId?: string; // UUID
+  contractStorageId?: string; // UUID
   rating?: number;
   performanceNotes?: string;
   wouldRecommend?: boolean;
@@ -84,7 +83,7 @@ export interface CreateVendorInput {
 }
 
 export interface UpdateVendorInput extends Partial<CreateVendorInput> {
-  _id: Id<"vendors">;
+  id: string; // UUID
 }
 
 export interface VendorStats {

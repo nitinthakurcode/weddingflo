@@ -1,4 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
+// Supabase types - no Convex dependencies
 
 /**
  * Generic API response wrapper
@@ -67,7 +67,7 @@ export interface QueryParams {
  */
 export interface FileUploadResponse {
   url: string;
-  storageId: Id<'_storage'>;
+  storageId: string; // UUID
   filename: string;
   size: number;
   mimeType: string;

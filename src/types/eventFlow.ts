@@ -1,4 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
+// Supabase types - no Convex dependencies
 
 export type ActivityType =
   | 'setup'
@@ -14,7 +14,7 @@ export type ActivityType =
 export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface ActivityDependency {
-  activity_id: Id<'event_flow'>;
+  activity_id: string; // UUID
   type: 'must_finish_before' | 'must_start_after' | 'must_overlap';
 }
 
@@ -23,16 +23,16 @@ export interface Conflict {
   type: 'time_overlap' | 'vendor_double_booking' | 'location_conflict' | 'dependency_violation';
   severity: 'low' | 'medium' | 'high';
   description: string;
-  affected_activities: Id<'event_flow'>[];
+  affected_activities: string[]; // UUID
   suggested_resolution?: string;
 }
 
 export interface EventActivity {
-  _id: Id<'event_flow'>;
-  _creationTime: number;
-  company_id: Id<'companies'>;
-  client_id: Id<'clients'>;
-  event_id?: Id<'event_brief'>;
+  id: string; // UUID
+  created_at: string;
+  company_id: string; // UUID
+  client_id: string; // UUID
+  event_id?: string; // UUID
   date: number;
   activity: string;
   activity_type: string;
@@ -44,18 +44,17 @@ export interface EventActivity {
   event: string;
   location: string;
   manager: string;
-  responsible_vendor?: Id<'vendors'>;
+  responsible_vendor?: string; // UUID
   order: number;
-  depends_on: Id<'event_flow'>[];
-  blocks: Id<'event_flow'>[];
+  depends_on: string[]; // UUID
+  blocks: string[]; // UUID
   ai_optimized: boolean;
   ai_suggested_start_time?: string;
   ai_conflict_detected: boolean;
   ai_suggestions: string[];
   status: 'planned' | 'confirmed' | 'in_progress' | 'completed' | 'delayed';
   notes?: string;
-  created_at: number;
-  updated_at: number;
+  updated_at: string;
 }
 
 export interface ActivityFormData {
@@ -64,7 +63,7 @@ export interface ActivityFormData {
   activity_status: ActivityStatus;
   start_time: string;
   duration_minutes: number;
-  vendor_ids: Id<'vendors'>[];
+  vendor_ids: string[]; // UUID
   location?: string;
   assigned_to?: string[];
   dependencies: ActivityDependency[];
@@ -85,7 +84,7 @@ export interface TimelineView {
 
 export interface TimeBlock {
   id: string;
-  activity_id: Id<'event_flow'>;
+  activity_id: string; // UUID
   start_time: Date;
   end_time: Date;
   left_percent: number;

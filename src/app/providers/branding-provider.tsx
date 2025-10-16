@@ -1,18 +1,41 @@
 'use client';
 
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useUser } from '@clerk/nextjs';
+import { createClient } from '@/lib/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
-  // Get current user first (same pattern as dashboard)
-  const currentUser = useQuery(api.users.getCurrent);
+  const { user } = useUser();
+  const supabase = createClient();
 
-  // Then get company using user's company_id
-  const company = useQuery(
-    api.companies.get,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_user_id', user.id)
+        .single();
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: company } = useQuery({
+    queryKey: ['company', currentUser?.company_id],
+    queryFn: async () => {
+      if (!currentUser?.company_id) return null;
+      const { data } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', currentUser.company_id)
+        .single();
+      return data;
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   console.log('🔍 BrandingProvider:', { hasUser: !!currentUser, hasCompany: !!company, company });
 

@@ -1,4 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
+// Supabase types - no Convex dependencies
 
 export type RoomType =
   | 'single'
@@ -15,10 +15,10 @@ export type BookingStatus =
   | 'cancelled';
 
 export interface Hotel {
-  _id: Id<'hotels'>;
-  _creationTime: number;
-  company_id: Id<'companies'>;
-  client_id: Id<'clients'>;
+  id: string; // UUID
+  created_at: string;
+  company_id: string; // UUID
+  client_id: string; // UUID
   hotel_name: string;
   address: string;
   phone: string;
@@ -38,19 +38,18 @@ export interface Hotel {
     blocked_rooms: number;
     available_rooms: number;
   }[];
-  created_at: number;
-  updated_at: number;
+  updated_at: string;
 }
 
 export interface HotelDetail {
-  _id: Id<'hotel_details'>;
-  _creationTime: number;
-  company_id: Id<'companies'>;
-  client_id: Id<'clients'>;
-  guest_id: Id<'guests'>;
+  id: string; // UUID
+  created_at: string;
+  company_id: string; // UUID
+  client_id: string; // UUID
+  guest_id: string; // UUID
   accommodation_status: boolean;
   hotel_name?: string;
-  hotel_id?: Id<'hotels'>;
+  hotel_id?: string; // UUID
   room_number?: string;
   room_type?: string;
   check_in_date?: number;
@@ -69,8 +68,7 @@ export interface HotelDetail {
   paid_by?: string;
 
   notes?: string;
-  created_at: number;
-  updated_at: number;
+  updated_at: string;
 }
 
 export interface HotelFormData {
@@ -96,8 +94,8 @@ export interface HotelFormData {
 }
 
 export interface HotelDetailFormData {
-  guest_id: Id<'guests'>;
-  hotel_id: Id<'hotels'>;
+  guest_id: string; // UUID
+  hotel_id: string; // UUID
   room_type: RoomType;
   room_number?: string;
   check_in_date: Date;

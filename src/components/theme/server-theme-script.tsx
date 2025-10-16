@@ -1,6 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { fetchQuery } from 'convex/nextjs';
-import { api } from '@/convex/_generated/api';
+import { createServerClient } from '@/lib/supabase/server';
 
 /**
  * ServerThemeScript - Server Component that injects theme colors directly into HTML
@@ -15,16 +14,25 @@ export async function ServerThemeScript() {
       return null;
     }
 
-    // Fetch user and company data from Convex (server-side)
-    const currentUser = await fetchQuery(api.users.getCurrent);
+    const supabase = await createServerClient();
+
+    // Fetch user from Supabase
+    const { data: currentUser } = await supabase
+      .from('users')
+      .select('*')
+      .eq('clerk_user_id', userId)
+      .single();
 
     if (!currentUser?.company_id) {
       return null;
     }
 
-    const company = await fetchQuery(api.companies.get, {
-      companyId: currentUser.company_id
-    });
+    // Fetch company
+    const { data: company } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', currentUser.company_id)
+      .single();
 
     if (!company?.branding) {
       return null;

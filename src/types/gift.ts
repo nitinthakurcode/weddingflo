@@ -1,13 +1,13 @@
-import { Id } from "../../convex/_generated/dataModel";
+// Supabase types - no Convex dependencies
 
 export type DeliveryStatus = "pending" | "in_transit" | "delivered" | "returned";
 export type ThankYouStatus = "not_sent" | "draft" | "sent";
 
 export interface Gift {
-  _id: Id<"gifts">;
-  _creationTime: number;
-  weddingId: Id<"weddings">;
-  guestId?: Id<"guests">;
+  id: string; // UUID
+  created_at: string;
+  weddingId: string; // UUID
+  guestId?: string; // UUID
   guestName: string;
   description: string;
   category?: string;
@@ -20,13 +20,13 @@ export interface Gift {
   thankYouSentDate?: string;
   thankYouNotes?: string;
   photoUrl?: string;
-  photoStorageId?: Id<"_storage">;
+  photoStorageId?: string; // UUID
   tags?: string[];
   notes?: string;
 }
 
 export interface CreateGiftInput {
-  guestId?: Id<"guests">;
+  guestId?: string; // UUID
   guestName: string;
   description: string;
   category?: string;
@@ -38,13 +38,13 @@ export interface CreateGiftInput {
   thankYouStatus?: ThankYouStatus;
   thankYouSentDate?: string;
   thankYouNotes?: string;
-  photoStorageId?: Id<"_storage">;
+  photoStorageId?: string; // UUID
   tags?: string[];
   notes?: string;
 }
 
 export interface UpdateGiftInput extends Partial<CreateGiftInput> {
-  _id: Id<"gifts">;
+  id: string; // UUID
 }
 
 export interface GiftStats {

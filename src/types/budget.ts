@@ -1,4 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
+// Supabase types - no Convex dependencies
 
 export type BudgetCategory =
   | 'venue'
@@ -18,22 +18,22 @@ export type BudgetCategory =
   | 'other';
 
 export interface BudgetItem {
-  _id: Id<'event_budget'>;
-  weddingId: Id<'weddings'>;
+  id: string; // UUID
+  weddingId: string; // UUID
   category: BudgetCategory;
   item_name: string;
   description?: string;
   budget: number;
   actual_cost: number;
   paid_amount: number;
-  vendor_id?: Id<'vendors'>;
+  vendor_id?: string; // UUID
   payment_status: 'unpaid' | 'partial' | 'paid' | 'overdue';
   due_date?: string;
   paid_date?: string;
   receipt_url?: string;
   notes?: string;
-  created_at: number;
-  updated_at: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BudgetStats {

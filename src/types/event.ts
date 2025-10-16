@@ -1,5 +1,4 @@
-import { Id } from '@/convex/_generated/dataModel';
-
+// Supabase types - no Convex dependencies
 export type EventType =
   | 'ceremony'
   | 'reception'
@@ -39,10 +38,10 @@ export interface WeatherData {
 }
 
 export interface Event {
-  _id: Id<'events'>;
-  _creationTime: number;
-  company_id: Id<'companies'>;
-  client_id: Id<'clients'>;
+  id: string; // UUID
+  created_at: string;
+  company_id: string;
+  client_id: string;
   event_name: string;
   event_type: EventType;
   event_date: number;
@@ -59,8 +58,7 @@ export interface Event {
   budget_allocated?: number;
   budget_spent?: number;
   tags: string[];
-  created_at: number;
-  updated_at: number;
+  updated_at: string;
 }
 
 export interface EventFormData {
