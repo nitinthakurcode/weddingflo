@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 import { TestModeBanner } from '@/components/billing/test-mode-banner';
 import { CurrentPlanCard } from '@/components/billing/current-plan-card';
 import { PlanComparison } from '@/components/billing/plan-comparison';
@@ -20,6 +20,8 @@ export default function BillingPage() {
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const supabase = createClient();
+  const queryClient = useQueryClient();
 
   // Get company ID from user metadata
   const companyId = user?.publicMetadata?.companyId as string | undefined;
@@ -31,16 +33,72 @@ export default function BillingPage() {
     userMetadata: user?.publicMetadata,
   });
 
-  // Fetch subscription and usage data
-  const subscription = useQuery(
-    api.billing.getCurrentSubscription,
-    companyId ? { companyId: companyId as any } : 'skip'
-  );
+  // Fetch subscription data
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery({
+    queryKey: ['subscription', companyId],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const { data, error } = await supabase
+        .from('companies')
+        .select('subscription_tier, subscription_status, subscription_ends_at')
+        .eq('id', companyId)
+        .single();
 
-  const usage = useQuery(
-    api.billing.getUsageStats,
-    companyId ? { companyId: companyId as any } : 'skip'
-  );
+      if (error) throw error;
+
+      return data ? {
+        tier: data.subscription_tier,
+        status: data.subscription_status,
+        current_period_end: data.subscription_ends_at,
+        cancel_at_period_end: false,
+      } : null;
+    },
+    enabled: !!user && !!companyId,
+  });
+
+  // Fetch usage stats
+  const { data: usage, isLoading: usageLoading } = useQuery({
+    queryKey: ['usage', companyId],
+    queryFn: async () => {
+      if (!companyId) return null;
+
+      // Get guests count
+      const { count: guestsCount, error: guestsError } = await supabase
+        .from('guests')
+        .select('*', { count: 'exact', head: true })
+        .in('client_id',
+          supabase
+            .from('clients')
+            .select('id')
+            .eq('company_id', companyId)
+        );
+
+      if (guestsError) throw guestsError;
+
+      // Get clients count (events)
+      const { count: eventsCount, error: eventsError } = await supabase
+        .from('clients')
+        .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId);
+
+      if (eventsError) throw eventsError;
+
+      // Get users count
+      const { count: usersCount, error: usersError } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId);
+
+      if (usersError) throw usersError;
+
+      return {
+        guestsCount: guestsCount || 0,
+        eventsCount: eventsCount || 0,
+        usersCount: usersCount || 0,
+      };
+    },
+    enabled: !!user && !!companyId,
+  });
 
   // Debug query results
   console.log('📊 Query Results:', {
@@ -49,6 +107,8 @@ export default function BillingPage() {
     hasSubscription: !!subscription,
     hasUsage: !!usage,
   });
+
+  const isLoading = subscriptionLoading || usageLoading;
 
   // Handle success/cancel redirects
   useEffect(() => {
@@ -237,6 +297,15 @@ export default function BillingPage() {
   }
 
   // Show loading while fetching data
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-gray-600">Loading subscription details...</p>
+      </div>
+    );
+  }
+
   if (!subscription || !usage) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">

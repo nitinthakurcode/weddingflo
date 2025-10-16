@@ -1,66 +1,114 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../../../../convex/_generated/api';
+import { useUser } from '@clerk/nextjs';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Building2, Loader2, Save } from 'lucide-react';
-import type { Id } from '../../../../../convex/_generated/dataModel';
 
 export default function CompanyPage() {
-  const company = useQuery(api.companies.getCurrentUserCompany);
-  const updateCompany = useMutation(api.companies.update);
+  const { user } = useUser();
+  const supabase = createClient();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const companyId = user?.publicMetadata?.companyId as string | undefined;
 
   const [companyName, setCompanyName] = useState('');
   const [customDomain, setCustomDomain] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  // Fetch company data
+  const { data: company, isLoading } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', companyId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && !!companyId,
+  });
+
   useEffect(() => {
     if (company) {
-      setCompanyName(company.company_name);
-      setCustomDomain(company.custom_domain || '');
+      setCompanyName(company.name);
+      setCustomDomain(company.subdomain || '');
     }
   }, [company]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Update company mutation
+  const updateMutation = useMutation({
+    mutationFn: async (input: { name: string; subdomain?: string }) => {
+      if (!companyId) throw new Error('No company ID');
 
-    if (!company?._id) return;
+      const { error } = await supabase
+        .from('companies')
+        .update({
+          name: input.name,
+          subdomain: input.subdomain,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', companyId);
 
-    setIsSaving(true);
-
-    try {
-      await updateCompany({
-        companyId: company._id as Id<'companies'>,
-        company_name: companyName,
-        custom_domain: customDomain || undefined,
-      });
-
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company', companyId] });
       toast({
         title: 'Company updated',
         description: 'Your company settings have been saved successfully.',
       });
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error('Failed to update company:', error);
       toast({
         title: 'Error',
         description: 'Failed to save company settings. Please try again.',
         variant: 'destructive',
       });
+    },
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!companyId) return;
+
+    setIsSaving(true);
+
+    try {
+      await updateMutation.mutateAsync({
+        name: companyName,
+        subdomain: customDomain || undefined,
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!company) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!company) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-muted-foreground">Company not found</p>
       </div>
     );
   }

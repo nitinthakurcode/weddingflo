@@ -1,8 +1,8 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { useQuery } from 'convex/react';
-import { api } from '../../../../../convex/_generated/api';
+import { useQuery } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ProfileForm } from '@/components/settings/profile-form';
 import { AvatarUpload } from '@/components/settings/avatar-upload';
@@ -10,12 +10,26 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ProfileSettingsPage() {
   const { user: clerkUser } = useUser();
-  const user = useQuery(
-    api.users.getCurrent,
-    clerkUser ? {} : 'skip'
-  );
+  const supabase = createClient();
 
-  if (!clerkUser || user === undefined) {
+  // Fetch current user from Supabase
+  const { data: user, isLoading } = useQuery({
+    queryKey: ['current-user', clerkUser?.id],
+    queryFn: async () => {
+      if (!clerkUser?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', clerkUser.id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!clerkUser,
+  });
+
+  if (!clerkUser || isLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -69,7 +83,7 @@ export default function ProfileSettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <AvatarUpload userId={user._id} currentAvatarUrl={user.avatar_url} />
+          <AvatarUpload userId={user.id} currentAvatarUrl={user.avatar_url} />
         </CardContent>
       </Card>
 
@@ -97,7 +111,7 @@ export default function ProfileSettingsPage() {
         <CardContent className="space-y-4">
           <div>
             <label className="text-sm font-medium">User ID</label>
-            <p className="text-sm text-muted-foreground">{user._id}</p>
+            <p className="text-sm text-muted-foreground">{user.id}</p>
           </div>
           <div>
             <label className="text-sm font-medium">Role</label>
@@ -114,7 +128,7 @@ export default function ProfileSettingsPage() {
           <div>
             <label className="text-sm font-medium">Last Active</label>
             <p className="text-sm text-muted-foreground">
-              {new Date(user.last_active_at).toLocaleString()}
+              {user.last_active_at ? new Date(user.last_active_at).toLocaleString() : 'N/A'}
             </p>
           </div>
         </CardContent>

@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../../../../convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -45,21 +45,96 @@ const LANGUAGES = [
 
 export default function PreferencesPage() {
   const { user: clerkUser } = useUser();
-  const user = useQuery(api.users.getCurrent, clerkUser ? {} : 'skip');
-  const updatePreferences = useMutation(api.users.updatePreferences);
+  const supabase = createClient();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
-  const [preferences, setPreferences] = useState({
-    theme: user?.preferences.theme || 'light',
-    notifications_enabled: user?.preferences.notifications_enabled ?? true,
-    email_digest: user?.preferences.email_digest || 'daily',
-    language: user?.preferences.language || 'en',
-    timezone: user?.preferences.timezone || 'UTC',
+  // Fetch current user
+  const { data: user, isLoading: userLoading } = useQuery({
+    queryKey: ['current-user', clerkUser?.id],
+    queryFn: async () => {
+      if (!clerkUser?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', clerkUser.id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!clerkUser,
   });
 
-  if (!clerkUser || user === undefined) {
+  const userSettings = user?.settings as any || {};
+
+  const [preferences, setPreferences] = useState({
+    theme: userSettings.theme || 'light',
+    notifications_enabled: userSettings.notifications_enabled ?? true,
+    email_digest: userSettings.email_digest || 'daily',
+    language: userSettings.language || 'en',
+    timezone: userSettings.timezone || 'UTC',
+  });
+
+  // Update local state when user data loads
+  if (user && userSettings.theme && preferences.theme !== userSettings.theme) {
+    setPreferences({
+      theme: userSettings.theme,
+      notifications_enabled: userSettings.notifications_enabled,
+      email_digest: userSettings.email_digest,
+      language: userSettings.language,
+      timezone: userSettings.timezone,
+    });
+  }
+
+  // Update preferences mutation
+  const updatePreferencesMutation = useMutation({
+    mutationFn: async (newPreferences: typeof preferences) => {
+      if (!user?.id) throw new Error('No user ID');
+
+      const { error } = await supabase
+        .from('users')
+        .update({
+          settings: newPreferences,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['current-user', clerkUser?.id] });
+      toast({
+        title: 'Preferences saved',
+        description: 'Your preferences have been successfully updated.',
+      });
+      router.refresh();
+    },
+    onError: (error) => {
+      console.error('Failed to save preferences:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save preferences. Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleSave = async () => {
+    setIsLoading(true);
+
+    try {
+      await updatePreferencesMutation.mutateAsync(preferences);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const hasChanges = JSON.stringify(preferences) !== JSON.stringify(userSettings);
+
+  if (!clerkUser || userLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -82,46 +157,6 @@ export default function PreferencesPage() {
   if (!user) {
     return <div>User not found</div>;
   }
-
-  // Update local state when user data loads
-  if (user && preferences.theme !== user.preferences.theme) {
-    setPreferences({
-      theme: user.preferences.theme,
-      notifications_enabled: user.preferences.notifications_enabled,
-      email_digest: user.preferences.email_digest,
-      language: user.preferences.language,
-      timezone: user.preferences.timezone,
-    });
-  }
-
-  const handleSave = async () => {
-    setIsLoading(true);
-
-    try {
-      await updatePreferences({
-        userId: user._id,
-        preferences: preferences as any,
-      });
-
-      toast({
-        title: 'Preferences saved',
-        description: 'Your preferences have been successfully updated.',
-      });
-
-      router.refresh();
-    } catch (error) {
-      console.error('Failed to save preferences:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to save preferences. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const hasChanges = JSON.stringify(preferences) !== JSON.stringify(user.preferences);
 
   return (
     <div className="space-y-6">

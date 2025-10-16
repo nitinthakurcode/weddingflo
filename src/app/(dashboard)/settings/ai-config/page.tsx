@@ -1,20 +1,23 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../../../../convex/_generated/api';
+import { useUser } from '@clerk/nextjs';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { Brain, Loader2, Save } from 'lucide-react';
-import type { Id } from '../../../../../convex/_generated/dataModel';
 
 export default function AIConfigPage() {
-  const company = useQuery(api.companies.getCurrentUserCompany);
-  const updateAIConfig = useMutation(api.companies.updateAIConfig);
+  const { user } = useUser();
+  const supabase = createClient();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const companyId = user?.publicMetadata?.companyId as string | undefined;
 
   const [aiConfig, setAiConfig] = useState({
     enabled: true,
@@ -26,45 +29,94 @@ export default function AIConfigPage() {
   });
   const [isSaving, setIsSaving] = useState(false);
 
+  // Fetch company data
+  const { data: company, isLoading } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', companyId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && !!companyId,
+  });
+
   useEffect(() => {
-    if (company?.ai_config) {
-      setAiConfig(company.ai_config);
+    if (company?.settings) {
+      const settings = company.settings as any;
+      if (settings.ai_config) {
+        setAiConfig(settings.ai_config);
+      }
     }
   }, [company]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Update AI config mutation
+  const updateAIConfigMutation = useMutation({
+    mutationFn: async (config: typeof aiConfig) => {
+      if (!companyId) throw new Error('No company ID');
 
-    if (!company?._id) return;
+      const currentSettings = (company?.settings as any) || {};
+      const { error } = await supabase
+        .from('companies')
+        .update({
+          settings: {
+            ...currentSettings,
+            ai_config: config,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', companyId);
 
-    setIsSaving(true);
-
-    try {
-      await updateAIConfig({
-        companyId: company._id as Id<'companies'>,
-        ai_config: aiConfig,
-      });
-
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company', companyId] });
       toast({
         title: 'AI Configuration updated',
         description: 'Your AI settings have been saved successfully.',
       });
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error('Failed to update AI config:', error);
       toast({
         title: 'Error',
         description: 'Failed to save AI configuration. Please try again.',
         variant: 'destructive',
       });
+    },
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!companyId) return;
+
+    setIsSaving(true);
+
+    try {
+      await updateAIConfigMutation.mutateAsync(aiConfig);
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!company) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!company) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-muted-foreground">Company not found</p>
       </div>
     );
   }

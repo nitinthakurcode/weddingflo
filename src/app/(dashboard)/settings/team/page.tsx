@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../../../../convex/_generated/api';
+import { useUser } from '@clerk/nextjs';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,7 +49,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Users, UserPlus, Loader2, Trash2, Mail, Crown, Briefcase, Eye, Edit2, CheckCircle2 } from 'lucide-react';
 import { useIsAdmin } from '@/lib/permissions/can';
 import { cn } from '@/lib/utils';
-import type { Id } from '../../../../../convex/_generated/dataModel';
 
 const ROLE_CONFIG = {
   super_admin: {
@@ -86,12 +86,14 @@ const ROLE_CONFIG = {
 };
 
 export default function TeamPage() {
-  const teamMembers = useQuery(api.users.getTeamMembers);
-  const currentUser = useQuery(api.users.getCurrent);
-  const updateRole = useMutation(api.users.updateUserRole);
-  const removeUser = useMutation(api.users.removeTeamMember);
+  const { user } = useUser();
+  const supabase = createClient();
+  const queryClient = useQueryClient();
   const isAdmin = useIsAdmin();
   const { toast } = useToast();
+
+  const companyId = user?.publicMetadata?.companyId as string | undefined;
+  const currentUserId = user?.id;
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'super_admin' | 'company_admin' | 'staff' | 'client_viewer'>('staff');
@@ -100,53 +102,109 @@ export default function TeamPage() {
 
   // Role change dialog state
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
-  const [selectedMember, setSelectedMember] = useState<NonNullable<typeof teamMembers>[number] | null>(null);
+  const [selectedMember, setSelectedMember] = useState<any>(null);
 
-  const handleRoleChange = async (userId: Id<'users'>, newRole: string) => {
-    try {
-      await updateRole({
-        userId,
-        role: newRole as any,
-      });
+  // Fetch team members
+  const { data: teamMembers, isLoading: teamMembersLoading } = useQuery({
+    queryKey: ['team-members', companyId],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
 
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user && !!companyId,
+  });
+
+  // Fetch current user
+  const { data: currentUser, isLoading: currentUserLoading } = useQuery({
+    queryKey: ['current-user', currentUserId],
+    queryFn: async () => {
+      if (!currentUserId) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', currentUserId)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && !!currentUserId,
+  });
+
+  // Update role mutation
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      const { error } = await supabase
+        .from('users')
+        .update({ role, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-members', companyId] });
       toast({
         title: 'Role updated',
         description: 'User role has been updated successfully.',
       });
-
       setRoleDialogOpen(false);
       setSelectedMember(null);
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error('Failed to update role:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update role.',
         variant: 'destructive',
       });
-    }
-  };
+    },
+  });
 
-  const openRoleDialog = (member: NonNullable<typeof teamMembers>[number]) => {
-    setSelectedMember(member);
-    setRoleDialogOpen(true);
-  };
+  // Remove user mutation
+  const removeUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userId);
 
-  const handleRemoveUser = async (userId: Id<'users'>) => {
-    try {
-      await removeUser({ userId });
-
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-members', companyId] });
       toast({
         title: 'User removed',
         description: 'Team member has been removed successfully.',
       });
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error('Failed to remove user:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to remove user.',
         variant: 'destructive',
       });
-    }
+    },
+  });
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    await updateRoleMutation.mutateAsync({ userId, role: newRole });
+  };
+
+  const openRoleDialog = (member: any) => {
+    setSelectedMember(member);
+    setRoleDialogOpen(true);
+  };
+
+  const handleRemoveUser = async (userId: string) => {
+    await removeUserMutation.mutateAsync(userId);
   };
 
   const handleInvite = async () => {
@@ -184,10 +242,20 @@ export default function TeamPage() {
     }
   };
 
-  if (!teamMembers || !currentUser) {
+  const isLoading = teamMembersLoading || currentUserLoading;
+
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!teamMembers || !currentUser) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-muted-foreground">No team data available</p>
       </div>
     );
   }
@@ -306,21 +374,22 @@ export default function TeamPage() {
             </TableHeader>
             <TableBody>
               {teamMembers.map((member) => {
-                const isCurrentUser = member._id === currentUser._id;
+                const isCurrentUser = member.id === currentUser.id;
+                const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email;
 
                 return (
-                  <TableRow key={member._id}>
+                  <TableRow key={member.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
                           <AvatarImage src={member.avatar_url} />
                           <AvatarFallback>
-                            {member.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                            {fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div>
                           <div className="font-medium">
-                            {member.name}
+                            {fullName}
                             {isCurrentUser && (
                               <Badge variant="outline" className="ml-2">You</Badge>
                             )}
@@ -353,7 +422,7 @@ export default function TeamPage() {
                       {new Date(member.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(member.last_active_at).toLocaleDateString()}
+                      {member.last_active_at ? new Date(member.last_active_at).toLocaleDateString() : 'N/A'}
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">
@@ -368,14 +437,14 @@ export default function TeamPage() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Remove team member?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Are you sure you want to remove {member.name} from your team?
+                                  Are you sure you want to remove {fullName} from your team?
                                   This action cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                                 <AlertDialogAction
-                                  onClick={() => handleRemoveUser(member._id)}
+                                  onClick={() => handleRemoveUser(member.id)}
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 >
                                   Remove
@@ -406,11 +475,11 @@ export default function TeamPage() {
                     <Avatar className="h-10 w-10">
                       <AvatarImage src={selectedMember.avatar_url} />
                       <AvatarFallback>
-                        {selectedMember.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                        {`${selectedMember.first_name || ''} ${selectedMember.last_name || ''}`.trim().split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <div className="font-medium text-foreground">{selectedMember.name}</div>
+                      <div className="font-medium text-foreground">{`${selectedMember.first_name || ''} ${selectedMember.last_name || ''}`.trim() || selectedMember.email}</div>
                       <div className="text-sm text-muted-foreground">{selectedMember.email}</div>
                     </div>
                   </div>
@@ -431,7 +500,7 @@ export default function TeamPage() {
               return (
                 <div
                   key={roleKey}
-                  onClick={() => !isCurrentRole && selectedMember && handleRoleChange(selectedMember._id, roleKey)}
+                  onClick={() => !isCurrentRole && selectedMember && handleRoleChange(selectedMember.id, roleKey)}
                   className={cn(
                     'w-full p-4 rounded-lg border-2 transition-all text-left',
                     config.card,
