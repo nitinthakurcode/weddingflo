@@ -1,36 +1,116 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { ConversationList } from '@/components/messages/conversation-list';
 import { ChatRoom } from '@/components/messages/chat-room';
 import { AIAssistantPanel } from '@/components/messages/ai-assistant-panel';
-import { Id } from '@/convex/_generated/dataModel';
 
 export default function MessagesPage() {
-  const [selectedClientId, setSelectedClientId] = useState<Id<'clients'> | undefined>();
+  const [selectedClientId, setSelectedClientId] = useState<string | undefined>();
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user
-  const currentUser = useQuery(api.users.getCurrent);
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
   // Get conversations
-  const conversations = useQuery(
-    api.messages.getConversations,
-    currentUser?.company_id && currentUser?.clerk_id
-      ? { companyId: currentUser.company_id, userId: currentUser.clerk_id }
-      : 'skip'
-  );
+  const { data: conversations, isLoading: isLoadingConversations } = useQuery({
+    queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
+    queryFn: async () => {
+      if (!currentUser?.company_id || !currentUser?.clerk_id) return [];
+
+      // Get all messages for this company
+      const { data: messagesData, error: messagesError } = await supabase
+        .from('messages')
+        .select('*, clients(*)')
+        .eq('company_id', currentUser.company_id)
+        .order('created_at', { ascending: false });
+
+      if (messagesError) throw messagesError;
+
+      // Group by client to create conversations
+      const conversationMap = new Map();
+      messagesData?.forEach((message: any) => {
+        const clientId = message.client_id;
+        if (!conversationMap.has(clientId)) {
+          conversationMap.set(clientId, {
+            client: message.clients,
+            lastMessage: message,
+            unreadCount: 0,
+          });
+        }
+      });
+
+      return Array.from(conversationMap.values());
+    },
+    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id,
+  });
+
+  // Set up realtime subscription for messages
+  useEffect(() => {
+    if (!currentUser?.company_id) return;
+
+    const channel = supabase
+      .channel('messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `company_id=eq.${currentUser.company_id}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['conversations'] });
+          queryClient.invalidateQueries({ queryKey: ['messages'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `company_id=eq.${currentUser.company_id}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['conversations'] });
+          queryClient.invalidateQueries({ queryKey: ['messages'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.company_id, queryClient, supabase]);
 
   // Loading state
-  if (currentUser === undefined || conversations === undefined) {
+  if (isLoadingUser || isLoadingConversations) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!user || !currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -48,10 +128,10 @@ export default function MessagesPage() {
       {/* Conversations List (Left Panel) - Hidden on mobile when chat is selected */}
       <div className={`w-full sm:w-72 md:w-80 flex-shrink-0 ${selectedClientId ? 'hidden sm:block' : 'block'}`}>
         <ConversationList
-          conversations={conversations}
+          conversations={conversations || []}
           selectedClientId={selectedClientId}
           onSelectConversation={(clientId) => {
-            setSelectedClientId(clientId as Id<'clients'>);
+            setSelectedClientId(clientId as string);
             setShowAIAssistant(false); // Close AI panel when switching conversations
           }}
           companyId={currentUser.company_id}

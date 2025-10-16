@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
-import { Id } from '@/convex/_generated/dataModel';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 interface Gift {
-  _id: Id<'gifts'>;
+  id: string;
   guestName: string;
   description: string;
   category?: string;
@@ -35,49 +35,131 @@ interface Gift {
 
 export default function GiftsPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: clients, isLoading: isLoadingClients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      if (!currentUser?.company_id) return [];
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser.company_id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now (in production, add client selector)
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
   // Get or create wedding for this client
-  const weddings = useQuery(
-    api.weddings.getByClient,
-    clientId ? { clientId } : 'skip'
-  );
-  const createDefaultWedding = useMutation(api.weddings.createDefault);
+  const { data: weddings, isLoading: isLoadingWeddings } = useQuery({
+    queryKey: ['weddings', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await supabase
+        .from('weddings')
+        .select('*')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
+
+  const createDefaultWedding = useMutation({
+    mutationFn: async (clientId: string) => {
+      const { error } = await supabase.from('weddings').insert({
+        client_id: clientId,
+        wedding_date: new Date().toISOString(),
+        status: 'planning',
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['weddings'] });
+    },
+  });
 
   // Auto-create wedding if client exists but has no wedding
   const [weddingCreated, setWeddingCreated] = useState(false);
 
   useEffect(() => {
     if (clientId && weddings && weddings.length === 0 && !weddingCreated) {
-      createDefaultWedding({ clientId })
+      createDefaultWedding.mutateAsync(clientId)
         .then(() => setWeddingCreated(true))
         .catch((err) => console.error('Failed to create wedding:', err));
     }
-  }, [clientId, weddings, weddingCreated, createDefaultWedding]);
+  }, [clientId, weddings, weddingCreated]);
 
-  const weddingId = weddings?.[0]?._id;
+  const weddingId = weddings?.[0]?.id;
 
   // Query gifts and stats
-  const gifts = useQuery(
-    api.gifts.getGiftsByWedding,
-    weddingId ? { weddingId } : 'skip'
-  );
-  const stats = useQuery(
-    api.gifts.getGiftStats,
-    weddingId ? { weddingId } : 'skip'
-  );
+  const { data: gifts, isLoading: isLoadingGifts } = useQuery({
+    queryKey: ['gifts', weddingId],
+    queryFn: async () => {
+      if (!weddingId) return [];
+      const { data, error } = await supabase
+        .from('gifts')
+        .select('*')
+        .eq('wedding_id', weddingId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!weddingId,
+  });
 
-  const deleteGift = useMutation(api.gifts.deleteGift);
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
+    queryKey: ['gift_stats', weddingId],
+    queryFn: async () => {
+      if (!weddingId) return null;
+      const { data: giftsData, error } = await supabase
+        .from('gifts')
+        .select('*')
+        .eq('wedding_id', weddingId);
+      if (error) throw error;
+
+      const totalGifts = giftsData?.length || 0;
+      const deliveredGifts = giftsData?.filter(g => g.deliveryStatus === 'delivered').length || 0;
+      const thankYousSent = giftsData?.filter(g => g.thankYouStatus === 'sent').length || 0;
+      const totalValue = giftsData?.reduce((sum, g) => sum + (g.estimatedValue || 0), 0) || 0;
+
+      return { totalGifts, deliveredGifts, thankYousSent, totalValue };
+    },
+    enabled: !!weddingId,
+  });
+
+  const deleteGift = useMutation({
+    mutationFn: async (giftId: string) => {
+      const { error } = await supabase.from('gifts').delete().eq('id', giftId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gifts'] });
+      queryClient.invalidateQueries({ queryKey: ['gift_stats'] });
+    },
+  });
 
   const [selectedGift, setSelectedGift] = useState<Gift | undefined>();
   const [giftDialogOpen, setGiftDialogOpen] = useState(false);
@@ -113,7 +195,7 @@ export default function GiftsPage() {
     }
 
     try {
-      await deleteGift({ giftId: gift._id });
+      await deleteGift.mutateAsync(gift.id);
       toast({
         title: 'Success',
         description: 'Gift deleted successfully',
@@ -264,12 +346,12 @@ export default function GiftsPage() {
   };
 
   // Loading state
-  if (currentUser === undefined) {
+  if (isLoadingUser) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!user || !currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -283,12 +365,12 @@ export default function GiftsPage() {
   }
 
   // Loading clients, weddings, and gifts
-  if (clients === undefined || weddings === undefined) {
+  if (isLoadingClients || isLoadingWeddings) {
     return <PageLoader />;
   }
 
   // Wait for wedding to be created or gifts to load
-  if (weddingId && (gifts === undefined || stats === undefined)) {
+  if (weddingId && (isLoadingGifts || isLoadingStats)) {
     return <PageLoader />;
   }
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { TimelineView } from '@/components/timeline/timeline-view';
 import { ActivityDialog } from '@/components/timeline/activity-dialog';
@@ -13,27 +14,85 @@ import { Plus, GitBranch } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { useToast } from '@/hooks/use-toast';
-import { Id } from '@/convex/_generated/dataModel';
 
 export default function TimelinePage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: clients, isLoading: isLoadingClients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      if (!currentUser?.company_id) return [];
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser.company_id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
   // Fetch activities
-  const activities = useQuery(api.eventFlow.list, clientId ? { clientId } : 'skip');
+  const { data: activities, isLoading: isLoadingActivities } = useQuery({
+    queryKey: ['event_flow', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await supabase
+        .from('event_flow')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('order', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
 
-  const createActivity = useMutation(api.eventFlow.create);
-  const updateActivity = useMutation(api.eventFlow.update);
+  const createActivity = useMutation({
+    mutationFn: async (input: any) => {
+      const { error } = await supabase.from('event_flow').insert(input);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event_flow'] });
+    },
+  });
+
+  const updateActivity = useMutation({
+    mutationFn: async ({ eventFlowId, ...updates }: any) => {
+      const { error } = await supabase
+        .from('event_flow')
+        .update(updates)
+        .eq('id', eventFlowId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event_flow'] });
+    },
+  });
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<EventActivity | undefined>();
@@ -57,7 +116,7 @@ export default function TimelinePage() {
       const endMins = endMinutes % 60;
       const end_time = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
 
-      await createActivity({
+      await createActivity.mutateAsync({
         company_id: currentUser.company_id,
         client_id: clientId,
         date: Date.now(),
@@ -101,8 +160,8 @@ export default function TimelinePage() {
       const endMins = endMinutes % 60;
       const end_time = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
 
-      await updateActivity({
-        eventFlowId: selectedActivity._id,
+      await updateActivity.mutateAsync({
+        eventFlowId: selectedActivity.id,
         activity: data.activity_name,
         start_time: data.start_time,
         duration_minutes: data.duration_minutes,
@@ -148,12 +207,12 @@ export default function TimelinePage() {
   };
 
   // Loading state
-  if (currentUser === undefined) {
+  if (isLoadingUser) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!user || !currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -167,7 +226,7 @@ export default function TimelinePage() {
   }
 
   // Loading clients and activities
-  if (clients === undefined || activities === undefined) {
+  if (isLoadingClients || isLoadingActivities) {
     return <PageLoader />;
   }
 
@@ -238,7 +297,7 @@ export default function TimelinePage() {
             </div>
           ) : (
             <TimelineView
-              activities={activities}
+              activities={activities || []}
               onActivityClick={handleActivityClick}
               onActivityReorder={handleActivityReorder}
             />
@@ -246,7 +305,7 @@ export default function TimelinePage() {
         </TabsContent>
 
         <TabsContent value="dependencies">
-          <DependencyGraph activities={activities} />
+          <DependencyGraph activities={activities || []} />
         </TabsContent>
       </Tabs>
 

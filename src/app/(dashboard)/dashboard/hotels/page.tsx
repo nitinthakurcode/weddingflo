@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
@@ -24,22 +25,91 @@ import {
 
 export default function HotelsPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['currentUser', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: clients, isLoading: isLoadingClients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      if (!currentUser?.company_id) return [];
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser.company_id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now (in production, add client selector)
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
-  const hotels = useQuery(api.hotels.list, clientId ? { clientId } : 'skip');
-  const hotelDetails = useQuery(api.hotelDetails.list, clientId ? { clientId } : 'skip');
-  const createHotel = useMutation(api.hotels.create);
-  const deleteHotel = useMutation(api.hotels.deleteHotel);
+  const { data: hotels, isLoading: isLoadingHotels } = useQuery({
+    queryKey: ['hotels', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await supabase
+        .from('hotels')
+        .select('*')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
+
+  const { data: hotelDetails, isLoading: isLoadingHotelDetails } = useQuery({
+    queryKey: ['hotel_details', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await supabase
+        .from('hotel_details')
+        .select('*')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
+
+  const createHotel = useMutation({
+    mutationFn: async (input: any) => {
+      const { error } = await supabase.from('hotels').insert(input);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hotels'] });
+    },
+  });
+
+  const deleteHotel = useMutation({
+    mutationFn: async (hotelId: string) => {
+      const { error } = await supabase.from('hotels').delete().eq('id', hotelId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hotels'] });
+    },
+  });
 
   const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -77,7 +147,7 @@ export default function HotelsPage() {
 
     setIsSubmitting(true);
     try {
-      await createHotel({
+      await createHotel.mutateAsync({
         company_id: currentUser.company_id,
         client_id: clientId,
         hotel_name: data.hotel_name,
@@ -120,7 +190,7 @@ export default function HotelsPage() {
     }
 
     try {
-      await deleteHotel({ hotelId: hotel._id });
+      await deleteHotel.mutateAsync(hotel.id);
       toast({
         title: 'Success',
         description: 'Hotel deleted successfully',
@@ -142,12 +212,12 @@ export default function HotelsPage() {
   };
 
   // Loading state
-  if (currentUser === undefined) {
+  if (isLoadingUser) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!user || !currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -161,7 +231,7 @@ export default function HotelsPage() {
   }
 
   // Loading clients, hotels, and hotel details
-  if (clients === undefined || hotels === undefined || hotelDetails === undefined) {
+  if (isLoadingClients || isLoadingHotels || isLoadingHotelDetails) {
     return <PageLoader />;
   }
 
@@ -327,8 +397,8 @@ export default function HotelsPage() {
             />
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredHotelDetails.map((detail) => (
-                <div key={detail._id} className="border rounded-lg p-4">
+              {filteredHotelDetails.map((detail: any) => (
+                <div key={detail.id} className="border rounded-lg p-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="font-medium">Room {detail.room_number || 'TBD'}</h4>
