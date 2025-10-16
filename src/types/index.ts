@@ -14,5 +14,4 @@ export * from './creative';
 export * from './event';
 export * from './eventFlow';
 
-// Re-export commonly used types from Convex
-export type { Id } from '@/convex/_generated/dataModel';
+// All types migrated to Supabase - no Convex dependencies

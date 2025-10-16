@@ -1,6 +1,5 @@
 import { parse, format, addMinutes, isWithinInterval, isBefore, isAfter } from 'date-fns';
 import { EventActivity, Conflict, TimeBlock } from '@/types/eventFlow';
-import { Id } from '@/convex/_generated/dataModel';
 
 /**
  * Parse a time string (HH:MM) to a Date object for a given date
@@ -144,7 +143,7 @@ export function detectConflicts(activities: EventActivity[]): Conflict[] {
 /**
  * Check if an activity has conflicts
  */
-export function hasConflict(activityId: Id<'event_flow'>, conflicts: Conflict[]): boolean {
+export function hasConflict(activityId: string, conflicts: Conflict[]): boolean {
   return conflicts.some((c) => c.affected_activities.includes(activityId));
 }
 
@@ -152,7 +151,7 @@ export function hasConflict(activityId: Id<'event_flow'>, conflicts: Conflict[])
  * Get conflicts for a specific activity
  */
 export function getActivityConflicts(
-  activityId: Id<'event_flow'>,
+  activityId: string,
   conflicts: Conflict[]
 ): Conflict[] {
   return conflicts.filter((c) => c.affected_activities.includes(activityId));

@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Plus } from 'lucide-react';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface Payment {
   id: string;
@@ -19,7 +18,7 @@ interface Payment {
 }
 
 interface Vendor {
-  _id: Id<'vendors'>;
+  id: string; // UUID
   name: string;
   totalCost: number;
   balance?: number;
