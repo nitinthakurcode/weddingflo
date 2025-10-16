@@ -27,6 +27,7 @@ export default function EventsPage() {
   const { data: currentUser, isLoading: isLoadingUser } = useQuery({
     queryKey: ['currentUser'],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -41,6 +42,7 @@ export default function EventsPage() {
   const { data: clients, isLoading: isLoadingClients } = useQuery({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -60,6 +62,7 @@ export default function EventsPage() {
   const { data: rawEvents, isLoading: isLoadingEvents } = useQuery({
     queryKey: ['events', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('events')
         .select('*')

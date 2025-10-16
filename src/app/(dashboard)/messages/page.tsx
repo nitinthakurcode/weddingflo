@@ -20,6 +20,7 @@ export default function MessagesPage() {
   const { data: currentUser, isLoading: isLoadingUser } = useQuery({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
@@ -36,6 +37,7 @@ export default function MessagesPage() {
   const { data: conversations, isLoading: isLoadingConversations } = useQuery({
     queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id || !currentUser?.clerk_id) return [];
 
       // Get all messages for this company

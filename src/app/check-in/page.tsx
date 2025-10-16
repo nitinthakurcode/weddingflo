@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '@/../convex/_generated/api';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -36,13 +35,13 @@ interface CheckInResult {
 /**
  * Check-in Station Page
  * Dedicated page for scanning QR codes and checking in guests
+ * NOTE: Public page - uses unauthenticated Supabase client
  */
 export default function CheckInPage() {
   const router = useRouter();
+  const supabase = createClient();
   const [checkInResult, setCheckInResult] = useState<CheckInResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-
-  const checkInGuestMutation = useMutation(api.qr.checkInGuestViaQR);
 
   const handleScanSuccess = async (token: string, fullText: string) => {
     console.log('🎯 handleScanSuccess called with token:', token);
@@ -112,26 +111,71 @@ export default function CheckInPage() {
       }
 
       // Check in the guest (only for real guests)
-      const result = await checkInGuestMutation({
-        token,
-        location,
-      });
+      // First, get the guest to check if already checked in
+      const { data: guest, error: guestError } = await supabase
+        .from('guests')
+        .select('id, name, number_of_packs, checked_in')
+        .eq('id', decryptedToken.guestId)
+        .single();
 
-      if (result.success) {
-        setCheckInResult({
-          success: true,
-          guest: result.guest,
-        });
-
-        // Play success sound (optional)
-        playSuccessSound();
-      } else {
+      if (guestError) {
+        console.error('❌ Failed to fetch guest:', guestError);
         setCheckInResult({
           success: false,
-          error: result.error || 'Failed to check in guest',
-          alreadyCheckedIn: result.error?.includes('already checked in'),
+          error: 'Guest not found',
         });
+        setIsProcessing(false);
+        return;
       }
+
+      if (guest.checked_in) {
+        console.log('⚠️ Guest already checked in');
+        setCheckInResult({
+          success: false,
+          error: 'This guest is already checked in',
+          alreadyCheckedIn: true,
+          guest: {
+            id: guest.id,
+            name: guest.name,
+            numberOfPacks: guest.number_of_packs,
+          },
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      // Update guest to mark as checked in
+      const { error: updateError } = await supabase
+        .from('guests')
+        .update({
+          checked_in: true,
+          check_in_time: new Date().toISOString(),
+          check_in_location: location ? JSON.stringify(location) : null,
+        })
+        .eq('id', decryptedToken.guestId);
+
+      if (updateError) {
+        console.error('❌ Failed to check in guest:', updateError);
+        setCheckInResult({
+          success: false,
+          error: 'Failed to check in guest',
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      // Success!
+      setCheckInResult({
+        success: true,
+        guest: {
+          id: guest.id,
+          name: guest.name,
+          numberOfPacks: guest.number_of_packs,
+        },
+      });
+
+      // Play success sound (optional)
+      playSuccessSound();
     } catch (error) {
       console.error('Check-in error:', error);
       setCheckInResult({

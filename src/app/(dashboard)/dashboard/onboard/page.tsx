@@ -1,8 +1,6 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
@@ -14,8 +12,6 @@ export default function OnboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-
-  const onboardUser = useMutation(api.users.onboardUser);
 
   const handleOnboard = async () => {
     if (!user) {
@@ -33,14 +29,26 @@ export default function OnboardPage() {
     });
 
     try {
-      const result = await onboardUser({
-        clerkId: user.id,
-        email: user.primaryEmailAddress?.emailAddress || '',
-        name: user.fullName || user.firstName || 'User',
-        avatarUrl: user.imageUrl,
+      const response = await fetch('/api/onboard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clerkId: user.id,
+          email: user.primaryEmailAddress?.emailAddress || '',
+          name: user.fullName || user.firstName || 'User',
+          avatarUrl: user.imageUrl,
+        }),
       });
 
-      console.log('Onboard successful! User ID:', result);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to onboard');
+      }
+
+      console.log('Onboard successful! User ID:', result.userId);
       setSuccess(true);
 
       setTimeout(() => {

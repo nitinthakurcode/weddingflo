@@ -33,6 +33,7 @@ export default function HotelsPage() {
   const { data: currentUser, isLoading: isLoadingUser } = useQuery({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
@@ -48,6 +49,7 @@ export default function HotelsPage() {
   const { data: clients, isLoading: isLoadingClients } = useQuery({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return [];
       const { data, error } = await supabase
         .from('clients')
@@ -66,6 +68,7 @@ export default function HotelsPage() {
   const { data: hotels, isLoading: isLoadingHotels } = useQuery({
     queryKey: ['hotels', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
         .from('hotels')
@@ -80,6 +83,7 @@ export default function HotelsPage() {
   const { data: hotelDetails, isLoading: isLoadingHotelDetails } = useQuery({
     queryKey: ['hotel_details', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
         .from('hotel_details')

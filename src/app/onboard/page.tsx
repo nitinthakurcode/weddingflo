@@ -1,8 +1,8 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PageLoader } from '@/components/ui/loading-spinner';
@@ -10,14 +10,33 @@ import { PageLoader } from '@/components/ui/loading-spinner';
 export default function OnboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
+  const supabase = useSupabase();
   const [error, setError] = useState<string | null>(null);
   const [isOnboarding, setIsOnboarding] = useState(false);
 
   // Check if user already exists
-  const existingUser = useQuery(api.users.getCurrent);
+  const { data: existingUser, isLoading: isCheckingUser } = useQuery({
+    queryKey: ['current-user', user?.id],
+    queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
+      if (!user?.id) return null;
 
-  // Mutation to onboard user (doesn't require auth)
-  const onboardUser = useMutation(api.users.onboardUser);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user.id)
+        .single();
+
+      if (error) {
+        // User doesn't exist yet - this is expected
+        if (error.code === 'PGRST116') return null;
+        throw error;
+      }
+
+      return data;
+    },
+    enabled: !!user?.id && isLoaded,
+  });
 
   useEffect(() => {
     async function handleOnboarding() {
@@ -35,9 +54,9 @@ export default function OnboardPage() {
         return;
       }
 
-      // If existingUser is still undefined (loading), wait
-      if (existingUser === undefined) {
-        console.log('Waiting for user data to load...');
+      // If still checking, wait
+      if (isCheckingUser) {
+        console.log('Checking user data...');
         return;
       }
 
@@ -58,17 +77,29 @@ export default function OnboardPage() {
           name: user.fullName || user.firstName,
         });
 
-        const userId = await onboardUser({
-          clerkId: user.id,
-          email: user.primaryEmailAddress?.emailAddress || '',
-          name: user.fullName || user.firstName || 'User',
-          avatarUrl: user.imageUrl,
+        const response = await fetch('/api/onboard', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            clerkId: user.id,
+            email: user.primaryEmailAddress?.emailAddress || '',
+            name: user.fullName || user.firstName || 'User',
+            avatarUrl: user.imageUrl,
+          }),
         });
 
-        console.log('✅ User onboarded successfully:', userId);
+        const result = await response.json();
 
-        // Wait for Convex to propagate the change
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to onboard');
+        }
+
+        console.log('✅ User onboarded successfully:', result.userId);
+
+        // Wait a moment for data propagation
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Force a hard refresh to ensure query cache is cleared
         window.location.href = '/dashboard';
@@ -76,8 +107,6 @@ export default function OnboardPage() {
         console.error('❌ Onboarding error:', err);
         console.error('Error details:', {
           message: err?.message,
-          data: err?.data,
-          stack: err?.stack,
         });
         setError(err instanceof Error ? err.message : 'Failed to onboard user. Please refresh and try again.');
         setIsOnboarding(false);
@@ -85,7 +114,7 @@ export default function OnboardPage() {
     }
 
     handleOnboarding();
-  }, [isLoaded, user, existingUser, isOnboarding, router, onboardUser]);
+  }, [isLoaded, user, existingUser, isCheckingUser, isOnboarding, router]);
 
   if (error) {
     return (

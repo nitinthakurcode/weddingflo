@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const { data: currentUser, isLoading: userLoading } = useReactQuery({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
@@ -54,6 +55,7 @@ export default function DashboardPage() {
   const { data: clients } = useReactQuery({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -72,6 +74,7 @@ export default function DashboardPage() {
   const { data: dashboardStats } = useReactQuery({
     queryKey: ['dashboard-stats', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       // Fetch all counts in parallel
       const [guests, vendors, creatives, budgetItems, events] = await Promise.all([
         supabase.from('guests').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
@@ -127,6 +130,7 @@ export default function DashboardPage() {
   const { data: recentActivity } = useReactQuery({
     queryKey: ['recent-activity', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       // This would fetch from an activity log table if available
       // For now, return empty array
       return [];
@@ -137,6 +141,7 @@ export default function DashboardPage() {
   const { data: upcomingEvents } = useReactQuery({
     queryKey: ['upcoming-events', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const now = Date.now();
       const { data, error } = await supabase
         .from('event_brief')
@@ -154,6 +159,7 @@ export default function DashboardPage() {
   const { data: alerts } = useReactQuery({
     queryKey: ['alerts', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       // This would fetch from an alerts table if available
       // For now, return empty array
       return [];

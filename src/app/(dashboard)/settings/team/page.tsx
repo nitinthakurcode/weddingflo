@@ -108,6 +108,7 @@ export default function TeamPage() {
   const { data: teamMembers, isLoading: teamMembersLoading } = useQuery({
     queryKey: ['team-members', companyId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!companyId) return [];
       const { data, error } = await supabase
         .from('users')
@@ -125,6 +126,7 @@ export default function TeamPage() {
   const { data: currentUser, isLoading: currentUserLoading } = useQuery({
     queryKey: ['current-user', currentUserId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!currentUserId) return null;
       const { data, error } = await supabase
         .from('users')

@@ -43,6 +43,7 @@ export default function GiftsPage() {
   const { data: currentUser, isLoading: isLoadingUser } = useQuery({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
@@ -58,6 +59,7 @@ export default function GiftsPage() {
   const { data: clients, isLoading: isLoadingClients } = useQuery({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return [];
       const { data, error } = await supabase
         .from('clients')
@@ -77,6 +79,7 @@ export default function GiftsPage() {
   const { data: weddings, isLoading: isLoadingWeddings } = useQuery({
     queryKey: ['weddings', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
         .from('weddings')
@@ -119,6 +122,7 @@ export default function GiftsPage() {
   const { data: gifts, isLoading: isLoadingGifts } = useQuery({
     queryKey: ['gifts', weddingId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!weddingId) return [];
       const { data, error } = await supabase
         .from('gifts')
@@ -133,6 +137,7 @@ export default function GiftsPage() {
   const { data: stats, isLoading: isLoadingStats } = useQuery({
     queryKey: ['gift_stats', weddingId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!weddingId) return null;
       const { data: giftsData, error } = await supabase
         .from('gifts')

@@ -25,6 +25,7 @@ export default function TimelinePage() {
   const { data: currentUser, isLoading: isLoadingUser } = useQuery({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
@@ -40,6 +41,7 @@ export default function TimelinePage() {
   const { data: clients, isLoading: isLoadingClients } = useQuery({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return [];
       const { data, error } = await supabase
         .from('clients')
@@ -59,6 +61,7 @@ export default function TimelinePage() {
   const { data: activities, isLoading: isLoadingActivities } = useQuery({
     queryKey: ['event_flow', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
         .from('event_flow')

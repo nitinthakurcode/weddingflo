@@ -20,13 +20,14 @@ export default function CreativesPage() {
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<any>({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', user?.id)
+        .eq('clerk_id', user.id)
         .single();
       if (error) throw error;
       return data;
@@ -34,9 +35,10 @@ export default function CreativesPage() {
     enabled: !!user?.id,
   });
 
-  const { data: clients } = useQuery({
+  const { data: clients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -49,9 +51,10 @@ export default function CreativesPage() {
 
   // Get weddings for the first client
   const selectedClient = clients?.[0];
-  const { data: weddings } = useQuery({
+  const { data: weddings } = useQuery<any[]>({
     queryKey: ['weddings', selectedClient?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('weddings')
         .select('*')
@@ -67,9 +70,10 @@ export default function CreativesPage() {
   const weddingId = selectedWedding?.id;
 
   // Fetch creative jobs and stats
-  const { data: creativeJobs, isLoading: creativeJobsLoading } = useQuery({
+  const { data: creativeJobs, isLoading: creativeJobsLoading } = useQuery<any[]>({
     queryKey: ['creative-jobs', weddingId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('creative_jobs')
         .select('*')
@@ -80,9 +84,10 @@ export default function CreativesPage() {
     enabled: !!weddingId,
   });
 
-  const { data: creativeStats } = useQuery({
+  const { data: creativeStats } = useQuery<any>({
     queryKey: ['creative-stats', weddingId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!creativeJobs) return null;
 
       const now = Date.now();
@@ -117,7 +122,7 @@ export default function CreativesPage() {
     mutationFn: async ({ jobId, status }: { jobId: string; status: CreativeJob['status'] }) => {
       const { error } = await supabase
         .from('creative_jobs')
-        .update({ status })
+        .update({ status } as any)
         .eq('id', jobId);
       if (error) throw error;
     },

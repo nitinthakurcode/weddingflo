@@ -40,13 +40,15 @@ export default function BudgetPage() {
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<any>({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', user?.id)
+        .eq('clerk_id', user.id)
         .single();
       if (error) throw error;
       return data;
@@ -54,13 +56,15 @@ export default function BudgetPage() {
     enabled: !!user?.id,
   });
 
-  const { data: clients } = useQuery({
+  const { data: clients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
+      if (!currentUser?.company_id) throw new Error('Company ID not available');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
-        .eq('company_id', currentUser?.company_id);
+        .eq('company_id', currentUser.company_id);
       if (error) throw error;
       return data || [];
     },
@@ -69,13 +73,15 @@ export default function BudgetPage() {
 
   // Get weddings for the first client
   const selectedClient = clients?.[0];
-  const { data: weddings } = useQuery({
+  const { data: weddings } = useQuery<any[]>({
     queryKey: ['weddings', selectedClient?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
+      if (!selectedClient?.id) throw new Error('Client ID not available');
       const { data, error } = await supabase
         .from('weddings')
         .select('*')
-        .eq('client_id', selectedClient?.id);
+        .eq('client_id', selectedClient.id);
       if (error) throw error;
       return data || [];
     },
@@ -87,9 +93,11 @@ export default function BudgetPage() {
   const weddingId = selectedWedding?.id;
 
   // Fetch budget data
-  const { data: budgetItems, isLoading: budgetItemsLoading } = useQuery({
+  const { data: budgetItems, isLoading: budgetItemsLoading } = useQuery<any[]>({
     queryKey: ['budget-items', weddingId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
+      if (!weddingId) throw new Error('Wedding ID not available');
       const { data, error } = await supabase
         .from('budget_items')
         .select('*')

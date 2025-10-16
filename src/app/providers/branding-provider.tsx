@@ -12,6 +12,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const { data: currentUser } = useQuery({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data } = await supabase
         .from('users')
@@ -26,6 +27,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const { data: company } = useQuery({
     queryKey: ['company', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return null;
       const { data } = await supabase
         .from('companies')

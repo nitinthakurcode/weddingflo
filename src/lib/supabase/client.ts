@@ -1,6 +1,6 @@
 'use client'
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { useSession } from '@clerk/nextjs'
 import type { Database } from './types'
 
@@ -34,7 +34,7 @@ export function useSupabaseClient() {
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
 
-  return createClient<Database>(
+  return createSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
@@ -67,4 +67,38 @@ export function useSupabaseClient() {
  */
 export function useSupabase() {
   return useSupabaseClient()
+}
+
+/**
+ * Creates a public Supabase client for unauthenticated access.
+ * Use this for public pages that don't require authentication (e.g., QR code verification).
+ *
+ * @returns Supabase client instance without authentication
+ *
+ * @example
+ * ```tsx
+ * 'use client'
+ * import { createClient } from '@/lib/supabase/client'
+ *
+ * export default function PublicPage() {
+ *   const supabase = createClient()
+ *
+ *   async function fetchPublicData() {
+ *     const { data, error } = await supabase
+ *       .from('public_table')
+ *       .select('*')
+ *   }
+ * }
+ * ```
+ */
+export function createClient() {
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      auth: {
+        persistSession: false,
+      },
+    }
+  )
 }

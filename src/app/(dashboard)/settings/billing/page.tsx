@@ -37,6 +37,7 @@ export default function BillingPage() {
   const { data: subscription, isLoading: subscriptionLoading } = useQuery({
     queryKey: ['subscription', companyId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!companyId) return null;
       const { data, error } = await supabase
         .from('companies')
@@ -60,6 +61,7 @@ export default function BillingPage() {
   const { data: usage, isLoading: usageLoading } = useQuery({
     queryKey: ['usage', companyId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!companyId) return null;
 
       // Get guests count

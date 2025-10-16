@@ -56,6 +56,7 @@ export default function VendorsPage() {
   const { data: currentUser, isLoading: isLoadingUser } = useQuery({
     queryKey: ['currentUser'],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -70,6 +71,7 @@ export default function VendorsPage() {
   const { data: clients, isLoading: isLoadingClients } = useQuery({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -89,6 +91,7 @@ export default function VendorsPage() {
   const { data: weddings, isLoading: isLoadingWeddings } = useQuery({
     queryKey: ['weddings', clientId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('weddings')
         .select('*')
@@ -136,6 +139,7 @@ export default function VendorsPage() {
   const { data: vendors, isLoading: isLoadingVendors } = useQuery({
     queryKey: ['vendors', weddingId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('vendors')
         .select('*')

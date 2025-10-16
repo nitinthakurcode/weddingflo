@@ -2,8 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/../convex/_generated/api';
+import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -32,11 +31,13 @@ type GuestFormData = z.infer<typeof guestFormSchema>;
 /**
  * QR Landing Page
  * Guest-facing page for RSVP, check-in, or viewing information
+ * NOTE: This is a public page - no authentication required
  */
 export default function QRLandingPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const { token } = resolvedParams;
   const router = useRouter();
+  const supabase = createClient();
 
   const [isValidating, setIsValidating] = useState(true);
   const [tokenData, setTokenData] = useState<any>(null);
@@ -44,8 +45,6 @@ export default function QRLandingPage({ params }: PageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
-
-  const recordScanMutation = useMutation(api.qr.recordQRScan);
 
   const {
     register,
@@ -80,9 +79,21 @@ export default function QRLandingPage({ params }: PageProps) {
       setIsTestMode(isTest);
 
       // Only record the scan for real guests, not test tokens
-      if (!isTest) {
+      if (!isTest && decryptedToken.guestId) {
         try {
-          await recordScanMutation({ token });
+          // Record QR scan in database
+          const { error: scanError } = await supabase
+            .from('qr_scans')
+            .insert({
+              guest_id: decryptedToken.guestId,
+              scan_type: decryptedToken.type || 'check-in',
+              scanned_at: new Date().toISOString(),
+            });
+
+          if (scanError) {
+            console.error('Failed to record scan:', scanError);
+            // Don't show error to user, this is not critical
+          }
         } catch (scanError) {
           console.error('Failed to record scan:', scanError);
           // Don't show error to user, this is not critical
@@ -101,9 +112,27 @@ export default function QRLandingPage({ params }: PageProps) {
     setIsSubmitting(true);
 
     try {
-      // Here you would call a Convex mutation to update guest information
-      // For now, we'll just simulate success
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!tokenData?.guestId || isTestMode) {
+        // Test mode - simulate success without saving
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        setSubmitSuccess(true);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Update guest information in database
+      const { error: updateError } = await supabase
+        .from('guests')
+        .update({
+          dietary_restrictions: data.dietaryRestrictions,
+          special_needs: data.specialNeeds,
+          mode_of_arrival: data.modeOfArrival,
+          mode_of_departure: data.modeOfDeparture,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tokenData.guestId);
+
+      if (updateError) throw updateError;
 
       setSubmitSuccess(true);
     } catch (error) {

@@ -16,6 +16,7 @@ export default function ProfileSettingsPage() {
   const { data: user, isLoading } = useQuery({
     queryKey: ['current-user', clerkUser?.id],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!clerkUser?.id) return null;
       const { data, error } = await supabase
         .from('users')

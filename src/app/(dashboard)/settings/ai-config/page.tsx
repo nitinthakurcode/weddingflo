@@ -33,6 +33,7 @@ export default function AIConfigPage() {
   const { data: company, isLoading } = useQuery({
     queryKey: ['company', companyId],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
       if (!companyId) return null;
       const { data, error } = await supabase
         .from('companies')

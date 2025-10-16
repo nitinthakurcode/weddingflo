@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../../../../convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,13 +35,29 @@ export default function CompaniesPage() {
   const isSuperAdmin = useIsSuperAdmin();
   const router = useRouter();
   const { toast } = useToast();
+  const supabase = useSupabase();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   // Get all companies (super admin only)
-  const companies = useQuery(api.companies.listAll);
+  const { data: companies, isLoading } = useQuery({
+    queryKey: ['admin-companies'],
+    queryFn: async () => {
+      if (!user?.id) throw new Error('User ID not available');
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user && isSuperAdmin === true,
+  });
 
   // Redirect if not super admin
   if (isSuperAdmin === false) {
@@ -154,7 +171,7 @@ export default function CompaniesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {companies?.reduce((sum, c) => sum + (c.usage_stats?.total_users || 0), 0) || 0}
+              {companies?.reduce((sum: number, c: any) => sum + (c.usage_stats?.total_users || 0), 0) || 0}
             </div>
             <p className="text-xs text-muted-foreground">
               Across all companies
@@ -169,7 +186,7 @@ export default function CompaniesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {companies?.reduce((sum, c) => sum + (c.usage_stats?.active_weddings || 0), 0) || 0}
+              {companies?.reduce((sum: number, c: any) => sum + (c.usage_stats?.active_weddings || 0), 0) || 0}
             </div>
             <p className="text-xs text-muted-foreground">
               Currently active
@@ -200,9 +217,15 @@ export default function CompaniesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {companies && companies.length > 0 ? (
-                companies.map((company) => (
-                  <TableRow key={company._id}>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    Loading companies...
+                  </TableCell>
+                </TableRow>
+              ) : companies && companies.length > 0 ? (
+                companies.map((company: any) => (
+                  <TableRow key={company.id}>
                     <TableCell>
                       <div className="font-medium">{company.company_name}</div>
                     </TableCell>
@@ -212,31 +235,31 @@ export default function CompaniesPage() {
                     <TableCell>
                       <Badge
                         variant={
-                          company.subscription.status === 'active'
+                          company.subscription?.status === 'active'
                             ? 'default'
-                            : company.subscription.status === 'trial'
+                            : company.subscription?.status === 'trial'
                             ? 'secondary'
                             : 'destructive'
                         }
                       >
-                        {company.subscription.tier} - {company.subscription.status}
+                        {company.subscription?.tier || 'free'} - {company.subscription?.status || 'inactive'}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="text-sm font-medium">
-                          {company.usage_stats.active_weddings}
+                          {company.usage_stats?.active_weddings || 0}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          of {company.usage_stats.total_weddings} total
+                          of {company.usage_stats?.total_weddings || 0} total
                         </span>
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {company.usage_stats.total_guests.toLocaleString()}
+                      {(company.usage_stats?.total_guests || 0).toLocaleString()}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {company.usage_stats.storage_used_mb} MB
+                      {company.usage_stats?.storage_used_mb || 0} MB
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {new Date(company.created_at).toLocaleDateString()}
