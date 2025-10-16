@@ -1,8 +1,8 @@
 'use client';
 
-import { useQuery } from 'convex/react';
+import { useQuery as useReactQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
-import { api } from '@/convex/_generated/api';
+import { createClient } from '@/lib/supabase/client';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { DashboardStatsCards } from '@/components/dashboard/dashboard-stats-cards';
 import { RecentActivity } from '@/components/dashboard/recent-activity';
@@ -25,51 +25,149 @@ const DashboardCharts = dynamic(
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { isSignedIn, isLoaded: clerkLoaded } = useUser();
+  const { user, isSignedIn, isLoaded: clerkLoaded } = useUser();
+  const supabase = createClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
+  const { data: currentUser, isLoading: userLoading } = useReactQuery({
+    queryKey: ['current-user', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
-  // If Clerk says user is signed in but Convex doesn't have the user, redirect to onboarding
+  // If Clerk says user is signed in but Supabase doesn't have the user, redirect to onboarding
   useEffect(() => {
-    if (clerkLoaded && isSignedIn && currentUser === null) {
+    if (clerkLoaded && isSignedIn && !userLoading && currentUser === null) {
       router.push('/onboard');
     }
-  }, [clerkLoaded, isSignedIn, currentUser, router]);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  }, [clerkLoaded, isSignedIn, currentUser, userLoading, router]);
+
+  const { data: clients } = useReactQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser!.company_id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Use first client for now
   const selectedClient = clients?.[0];
-  const clientId = selectedClient?._id;
+  const clientId = selectedClient?.id;
 
-  // Fetch dashboard data
-  const dashboardStats = useQuery(
-    api.dashboard.getDashboardStats,
-    clientId ? { clientId } : 'skip'
-  );
-  const recentActivity = useQuery(
-    api.dashboard.getRecentActivity,
-    clientId ? { clientId, limit: 10 } : 'skip'
-  );
-  const upcomingEvents = useQuery(
-    api.dashboard.getUpcomingEvents,
-    clientId ? { clientId, limit: 5 } : 'skip'
-  );
-  const alerts = useQuery(
-    api.dashboard.getAlerts,
-    clientId ? { clientId } : 'skip'
-  );
+  // Fetch dashboard data (multiple queries in parallel)
+  const { data: dashboardStats } = useReactQuery({
+    queryKey: ['dashboard-stats', clientId],
+    queryFn: async () => {
+      // Fetch all counts in parallel
+      const [guests, vendors, creatives, budgetItems, events] = await Promise.all([
+        supabase.from('guests').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
+        supabase.from('vendors').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
+        supabase.from('creative_jobs').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
+        supabase.from('budget_items').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
+        supabase.from('event_brief').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
+      ]);
+
+      const guestsData = guests.data || [];
+      const vendorsData = vendors.data || [];
+      const creativesData = creatives.data || [];
+      const budgetData = budgetItems.data || [];
+
+      const totalGuests = guestsData.length;
+      const confirmedGuests = guestsData.filter((g: any) => g.form_submitted).length;
+      const totalVendors = vendorsData.length;
+      const confirmedVendors = vendorsData.filter((v: any) => v.status === 'confirmed' || v.status === 'booked').length;
+      const totalCreatives = creativesData.length;
+      const completedCreatives = creativesData.filter((c: any) => c.status === 'completed').length;
+
+      const totalBudget = budgetData.reduce((sum: number, item: any) => sum + (item.budget || 0), 0);
+      const budgetSpent = budgetData.reduce((sum: number, item: any) => sum + (item.actual_cost || 0), 0);
+      const budgetSpentPercentage = totalBudget > 0 ? (budgetSpent / totalBudget) * 100 : 0;
+
+      // Calculate days until wedding (using first event date)
+      const firstEvent = events.data?.[0];
+      const daysUntilWedding = firstEvent?.date
+        ? Math.ceil((firstEvent.date - Date.now()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      return {
+        totalGuests,
+        confirmedGuests,
+        totalVendors,
+        confirmedVendors,
+        totalCreatives,
+        completedCreatives,
+        totalActivities: events.data?.length || 0,
+        completedActivities: 0,
+        budgetSpent,
+        totalBudget,
+        budgetSpentPercentage,
+        daysUntilWedding,
+        guestsByCategory: {},
+        budgetByCategory: {},
+        vendorsByStatus: {},
+      };
+    },
+    enabled: !!clientId,
+  });
+
+  const { data: recentActivity } = useReactQuery({
+    queryKey: ['recent-activity', clientId],
+    queryFn: async () => {
+      // This would fetch from an activity log table if available
+      // For now, return empty array
+      return [];
+    },
+    enabled: !!clientId,
+  });
+
+  const { data: upcomingEvents } = useReactQuery({
+    queryKey: ['upcoming-events', clientId],
+    queryFn: async () => {
+      const now = Date.now();
+      const { data, error } = await supabase
+        .from('event_brief')
+        .select('*')
+        .eq('client_id', clientId!)
+        .gte('date', now)
+        .order('date', { ascending: true })
+        .limit(5);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!clientId,
+  });
+
+  const { data: alerts } = useReactQuery({
+    queryKey: ['alerts', clientId],
+    queryFn: async () => {
+      // This would fetch from an alerts table if available
+      // For now, return empty array
+      return [];
+    },
+    enabled: !!clientId,
+  });
 
   // Loading state
-  if (currentUser === undefined) {
+  if (userLoading) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -83,7 +181,7 @@ export default function DashboardPage() {
   }
 
   // Loading clients and stats
-  if (clients === undefined || dashboardStats === undefined) {
+  if (!clients || !dashboardStats) {
     return <PageLoader />;
   }
 

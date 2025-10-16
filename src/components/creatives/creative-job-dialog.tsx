@@ -3,8 +3,8 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -39,13 +39,12 @@ import {
 } from '@/types/creative';
 import { creativeSchema, CreativeFormData } from '@/lib/validations/creative.schema';
 import { useToast } from '@/hooks/use-toast';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface CreativeJobDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job?: CreativeJob;
-  weddingId: Id<'weddings'>;
+  weddingId: string;
 }
 
 export function CreativeJobDialog({
@@ -55,8 +54,39 @@ export function CreativeJobDialog({
   weddingId,
 }: CreativeJobDialogProps) {
   const { toast } = useToast();
-  const createCreativeJob = useMutation(api.creativeJobs.createCreativeJob);
-  const updateCreativeJob = useMutation(api.creativeJobs.updateCreativeJob);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const createCreativeJob = useMutation({
+    mutationFn: async (data: any) => {
+      const { data: result, error } = await supabase
+        .from('creative_jobs')
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['creative-jobs', weddingId] });
+    },
+  });
+
+  const updateCreativeJob = useMutation({
+    mutationFn: async ({ jobId, ...data }: any) => {
+      const { data: result, error } = await supabase
+        .from('creative_jobs')
+        .update(data)
+        .eq('id', jobId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['creative-jobs', weddingId] });
+    },
+  });
 
   const form = useForm<CreativeFormData>({
     resolver: zodResolver(creativeSchema),
@@ -112,10 +142,10 @@ export function CreativeJobDialog({
     try {
       if (job) {
         // Update existing job
-        await updateCreativeJob({
-          jobId: job._id,
+        await updateCreativeJob.mutateAsync({
+          jobId: job.id,
           ...data,
-          vendor_id: data.vendor_id as Id<'vendors'> | undefined,
+          vendor_id: data.vendor_id || null,
         });
         toast({
           title: 'Success',
@@ -123,10 +153,10 @@ export function CreativeJobDialog({
         });
       } else {
         // Create new job
-        await createCreativeJob({
-          weddingId,
+        await createCreativeJob.mutateAsync({
+          wedding_id: weddingId,
           ...data,
-          vendor_id: data.vendor_id as Id<'vendors'> | undefined,
+          vendor_id: data.vendor_id || null,
         });
         toast({
           title: 'Success',

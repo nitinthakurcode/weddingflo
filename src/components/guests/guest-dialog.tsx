@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -14,14 +14,13 @@ import { GuestForm } from './guest-form';
 import { GuestFormValues } from '@/lib/validations/guest.schema';
 import { Guest } from '@/types/guest';
 import { useToast } from '@/hooks/use-toast';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface GuestDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   guest?: Guest;
-  clientId: Id<'clients'>;
-  companyId: Id<'companies'>;
+  clientId: string;
+  companyId: string;
 }
 
 export function GuestDialog({
@@ -33,8 +32,39 @@ export function GuestDialog({
 }: GuestDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const createGuest = useMutation(api.guests.create);
-  const updateGuest = useMutation(api.guests.update);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const createGuest = useMutation({
+    mutationFn: async (data: any) => {
+      const { data: result, error } = await supabase
+        .from('guests')
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests', clientId] });
+    },
+  });
+
+  const updateGuest = useMutation({
+    mutationFn: async ({ guestId, ...data }: any) => {
+      const { data: result, error } = await supabase
+        .from('guests')
+        .update(data)
+        .eq('id', guestId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests', clientId] });
+    },
+  });
 
   const handleSubmit = async (data: GuestFormValues) => {
     try {
@@ -42,12 +72,11 @@ export function GuestDialog({
 
       if (guest) {
         // Update existing guest
-        // Transform dietary_restrictions and seating_preference from strings to arrays for update
         const { dietary_restrictions, seating_preference, ...rest } = data;
 
-        await updateGuest({
-          guestId: guest._id,
-          ...rest as any,
+        await updateGuest.mutateAsync({
+          guestId: guest.id,
+          ...rest,
           dietary_restrictions: dietary_restrictions ? [dietary_restrictions] : [],
           seating_preferences: seating_preference ? [seating_preference] : [],
         });
@@ -56,11 +85,11 @@ export function GuestDialog({
           description: 'Guest updated successfully',
         });
       } else {
-        // Create new guest (create mutation handles the string-to-array conversion)
-        await createGuest({
+        // Create new guest
+        await createGuest.mutateAsync({
           company_id: companyId,
           client_id: clientId,
-          ...data as any,
+          ...data,
         });
         toast({
           title: 'Success',

@@ -1,12 +1,12 @@
 'use client';
 
-import { UserButton } from '@clerk/nextjs';
+import { UserButton, useUser } from '@clerk/nextjs';
 import { Menu, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MobileNav } from './mobile-nav';
 import { NotificationBell } from '@/components/notifications/notification-bell';
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -14,20 +14,45 @@ import { Badge } from '@/components/ui/badge';
 export function Header() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const router = useRouter();
+  const { user } = useUser();
+  const supabase = useSupabase();
 
   // Get current user
-  const currentUser = useQuery(api.users.getCurrent);
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user?.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
   // Get total unread message count across all clients
-  const conversations = useQuery(
-    api.messages.getConversations,
-    currentUser?.company_id && currentUser?.clerk_id
-      ? { companyId: currentUser.company_id, userId: currentUser.clerk_id }
-      : 'skip'
-  );
+  const { data: conversations } = useQuery({
+    queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('company_id', currentUser?.company_id)
+        .or(`user1_id.eq.${currentUser?.clerk_id},user2_id.eq.${currentUser?.clerk_id}`);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id,
+  });
 
-  const totalUnreadMessages =
-    conversations?.reduce((sum, conv) => sum + conv.unreadCount, 0) || 0;
+  const totalUnreadMessages = conversations?.reduce((sum, conv: any) => {
+    const unreadCount = conv.user1_id === currentUser?.clerk_id
+      ? (conv.unread_count_user1 || 0)
+      : (conv.unread_count_user2 || 0);
+    return sum + unreadCount;
+  }, 0) || 0;
 
   return (
     <>

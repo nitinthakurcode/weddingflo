@@ -3,9 +3,9 @@
  * Logs user actions for audit trail
  */
 
-import { useMutation } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
-import { type Id } from '../../../convex/_generated/dataModel';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 
 export type EntityType =
   | 'user'
@@ -40,26 +40,45 @@ export interface ActivityLogData {
   changes?: any;
   previousValue?: any;
   newValue?: any;
-  clientId?: Id<'clients'>;
+  clientId?: string;
 }
 
 /**
  * Hook to log activity
  */
 export function useLogActivity() {
-  const logActivity = useMutation(api.activityLog.create);
+  const supabase = useSupabase();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
-  return async (data: ActivityLogData) => {
-    try {
+  const logActivity = useMutation({
+    mutationFn: async (data: ActivityLogData) => {
       // Get browser info
       const userAgent = typeof window !== 'undefined' ? navigator.userAgent : undefined;
       const deviceType = getDeviceType(userAgent);
 
-      await logActivity({
-        ...data,
-        userAgent,
-        deviceType,
-      });
+      const { data: result, error } = await supabase
+        .from('activity_log')
+        .insert({
+          ...data,
+          user_id: user?.id,
+          user_agent: userAgent,
+          device_type: deviceType,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity_log'] });
+    },
+  });
+
+  return async (data: ActivityLogData) => {
+    try {
+      await logActivity.mutateAsync(data);
     } catch (error) {
       console.error('[Activity Log] Failed to log activity:', error);
     }
@@ -92,7 +111,7 @@ export const ActivityActions = {
     entityType: EntityType,
     entityId: string,
     data?: any,
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'created',
     entityType,
@@ -109,7 +128,7 @@ export const ActivityActions = {
     entityId: string,
     previousValue?: any,
     newValue?: any,
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'updated',
     entityType,
@@ -127,7 +146,7 @@ export const ActivityActions = {
     entityType: EntityType,
     entityId: string,
     data?: any,
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'deleted',
     entityType,
@@ -142,7 +161,7 @@ export const ActivityActions = {
   viewed: (
     entityType: EntityType,
     entityId: string,
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'viewed',
     entityType,
@@ -157,7 +176,7 @@ export const ActivityActions = {
     entityType: EntityType,
     format: string,
     count?: number,
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'exported',
     entityType,
@@ -173,7 +192,7 @@ export const ActivityActions = {
     entityType: EntityType,
     count: number,
     source?: string,
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'imported',
     entityType,
@@ -188,7 +207,7 @@ export const ActivityActions = {
   checkedIn: (
     guestId: string,
     method: 'manual' | 'qr',
-    clientId?: Id<'clients'>
+    clientId?: string
   ): ActivityLogData => ({
     action: 'checked_in',
     entityType: 'guest',

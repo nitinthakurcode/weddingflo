@@ -16,20 +16,20 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 
 interface Conversation {
   client: {
-    _id: string;
+    id: string;
     client_name: string;
     email: string;
-    wedding_date: number;
+    wedding_date: string;
   };
   lastMessage?: {
     sender_name: string;
     message: string;
-    created_at: number;
+    created_at: string;
   };
   unreadCount: number;
 }
@@ -49,12 +49,21 @@ export function ConversationList({
 }: ConversationListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const supabase = useSupabase();
 
   // Get all clients for the company
-  const allClients = useQuery(
-    api.clients.list,
-    companyId ? { companyId: companyId as any } : 'skip'
-  );
+  const { data: allClients } = useQuery({
+    queryKey: ['clients', companyId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', companyId);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!companyId,
+  });
 
   // Filter conversations based on search
   const filteredConversations = conversations.filter((conv) =>
@@ -62,7 +71,7 @@ export function ConversationList({
   );
 
   // Get client IDs that already have conversations
-  const conversationClientIds = new Set(conversations.map((c) => c.client._id));
+  const conversationClientIds = new Set(conversations.map((c) => c.client.id));
 
   // Filter clients for new message dialog
   const availableClients = allClients?.filter(
@@ -115,8 +124,8 @@ export function ConversationList({
                     ) : (
                       availableClients.map((client) => (
                         <button
-                          key={client._id}
-                          onClick={() => handleSelectNewClient(client._id)}
+                          key={client.id}
+                          onClick={() => handleSelectNewClient(client.id)}
                           className="w-full px-3 py-2 text-left hover:bg-gray-100 rounded-md transition-colors"
                         >
                           <div className="font-medium text-sm">{client.client_name}</div>
@@ -155,11 +164,11 @@ export function ConversationList({
           <div className="divide-y">
             {filteredConversations.map((conversation) => (
               <button
-                key={conversation.client._id}
-                onClick={() => onSelectConversation(conversation.client._id)}
+                key={conversation.client.id}
+                onClick={() => onSelectConversation(conversation.client.id)}
                 className={cn(
                   'w-full px-4 py-3 text-left hover:bg-white transition-colors',
-                  selectedClientId === conversation.client._id && 'bg-white border-l-4 border-blue-600'
+                  selectedClientId === conversation.client.id && 'bg-white border-l-4 border-blue-600'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -189,7 +198,7 @@ export function ConversationList({
                           {conversation.lastMessage.message}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(conversation.lastMessage.created_at, {
+                          {formatDistanceToNow(new Date(conversation.lastMessage.created_at), {
                             addSuffix: true,
                           })}
                         </p>

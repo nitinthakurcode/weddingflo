@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bell } from 'lucide-react';
 import { NotificationDropdown } from './notification-dropdown';
@@ -14,9 +14,22 @@ interface NotificationBellProps {
 
 export function NotificationBell({ userId }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const supabase = useSupabase();
 
   // Get unread notification count
-  const unreadCount = useQuery(api.notifications.getUnreadCount, { userId });
+  const { data: unreadCount } = useQuery({
+    queryKey: ['notifications-unread-count', userId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('read', false);
+      if (error) throw error;
+      return count || 0;
+    },
+    enabled: !!userId,
+  });
 
   return (
     <div className="relative">

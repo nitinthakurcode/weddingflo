@@ -3,8 +3,8 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -34,13 +34,12 @@ import {
 import { BudgetItem, BUDGET_CATEGORIES, PAYMENT_STATUS_LABELS } from '@/types/budget';
 import { budgetSchema, BudgetFormData } from '@/lib/validations/budget.schema';
 import { useToast } from '@/hooks/use-toast';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface BudgetItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item?: BudgetItem;
-  weddingId: Id<'weddings'>;
+  weddingId: string;
 }
 
 export function BudgetItemDialog({
@@ -50,8 +49,39 @@ export function BudgetItemDialog({
   weddingId,
 }: BudgetItemDialogProps) {
   const { toast } = useToast();
-  const createBudgetItem = useMutation(api.budget.createBudgetItem);
-  const updateBudgetItem = useMutation(api.budget.updateBudgetItem);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const createBudgetItem = useMutation({
+    mutationFn: async (data: any) => {
+      const { data: result, error } = await supabase
+        .from('budget_items')
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budget-items', weddingId] });
+    },
+  });
+
+  const updateBudgetItem = useMutation({
+    mutationFn: async ({ budgetItemId, ...data }: any) => {
+      const { data: result, error } = await supabase
+        .from('budget_items')
+        .update(data)
+        .eq('id', budgetItemId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budget-items', weddingId] });
+    },
+  });
 
   const form = useForm<BudgetFormData>({
     resolver: zodResolver(budgetSchema),
@@ -104,10 +134,10 @@ export function BudgetItemDialog({
     try {
       if (item) {
         // Update existing item
-        await updateBudgetItem({
-          budgetItemId: item._id,
+        await updateBudgetItem.mutateAsync({
+          budgetItemId: item.id,
           ...data,
-          vendor_id: data.vendor_id as Id<'vendors'> | undefined,
+          vendor_id: data.vendor_id || null,
         });
         toast({
           title: 'Success',
@@ -115,10 +145,10 @@ export function BudgetItemDialog({
         });
       } else {
         // Create new item
-        await createBudgetItem({
-          weddingId,
+        await createBudgetItem.mutateAsync({
+          wedding_id: weddingId,
           ...data,
-          vendor_id: data.vendor_id as Id<'vendors'> | undefined,
+          vendor_id: data.vendor_id || null,
         });
         toast({
           title: 'Success',

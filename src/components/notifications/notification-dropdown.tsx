@@ -1,7 +1,7 @@
 'use client';
 
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
@@ -25,13 +25,52 @@ interface NotificationDropdownProps {
 export function NotificationDropdown({ userId, onClose }: NotificationDropdownProps) {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
 
   // Fetch notifications
-  const notifications = useQuery(api.notifications.list, { userId, limit: 20 });
+  const { data: notifications } = useQuery({
+    queryKey: ['notifications', userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!userId,
+  });
 
   // Mark as read mutation
-  const markAsRead = useMutation(api.notifications.markRead);
-  const markAllAsRead = useMutation(api.notifications.markAllRead);
+  const markAsRead = useMutation({
+    mutationFn: async (notificationId: string) => {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', notificationId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications', userId] });
+    },
+  });
+
+  const markAllAsRead = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', userId)
+        .eq('read', false);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications', userId] });
+    },
+  });
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -77,7 +116,7 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
   const handleNotificationClick = async (notification: any) => {
     // Mark as read
     if (!notification.read) {
-      await markAsRead({ notificationId: notification._id });
+      await markAsRead.mutateAsync(notification.id);
     }
 
     // Navigate if there's an action URL
@@ -88,7 +127,7 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
   };
 
   const handleMarkAllRead = async () => {
-    await markAllAsRead({ userId });
+    await markAllAsRead.mutateAsync();
   };
 
   return (
@@ -130,7 +169,7 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
 
               return (
                 <button
-                  key={notification._id}
+                  key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
                   className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
                     !notification.read ? 'bg-blue-50/50' : ''

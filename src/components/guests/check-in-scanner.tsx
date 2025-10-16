@@ -2,17 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle, Camera, XCircle } from 'lucide-react';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface CheckInScannerProps {
-  clientId: Id<'clients'>;
-  userId: Id<'users'>;
+  clientId: string;
+  userId: string;
 }
 
 export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
@@ -20,8 +19,43 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [lastScanned, setLastScanned] = useState<string | null>(null);
-  const getGuestByQR = useQuery(api.guests.getByQRToken, lastScanned ? { token: lastScanned } : 'skip');
-  const checkIn = useMutation(api.guests.checkIn);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const { data: getGuestByQR } = useQuery({
+    queryKey: ['guest-qr', lastScanned],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('guests')
+        .select('*')
+        .eq('qr_token', lastScanned)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!lastScanned,
+  });
+
+  const checkIn = useMutation({
+    mutationFn: async ({ guestId, checked_in_by }: any) => {
+      const { data, error } = await supabase
+        .from('guests')
+        .update({
+          checked_in: true,
+          checked_in_at: new Date().toISOString(),
+          checked_in_by,
+        })
+        .eq('id', guestId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
+      queryClient.invalidateQueries({ queryKey: ['guest-qr'] });
+    },
+  });
 
   useEffect(() => {
     if (!isScanning) return;
@@ -46,8 +80,8 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
         await scannerRef.current?.pause(true);
 
         // Check in the guest
-        await checkIn({
-          guestId: decodedText as Id<'guests'>,
+        await checkIn.mutateAsync({
+          guestId: decodedText,
           checked_in_by: userId,
         });
 

@@ -2,38 +2,58 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import type { Doc, Id } from '../../../convex/_generated/dataModel';
 import type { UserResource } from '@clerk/types';
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  [key: string]: any;
+}
+
 interface ProfileFormProps {
-  user: Doc<'users'>;
+  user: User;
   clerkUser: UserResource;
 }
 
 export function ProfileForm({ user, clerkUser }: ProfileFormProps) {
   const [name, setName] = useState(user.name);
   const [isLoading, setIsLoading] = useState(false);
-  const updateUser = useMutation(api.users.update);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const router = useRouter();
+
+  const updateUser = useMutation({
+    mutationFn: async ({ name }: { name: string }) => {
+      const { data, error } = await supabase
+        .from('users')
+        .update({ name })
+        .eq('id', user.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users', user.id] });
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      // Update in Convex
-      await updateUser({
-        userId: user._id,
-        name,
-      });
+      // Update in Supabase
+      await updateUser.mutateAsync({ name });
 
       // Update in Clerk
       await clerkUser.update({

@@ -3,9 +3,8 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
-import { Id } from '@/convex/_generated/dataModel';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +36,7 @@ import { useToast } from '@/hooks/use-toast';
 import { vendorSchema, type VendorFormData } from '@/lib/validations/vendor.schema';
 
 interface Vendor {
-  _id: Id<'vendors'>;
+  id: string;
   name: string;
   category: string;
   contactName?: string;
@@ -60,7 +59,7 @@ interface VendorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   vendor?: Vendor;
-  weddingId: Id<'weddings'>;
+  weddingId: string;
 }
 
 export function VendorDialog({
@@ -70,8 +69,39 @@ export function VendorDialog({
   weddingId,
 }: VendorDialogProps) {
   const { toast } = useToast();
-  const createVendor = useMutation(api.vendors.createVendor);
-  const updateVendor = useMutation(api.vendors.updateVendor);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const createVendor = useMutation({
+    mutationFn: async (data: any) => {
+      const { data: result, error } = await supabase
+        .from('vendors')
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendors', weddingId] });
+    },
+  });
+
+  const updateVendor = useMutation({
+    mutationFn: async ({ vendorId, ...data }: any) => {
+      const { data: result, error } = await supabase
+        .from('vendors')
+        .update(data)
+        .eq('id', vendorId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendors', weddingId] });
+    },
+  });
 
   const form = useForm<VendorFormData>({
     resolver: zodResolver(vendorSchema),
@@ -154,8 +184,8 @@ export function VendorDialog({
 
       if (vendor) {
         // Update existing vendor
-        await updateVendor({
-          vendorId: vendor._id,
+        await updateVendor.mutateAsync({
+          vendorId: vendor.id,
           name: data.name,
           category: data.category,
           contactName: data.contactName,
@@ -179,8 +209,8 @@ export function VendorDialog({
         });
       } else {
         // Create new vendor
-        await createVendor({
-          weddingId,
+        await createVendor.mutateAsync({
+          wedding_id: weddingId,
           name: data.name,
           category: data.category,
           contactName: data.contactName,

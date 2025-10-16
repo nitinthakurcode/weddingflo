@@ -3,9 +3,8 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
-import { Id } from '@/convex/_generated/dataModel';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -36,7 +35,7 @@ import { useToast } from '@/hooks/use-toast';
 import { giftSchema, type GiftFormData } from '@/lib/validations/gift.schema';
 
 interface Gift {
-  _id: Id<'gifts'>;
+  id: string;
   guestName: string;
   description: string;
   category?: string;
@@ -51,7 +50,7 @@ interface GiftDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   gift?: Gift;
-  weddingId: Id<'weddings'>;
+  weddingId: string;
 }
 
 export function GiftDialog({
@@ -61,8 +60,39 @@ export function GiftDialog({
   weddingId,
 }: GiftDialogProps) {
   const { toast } = useToast();
-  const createGift = useMutation(api.gifts.createGift);
-  const updateGift = useMutation(api.gifts.updateGift);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const createGift = useMutation({
+    mutationFn: async (data: any) => {
+      const { data: result, error } = await supabase
+        .from('gifts')
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gifts', weddingId] });
+    },
+  });
+
+  const updateGift = useMutation({
+    mutationFn: async ({ giftId, ...data }: any) => {
+      const { data: result, error } = await supabase
+        .from('gifts')
+        .update(data)
+        .eq('id', giftId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gifts', weddingId] });
+    },
+  });
 
   const form = useForm<GiftFormData>({
     resolver: zodResolver(giftSchema),
@@ -114,8 +144,8 @@ export function GiftDialog({
     try {
       if (gift) {
         // Update existing gift
-        await updateGift({
-          giftId: gift._id,
+        await updateGift.mutateAsync({
+          giftId: gift.id,
           guestName: data.guestName,
           description: data.description,
           category: data.category,
@@ -131,8 +161,8 @@ export function GiftDialog({
         });
       } else {
         // Create new gift
-        await createGift({
-          weddingId,
+        await createGift.mutateAsync({
+          wedding_id: weddingId,
           guestName: data.guestName,
           description: data.description,
           category: data.category,

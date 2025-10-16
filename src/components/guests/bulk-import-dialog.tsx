@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -13,14 +13,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Upload, FileText, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Id } from '@/convex/_generated/dataModel';
 import { BulkImportRow } from '@/types/guest';
 
 interface BulkImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  clientId: Id<'clients'>;
-  companyId: Id<'companies'>;
+  clientId: string;
+  companyId: string;
 }
 
 export function BulkImportDialog({
@@ -33,8 +32,57 @@ export function BulkImportDialog({
   const [isImporting, setIsImporting] = useState(false);
   const [previewData, setPreviewData] = useState<BulkImportRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const bulkCreate = useMutation(api.guests.bulkCreate);
-  const existingGuests = useQuery(api.guests.list, { clientId });
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const { data: existingGuests } = useQuery({
+    queryKey: ['guests', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('guests')
+        .select('*')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!clientId,
+  });
+
+  const bulkCreate = useMutation({
+    mutationFn: async (guests: any[]) => {
+      // Bulk insert or update guests
+      const results = { created: 0, updated: 0 };
+
+      for (const guest of guests) {
+        // Check if guest exists
+        const existing = existingGuests?.find((g: any) =>
+          g.guest_name.toLowerCase() === guest.guest_name?.toLowerCase() ||
+          (g.email && guest.email && g.email === guest.email) ||
+          (g.phone_number && guest.phone_number && g.phone_number === guest.phone_number)
+        );
+
+        if (existing) {
+          // Update
+          const { error } = await supabase
+            .from('guests')
+            .update(guest)
+            .eq('id', existing.id);
+          if (!error) results.updated++;
+        } else {
+          // Create
+          const { error } = await supabase
+            .from('guests')
+            .insert(guest);
+          if (!error) results.created++;
+        }
+      }
+
+      return results;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests', clientId] });
+    },
+  });
 
   const downloadTemplate = () => {
     const template = `guest_name,guest_email,guest_phone,guest_category,guest_side,plus_one_allowed,plus_one_name,meal_preference,accommodation_needed
@@ -144,11 +192,13 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
         });
       }
 
-      const result = await bulkCreate({
-        guests: validGuests,
-        company_id: companyId,
-        client_id: clientId
-      });
+      const result = await bulkCreate.mutateAsync(
+        validGuests.map(g => ({
+          ...g,
+          company_id: companyId,
+          client_id: clientId
+        }))
+      );
 
       // Build result message
       const messages = [];

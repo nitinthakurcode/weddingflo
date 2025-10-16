@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { QrCode } from 'lucide-react';
 import { Guest } from '@/types/guest';
 import { useToast } from '@/hooks/use-toast';
+import { v4 as uuidv4 } from 'uuid';
 
 interface QRCodeGeneratorProps {
   guest: Guest;
@@ -16,12 +17,30 @@ interface QRCodeGeneratorProps {
 export function QRCodeGenerator({ guest, onGenerated }: QRCodeGeneratorProps) {
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
-  const generateQR = useMutation(api.guests.generateQRCode);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
+  const generateQR = useMutation({
+    mutationFn: async (guestId: string) => {
+      const qrToken = uuidv4();
+      const { data, error } = await supabase
+        .from('guests')
+        .update({ qr_token: qrToken })
+        .eq('id', guestId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
+    },
+  });
 
   const handleGenerate = async () => {
     try {
       setIsGenerating(true);
-      await generateQR({ guestId: guest._id });
+      await generateQR.mutateAsync(guest.id);
       toast({
         title: 'Success',
         description: 'QR code generated successfully',

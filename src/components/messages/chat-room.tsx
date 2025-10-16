@@ -1,17 +1,17 @@
 'use client';
 
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
 import { MessageList } from './message-list';
 import { MessageInput } from './message-input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { Calendar, Mail, Phone, Sparkles } from 'lucide-react';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface ChatRoomProps {
-  clientId: Id<'clients'>;
-  companyId: Id<'companies'>;
+  clientId: string;
+  companyId: string;
   currentUserId: string;
   currentUserName: string;
   onRequestAIAssistant?: () => void;
@@ -26,24 +26,89 @@ export function ChatRoom({
   onRequestAIAssistant,
   onBack,
 }: ChatRoomProps) {
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+
   // Fetch client details
-  const client = useQuery(api.clients.get, { clientId });
+  const { data: client } = useQuery({
+    queryKey: ['clients', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', clientId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!clientId,
+  });
 
   // Fetch messages
-  const messages = useQuery(api.messages.list, { clientId });
+  const { data: messages } = useQuery({
+    queryKey: ['messages', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!clientId,
+  });
+
+  // Real-time subscription for new messages
+  useEffect(() => {
+    if (!clientId) return;
+
+    const channel = supabase
+      .channel(`messages:${clientId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `client_id=eq.${clientId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [clientId, supabase, queryClient]);
 
   // Send message mutation
-  const sendMessage = useMutation(api.messages.send);
+  const sendMessage = useMutation({
+    mutationFn: async (message: string) => {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          company_id: companyId,
+          client_id: clientId,
+          sender_type: 'company',
+          sender_id: currentUserId,
+          sender_name: currentUserName,
+          message,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
+    },
+  });
 
   const handleSendMessage = async (message: string) => {
-    await sendMessage({
-      company_id: companyId,
-      client_id: clientId,
-      sender_type: 'company',
-      sender_id: currentUserId,
-      sender_name: currentUserName,
-      message,
-    });
+    await sendMessage.mutateAsync(message);
   };
 
   if (!client) {
@@ -101,7 +166,7 @@ export function ChatRoom({
       <MessageList
         messages={messages || []}
         currentUserId={currentUserId}
-        isLoading={messages === undefined}
+        isLoading={!messages}
       />
 
       {/* Message Input */}

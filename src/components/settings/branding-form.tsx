@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSupabase } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -12,7 +13,6 @@ import { useToast } from '@/hooks/use-toast';
 import { LogoUpload } from './logo-upload';
 import { ColorPicker } from './color-picker';
 import { Loader2, Palette, Save } from 'lucide-react';
-import type { Id } from '../../../convex/_generated/dataModel';
 
 interface BrandingFormData {
   logo_url?: string;
@@ -45,9 +45,31 @@ const FONT_OPTIONS = [
 ];
 
 export function BrandingForm() {
-  const company = useQuery(api.companies.getCurrentUserCompany);
-  const updateBranding = useMutation(api.companies.updateBranding);
+  const { user } = useUser();
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const { data: company } = useQuery({
+    queryKey: ['companies', 'current', user?.id],
+    queryFn: async () => {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('company_id')
+        .eq('clerk_id', user?.id)
+        .single();
+      if (userError) throw userError;
+
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', userData.company_id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
   const [formData, setFormData] = useState<BrandingFormData>(DEFAULT_BRANDING);
   const [isSaving, setIsSaving] = useState(false);
@@ -68,10 +90,26 @@ export function BrandingForm() {
     }
   }, [company]);
 
+  const updateBranding = useMutation({
+    mutationFn: async (branding: BrandingFormData) => {
+      const { data, error } = await supabase
+        .from('companies')
+        .update({ branding })
+        .eq('id', company?.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+    },
+  });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!company?._id) {
+    if (!company?.id) {
       toast({
         title: 'Error',
         description: 'Company not found. Please try again.',
@@ -83,10 +121,7 @@ export function BrandingForm() {
     setIsSaving(true);
 
     try {
-      await updateBranding({
-        companyId: company._id as Id<'companies'>,
-        branding: formData,
-      });
+      await updateBranding.mutateAsync(formData);
 
       toast({
         title: 'Branding updated',

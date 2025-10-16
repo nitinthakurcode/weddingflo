@@ -2,8 +2,7 @@
 
 import { useState, useRef } from 'react';
 import NextImage from 'next/image';
-import { useMutation } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Upload, X, Image as ImageIcon } from 'lucide-react';
@@ -26,7 +25,7 @@ export function LogoUpload({
   const [logoUrl, setLogoUrl] = useState(currentLogoUrl);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const generateUploadUrl = useMutation(api.companies.generateUploadUrl);
+  const supabase = useSupabase();
   const { toast } = useToast();
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,34 +55,28 @@ export function LogoUpload({
     setIsUploading(true);
 
     try {
-      // Step 1: Get upload URL from Convex
-      const uploadUrl = await generateUploadUrl();
+      // Generate unique file path
+      const fileExt = file.name.split('.').pop();
+      const filePath = `logos/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
-      // Step 2: Upload file to Convex storage
-      const result = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('uploads')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (!result.ok) {
-        throw new Error('Upload failed');
-      }
+      if (uploadError) throw uploadError;
 
-      const { storageId } = await result.json();
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('uploads')
+        .getPublicUrl(filePath);
 
-      // Step 3: Get the public URL for the uploaded file
-      // Convex provides a URL in the format: https://[deployment-url]/api/storage/[storageId]
-      const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-      if (!convexUrl) {
-        throw new Error('Convex URL not configured');
-      }
-
-      const logoUrl = `${convexUrl}/api/storage/${storageId}`;
-
-      // Step 4: Update local state and notify parent
-      setLogoUrl(logoUrl);
-      onUploadComplete(logoUrl);
+      // Update local state and notify parent
+      setLogoUrl(publicUrl);
+      onUploadComplete(publicUrl);
 
       toast({
         title: 'Upload successful',

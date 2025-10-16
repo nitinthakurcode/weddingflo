@@ -1,17 +1,16 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
-import { api } from '../../../convex/_generated/api';
+import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Upload, X } from 'lucide-react';
-import type { Id } from '../../../convex/_generated/dataModel';
 
 interface AvatarUploadProps {
-  userId: Id<'users'>;
+  userId: string;
   currentAvatarUrl?: string;
 }
 
@@ -20,8 +19,25 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
   const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || clerkUser?.imageUrl);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const updateUser = useMutation(api.users.update);
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const updateUser = useMutation({
+    mutationFn: async ({ avatar_url }: { avatar_url?: string }) => {
+      const { data, error } = await supabase
+        .from('users')
+        .update({ avatar_url })
+        .eq('id', userId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users', userId] });
+    },
+  });
 
   // Sync with Clerk user image
   useEffect(() => {
@@ -69,9 +85,8 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
       const newAvatarUrl = clerkUser?.imageUrl;
 
       if (newAvatarUrl) {
-        // Update Convex
-        await updateUser({
-          userId,
+        // Update Supabase
+        await updateUser.mutateAsync({
           avatar_url: newAvatarUrl,
         });
 
@@ -104,9 +119,8 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
       // Remove from Clerk
       await clerkUser?.setProfileImage({ file: null });
 
-      // Update Convex
-      await updateUser({
-        userId,
+      // Update Supabase
+      await updateUser.mutateAsync({
         avatar_url: undefined,
       });
 

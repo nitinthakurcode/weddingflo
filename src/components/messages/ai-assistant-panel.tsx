@@ -1,17 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Sparkles, Send, Loader2, X } from 'lucide-react';
-import { Id } from '@/convex/_generated/dataModel';
 
 interface AIAssistantPanelProps {
-  clientId: Id<'clients'>;
-  companyId: Id<'companies'>;
+  clientId: string;
+  companyId: string;
   onClose: () => void;
 }
 
