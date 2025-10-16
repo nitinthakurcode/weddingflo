@@ -37,7 +37,7 @@ next-env.d.ts
 
 # convex
 .convex
-convex/_generated/
+convex/_generated/*
 !convex/_generated/api.d.ts
 !convex/_generated/dataModel.d.ts
 !convex/_generated/server.d.ts
