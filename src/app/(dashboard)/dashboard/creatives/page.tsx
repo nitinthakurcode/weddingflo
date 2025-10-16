@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import { CreativeStatsCards } from '@/components/creatives/creative-stats-cards';
@@ -14,38 +15,116 @@ import { PageLoader } from '@/components/ui/loading-spinner';
 
 export default function CreativesPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user?.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: clients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser?.company_id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Get weddings for the first client
   const selectedClient = clients?.[0];
-  const weddings = useQuery(
-    api.weddings.getByClient,
-    selectedClient?._id ? { clientId: selectedClient._id } : 'skip'
-  );
+  const { data: weddings } = useQuery({
+    queryKey: ['weddings', selectedClient?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('weddings')
+        .select('*')
+        .eq('client_id', selectedClient?.id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!selectedClient?.id,
+  });
 
   // Use first wedding for now (in production, add wedding selector)
   const selectedWedding = weddings && weddings.length > 0 ? weddings[0] : null;
-  const weddingId = selectedWedding?._id;
+  const weddingId = selectedWedding?.id;
 
   // Fetch creative jobs and stats
-  const creativeJobs = useQuery(
-    api.creativeJobs.getCreativeJobsByWedding,
-    weddingId ? { weddingId } : 'skip'
-  );
+  const { data: creativeJobs, isLoading: creativeJobsLoading } = useQuery({
+    queryKey: ['creative-jobs', weddingId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('creative_jobs')
+        .select('*')
+        .eq('wedding_id', weddingId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!weddingId,
+  });
 
-  const creativeStats = useQuery(
-    api.creativeJobs.getCreativeStats,
-    weddingId ? { weddingId } : 'skip'
-  );
+  const { data: creativeStats } = useQuery({
+    queryKey: ['creative-stats', weddingId],
+    queryFn: async () => {
+      if (!creativeJobs) return null;
 
-  const deleteCreativeJob = useMutation(api.creativeJobs.deleteCreativeJob);
-  const updateCreativeJob = useMutation(api.creativeJobs.updateCreativeJob);
+      const now = Date.now();
+      const total = creativeJobs.length;
+      const inReview = creativeJobs.filter((job: any) => job.status === 'review').length;
+      const completed = creativeJobs.filter((job: any) => job.status === 'completed').length;
+      const overdue = creativeJobs.filter((job: any) => {
+        if (!job.due_date) return false;
+        const dueDate = new Date(job.due_date).getTime();
+        return dueDate < now && job.status !== 'completed' && job.status !== 'cancelled';
+      }).length;
+
+      return { total, inReview, completed, overdue };
+    },
+    enabled: !!creativeJobs,
+  });
+
+  const deleteCreativeJobMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const { error } = await supabase
+        .from('creative_jobs')
+        .delete()
+        .eq('id', jobId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['creative-jobs', weddingId] });
+    },
+  });
+
+  const updateCreativeJobMutation = useMutation({
+    mutationFn: async ({ jobId, status }: { jobId: string; status: CreativeJob['status'] }) => {
+      const { error } = await supabase
+        .from('creative_jobs')
+        .update({ status })
+        .eq('id', jobId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['creative-jobs', weddingId] });
+    },
+  });
 
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CreativeJob | undefined>();
@@ -71,7 +150,7 @@ export default function CreativesPage() {
     }
 
     try {
-      await deleteCreativeJob({ jobId: job._id });
+      await deleteCreativeJobMutation.mutateAsync(job.id);
       toast({
         title: 'Success',
         description: 'Creative job deleted successfully',
@@ -87,10 +166,7 @@ export default function CreativesPage() {
 
   const handleStatusChange = async (jobId: string, newStatus: CreativeJob['status']) => {
     try {
-      await updateCreativeJob({
-        jobId: jobId as any,
-        status: newStatus,
-      });
+      await updateCreativeJobMutation.mutateAsync({ jobId, status: newStatus });
       toast({
         title: 'Success',
         description: 'Status updated successfully',
@@ -116,7 +192,7 @@ export default function CreativesPage() {
 
     switch (creativeFilter) {
       case 'overdue':
-        return creativeJobs.filter((job) => {
+        return creativeJobs.filter((job: any) => {
           if (!job.due_date) return false;
           const dueDate = new Date(job.due_date).getTime();
           return dueDate < now && job.status !== 'completed' && job.status !== 'cancelled';
@@ -127,12 +203,12 @@ export default function CreativesPage() {
   })();
 
   // Loading state
-  if (currentUser === undefined) {
+  if (!user || currentUser === undefined) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -149,7 +225,7 @@ export default function CreativesPage() {
   if (
     clients === undefined ||
     weddings === undefined ||
-    creativeJobs === undefined ||
+    (creativeJobsLoading && creativeJobs === undefined) ||
     creativeStats === undefined
   ) {
     return <PageLoader />;
@@ -212,7 +288,7 @@ export default function CreativesPage() {
       </div>
 
       <CreativeStatsCards
-        stats={creativeStats}
+        stats={creativeStats || { total: 0, inReview: 0, completed: 0, overdue: 0 }}
         isLoading={false}
         onFilterChange={handleFilterChange}
       />

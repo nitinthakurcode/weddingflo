@@ -2,8 +2,9 @@
 
 import { useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus, Download, Upload } from 'lucide-react';
@@ -34,32 +35,83 @@ const SpendingTimelineChart = dynamic(
 
 export default function BudgetPage() {
   const { toast } = useToast();
+  const supabase = createClient();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const currentUser = useQuery(api.users.getCurrent);
-  const clients = useQuery(
-    api.clients.list,
-    currentUser?.company_id ? { companyId: currentUser.company_id } : 'skip'
-  );
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('clerk_id', user?.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: clients } = useQuery({
+    queryKey: ['clients', currentUser?.company_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('company_id', currentUser?.company_id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentUser?.company_id,
+  });
 
   // Get weddings for the first client
   const selectedClient = clients?.[0];
-  const weddings = useQuery(
-    api.weddings.getByClient,
-    selectedClient?._id ? { clientId: selectedClient._id } : 'skip'
-  );
+  const { data: weddings } = useQuery({
+    queryKey: ['weddings', selectedClient?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('weddings')
+        .select('*')
+        .eq('client_id', selectedClient?.id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!selectedClient?.id,
+  });
 
   // Use first wedding for now (in production, add wedding selector)
   const selectedWedding = weddings && weddings.length > 0 ? weddings[0] : null;
-  const weddingId = selectedWedding?._id;
+  const weddingId = selectedWedding?.id;
 
   // Fetch budget data
-  const budgetItems = useQuery(
-    api.budget.getBudgetItemsByWedding,
-    weddingId ? { weddingId } : 'skip'
-  );
+  const { data: budgetItems, isLoading: budgetItemsLoading } = useQuery({
+    queryKey: ['budget-items', weddingId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('budget_items')
+        .select('*')
+        .eq('wedding_id', weddingId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!weddingId,
+  });
 
-  const deleteBudgetItem = useMutation(api.budget.deleteBudgetItem);
+  const deleteBudgetItemMutation = useMutation({
+    mutationFn: async (budgetItemId: string) => {
+      const { error } = await supabase
+        .from('budget_items')
+        .delete()
+        .eq('id', budgetItemId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budget-items', weddingId] });
+    },
+  });
 
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<BudgetItem | undefined>();
@@ -95,7 +147,7 @@ export default function BudgetPage() {
     }
 
     try {
-      await deleteBudgetItem({ budgetItemId: item._id });
+      await deleteBudgetItemMutation.mutateAsync(item.id);
       toast({
         title: 'Success',
         description: 'Budget item deleted successfully',
@@ -145,12 +197,12 @@ export default function BudgetPage() {
   };
 
   // Loading state
-  if (currentUser === undefined) {
+  if (!user || currentUser === undefined) {
     return <PageLoader />;
   }
 
   // Not authenticated
-  if (currentUser === null) {
+  if (!currentUser) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -164,7 +216,7 @@ export default function BudgetPage() {
   }
 
   // Loading data
-  if (clients === undefined || weddings === undefined || budgetItems === undefined) {
+  if (clients === undefined || weddings === undefined || (budgetItemsLoading && budgetItems === undefined)) {
     return <PageLoader />;
   }
 
