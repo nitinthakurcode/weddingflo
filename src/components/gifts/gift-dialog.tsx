@@ -65,8 +65,10 @@ export function GiftDialog({
 
   const createGift = useMutation({
     mutationFn: async (data: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('gifts')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert(data)
         .select()
         .single();
@@ -80,8 +82,10 @@ export function GiftDialog({
 
   const updateGift = useMutation({
     mutationFn: async ({ giftId, ...data }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('gifts')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(data)
         .eq('id', giftId)
         .select()

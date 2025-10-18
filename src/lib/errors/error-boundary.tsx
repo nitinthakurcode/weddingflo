@@ -1,7 +1,7 @@
 'use client';
 
 import React, { Component, ReactNode } from 'react';
-import { captureUiError } from './sentry-logger';
+import { captureUiError } from './sentry.client';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
 

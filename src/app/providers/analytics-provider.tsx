@@ -4,7 +4,7 @@ import { useEffect, Suspense } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { initPostHog, posthog } from '@/lib/analytics/posthog-client';
-import { setUserContext } from '@/lib/errors/sentry-logger';
+import { setUserContext } from '@/lib/errors/sentry.client';
 
 // Separate component for page view tracking that uses searchParams
 function PageViewTracker() {

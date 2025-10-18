@@ -22,11 +22,27 @@ Sentry.init({
     return event;
   },
 
-  integrations: [
-    Sentry.extraErrorDataIntegration({
-      depth: 5,
-    }),
-  ],
+  integrations: (() => {
+    const integrations: any[] = [
+      Sentry.extraErrorDataIntegration({
+        depth: 5,
+      }),
+    ];
+
+    // Keep OpenTelemetry out of client bundles
+    // Only load in Node.js runtime (server-side)
+    if (process.env.NEXT_RUNTIME === 'nodejs') {
+      try {
+        // Dynamic import to prevent bundling in edge/client
+        const { opentelemetryIntegration } = require('@sentry/opentelemetry');
+        integrations.push(opentelemetryIntegration());
+      } catch (err) {
+        // OpenTelemetry integration not available, skip
+      }
+    }
+
+    return integrations;
+  })(),
 
   // Ignore common noise
   ignoreErrors: [

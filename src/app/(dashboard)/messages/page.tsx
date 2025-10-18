@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { ConversationList } from '@/components/messages/conversation-list';
@@ -12,31 +12,33 @@ import { AIAssistantPanel } from '@/components/messages/ai-assistant-panel';
 export default function MessagesPage() {
   const [selectedClientId, setSelectedClientId] = useState<string | undefined>();
   const [showAIAssistant, setShowAIAssistant] = useState(false);
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
   // Get current user
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
   // Get conversations
-  const { data: conversations, isLoading: isLoadingConversations } = useQuery({
+  const { data: conversations, isLoading: isLoadingConversations } = useQuery<any[]>({
     queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id || !currentUser?.clerk_id) return [];
 
@@ -64,12 +66,12 @@ export default function MessagesPage() {
 
       return Array.from(conversationMap.values());
     },
-    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id,
+    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id && !!supabase,
   });
 
   // Set up realtime subscription for messages
   useEffect(() => {
-    if (!currentUser?.company_id) return;
+    if (!currentUser?.company_id || !supabase) return;
 
     const channel = supabase
       .channel('messages')

@@ -112,6 +112,7 @@ export default function CheckInPage() {
 
       // Check in the guest (only for real guests)
       // First, get the guest to check if already checked in
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { data: guest, error: guestError } = await supabase
         .from('guests')
         .select('id, name, number_of_packs, checked_in')
@@ -128,16 +129,16 @@ export default function CheckInPage() {
         return;
       }
 
-      if (guest.checked_in) {
+      if ((guest as any).checked_in) {
         console.log('⚠️ Guest already checked in');
         setCheckInResult({
           success: false,
           error: 'This guest is already checked in',
           alreadyCheckedIn: true,
           guest: {
-            id: guest.id,
-            name: guest.name,
-            numberOfPacks: guest.number_of_packs,
+            id: (guest as any).id,
+            name: (guest as any).name,
+            numberOfPacks: (guest as any).number_of_packs,
           },
         });
         setIsProcessing(false);
@@ -147,6 +148,7 @@ export default function CheckInPage() {
       // Update guest to mark as checked in
       const { error: updateError } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
           checked_in: true,
           check_in_time: new Date().toISOString(),
@@ -168,9 +170,9 @@ export default function CheckInPage() {
       setCheckInResult({
         success: true,
         guest: {
-          id: guest.id,
-          name: guest.name,
-          numberOfPacks: guest.number_of_packs,
+          id: (guest as any).id,
+          name: (guest as any).name,
+          numberOfPacks: (guest as any).number_of_packs,
         },
       });
 

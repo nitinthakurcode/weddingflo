@@ -70,14 +70,14 @@ export function TimelineGrid({
           </div>
         ) : (
           activities.map((activity, index) => {
-            const timeBlock = timeBlocks.find((tb) => tb.activity_id === activity._id);
+            const timeBlock = timeBlocks.find((tb) => tb.activity_id === activity.id);
             if (!timeBlock) return null;
 
             const colors = activityTypeColors[activity.activity_type];
 
             return (
               <div
-                key={activity._id}
+                key={activity.id}
                 className={cn(
                   'flex border-b last:border-b-0',
                   index % 2 === 0 ? 'bg-gray-50' : 'bg-white'

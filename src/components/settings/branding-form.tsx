@@ -50,25 +50,27 @@ export function BrandingForm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: company } = useQuery({
+  const { data: company } = useQuery<any>({
     queryKey: ['companies', 'current', user?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!user?.id) throw new Error('User ID not available');
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('company_id')
-        .eq('clerk_id', user?.id)
-        .single();
+        .eq('clerk_id', user.id)
+        .maybeSingle();
       if (userError) throw userError;
 
       const { data, error } = await supabase
         .from('companies')
         .select('*')
-        .eq('id', userData.company_id)
-        .single();
+        .eq('id', (userData as any).company_id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
   const [formData, setFormData] = useState<BrandingFormData>(DEFAULT_BRANDING);
@@ -92,12 +94,14 @@ export function BrandingForm() {
 
   const updateBranding = useMutation({
     mutationFn: async (branding: BrandingFormData) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('companies')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ branding })
         .eq('id', company?.id)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },

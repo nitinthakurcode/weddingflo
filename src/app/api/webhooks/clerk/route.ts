@@ -1,7 +1,8 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
-import { WebhookEvent } from '@clerk/nextjs/server';
+import { WebhookEvent, clerkClient } from '@clerk/nextjs/server';
 import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { UserRole } from '@/lib/supabase/types';
 
 export async function POST(req: Request) {
   // Get the headers
@@ -12,6 +13,11 @@ export async function POST(req: Request) {
 
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
+    console.error('❌ Missing svix headers:', {
+      svix_id: !!svix_id,
+      svix_timestamp: !!svix_timestamp,
+      svix_signature: !!svix_signature,
+    });
     return new Response('Error occured -- no svix headers', {
       status: 400,
     });
@@ -34,7 +40,8 @@ export async function POST(req: Request) {
       'svix-signature': svix_signature,
     }) as WebhookEvent;
   } catch (err) {
-    console.error('Error verifying webhook:', err);
+    console.error('❌ Error verifying webhook signature:', err);
+    console.error('Webhook secret configured:', !!process.env.CLERK_WEBHOOK_SECRET);
     return new Response('Error occured', {
       status: 400,
     });
@@ -50,28 +57,163 @@ export async function POST(req: Request) {
       return new Response('Missing user ID', { status: 400 });
     }
 
+    const email = email_addresses[0]?.email_address || '';
+
+    // Handle test events from Clerk dashboard (they don't have real emails)
+    if (!email) {
+      console.log('⚠️  Test event detected (no email) - returning success without creating user');
+      return new Response('Test event handled', { status: 200 });
+    }
+
     try {
       const supabase = createServerSupabaseAdminClient();
 
-      // Create user in Supabase
+      // Determine role based on super admin email
+      const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+      const isSuperAdmin = email === superAdminEmail;
+      const role = isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.COMPANY_ADMIN;
+
+      console.log(`🔐 Assigning role "${role}" to user ${email}`);
+
+      // Determine company assignment
+      let companyId: string | null = null;
+
+      if (isSuperAdmin) {
+        // Find or create platform company for super admin
+        console.log('[Webhook] Super admin detected, looking for platform company...');
+
+        const { data: platformCompany, error: companyFetchError } = await supabase
+          .from('companies')
+          .select('*')
+          .eq('subdomain', 'platform')
+          .single();
+
+        if (companyFetchError && companyFetchError.code !== 'PGRST116') {
+          console.error('❌ [Webhook] Error fetching platform company:', companyFetchError);
+        }
+
+        if (platformCompany) {
+          companyId = platformCompany.id || platformCompany.uuid || (platformCompany as any).company_id || null;
+          console.log(`✅ [Webhook] Found existing platform company: ${companyId}`);
+        } else {
+          // Create platform company if it doesn't exist
+          console.log('[Webhook] Platform company not found, creating...');
+
+          const { data: newCompany, error: createCompanyError } = await supabase
+            .from('companies')
+            .insert({
+              name: 'WeddingFlow Platform',
+              subdomain: 'platform',
+              subscription_tier: 'enterprise',
+              subscription_status: 'active',
+            } as any)
+            .select('*')
+            .single();
+
+          if (createCompanyError) {
+            console.error('❌ [Webhook] Error creating platform company:', createCompanyError);
+            console.error('❌ [Webhook] Error details:', JSON.stringify(createCompanyError, null, 2));
+          } else if (newCompany) {
+            console.log('✅ [Webhook] Platform company created, response:', JSON.stringify(newCompany, null, 2));
+            companyId = newCompany.id || newCompany.uuid || (newCompany as any).company_id || null;
+            console.log(`✅ [Webhook] Platform company ID: ${companyId}`);
+          }
+        }
+      } else {
+        // For company admins, create a new company - THIS IS REQUIRED
+        const companyName = `${first_name || 'User'}'s Company`;
+        // Generate subdomain from user ID - remove underscores and use only alphanumeric
+        const subdomain = `company${id.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase()}`;
+
+        console.log(`[Webhook] Creating company: ${companyName} (subdomain: ${subdomain})`);
+
+        const { data: newCompany, error: createCompanyError } = await supabase
+          .from('companies')
+          .insert({
+            name: companyName,
+            subdomain,
+            subscription_tier: 'free',
+            subscription_status: 'trialing',
+            trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days trial
+          } as any)
+          .select('*')  // Select all columns to see full response
+          .single();
+
+        // Company creation MUST succeed for regular users
+        if (createCompanyError) {
+          console.error('❌ [Webhook] CRITICAL: Failed to create company for user!');
+          console.error('❌ [Webhook] Error:', createCompanyError);
+          console.error('❌ [Webhook] Error details:', JSON.stringify(createCompanyError, null, 2));
+          // FAIL the webhook - user cannot be created without a company
+          return new Response('Failed to create company for user', { status: 500 });
+        }
+
+        if (!newCompany) {
+          console.error('❌ [Webhook] CRITICAL: Company creation returned no data!');
+          return new Response('Company creation returned no data', { status: 500 });
+        }
+
+        console.log('✅ [Webhook] Company created, full response:', JSON.stringify(newCompany, null, 2));
+
+        // Extract company ID - try multiple possible field names
+        companyId = newCompany.id || newCompany.uuid || (newCompany as any).company_id || null;
+
+        if (!companyId) {
+          console.error('❌ [Webhook] CRITICAL: Company created but ID is missing!');
+          console.error('❌ [Webhook] Response keys:', Object.keys(newCompany));
+          return new Response('Company ID not found in response', { status: 500 });
+        }
+
+        console.log(`✅ [Webhook] Company ID extracted successfully: ${companyId}`);
+      }
+
+      // VALIDATION: Ensure company_id is set before creating user
+      if (!companyId) {
+        console.error('❌ [Webhook] CRITICAL: Attempting to create user without company_id!');
+        console.error('❌ [Webhook] Role:', role, 'isSuperAdmin:', isSuperAdmin);
+        return new Response('Cannot create user without company_id', { status: 500 });
+      }
+
+      // Create user in Supabase with GUARANTEED company_id
+      console.log(`[Webhook] ✓ Validation passed - company_id is set: ${companyId}`);
+      console.log(`[Webhook] Creating user with company_id: ${companyId} (type: ${typeof companyId})`);
+
       const { error: userError } = await supabase.from('users').insert({
         clerk_id: id,
-        email: email_addresses[0]?.email_address || '',
+        email,
         first_name: first_name || null,
         last_name: last_name || null,
         avatar_url: image_url || null,
-        role: 'planner',
-      });
+        role,
+        company_id: companyId,  // GUARANTEED to be non-null here
+      } as any);
 
       if (userError) {
-        console.error('Error creating user:', userError);
+        console.error('❌ [Webhook] Error creating user in Supabase:', userError);
+        console.error('❌ [Webhook] User error details:', JSON.stringify(userError, null, 2));
         return new Response('Error creating user in database', { status: 500 });
       }
 
-      console.log('✅ User onboarded successfully:', id);
+      console.log(`✅ [Webhook] User created successfully with company_id: ${companyId}`);
+
+      // Update Clerk user metadata with the role
+      try {
+        const client = await clerkClient();
+        await client.users.updateUserMetadata(id, {
+          publicMetadata: {
+            role,
+          },
+        });
+        console.log(`✅ Updated Clerk metadata with role: ${role}`);
+      } catch (metadataError) {
+        console.error('⚠️  Error updating Clerk metadata:', metadataError);
+        // Don't fail the entire operation if metadata update fails
+      }
+
+      console.log('✅ User synced successfully:', { id, email, role });
       return new Response('User created', { status: 200 });
     } catch (error) {
-      console.error('Error onboarding user:', error);
+      console.error('❌ Error onboarding user:', error);
       return new Response('Error creating user in database', { status: 500 });
     }
   }
@@ -85,11 +227,14 @@ export async function POST(req: Request) {
 
     try {
       const supabase = createServerSupabaseAdminClient();
+      const email = email_addresses[0]?.email_address || '';
 
-      // Update user in Supabase
+      // Update user in Supabase (do NOT update role - only set on creation)
       const { error: updateError } = await supabase
         .from('users')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
+          email: email || null,
           first_name: first_name || null,
           last_name: last_name || null,
           avatar_url: image_url || null,
@@ -97,14 +242,14 @@ export async function POST(req: Request) {
         .eq('clerk_id', id);
 
       if (updateError) {
-        console.error('Error updating user:', updateError);
+        console.error('❌ Error updating user:', updateError);
         return new Response('Error updating user in database', { status: 500 });
       }
 
-      console.log('✅ User updated successfully:', id);
+      console.log('✅ User updated successfully:', { id, email });
       return new Response('User updated', { status: 200 });
     } catch (error) {
-      console.error('Error updating user:', error);
+      console.error('❌ Error updating user:', error);
       return new Response('Error updating user in database', { status: 500 });
     }
   }
@@ -117,16 +262,25 @@ export async function POST(req: Request) {
     }
 
     try {
-      // In production, you might want to soft-delete or archive instead
-      console.log('⚠️  User deletion requested for:', id);
+      const supabase = createServerSupabaseAdminClient();
 
-      // Uncomment to enable hard delete:
-      // const supabase = createServerSupabaseAdminClient();
-      // await supabase.from('users').delete().eq('clerk_id', id);
+      console.log('🗑️  Deleting user:', id);
 
-      return new Response('User deletion handled', { status: 200 });
+      // Delete user from Supabase (will cascade delete related data if foreign keys configured)
+      const { error: deleteError } = await supabase
+        .from('users')
+        .delete()
+        .eq('clerk_id', id);
+
+      if (deleteError) {
+        console.error('❌ Error deleting user:', deleteError);
+        return new Response('Error deleting user from database', { status: 500 });
+      }
+
+      console.log('✅ User deleted successfully:', id);
+      return new Response('User deleted', { status: 200 });
     } catch (error) {
-      console.error('Error deleting user:', error);
+      console.error('❌ Error deleting user:', error);
       return new Response('Error deleting user from database', { status: 500 });
     }
   }

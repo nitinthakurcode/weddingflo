@@ -58,7 +58,7 @@ export function ActivityCard({
     transition,
     isDragging,
   } = useSortable({
-    id: activity._id,
+    id: activity.id,
     disabled: !draggable,
   });
 
@@ -153,7 +153,7 @@ export function ActivityCard({
             )}
             {onDelete && (
               <DropdownMenuItem
-                onClick={() => onDelete(activity._id)}
+                onClick={() => onDelete(activity.id)}
                 className="text-red-600"
               >
                 Delete

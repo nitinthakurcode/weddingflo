@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -25,30 +25,32 @@ import {
 
 export default function HotelsPage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
-  const { data: clients, isLoading: isLoadingClients } = useQuery({
+  const { data: clients, isLoading: isLoadingClients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return [];
       const { data, error } = await supabase
@@ -58,16 +60,17 @@ export default function HotelsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Use first client for now (in production, add client selector)
   const selectedClient = clients?.[0];
   const clientId = selectedClient?.id;
 
-  const { data: hotels, isLoading: isLoadingHotels } = useQuery({
+  const { data: hotels, isLoading: isLoadingHotels } = useQuery<any[]>({
     queryKey: ['hotels', clientId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
@@ -77,12 +80,13 @@ export default function HotelsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
-  const { data: hotelDetails, isLoading: isLoadingHotelDetails } = useQuery({
+  const { data: hotelDetails, isLoading: isLoadingHotelDetails } = useQuery<any[]>({
     queryKey: ['hotel_details', clientId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
@@ -92,11 +96,13 @@ export default function HotelsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   const createHotel = useMutation({
     mutationFn: async (input: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { error } = await supabase.from('hotels').insert(input);
       if (error) throw error;
     },
@@ -107,6 +113,7 @@ export default function HotelsPage() {
 
   const deleteHotel = useMutation({
     mutationFn: async (hotelId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase.from('hotels').delete().eq('id', hotelId);
       if (error) throw error;
     },
@@ -255,43 +262,43 @@ export default function HotelsPage() {
 
   // Calculate stats
   const stats: HotelStats = {
-    total_hotels: hotels.length,
-    total_rooms_booked: hotels.reduce(
-      (sum, h) => sum + h.room_types.reduce((s, rt) => s + rt.blocked_rooms, 0),
+    total_hotels: hotels?.length || 0,
+    total_rooms_booked: hotels?.reduce(
+      (sum: number, h: any) => sum + h.room_types.reduce((s: number, rt: any) => s + rt.blocked_rooms, 0),
       0
-    ),
-    total_guests_accommodated: hotelDetails.length,
+    ) || 0,
+    total_guests_accommodated: hotelDetails?.length || 0,
     occupancy_rate:
-      hotels.length > 0
-        ? (hotels.reduce(
-            (sum, h) => sum + h.room_types.reduce((s, rt) => s + rt.blocked_rooms, 0),
+      (hotels?.length || 0) > 0
+        ? ((hotels?.reduce(
+            (sum: number, h: any) => sum + h.room_types.reduce((s: number, rt: any) => s + rt.blocked_rooms, 0),
             0
-          ) /
-            hotels.reduce(
-              (sum, h) => sum + h.room_types.reduce((s, rt) => s + rt.total_rooms, 0),
+          ) || 0) /
+            (hotels?.reduce(
+              (sum: number, h: any) => sum + h.room_types.reduce((s: number, rt: any) => s + rt.total_rooms, 0),
               0
-            )) *
+            ) || 1)) *
           100
         : 0,
-    pending_bookings: hotelDetails.filter((hd) => hd.accommodation_status === false).length,
-    confirmed_bookings: hotelDetails.filter((hd) => hd.accommodation_status === true)
-      .length,
+    pending_bookings: hotelDetails?.filter((hd: any) => hd.accommodation_status === false).length || 0,
+    confirmed_bookings: hotelDetails?.filter((hd: any) => hd.accommodation_status === true)
+      .length || 0,
   };
 
   // Filter hotel details based on active filter
   const filteredHotelDetails = (() => {
-    if (!hotelFilter) return hotelDetails;
+    if (!hotelFilter) return hotelDetails || [];
 
     switch (hotelFilter) {
       case 'all':
       case 'accommodated':
-        return hotelDetails;
+        return hotelDetails || [];
       case 'pending':
-        return hotelDetails.filter((hd) => hd.accommodation_status === false);
+        return hotelDetails?.filter((hd: any) => hd.accommodation_status === false) || [];
       case 'confirmed':
-        return hotelDetails.filter((hd) => hd.accommodation_status === true);
+        return hotelDetails?.filter((hd: any) => hd.accommodation_status === true) || [];
       default:
-        return hotelDetails;
+        return hotelDetails || [];
     }
   })();
 
@@ -335,7 +342,7 @@ export default function HotelsPage() {
           {hotelFilter && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                Showing {filteredHotelDetails.length} of {hotelDetails.length} accommodations
+                Showing {filteredHotelDetails.length} of {hotelDetails?.length || 0} accommodations
               </span>
               <Button
                 variant="ghost"
@@ -348,7 +355,7 @@ export default function HotelsPage() {
             </div>
           )}
           <HotelManagementList
-            hotels={hotels}
+            hotels={hotels || []}
             isLoading={false}
             onEdit={handleEditHotel}
             onDelete={handleDeleteHotel}
@@ -377,7 +384,7 @@ export default function HotelsPage() {
           {hotelFilter && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                Showing {filteredHotelDetails.length} of {hotelDetails.length} accommodations
+                Showing {filteredHotelDetails.length} of {hotelDetails?.length || 0} accommodations
               </span>
               <Button
                 variant="ghost"

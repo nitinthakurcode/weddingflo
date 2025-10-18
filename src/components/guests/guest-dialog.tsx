@@ -37,8 +37,10 @@ export function GuestDialog({
 
   const createGuest = useMutation({
     mutationFn: async (data: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert(data)
         .select()
         .single();
@@ -52,8 +54,10 @@ export function GuestDialog({
 
   const updateGuest = useMutation({
     mutationFn: async ({ guestId, ...data }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(data)
         .eq('id', guestId)
         .select()

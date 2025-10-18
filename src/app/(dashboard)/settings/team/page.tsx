@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,7 +87,7 @@ const ROLE_CONFIG = {
 
 export default function TeamPage() {
   const { user } = useUser();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const queryClient = useQueryClient();
   const isAdmin = useIsAdmin();
   const { toast } = useToast();
@@ -105,11 +105,13 @@ export default function TeamPage() {
   const [selectedMember, setSelectedMember] = useState<any>(null);
 
   // Fetch team members
-  const { data: teamMembers, isLoading: teamMembersLoading } = useQuery({
+  const { data: teamMembers, isLoading: teamMembersLoading } = useQuery<any[]>({
     queryKey: ['team-members', companyId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!companyId) return [];
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -119,32 +121,36 @@ export default function TeamPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!user && !!companyId,
+    enabled: !!user && !!companyId && !!supabase,
   });
 
   // Fetch current user
-  const { data: currentUser, isLoading: currentUserLoading } = useQuery({
+  const { data: currentUser, isLoading: currentUserLoading } = useQuery<any>({
     queryKey: ['current-user', currentUserId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUserId) return null;
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', currentUserId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
     },
-    enabled: !!user && !!currentUserId,
+    enabled: !!user && !!currentUserId && !!supabase,
   });
 
   // Update role mutation
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('users')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ role, updated_at: new Date().toISOString() })
         .eq('id', userId);
 
@@ -172,6 +178,7 @@ export default function TeamPage() {
   // Remove user mutation
   const removeUserMutation = useMutation({
     mutationFn: async (userId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('users')
         .delete()

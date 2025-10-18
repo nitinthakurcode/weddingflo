@@ -20,7 +20,7 @@ export function QRCodeDisplay({ guest, open, onOpenChange }: QRCodeDisplayProps)
 
   if (!guest) return null;
 
-  const qrValue = guest.qr_code_token || guest._id;
+  const qrValue = guest.qr_code_token || guest.id;
 
   const handleDownload = () => {
     try {

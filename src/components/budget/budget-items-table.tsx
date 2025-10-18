@@ -100,7 +100,7 @@ export function BudgetItemsTable({ items, isLoading, onEdit, onDelete }: BudgetI
               {items.map((item) => {
                 const variance = item.budget - item.actual_cost;
                 return (
-                  <TableRow key={item._id}>
+                  <TableRow key={item.id}>
                     <TableCell className="font-medium">
                       {BUDGET_CATEGORIES[item.category]}
                     </TableCell>

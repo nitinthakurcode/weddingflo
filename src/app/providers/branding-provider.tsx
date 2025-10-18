@@ -1,42 +1,44 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
 
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<any>({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_user_id', user.id)
-        .single();
+        .eq('clerk_id', user.id)
+        .maybeSingle();
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
-  const { data: company } = useQuery({
+  const { data: company } = useQuery<any>({
     queryKey: ['company', currentUser?.company_id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return null;
       const { data } = await supabase
         .from('companies')
         .select('*')
         .eq('id', currentUser.company_id)
-        .single();
+        .maybeSingle();
       return data;
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   console.log('🔍 BrandingProvider:', { hasUser: !!currentUser, hasCompany: !!company, company });

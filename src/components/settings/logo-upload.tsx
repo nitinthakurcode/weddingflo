@@ -52,6 +52,15 @@ export function LogoUpload({
       return;
     }
 
+    if (!supabase) {
+      toast({
+        title: 'Error',
+        description: 'Supabase client not ready. Please try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsUploading(true);
 
     try {

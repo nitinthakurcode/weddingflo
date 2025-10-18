@@ -22,9 +22,11 @@ export function QRCodeGenerator({ guest, onGenerated }: QRCodeGeneratorProps) {
 
   const generateQR = useMutation({
     mutationFn: async (guestId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const qrToken = uuidv4();
       const { data, error } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ qr_token: qrToken })
         .eq('id', guestId)
         .select()

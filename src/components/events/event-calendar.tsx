@@ -114,7 +114,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
                 <div className="space-y-1">
                   {dayEvents.slice(0, 2).map((event) => (
                     <button
-                      key={event._id}
+                      key={event.id}
                       onClick={() => onEventClick?.(event)}
                       className="w-full text-left text-xs bg-primary/10 text-primary rounded px-2 py-1 hover:bg-primary/20 transition-colors truncate"
                     >

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 interface ActivityItem {
-  _id: string;
+  id: string;
   action: string;
   entity_type: string;
   entity_id: string;
@@ -64,7 +64,7 @@ export function RecentActivity({ activities }: RecentActivityProps) {
               const colorClass = getActivityColor(activity.action);
 
               return (
-                <div key={activity._id} className="flex items-start gap-3">
+                <div key={activity.id} className="flex items-start gap-3">
                   <div className={`p-2 rounded-full ${colorClass}`}>
                     <Icon className="h-4 w-4" />
                   </div>

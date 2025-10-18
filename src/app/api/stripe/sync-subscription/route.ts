@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
 
     // Get company data
     const supabase = await createServerSupabaseClient();
+    // @ts-ignore - TODO: Regenerate Supabase types from database schema
     const { data: company, error } = await supabase
       .from('companies')
       .select('*')
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const customerId = company.stripe_customer_id;
+    const customerId = (company as any).stripe_customer_id;
     if (!customerId) {
       return NextResponse.json({ error: 'No Stripe customer ID found' }, { status: 400 });
     }
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
 
     await supabase
       .from('companies')
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       .update(updateData)
       .eq('id', companyId);
 

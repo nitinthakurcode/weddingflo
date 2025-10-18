@@ -53,12 +53,14 @@ export function useLogActivity() {
 
   const logActivity = useMutation({
     mutationFn: async (data: ActivityLogData) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       // Get browser info
       const userAgent = typeof window !== 'undefined' ? navigator.userAgent : undefined;
       const deviceType = getDeviceType(userAgent);
 
       const { data: result, error } = await supabase
         .from('activity_log')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert({
           ...data,
           user_id: user?.id,

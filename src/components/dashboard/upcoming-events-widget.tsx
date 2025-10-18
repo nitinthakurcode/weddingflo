@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { useRouter } from 'next/navigation';
 
 interface UpcomingEvent {
-  _id: string;
+  id: string;
   event_name: string;
   date: number;
   start_time: string;
@@ -53,7 +53,7 @@ export function UpcomingEventsWidget({ events }: UpcomingEventsWidgetProps) {
           ) : (
             events.map((event) => (
               <div
-                key={event._id}
+                key={event.id}
                 className="p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
                 onClick={() => router.push('/dashboard/events')}
               >

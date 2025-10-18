@@ -8,7 +8,7 @@
  * Run this command to generate types from your actual database:
  *
  * ```bash
- * npx supabase gen types typescript --project-id gkrcaeymhgjepncbceag > lib/supabase/types.ts
+ * npx supabase gen types typescript --project-id YOUR_PROJECT_ID > lib/supabase/types.ts
  * ```
  *
  * Or use the Supabase CLI:
@@ -36,10 +36,8 @@ export type Json =
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   COMPANY_ADMIN = 'company_admin',
-  PLANNER = 'planner',
-  VENDOR = 'vendor',
-  CLIENT = 'client',
-  GUEST = 'guest',
+  STAFF = 'staff',
+  CLIENT_USER = 'client_user',
 }
 
 export enum SubscriptionTier {
@@ -147,9 +145,7 @@ export interface User {
   avatar_url: string | null
   role: UserRole
   company_id: string | null
-  settings: Json | null
-  metadata: Json | null
-  last_active_at: string | null
+  is_active: boolean
   created_at: string
   updated_at: string
 }
@@ -318,6 +314,28 @@ export interface ActivityLog {
   created_at: string
 }
 
+export interface CreativeJob {
+  id: string
+  wedding_id: string
+  type: string
+  title: string
+  description: string | null
+  status: string
+  priority: string
+  assigned_to: string | null
+  vendor_id: string | null
+  due_date: string | null
+  completed_date: string | null
+  progress: number
+  budget: number | null
+  actual_cost: number | null
+  files: Json | null
+  feedback: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 // ============================================================================
 // DATABASE SCHEMA
 // ============================================================================
@@ -384,6 +402,11 @@ export interface Database {
         Row: ActivityLog
         Insert: Omit<ActivityLog, 'id' | 'created_at'>
         Update: Partial<Omit<ActivityLog, 'id' | 'created_at'>>
+      }
+      creative_jobs: {
+        Row: CreativeJob
+        Insert: Omit<CreativeJob, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<CreativeJob, 'id' | 'created_at' | 'updated_at'>>
       }
     }
     Views: {

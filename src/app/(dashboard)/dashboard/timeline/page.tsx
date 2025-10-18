@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { TimelineView } from '@/components/timeline/timeline-view';
@@ -17,32 +17,33 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function TimelinePage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
-      if (!user?.id) return null;
-      const { data, error } = await supabase
+      if (!supabase) throw new Error('Supabase client not ready');
+      const { data, error} = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
-  const { data: clients, isLoading: isLoadingClients } = useQuery({
+  const { data: clients, isLoading: isLoadingClients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return [];
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -50,7 +51,7 @@ export default function TimelinePage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Use first client for now
@@ -58,11 +59,12 @@ export default function TimelinePage() {
   const clientId = selectedClient?.id;
 
   // Fetch activities
-  const { data: activities, isLoading: isLoadingActivities } = useQuery({
+  const { data: activities, isLoading: isLoadingActivities } = useQuery<any[]>({
     queryKey: ['event_flow', clientId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('event_flow')
         .select('*')
@@ -71,11 +73,13 @@ export default function TimelinePage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   const createActivity = useMutation({
     mutationFn: async (input: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { error } = await supabase.from('event_flow').insert(input);
       if (error) throw error;
     },
@@ -86,8 +90,10 @@ export default function TimelinePage() {
 
   const updateActivity = useMutation({
     mutationFn: async ({ eventFlowId, ...updates }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('event_flow')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(updates)
         .eq('id', eventFlowId);
       if (error) throw error;
@@ -283,7 +289,7 @@ export default function TimelinePage() {
         </TabsList>
 
         <TabsContent value="timeline" className="space-y-6">
-          {activities.length === 0 ? (
+          {(activities?.length || 0) === 0 ? (
             <div className="text-center py-12 bg-white rounded-lg border">
               <div className="max-w-md mx-auto">
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">

@@ -1,58 +1,16 @@
 'use client'
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import { useSession } from '@clerk/nextjs'
 import type { Database } from './types'
 
 /**
- * Hook to create a Supabase client for client-side usage with Clerk authentication.
- * The client automatically injects the Clerk session token for authenticated requests.
+ * Creates a Supabase client for browser/client-side usage.
  *
- * @returns Supabase client instance configured with Clerk auth
+ * DEPRECATED: Use useSupabase() hook from SupabaseProvider instead.
+ * This ensures the Clerk session token is automatically included.
  *
- * @example
- * ```tsx
- * 'use client'
- * import { useSupabaseClient } from '@/lib/supabase/client'
- *
- * export default function MyComponent() {
- *   const supabase = useSupabaseClient()
- *
- *   async function fetchData() {
- *     const { data, error } = await supabase
- *       .from('your_table')
- *       .select('*')
- *   }
- * }
- * ```
- */
-export function useSupabaseClient() {
-  const { session } = useSession()
-
-  const getAuthHeaders = async (): Promise<Record<string, string>> => {
-    const token = await session?.getToken({ template: 'supabase' })
-    return token ? { Authorization: `Bearer ${token}` } : {}
-  }
-
-  return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      global: {
-        headers: getAuthHeaders as any,
-      },
-      auth: {
-        persistSession: false,
-      },
-    }
-  )
-}
-
-/**
- * Alias for useSupabaseClient for convenience.
- * Hook to get a Supabase client instance in React components.
- *
- * @returns Supabase client instance
+ * @deprecated Use useSupabase() hook instead
+ * @returns Supabase client instance (without authentication)
  *
  * @example
  * ```tsx
@@ -60,45 +18,30 @@ export function useSupabaseClient() {
  * import { useSupabase } from '@/lib/supabase/client'
  *
  * export default function MyComponent() {
- *   const supabase = useSupabase()
- *   // Use supabase client...
- * }
- * ```
- */
-export function useSupabase() {
-  return useSupabaseClient()
-}
-
-/**
- * Creates a public Supabase client for unauthenticated access.
- * Use this for public pages that don't require authentication (e.g., QR code verification).
+ *   const supabase = useSupabase() // Preferred - includes Clerk auth
  *
- * @returns Supabase client instance without authentication
- *
- * @example
- * ```tsx
- * 'use client'
- * import { createClient } from '@/lib/supabase/client'
- *
- * export default function PublicPage() {
- *   const supabase = createClient()
- *
- *   async function fetchPublicData() {
+ *   async function fetchData() {
  *     const { data, error } = await supabase
- *       .from('public_table')
+ *       .from('users')
  *       .select('*')
  *   }
  * }
  * ```
  */
 export function createClient() {
+  // This creates a client WITHOUT Clerk authentication
+  // Use useSupabase() hook instead for authenticated requests
   return createSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      auth: {
-        persistSession: false,
-      },
-    }
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
   )
 }
+
+// Re-export useSupabase hook from provider for backward compatibility
+export { useSupabase } from '@/providers/supabase-provider'
+
+/**
+ * @deprecated Use useSupabase() instead (same functionality, clearer name)
+ * @see useSupabase
+ */
+export { useSupabase as useSupabaseClient } from '@/providers/supabase-provider'

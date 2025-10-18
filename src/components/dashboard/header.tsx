@@ -18,33 +18,37 @@ export function Header() {
   const supabase = useSupabase();
 
   // Get current user
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<any>({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', user?.id)
-        .single();
+        .eq('clerk_id', user.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
   // Get total unread message count across all clients
-  const { data: conversations } = useQuery({
+  const { data: conversations } = useQuery<any[]>({
     queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!currentUser?.company_id || !currentUser?.clerk_id) return [];
       const { data, error } = await supabase
         .from('conversations')
         .select('*')
-        .eq('company_id', currentUser?.company_id)
-        .or(`user1_id.eq.${currentUser?.clerk_id},user2_id.eq.${currentUser?.clerk_id}`);
+        .eq('company_id', currentUser.company_id)
+        .or(`user1_id.eq.${currentUser.clerk_id},user2_id.eq.${currentUser.clerk_id}`);
       if (error) throw error;
       return data;
     },
-    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id,
+    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id && !!supabase,
   });
 
   const totalUnreadMessages = conversations?.reduce((sum, conv: any) => {

@@ -74,8 +74,10 @@ export function VendorDialog({
 
   const createVendor = useMutation({
     mutationFn: async (data: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('vendors')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert(data)
         .select()
         .single();
@@ -89,8 +91,10 @@ export function VendorDialog({
 
   const updateVendor = useMutation({
     mutationFn: async ({ vendorId, ...data }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('vendors')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(data)
         .eq('id', vendorId)
         .select()

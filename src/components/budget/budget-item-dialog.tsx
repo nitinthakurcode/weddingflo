@@ -54,8 +54,10 @@ export function BudgetItemDialog({
 
   const createBudgetItem = useMutation({
     mutationFn: async (data: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('budget_items')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert(data)
         .select()
         .single();
@@ -69,8 +71,10 @@ export function BudgetItemDialog({
 
   const updateBudgetItem = useMutation({
     mutationFn: async ({ budgetItemId, ...data }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('budget_items')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(data)
         .eq('id', budgetItemId)
         .select()

@@ -72,11 +72,11 @@ export function detectConflicts(activities: EventActivity[]): Conflict[] {
         activity2.end_time
       )) {
         conflicts.push({
-          id: `time-${activity1._id}-${activity2._id}`,
+          id: `time-${activity1.id}-${activity2.id}`,
           type: 'time_overlap',
           severity: 'medium',
           description: `"${activity1.activity}" overlaps with "${activity2.activity}"`,
-          affected_activities: [activity1._id, activity2._id],
+          affected_activities: [activity1.id, activity2.id],
           suggested_resolution: `Adjust the timing of one activity to avoid overlap`,
         });
 
@@ -87,11 +87,11 @@ export function detectConflicts(activities: EventActivity[]): Conflict[] {
           activity1.responsible_vendor === activity2.responsible_vendor
         ) {
           conflicts.push({
-            id: `vendor-${activity1._id}-${activity2._id}`,
+            id: `vendor-${activity1.id}-${activity2.id}`,
             type: 'vendor_double_booking',
             severity: 'high',
             description: `Vendor double-booked between "${activity1.activity}" and "${activity2.activity}"`,
-            affected_activities: [activity1._id, activity2._id],
+            affected_activities: [activity1.id, activity2.id],
             suggested_resolution: `Assign different vendors or adjust timing`,
           });
         }
@@ -103,11 +103,11 @@ export function detectConflicts(activities: EventActivity[]): Conflict[] {
           activity1.location === activity2.location
         ) {
           conflicts.push({
-            id: `location-${activity1._id}-${activity2._id}`,
+            id: `location-${activity1.id}-${activity2.id}`,
             type: 'location_conflict',
             severity: 'high',
             description: `Location "${activity1.location}" is being used by both "${activity1.activity}" and "${activity2.activity}" at the same time`,
-            affected_activities: [activity1._id, activity2._id],
+            affected_activities: [activity1.id, activity2.id],
             suggested_resolution: `Use different locations or adjust timing`,
           });
         }
@@ -116,7 +116,7 @@ export function detectConflicts(activities: EventActivity[]): Conflict[] {
 
     // Check basic dependency violations (depends_on is just an array of IDs)
     activity1.depends_on.forEach((depId) => {
-      const dependentActivity = activities.find((a) => a._id === depId);
+      const dependentActivity = activities.find((a) => a.id === depId);
       if (!dependentActivity) return;
 
       const start1 = parseTimeToDate(activity1.start_time);
@@ -126,11 +126,11 @@ export function detectConflicts(activities: EventActivity[]): Conflict[] {
       // Basic check: activity1 should start after dependentActivity ends
       if (isBefore(start1, end2)) {
         conflicts.push({
-          id: `dep-${activity1._id}-${depId}`,
+          id: `dep-${activity1.id}-${depId}`,
           type: 'dependency_violation',
           severity: 'high',
           description: `"${activity1.activity}" should start after "${dependentActivity.activity}" completes`,
-          affected_activities: [activity1._id, depId],
+          affected_activities: [activity1.id, depId],
           suggested_resolution: `Adjust timing to ensure "${activity1.activity}" starts after "${dependentActivity.activity}" ends`,
         });
       }
@@ -182,13 +182,13 @@ export function activitiesToTimeBlocks(
       const widthPercent = (durationMinutes / totalMinutes) * 100;
 
       return {
-        id: activity._id,
-        activity_id: activity._id,
+        id: activity.id,
+        activity_id: activity.id,
         start_time: startTime,
         end_time: endTime,
         left_percent: leftPercent,
         width_percent: widthPercent,
-        has_conflict: hasConflict(activity._id, conflicts),
+        has_conflict: hasConflict(activity.id, conflicts),
       };
     });
 }

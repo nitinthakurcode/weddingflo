@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,29 +19,31 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function EventsPage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
     queryKey: ['currentUser'],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_user_id', user?.id)
-        .single();
+        .eq('clerk_id', user?.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user,
+    enabled: !!user && !!supabase,
   });
 
-  const { data: clients, isLoading: isLoadingClients } = useQuery({
+  const { data: clients, isLoading: isLoadingClients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('clients')
@@ -51,7 +53,7 @@ export default function EventsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Use first client for now
@@ -59,9 +61,10 @@ export default function EventsPage() {
   const clientId = selectedClient?.id;
 
   // Fetch events
-  const { data: rawEvents, isLoading: isLoadingEvents } = useQuery({
+  const { data: rawEvents, isLoading: isLoadingEvents } = useQuery<any[]>({
     queryKey: ['events', clientId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('events')
@@ -71,11 +74,12 @@ export default function EventsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   // Map to Event type
   const events: Event[] = (rawEvents || []).map((evt) => ({
+    id: evt.id,
     _id: evt.id as any,
     _creationTime: new Date(evt.created_at).getTime(),
     company_id: evt.company_id,
@@ -117,11 +121,12 @@ export default function EventsPage() {
 
   const createEvent = useMutation({
     mutationFn: async (eventData: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('events')
         .insert(eventData)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -132,12 +137,14 @@ export default function EventsPage() {
 
   const updateEvent = useMutation({
     mutationFn: async ({ eventId, ...eventData }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('events')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(eventData)
         .eq('id', eventId)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -148,6 +155,7 @@ export default function EventsPage() {
 
   const deleteEventBrief = useMutation({
     mutationFn: async (eventId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase.from('events').delete().eq('id', eventId);
       if (error) throw error;
     },
@@ -237,7 +245,7 @@ export default function EventsPage() {
 
     try {
       await updateEvent.mutateAsync({
-        eventId: selectedEvent._id,
+        eventId: selectedEvent.id,
         event_name: data.event_name,
         event_start_time: data.event_start_time,
         event_end_time: data.event_end_time,

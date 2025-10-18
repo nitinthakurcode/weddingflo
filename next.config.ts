@@ -1,7 +1,27 @@
 import type { NextConfig } from 'next';
-import { withSentryConfig } from '@sentry/nextjs';
+// import { withSentryConfig } from '@sentry/nextjs';
 
 const nextConfig: NextConfig = {
+  webpack: (config, { isServer }) => {
+    // Fix for originalFactory.call error with Clerk
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+
+      // Block OpenTelemetry from client bundles (prevents ChunkLoadError)
+      config.resolve.alias = {
+        ...(config.resolve.alias || {}),
+        '@opentelemetry/api': false,
+        '@opentelemetry/instrumentation': false,
+        '@sentry/opentelemetry': false,
+      };
+    }
+    return config;
+  },
   images: {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [
@@ -91,30 +111,32 @@ const nextConfig: NextConfig = {
   ],
 };
 
-// Sentry configuration
-export default withSentryConfig(nextConfig, {
-  // For all available options, see:
-  // https://github.com/getsentry/sentry-webpack-plugin#options
+// Sentry configuration - temporarily disabled to fix Next.js 15 Fast Refresh issue
+// export default withSentryConfig(nextConfig, {
+//   // For all available options, see:
+//   // https://github.com/getsentry/sentry-webpack-plugin#options
 
-  org: process.env.SENTRY_ORG,
-  project: process.env.SENTRY_PROJECT,
-  authToken: process.env.SENTRY_AUTH_TOKEN,
+//   org: process.env.SENTRY_ORG,
+//   project: process.env.SENTRY_PROJECT,
+//   authToken: process.env.SENTRY_AUTH_TOKEN,
 
-  // Only upload source maps in production builds
-  silent: !process.env.CI,
+//   // Only upload source maps in production builds
+//   silent: !process.env.CI,
 
-  // Upload source maps during production build
-  widenClientFileUpload: true,
+//   // Upload source maps during production build
+//   widenClientFileUpload: true,
 
-  // Automatically annotate React components to show their full name in breadcrumbs and session replay
-  // Disabled for Next.js 15 compatibility - can cause issues with Server/Client Component separation
-  reactComponentAnnotation: {
-    enabled: false,
-  },
+//   // Automatically annotate React components to show their full name in breadcrumbs and session replay
+//   // Disabled for Next.js 15 compatibility - can cause issues with Server/Client Component separation
+//   reactComponentAnnotation: {
+//     enabled: false,
+//   },
 
-  // Hides source maps from generated client bundles
-  hideSourceMaps: true,
+//   // Hides source maps from generated client bundles
+//   hideSourceMaps: true,
 
-  // Automatically tree-shake Sentry logger statements to reduce bundle size
-  disableLogger: true,
-});
+//   // Automatically tree-shake Sentry logger statements to reduce bundle size
+//   disableLogger: true,
+// });
+
+export default nextConfig;

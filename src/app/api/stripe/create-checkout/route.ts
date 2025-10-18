@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
 
     // Get company data with auth
     const supabase = await createServerSupabaseClient();
+    // @ts-ignore - TODO: Regenerate Supabase types from database schema
     const { data: company, error } = await supabase
       .from('companies')
       .select('*')
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if customer already exists
-    let customerId = company.stripe_customer_id;
+    let customerId = (company as any).stripe_customer_id;
 
     if (!customerId) {
       // Get user's email from Clerk
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
         email: userEmail,
         metadata: {
           companyId: companyId,
-          company_name: company.name,
+          company_name: (company as any).name,
         },
       });
       customerId = customer.id;
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
       // Update company with customer ID
       await supabase
         .from('companies')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ stripe_customer_id: customerId })
         .eq('id', companyId);
     }

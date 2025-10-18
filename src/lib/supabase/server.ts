@@ -1,21 +1,26 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { auth } from '@clerk/nextjs/server'
 import type { Database } from './types'
 
 /**
- * Creates a Supabase client for server-side usage with Clerk authentication.
- * This client uses the user's Clerk session token for authenticated requests.
+ * Request-scoped Supabase client for PROTECTED server code paths.
+ *
+ * IMPORTANT:
+ * - Requires Clerk middleware to have run
+ * - Requires a valid Clerk session token
+ * - Fails fast if the token is missing (no silent fallbacks)
  *
  * Use this in:
- * - Server Components
- * - Server Actions
- * - API Route Handlers
+ * - Protected Server Components
+ * - Protected Server Actions
+ * - Protected API Route Handlers
  *
- * @returns Promise resolving to Supabase client instance configured with Clerk auth
+ * @throws Error if user is not authenticated
+ * @returns Promise resolving to Supabase client instance with Clerk auth
  *
  * @example
  * ```tsx
- * // In a Server Component
+ * // In a Protected Server Component
  * import { createServerSupabaseClient } from '@/lib/supabase/server'
  *
  * export default async function MyServerComponent() {
@@ -31,7 +36,7 @@ import type { Database } from './types'
  *
  * @example
  * ```tsx
- * // In a Server Action
+ * // In a Protected Server Action
  * 'use server'
  * import { createServerSupabaseClient } from '@/lib/supabase/server'
  *
@@ -41,20 +46,16 @@ import type { Database } from './types'
  * }
  * ```
  */
-export async function createServerSupabaseClient() {
-  const { getToken } = await auth()
-
-  const getAuthHeaders = async (): Promise<Record<string, string>> => {
-    const token = await getToken({ template: 'supabase' })
-    return token ? { Authorization: `Bearer ${token}` } : {}
-  }
-
+export function createServerSupabaseClient() {
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
-      global: {
-        headers: getAuthHeaders as any,
+      async accessToken() {
+        const { getToken } = await auth()
+        const jwt = await getToken()
+        if (!jwt) throw new Error("Not authenticated")
+        return jwt
       },
     }
   )

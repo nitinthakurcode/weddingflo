@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
  * ServerThemeScript - Server Component that injects theme colors directly into HTML
@@ -7,23 +7,23 @@ import { createServerClient } from '@/lib/supabase/server';
  */
 export async function ServerThemeScript() {
   try {
-    // Get current user from Clerk (server-side)
+    // Get Clerk user ID (not from Supabase auth - accessToken config doesn't support supabase.auth methods)
     const { userId } = await auth();
 
     if (!userId) {
       return null;
     }
 
-    const supabase = await createServerClient();
+    const supabase = createServerSupabaseClient();
 
-    // Fetch user from Supabase
+    // Fetch user from Supabase using Clerk user ID
     const { data: currentUser } = await supabase
       .from('users')
       .select('*')
-      .eq('clerk_user_id', userId)
-      .single();
+      .eq('clerk_id', userId)
+      .maybeSingle();
 
-    if (!currentUser?.company_id) {
+    if (!(currentUser as any)?.company_id) {
       return null;
     }
 
@@ -31,14 +31,14 @@ export async function ServerThemeScript() {
     const { data: company } = await supabase
       .from('companies')
       .select('*')
-      .eq('id', currentUser.company_id)
-      .single();
+      .eq('id', (currentUser as any).company_id)
+      .maybeSingle();
 
-    if (!company?.branding) {
+    if (!(company as any)?.branding) {
       return null;
     }
 
-    const { primary_color, secondary_color, accent_color } = company.branding;
+    const { primary_color, secondary_color, accent_color } = (company as any).branding;
 
     // Generate CSS with color palettes
     const hexToHSL = (hex: string): { h: number; s: number; l: number } | null => {

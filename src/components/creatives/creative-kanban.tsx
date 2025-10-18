@@ -102,7 +102,7 @@ export function CreativeKanban({
   );
 
   const handleDragStart = (e: React.DragEvent, job: CreativeJob) => {
-    e.dataTransfer.setData('jobId', job._id);
+    e.dataTransfer.setData('jobId', job.id);
     e.dataTransfer.effectAllowed = 'move';
   };
 
@@ -114,7 +114,7 @@ export function CreativeKanban({
   const handleDrop = (e: React.DragEvent, newStatus: CreativeStatus) => {
     e.preventDefault();
     const jobId = e.dataTransfer.getData('jobId');
-    const job = jobs.find((j) => j._id === jobId);
+    const job = jobs.find((j) => j.id === jobId);
     if (job && job.status !== newStatus) {
       onStatusChange(jobId, newStatus);
     }
@@ -140,7 +140,7 @@ export function CreativeKanban({
               <CardContent className="space-y-3">
                 {columnJobs.map((job) => (
                   <Card
-                    key={job._id}
+                    key={job.id}
                     draggable
                     onDragStart={(e) => handleDragStart(e, job)}
                     className="cursor-move hover:shadow-md transition-shadow"

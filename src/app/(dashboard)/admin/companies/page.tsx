@@ -47,6 +47,7 @@ export default function CompaniesPage() {
   const { data: companies, isLoading } = useQuery({
     queryKey: ['admin-companies'],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('companies')
@@ -56,7 +57,7 @@ export default function CompaniesPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!user && isSuperAdmin === true,
+    enabled: !!user && isSuperAdmin === true && !!supabase,
   });
 
   // Redirect if not super admin

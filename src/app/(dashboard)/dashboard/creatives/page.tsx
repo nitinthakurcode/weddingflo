@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
@@ -15,7 +15,7 @@ import { PageLoader } from '@/components/ui/loading-spinner';
 
 export default function CreativesPage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
@@ -24,21 +24,23 @@ export default function CreativesPage() {
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
   const { data: clients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -46,7 +48,7 @@ export default function CreativesPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Get weddings for the first client
@@ -55,6 +57,7 @@ export default function CreativesPage() {
     queryKey: ['weddings', selectedClient?.id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('weddings')
         .select('*')
@@ -62,7 +65,7 @@ export default function CreativesPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!selectedClient?.id,
+    enabled: !!selectedClient?.id && !!supabase,
   });
 
   // Use first wedding for now (in production, add wedding selector)
@@ -74,6 +77,7 @@ export default function CreativesPage() {
     queryKey: ['creative-jobs', weddingId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('creative_jobs')
         .select('*')
@@ -81,7 +85,7 @@ export default function CreativesPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!weddingId,
+    enabled: !!weddingId && !!supabase,
   });
 
   const { data: creativeStats } = useQuery<any>({
@@ -107,6 +111,7 @@ export default function CreativesPage() {
 
   const deleteCreativeJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('creative_jobs')
         .delete()
@@ -120,9 +125,11 @@ export default function CreativesPage() {
 
   const updateCreativeJobMutation = useMutation({
     mutationFn: async ({ jobId, status }: { jobId: string; status: CreativeJob['status'] }) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('creative_jobs')
-        .update({ status } as any)
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
+        .update({ status })
         .eq('id', jobId);
       if (error) throw error;
     },

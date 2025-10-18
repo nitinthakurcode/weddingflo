@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -45,28 +45,30 @@ const LANGUAGES = [
 
 export default function PreferencesPage() {
   const { user: clerkUser } = useUser();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
   // Fetch current user
-  const { data: user, isLoading: userLoading } = useQuery({
+  const { data: user, isLoading: userLoading } = useQuery<any>({
     queryKey: ['current-user', clerkUser?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!clerkUser?.id) return null;
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', clerkUser.id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
     },
-    enabled: !!clerkUser,
+    enabled: !!clerkUser && !!supabase,
   });
 
   const userSettings = user?.settings as any || {};
@@ -93,10 +95,12 @@ export default function PreferencesPage() {
   // Update preferences mutation
   const updatePreferencesMutation = useMutation({
     mutationFn: async (newPreferences: typeof preferences) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('No user ID');
 
       const { error } = await supabase
         .from('users')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
           settings: newPreferences,
           updated_at: new Date().toISOString(),

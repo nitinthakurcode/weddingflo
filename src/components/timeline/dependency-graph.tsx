@@ -52,7 +52,7 @@ export function DependencyGraph({ activities }: DependencyGraphProps) {
       <CardContent>
         <div className="space-y-6">
           {activitiesWithDeps.map((activity) => (
-            <div key={activity._id} className="border rounded-lg p-4 bg-gray-50">
+            <div key={activity.id} className="border rounded-lg p-4 bg-gray-50">
               <div className="flex items-start gap-3">
                 <div className="flex-1">
                   <h4 className="font-semibold text-gray-900 mb-3">
@@ -61,7 +61,7 @@ export function DependencyGraph({ activities }: DependencyGraphProps) {
 
                   <div className="space-y-3">
                     {activity.depends_on.map((depId, index) => {
-                      const dependentActivity = activities.find((a) => a._id === depId);
+                      const dependentActivity = activities.find((a) => a.id === depId);
 
                       return (
                         <div

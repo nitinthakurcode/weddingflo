@@ -33,12 +33,14 @@ export function ProfileForm({ user, clerkUser }: ProfileFormProps) {
 
   const updateUser = useMutation({
     mutationFn: async ({ name }: { name: string }) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('users')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ name })
         .eq('id', user.id)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },

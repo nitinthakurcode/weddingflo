@@ -84,6 +84,7 @@ export default function QRLandingPage({ params }: PageProps) {
           // Record QR scan in database
           const { error: scanError } = await supabase
             .from('qr_scans')
+            // @ts-ignore - TODO: Regenerate Supabase types from database schema
             .insert({
               guest_id: decryptedToken.guestId,
               scan_type: decryptedToken.type || 'check-in',
@@ -123,6 +124,7 @@ export default function QRLandingPage({ params }: PageProps) {
       // Update guest information in database
       const { error: updateError } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
           dietary_restrictions: data.dietaryRestrictions,
           special_needs: data.specialNeeds,

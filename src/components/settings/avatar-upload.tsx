@@ -25,12 +25,14 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
 
   const updateUser = useMutation({
     mutationFn: async ({ avatar_url }: { avatar_url?: string }) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('users')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ avatar_url })
         .eq('id', userId)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },

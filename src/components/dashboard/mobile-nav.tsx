@@ -18,8 +18,11 @@ import {
   Palette,
   Clock,
   X,
+  Shield,
+  Building2,
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useIsSuperAdmin } from '@/lib/permissions/can';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, available: true },
@@ -37,6 +40,11 @@ const navigation = [
   { name: 'Settings', href: '/settings/billing', icon: Settings, available: true },
 ];
 
+const adminNavigation = [
+  { name: 'Companies', href: '/admin/companies', icon: Building2 },
+  { name: 'Analytics', href: '/admin/analytics', icon: Shield },
+];
+
 interface MobileNavProps {
   open: boolean;
   onClose: () => void;
@@ -44,6 +52,7 @@ interface MobileNavProps {
 
 export function MobileNav({ open, onClose }: MobileNavProps) {
   const pathname = usePathname();
+  const isSuperAdmin = useIsSuperAdmin();
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -97,6 +106,39 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
               </Link>
             );
           })}
+
+          {/* Admin Section - Only visible to super admins */}
+          {isSuperAdmin && (
+            <>
+              <div className="pt-4 pb-2">
+                <div className="px-3 py-2">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Super Admin
+                  </h3>
+                </div>
+              </div>
+              {adminNavigation.map((item) => {
+                const isActive = pathname === item.href;
+
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    onClick={onClose}
+                    className={cn(
+                      'flex items-center space-x-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-primary/5 text-primary'
+                        : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </>
+          )}
         </nav>
       </SheetContent>
     </Sheet>

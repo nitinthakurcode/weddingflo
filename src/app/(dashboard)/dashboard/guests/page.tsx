@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -24,30 +24,32 @@ import type { SeatingOptimizationResult } from '@/lib/ai/seating-optimizer';
 
 export default function GuestsPage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
     queryKey: ['currentUser'],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_user_id', user?.id)
-        .single();
+        .eq('clerk_id', user?.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user,
+    enabled: !!user && !!supabase,
   });
 
-  const { data: clients, isLoading: isLoadingClients } = useQuery({
+  const { data: clients, isLoading: isLoadingClients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -56,17 +58,18 @@ export default function GuestsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Use first client for now (in production, add client selector)
   const selectedClient = clients?.[0];
   const clientId = selectedClient?.id;
 
-  const { data: guests, isLoading: isLoadingGuests } = useQuery({
+  const { data: guests, isLoading: isLoadingGuests } = useQuery<any[]>({
     queryKey: ['guests', clientId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('guests')
         .select('*')
@@ -75,11 +78,12 @@ export default function GuestsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   const deleteGuest = useMutation({
     mutationFn: async (guestId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase.from('guests').delete().eq('id', guestId);
       if (error) throw error;
     },
@@ -90,8 +94,10 @@ export default function GuestsPage() {
 
   const checkIn = useMutation({
     mutationFn: async ({ guestId, checked_in_by }: { guestId: string; checked_in_by: string }) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ checked_in: true, checked_in_by, checked_in_at: new Date().toISOString() })
         .eq('id', guestId);
       if (error) throw error;

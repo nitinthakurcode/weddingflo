@@ -22,9 +22,11 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
   const supabase = useSupabase();
   const queryClient = useQueryClient();
 
-  const { data: getGuestByQR } = useQuery({
+  const { data: getGuestByQR } = useQuery<any>({
     queryKey: ['guest-qr', lastScanned],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!lastScanned) throw new Error('No QR code scanned');
       const { data, error } = await supabase
         .from('guests')
         .select('*')
@@ -33,13 +35,15 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
       if (error) throw error;
       return data;
     },
-    enabled: !!lastScanned,
+    enabled: !!lastScanned && !!supabase,
   });
 
   const checkIn = useMutation({
     mutationFn: async ({ guestId, checked_in_by }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('guests')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
           checked_in: true,
           checked_in_at: new Date().toISOString(),

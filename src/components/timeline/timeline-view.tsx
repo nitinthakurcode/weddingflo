@@ -67,8 +67,8 @@ export function TimelineView({
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
-      const oldIndex = sortedActivities.findIndex((a) => a._id === active.id);
-      const newIndex = sortedActivities.findIndex((a) => a._id === over.id);
+      const oldIndex = sortedActivities.findIndex((a) => a.id === active.id);
+      const newIndex = sortedActivities.findIndex((a) => a.id === over.id);
 
       const reordered = arrayMove(sortedActivities, oldIndex, newIndex);
       onActivityReorder?.(reordered);
@@ -141,16 +141,16 @@ export function TimelineView({
             onDragEnd={handleDragEnd}
           >
             <SortableContext
-              items={sortedActivities.map((a) => a._id)}
+              items={sortedActivities.map((a) => a.id)}
               strategy={verticalListSortingStrategy}
             >
               <div className="space-y-4">
                 {sortedActivities.map((activity) => (
                   <ActivityCard
-                    key={activity._id}
+                    key={activity.id}
                     activity={activity}
                     hasConflict={conflicts.some((c) =>
-                      c.affected_activities.includes(activity._id)
+                      c.affected_activities.includes(activity.id)
                     )}
                     onEdit={onActivityClick}
                     draggable

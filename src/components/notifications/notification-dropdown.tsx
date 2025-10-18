@@ -29,9 +29,10 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
   const queryClient = useQueryClient();
 
   // Fetch notifications
-  const { data: notifications } = useQuery({
+  const { data: notifications } = useQuery<any[]>({
     queryKey: ['notifications', userId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
@@ -41,14 +42,16 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
       if (error) throw error;
       return data;
     },
-    enabled: !!userId,
+    enabled: !!userId && !!supabase,
   });
 
   // Mark as read mutation
   const markAsRead = useMutation({
     mutationFn: async (notificationId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('notifications')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ read: true })
         .eq('id', notificationId);
       if (error) throw error;
@@ -60,8 +63,10 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
 
   const markAllAsRead = useMutation({
     mutationFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('notifications')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({ read: true })
         .eq('user_id', userId)
         .eq('read', false);

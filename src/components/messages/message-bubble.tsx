@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
   message: {
-    _id: string;
+    id: string;
     sender_type: 'company' | 'client' | 'ai_assistant';
     sender_name: string;
     message: string;

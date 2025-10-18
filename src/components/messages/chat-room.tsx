@@ -30,9 +30,10 @@ export function ChatRoom({
   const queryClient = useQueryClient();
 
   // Fetch client details
-  const { data: client } = useQuery({
+  const { data: client } = useQuery<any>({
     queryKey: ['clients', clientId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -41,13 +42,14 @@ export function ChatRoom({
       if (error) throw error;
       return data;
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   // Fetch messages
-  const { data: messages } = useQuery({
+  const { data: messages } = useQuery<any[]>({
     queryKey: ['messages', clientId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('messages')
         .select('*')
@@ -56,12 +58,12 @@ export function ChatRoom({
       if (error) throw error;
       return data;
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   // Real-time subscription for new messages
   useEffect(() => {
-    if (!clientId) return;
+    if (!clientId || !supabase) return;
 
     const channel = supabase
       .channel(`messages:${clientId}`)
@@ -87,8 +89,10 @@ export function ChatRoom({
   // Send message mutation
   const sendMessage = useMutation({
     mutationFn: async (message: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('messages')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert({
           company_id: companyId,
           client_id: clientId,

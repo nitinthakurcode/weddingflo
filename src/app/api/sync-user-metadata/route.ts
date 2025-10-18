@@ -12,17 +12,18 @@ export async function POST() {
 
     // Get Supabase user
     const supabase = await createServerSupabaseClient();
+    // @ts-ignore - TODO: Regenerate Supabase types from database schema
     const { data: supabaseUser, error } = await supabase
       .from('users')
       .select('*')
       .eq('clerk_id', userId)
-      .single();
+      .maybeSingle();
 
     if (error || !supabaseUser) {
       return NextResponse.json({ error: 'User not found in Supabase' }, { status: 404 });
     }
 
-    if (!supabaseUser.company_id) {
+    if (!(supabaseUser as any).company_id) {
       return NextResponse.json({ error: 'No company ID found in Supabase user' }, { status: 400 });
     }
 
@@ -30,14 +31,14 @@ export async function POST() {
     const client = await clerkClient();
     await client.users.updateUserMetadata(userId, {
       publicMetadata: {
-        companyId: supabaseUser.company_id,
+        companyId: (supabaseUser as any).company_id,
       },
     });
 
     return NextResponse.json({
       success: true,
       message: 'User metadata synced successfully',
-      companyId: supabaseUser.company_id,
+      companyId: (supabaseUser as any).company_id,
     });
   } catch (error: any) {
     console.error('Sync error:', error);

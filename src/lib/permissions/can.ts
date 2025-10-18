@@ -10,18 +10,20 @@ export function useCan(permission: Permission): boolean {
   const { user: clerkUser } = useUser();
   const supabase = useSupabase();
 
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<any>({
     queryKey: ['users', 'current', clerkUser?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!clerkUser?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', clerkUser?.id)
-        .single();
+        .eq('clerk_id', clerkUser.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!clerkUser?.id,
+    enabled: !!clerkUser?.id && !!supabase,
   });
 
   if (!user) return false;
@@ -36,18 +38,20 @@ export function useCanAny(permissions: Permission[]): boolean {
   const { user: clerkUser } = useUser();
   const supabase = useSupabase();
 
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<any>({
     queryKey: ['users', 'current', clerkUser?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!clerkUser?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', clerkUser?.id)
-        .single();
+        .eq('clerk_id', clerkUser.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!clerkUser?.id,
+    enabled: !!clerkUser?.id && !!supabase,
   });
 
   if (!user) return false;
@@ -64,18 +68,20 @@ export function useCanAll(permissions: Permission[]): boolean {
   const { user: clerkUser } = useUser();
   const supabase = useSupabase();
 
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<any>({
     queryKey: ['users', 'current', clerkUser?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!clerkUser?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', clerkUser?.id)
-        .single();
+        .eq('clerk_id', clerkUser.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!clerkUser?.id,
+    enabled: !!clerkUser?.id && !!supabase,
   });
 
   if (!user) return false;
@@ -92,18 +98,20 @@ export function useUserRole(): Role | null {
   const { user: clerkUser } = useUser();
   const supabase = useSupabase();
 
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<any>({
     queryKey: ['users', 'current', clerkUser?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!clerkUser?.id) throw new Error('User ID not available');
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('clerk_id', clerkUser?.id)
-        .single();
+        .eq('clerk_id', clerkUser.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!clerkUser?.id,
+    enabled: !!clerkUser?.id && !!supabase,
   });
 
   return (user?.role as Role) || null;

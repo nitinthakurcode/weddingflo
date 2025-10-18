@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,7 @@ const SpendingTimelineChart = dynamic(
 
 export default function BudgetPage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
@@ -44,16 +44,16 @@ export default function BudgetPage() {
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
-      if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
   const { data: clients } = useQuery<any[]>({
@@ -61,6 +61,7 @@ export default function BudgetPage() {
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) throw new Error('Company ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -68,7 +69,7 @@ export default function BudgetPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Get weddings for the first client
@@ -78,6 +79,7 @@ export default function BudgetPage() {
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
       if (!selectedClient?.id) throw new Error('Client ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('weddings')
         .select('*')
@@ -85,7 +87,7 @@ export default function BudgetPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!selectedClient?.id,
+    enabled: !!selectedClient?.id && !!supabase,
   });
 
   // Use first wedding for now (in production, add wedding selector)
@@ -98,6 +100,7 @@ export default function BudgetPage() {
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
       if (!weddingId) throw new Error('Wedding ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('budget_items')
         .select('*')
@@ -105,11 +108,12 @@ export default function BudgetPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!weddingId,
+    enabled: !!weddingId && !!supabase,
   });
 
   const deleteBudgetItemMutation = useMutation({
     mutationFn: async (budgetItemId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
         .from('budget_items')
         .delete()

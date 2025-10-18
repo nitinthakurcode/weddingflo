@@ -2,7 +2,7 @@
 
 import { useQuery as useReactQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { DashboardStatsCards } from '@/components/dashboard/dashboard-stats-cards';
 import { RecentActivity } from '@/components/dashboard/recent-activity';
@@ -26,36 +26,31 @@ const DashboardCharts = dynamic(
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isSignedIn, isLoaded: clerkLoaded } = useUser();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
 
-  // Get current user and their clients
-  const { data: currentUser, isLoading: userLoading } = useReactQuery({
+  // Get current user from Supabase (uses Clerk JWT with proper RLS)
+  const { data: currentUser, isLoading: userLoading } = useReactQuery<any>({
     queryKey: ['current-user', user?.id],
     queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
-      const { data, error } = await supabase
+      if (!supabase) throw new Error('Supabase client not ready');
+      const { data, error} = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && isSignedIn && !!supabase,
+    retry: 1,
   });
 
-  // If Clerk says user is signed in but Supabase doesn't have the user, redirect to onboarding
-  useEffect(() => {
-    if (clerkLoaded && isSignedIn && !userLoading && currentUser === null) {
-      router.push('/onboard');
-    }
-  }, [clerkLoaded, isSignedIn, currentUser, userLoading, router]);
-
-  const { data: clients } = useReactQuery({
+  const { data: clients, isLoading: clientsLoading } = useReactQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -63,7 +58,7 @@ export default function DashboardPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Use first client for now
@@ -75,8 +70,9 @@ export default function DashboardPage() {
     queryKey: ['dashboard-stats', clientId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       // Fetch all counts in parallel
-      const [guests, vendors, creatives, budgetItems, events] = await Promise.all([
+      const [guests, vendors, creatives, budgetItems, events]: any[] = await Promise.all([
         supabase.from('guests').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
         supabase.from('vendors').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
         supabase.from('creative_jobs').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
@@ -135,13 +131,14 @@ export default function DashboardPage() {
       // For now, return empty array
       return [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   const { data: upcomingEvents } = useReactQuery({
     queryKey: ['upcoming-events', clientId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
+      if (!supabase) throw new Error('Supabase client not ready');
       const now = Date.now();
       const { data, error } = await supabase
         .from('event_brief')
@@ -153,7 +150,7 @@ export default function DashboardPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   const { data: alerts } = useReactQuery({
@@ -164,7 +161,7 @@ export default function DashboardPage() {
       // For now, return empty array
       return [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   // Loading state
@@ -172,8 +169,15 @@ export default function DashboardPage() {
     return <PageLoader />;
   }
 
-  // Not authenticated
-  if (!currentUser) {
+  // If currentUser is null but user is signed in via Clerk, continue with rendering
+  // This can happen if RLS blocks the client-side query, but Clerk session is still valid
+  if (!currentUser && isSignedIn) {
+    console.log('[Dashboard] User signed in via Clerk, but React Query returned null - continuing with Clerk session');
+    // Continue rendering - clients query will use company_id from wherever it can
+  }
+
+  // Only show "not authenticated" if Clerk also says not signed in
+  if (!currentUser && !isSignedIn) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -187,22 +191,40 @@ export default function DashboardPage() {
   }
 
   // Loading clients and stats
-  if (!clients || !dashboardStats) {
+  if (clientsLoading) {
     return <PageLoader />;
   }
 
-  // No client found state
-  if (!selectedClient || !clientId) {
+  if (!clients) {
+    return <PageLoader />;
+  }
+
+  // No client found state - SHOW THIS INSTEAD OF INFINITE LOADING
+  if (clients.length === 0 || !selectedClient || !clientId) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center">
+        <div className="text-center space-y-4">
           <h2 className="text-2xl font-bold">No Wedding Found</h2>
           <p className="text-muted-foreground mt-2">
-            Please create a wedding to view your dashboard.
+            You haven't created any weddings yet.
           </p>
+          <p className="text-sm text-muted-foreground">
+            Create your first wedding to start planning!
+          </p>
+          <button
+            onClick={() => router.push('/dashboard/clients')}
+            className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
+          >
+            Create Wedding
+          </button>
         </div>
       </div>
     );
+  }
+
+  // Still loading dashboard stats for the selected client
+  if (!dashboardStats) {
+    return <PageLoader />;
   }
 
   // Calculate completion percentage

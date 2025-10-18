@@ -59,8 +59,10 @@ export function CreativeJobDialog({
 
   const createCreativeJob = useMutation({
     mutationFn: async (data: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('creative_jobs')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert(data)
         .select()
         .single();
@@ -74,8 +76,10 @@ export function CreativeJobDialog({
 
   const updateCreativeJob = useMutation({
     mutationFn: async ({ jobId, ...data }: any) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { data: result, error } = await supabase
         .from('creative_jobs')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(data)
         .eq('id', jobId)
         .select()

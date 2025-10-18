@@ -20,6 +20,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-unread-count', userId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { count, error } = await supabase
         .from('notifications')
         .select('*', { count: 'exact', head: true })
@@ -28,7 +29,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
       if (error) throw error;
       return count || 0;
     },
-    enabled: !!userId,
+    enabled: !!userId && !!supabase,
   });
 
   return (

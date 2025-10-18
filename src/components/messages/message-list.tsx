@@ -5,7 +5,7 @@ import { MessageBubble } from './message-bubble';
 import { Loader2 } from 'lucide-react';
 
 interface Message {
-  _id: string;
+  id: string;
   sender_type: 'company' | 'client' | 'ai_assistant';
   sender_id?: string;
   sender_name: string;
@@ -72,7 +72,7 @@ export function MessageList({ messages, currentUserId, isLoading }: MessageListP
     >
       {messages.map((message) => (
         <MessageBubble
-          key={message._id}
+          key={message.id}
           message={message}
           isOwnMessage={message.sender_id === currentUserId}
         />

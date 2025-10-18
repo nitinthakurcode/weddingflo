@@ -18,9 +18,11 @@ export function useSubscription(companyId: string | undefined) {
   const supabase = useSupabase();
   const { user } = useUser();
 
-  const { data: subscription } = useQuery({
+  const { data: subscription } = useQuery<any>({
     queryKey: ['subscription', companyId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!companyId) throw new Error('Company ID not available');
       const { data, error } = await supabase
         .from('subscriptions')
         .select('*')
@@ -29,12 +31,14 @@ export function useSubscription(companyId: string | undefined) {
       if (error) throw error;
       return data;
     },
-    enabled: !!companyId && !!user,
+    enabled: !!companyId && !!user && !!supabase,
   });
 
   const { data: usage } = useQuery({
     queryKey: ['usage', companyId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!companyId) throw new Error('Company ID not available');
       // Get guests count
       const { count: guestsCount } = await supabase
         .from('guests')
@@ -59,7 +63,7 @@ export function useSubscription(companyId: string | undefined) {
         usersCount: usersCount || 0,
       };
     },
-    enabled: !!companyId && !!user,
+    enabled: !!companyId && !!user && !!supabase,
   });
 
   const checker =

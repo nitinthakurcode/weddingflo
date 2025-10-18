@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from './AuthProvider';
+import { SupabaseProvider } from '@/providers/supabase-provider';
 import { Toaster } from '@/components/ui/toaster';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { AnalyticsProvider } from './providers/analytics-provider';
@@ -95,15 +96,17 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} font-sans`}>
         <AuthProvider>
-          <QueryProvider>
-            <ThemeInjector />
-            <AnalyticsProvider>
-              <PWAProvider>
-                {children}
-                <Toaster />
-              </PWAProvider>
-            </AnalyticsProvider>
-          </QueryProvider>
+          <SupabaseProvider>
+            <QueryProvider>
+              <ThemeInjector />
+              <AnalyticsProvider>
+                <PWAProvider>
+                  {children}
+                  <Toaster />
+                </PWAProvider>
+              </AnalyticsProvider>
+            </QueryProvider>
+          </SupabaseProvider>
         </AuthProvider>
         <Analytics />
         <SpeedInsights />

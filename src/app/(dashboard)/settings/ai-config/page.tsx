@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -13,7 +13,7 @@ import { Brain, Loader2, Save } from 'lucide-react';
 
 export default function AIConfigPage() {
   const { user } = useUser();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -30,11 +30,13 @@ export default function AIConfigPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   // Fetch company data
-  const { data: company, isLoading } = useQuery({
+  const { data: company, isLoading } = useQuery<any>({
     queryKey: ['company', companyId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!companyId) return null;
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { data, error } = await supabase
         .from('companies')
         .select('*')
@@ -44,7 +46,7 @@ export default function AIConfigPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!user && !!companyId,
+    enabled: !!user && !!companyId && !!supabase,
   });
 
   useEffect(() => {
@@ -59,11 +61,13 @@ export default function AIConfigPage() {
   // Update AI config mutation
   const updateAIConfigMutation = useMutation({
     mutationFn: async (config: typeof aiConfig) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!companyId) throw new Error('No company ID');
 
       const currentSettings = (company?.settings as any) || {};
       const { error } = await supabase
         .from('companies')
+        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
           settings: {
             ...currentSettings,

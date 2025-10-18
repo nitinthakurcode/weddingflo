@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClient } from '@/lib/supabase/client';
 import { useUser } from '@clerk/nextjs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -35,30 +35,32 @@ interface Gift {
 
 export default function GiftsPage() {
   const { toast } = useToast();
-  const supabase = createClient();
+  const supabase = useSupabaseClient();
   const { user } = useUser();
   const queryClient = useQueryClient();
 
   // Get current user and their clients
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
     queryKey: ['currentUser', user?.id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('clerk_id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!supabase,
   });
 
-  const { data: clients, isLoading: isLoadingClients } = useQuery({
+  const { data: clients, isLoading: isLoadingClients } = useQuery<any[]>({
     queryKey: ['clients', currentUser?.company_id],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!currentUser?.company_id) return [];
       const { data, error } = await supabase
@@ -68,7 +70,7 @@ export default function GiftsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!currentUser?.company_id,
+    enabled: !!currentUser?.company_id && !!supabase,
   });
 
   // Use first client for now (in production, add client selector)
@@ -76,9 +78,10 @@ export default function GiftsPage() {
   const clientId = selectedClient?.id;
 
   // Get or create wedding for this client
-  const { data: weddings, isLoading: isLoadingWeddings } = useQuery({
+  const { data: weddings, isLoading: isLoadingWeddings } = useQuery<any[]>({
     queryKey: ['weddings', clientId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
@@ -88,11 +91,13 @@ export default function GiftsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!supabase,
   });
 
   const createDefaultWedding = useMutation({
     mutationFn: async (clientId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      // @ts-ignore - TODO: Regenerate Supabase types from database schema
       const { error } = await supabase.from('weddings').insert({
         client_id: clientId,
         wedding_date: new Date().toISOString(),
@@ -119,9 +124,10 @@ export default function GiftsPage() {
   const weddingId = weddings?.[0]?.id;
 
   // Query gifts and stats
-  const { data: gifts, isLoading: isLoadingGifts } = useQuery({
+  const { data: gifts, isLoading: isLoadingGifts } = useQuery<any[]>({
     queryKey: ['gifts', weddingId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!weddingId) return [];
       const { data, error } = await supabase
@@ -131,15 +137,16 @@ export default function GiftsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!weddingId,
+    enabled: !!weddingId && !!supabase,
   });
 
-  const { data: stats, isLoading: isLoadingStats } = useQuery({
+  const { data: stats, isLoading: isLoadingStats } = useQuery<any>({
     queryKey: ['gift_stats', weddingId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
       if (!user?.id) throw new Error('User ID not available');
       if (!weddingId) return null;
-      const { data: giftsData, error } = await supabase
+      const { data: giftsData, error }: { data: any[] | null, error: any } = await supabase
         .from('gifts')
         .select('*')
         .eq('wedding_id', weddingId);
@@ -152,11 +159,12 @@ export default function GiftsPage() {
 
       return { totalGifts, deliveredGifts, thankYousSent, totalValue };
     },
-    enabled: !!weddingId,
+    enabled: !!weddingId && !!supabase,
   });
 
   const deleteGift = useMutation({
     mutationFn: async (giftId: string) => {
+      if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase.from('gifts').delete().eq('id', giftId);
       if (error) throw error;
     },

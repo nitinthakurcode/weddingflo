@@ -52,9 +52,11 @@ export function ConversationList({
   const supabase = useSupabase();
 
   // Get all clients for the company
-  const { data: allClients } = useQuery({
+  const { data: allClients } = useQuery<any[]>({
     queryKey: ['clients', companyId],
     queryFn: async () => {
+      if (!supabase) throw new Error('Supabase client not ready');
+      if (!companyId) return [];
       const { data, error } = await supabase
         .from('clients')
         .select('*')
@@ -62,7 +64,7 @@ export function ConversationList({
       if (error) throw error;
       return data;
     },
-    enabled: !!companyId,
+    enabled: !!companyId && !!supabase,
   });
 
   // Filter conversations based on search
