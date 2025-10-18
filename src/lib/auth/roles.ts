@@ -28,7 +28,11 @@ export type UserWithCompany = User & {
  */
 export async function getCurrentUserRole(): Promise<string | null> {
   const { sessionClaims } = await auth();
-  const role = sessionClaims?.metadata?.role as string | undefined;
+
+  // Clerk stores custom metadata in publicMetadata
+  const metadata = sessionClaims?.metadata as { role?: string } | undefined;
+  const role = metadata?.role;
+
   return role || null;
 }
 
@@ -203,7 +207,7 @@ export async function getCurrentUserWithCompany(): Promise<UserWithCompany | nul
     return null;
   }
 
-  const supabase = await createServerSupabaseClient();
+  const supabase = createServerSupabaseClient();
 
   const { data: user, error } = await supabase
     .from('users')

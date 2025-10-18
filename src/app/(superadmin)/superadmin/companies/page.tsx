@@ -29,7 +29,7 @@ export default async function SuperAdminCompaniesPage() {
     .from('users')
     .select('role')
     .eq('clerk_id', userId)
-    .maybeSingle();
+    .maybeSingle() as { data: { role: string } | null };
 
   // Verify super admin access
   if (!currentUser || currentUser.role !== 'super_admin') {
@@ -49,13 +49,13 @@ export default async function SuperAdminCompaniesPage() {
       users:users(count),
       clients:clients(count)
     `)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false }) as { data: Array<{ id: string; name: string; email: string | null; subscription_tier: string; subscription_status: string; created_at: string; users: Array<{ count: number }> | null; clients: Array<{ count: number }> | null }> | null; error: any };
 
   if (error) {
     console.error('Error fetching companies:', error);
   }
 
-  const companiesList = companies || [];
+  const companiesList = (companies || []) as Array<{ id: string; name: string; email: string | null; subscription_tier: string; subscription_status: string; created_at: string; users: Array<{ count: number }> | null; clients: Array<{ count: number }> | null }>;
 
   return (
     <div className="space-y-8">

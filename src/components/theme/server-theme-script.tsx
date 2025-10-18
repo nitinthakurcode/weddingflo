@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
 
 /**
  * ServerThemeScript - Server Component that injects theme colors directly into HTML
@@ -14,7 +14,7 @@ export async function ServerThemeScript() {
       return null;
     }
 
-    const supabase = createServerSupabaseClient();
+    const supabase = createServerSupabaseAdminClient();
 
     // Fetch user from Supabase using Clerk user ID
     const { data: currentUser } = await supabase

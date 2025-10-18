@@ -16,7 +16,7 @@ import type { Database } from './types'
  * - Protected API Route Handlers
  *
  * @throws Error if user is not authenticated
- * @returns Promise resolving to Supabase client instance with Clerk auth
+ * @returns Supabase client instance with Clerk auth
  *
  * @example
  * ```tsx
@@ -24,7 +24,7 @@ import type { Database } from './types'
  * import { createServerSupabaseClient } from '@/lib/supabase/server'
  *
  * export default async function MyServerComponent() {
- *   const supabase = await createServerSupabaseClient()
+ *   const supabase = createServerSupabaseClient()
  *
  *   const { data, error } = await supabase
  *     .from('your_table')
@@ -41,7 +41,7 @@ import type { Database } from './types'
  * import { createServerSupabaseClient } from '@/lib/supabase/server'
  *
  * export async function myServerAction() {
- *   const supabase = await createServerSupabaseClient()
+ *   const supabase = createServerSupabaseClient()
  *   // Use supabase client...
  * }
  * ```

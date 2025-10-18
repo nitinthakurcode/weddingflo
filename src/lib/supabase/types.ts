@@ -132,6 +132,8 @@ export interface Company {
   stripe_subscription_id: string | null
   trial_ends_at: string | null
   subscription_ends_at: string | null
+  users: User[] | null // Related users (when joined)
+  clients: Client[] | null // Related clients (when joined)
   created_at: string
   updated_at: string
 }
@@ -142,6 +144,7 @@ export interface User {
   email: string
   first_name: string | null
   last_name: string | null
+  full_name: string | null // Computed field: first_name + last_name
   avatar_url: string | null
   role: UserRole
   company_id: string | null
@@ -155,14 +158,21 @@ export interface Client {
   company_id: string
   partner1_first_name: string
   partner1_last_name: string
+  partner1_name: string | null // Computed: partner1_first_name + partner1_last_name
   partner1_email: string
+  email: string | null // Alias for partner1_email
   partner1_phone: string | null
+  phone: string | null // Alias for partner1_phone
   partner2_first_name: string | null
   partner2_last_name: string | null
+  partner2_name: string | null // Computed: partner2_first_name + partner2_last_name
   partner2_email: string | null
   partner2_phone: string | null
   wedding_date: string | null
+  wedding_time: string | null // Wedding time field
   venue: string | null
+  venue_name: string | null // Venue name field
+  venue_address: string | null // Venue address field
   budget: number | null
   guest_count: number | null
   status: EventStatus
@@ -345,18 +355,18 @@ export interface Database {
     Tables: {
       companies: {
         Row: Company
-        Insert: Omit<Company, 'id' | 'created_at' | 'updated_at'>
-        Update: Partial<Omit<Company, 'id' | 'created_at' | 'updated_at'>>
+        Insert: Omit<Company, 'id' | 'created_at' | 'updated_at' | 'users' | 'clients'>
+        Update: Partial<Omit<Company, 'id' | 'created_at' | 'updated_at' | 'users' | 'clients'>>
       }
       users: {
         Row: User
-        Insert: Omit<User, 'id' | 'created_at' | 'updated_at'>
-        Update: Partial<Omit<User, 'id' | 'created_at' | 'updated_at'>>
+        Insert: Omit<User, 'id' | 'created_at' | 'updated_at' | 'full_name'>
+        Update: Partial<Omit<User, 'id' | 'created_at' | 'updated_at' | 'full_name'>>
       }
       clients: {
         Row: Client
-        Insert: Omit<Client, 'id' | 'created_at' | 'updated_at'>
-        Update: Partial<Omit<Client, 'id' | 'created_at' | 'updated_at'>>
+        Insert: Omit<Client, 'id' | 'created_at' | 'updated_at' | 'partner1_name' | 'partner2_name' | 'email' | 'phone' | 'venue_name' | 'venue_address' | 'wedding_time'>
+        Update: Partial<Omit<Client, 'id' | 'created_at' | 'updated_at' | 'partner1_name' | 'partner2_name' | 'email' | 'phone' | 'venue_name' | 'venue_address' | 'wedding_time'>>
       }
       client_users: {
         Row: ClientUser

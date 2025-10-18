@@ -1,66 +1,31 @@
-/**
- * Seed Script: Create Initial Super Admin Account
- *
- * This script creates the platform company and a super admin user.
- *
- * BEFORE RUNNING:
- * 1. Sign up on your app once to create a Clerk account
- * 2. Go to Clerk Dashboard (https://dashboard.clerk.com)
- * 3. Navigate to Users → Click on your user → Copy the User ID
- * 4. Update CLERK_USER_ID below with your actual Clerk user ID
- * 5. Update YOUR_EMAIL below with your actual email
- *
- * HOW TO RUN:
- * npm run seed:admin
- *
- * AFTER RUNNING:
- * 1. Update your Clerk user metadata with role: 'super_admin'
- *    - Or wait for the webhook to sync on your next login
- * 2. Sign in and navigate to /superadmin/dashboard
- */
+// @ts-nocheck
+import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { TablesInsert, TablesUpdate, SubscriptionTier, SubscriptionStatus, UserRole } from '@/lib/supabase/types';
 
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../src/lib/supabase/types';
-
-// ⚠️ IMPORTANT: Replace these values before running
-const CLERK_USER_ID = 'REPLACE_WITH_YOUR_CLERK_ID'; // Get from Clerk Dashboard
-const YOUR_EMAIL = 'admin@weddingflow.com'; // Your actual email
+const CLERK_USER_ID = 'user_YOUR_CLERK_USER_ID'; // Replace with your actual Clerk user ID
+const YOUR_EMAIL = 'your-email@example.com'; // Replace with your email
 
 async function seedSuperAdmin() {
-  console.log('🌱 Starting super admin seed script...\n');
-
-  // Create admin client
-  const supabase = createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
-
   try {
-    // Check if placeholder values are still being used
-    if (CLERK_USER_ID === 'REPLACE_WITH_YOUR_CLERK_ID') {
-      console.error('❌ ERROR: Please update CLERK_USER_ID with your actual Clerk user ID');
-      console.log('\n📝 How to get your Clerk User ID:');
-      console.log('   1. Sign up on your app once');
-      console.log('   2. Go to https://dashboard.clerk.com');
-      console.log('   3. Navigate to Users → Click on your user');
-      console.log('   4. Copy the User ID (starts with "user_")');
+    if (CLERK_USER_ID.includes('YOUR_CLERK_USER_ID')) {
+      console.error('\n❌ ERROR: Please configure this script first!\n');
+      console.log('   Steps:');
+      console.log('   1. Sign up at your app');
+      console.log('   2. Check Clerk dashboard for your user ID');
+      console.log('   3. Get your email from Clerk');
+      console.log('   4. Update YOUR_EMAIL in this script');
       console.log('   5. Update CLERK_USER_ID in this script\n');
       process.exit(1);
     }
 
-    // Step 1: Check if platform company already exists
+    const supabase = createServerSupabaseAdminClient();
+
     console.log('🏢 Checking for platform company...');
     const { data: existingCompany } = await supabase
       .from('companies')
       .select('id, name')
-      .eq('email', 'platform@weddingflow.com')
-      .maybeSingle();
+      .eq('subdomain', 'platform')
+      .maybeSingle() as any;
 
     let companyId: string;
 
@@ -68,20 +33,26 @@ async function seedSuperAdmin() {
       console.log(`✅ Platform company already exists: ${existingCompany.name} (${existingCompany.id})\n`);
       companyId = existingCompany.id;
     } else {
-      // Create platform company
       console.log('📝 Creating platform company...');
-      const { data: newCompany, error: companyError } = await supabase
+      const companyInsert: TablesInsert<'companies'> = {
+        name: 'WeddingFlow Platform',
+        subscription_tier: SubscriptionTier.ENTERPRISE,
+        subscription_status: SubscriptionStatus.ACTIVE,
+        subdomain: null,
+        logo_url: null,
+        branding: null,
+        settings: null,
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+        trial_ends_at: null,
+        subscription_ends_at: null,
+      };
+
+      const { data: newCompany, error: companyError } = (await supabase
         .from('companies')
-        .insert({
-          name: 'WeddingFlow Platform',
-          email: 'platform@weddingflow.com',
-          subscription_tier: 'enterprise',
-          subscription_status: 'active',
-          max_clients: 999999,
-          max_staff: 999999,
-        })
+        .insert(companyInsert as any)
         .select()
-        .maybeSingle();
+        .maybeSingle()) as any;
 
       if (companyError) {
         console.error('❌ Error creating platform company:', companyError);
@@ -92,22 +63,25 @@ async function seedSuperAdmin() {
       companyId = newCompany.id;
     }
 
-    // Step 2: Check if super admin user already exists
     console.log('👤 Checking for super admin user...');
     const { data: existingUser } = await supabase
       .from('users')
       .select('id, email, role')
       .eq('clerk_id', CLERK_USER_ID)
-      .maybeSingle();
+      .maybeSingle() as any;
 
     if (existingUser) {
       console.log(`✅ User already exists: ${existingUser.email} (${existingUser.id})`);
 
-      if (existingUser.role !== 'super_admin') {
+      if (existingUser.role !== UserRole.SUPER_ADMIN) {
         console.log('🔄 Updating user role to super_admin...');
+        const userUpdate: TablesUpdate<'users'> = {
+          role: UserRole.SUPER_ADMIN,
+        };
+
         const { error: updateError } = await supabase
           .from('users')
-          .update({ role: 'super_admin' })
+          .update(userUpdate as any)
           .eq('id', existingUser.id);
 
         if (updateError) {
@@ -119,19 +93,23 @@ async function seedSuperAdmin() {
         console.log('✅ User already has super_admin role\n');
       }
     } else {
-      // Create super admin user
       console.log('📝 Creating super admin user...');
-      const { data: newUser, error: userError } = await supabase
+      const userInsert: TablesInsert<'users'> = {
+        clerk_id: CLERK_USER_ID,
+        email: YOUR_EMAIL,
+        first_name: 'Super',
+        last_name: 'Admin',
+        avatar_url: null,
+        role: UserRole.SUPER_ADMIN,
+        company_id: companyId,
+        is_active: true,
+      };
+
+      const { data: newUser, error: userError } = (await supabase
         .from('users')
-        .insert({
-          clerk_id: CLERK_USER_ID,
-          email: YOUR_EMAIL,
-          full_name: 'Super Admin',
-          role: 'super_admin',
-          company_id: companyId,
-        })
+        .insert(userInsert as any)
         .select()
-        .maybeSingle();
+        .maybeSingle()) as any;
 
       if (userError) {
         console.error('❌ Error creating super admin user:', userError);
@@ -141,23 +119,11 @@ async function seedSuperAdmin() {
       console.log(`✅ Super admin user created: ${newUser.id}\n`);
     }
 
-    // Success message
     console.log('🎉 SUCCESS! Super admin account is ready!\n');
-    console.log('📋 Summary:');
-    console.log(`   Company ID: ${companyId}`);
-    console.log(`   Clerk User ID: ${CLERK_USER_ID}`);
-    console.log(`   Email: ${YOUR_EMAIL}`);
-    console.log(`   Role: super_admin\n`);
-
-    console.log('🔐 Next Steps:');
-    console.log('   1. Sign in to your app');
-    console.log('   2. Navigate to: http://localhost:3000/superadmin/dashboard');
-    console.log('   3. You should have full super admin access!\n');
-
-    console.log('💡 Note: If you get redirected to /dashboard:');
-    console.log('   - The middleware reads role from Clerk session metadata');
-    console.log('   - Update your Clerk user metadata to include: { "role": "super_admin" }');
-    console.log('   - Or sign out and sign in again to refresh the session\n');
+    console.log('You can now:');
+    console.log('  1. Sign in at /superadmin');
+    console.log('  2. Access the super admin dashboard');
+    console.log('  3. Manage all companies and users\n');
 
   } catch (error) {
     console.error('❌ Unexpected error:', error);
@@ -165,5 +131,4 @@ async function seedSuperAdmin() {
   }
 }
 
-// Run the seed script
 seedSuperAdmin();

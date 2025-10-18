@@ -206,7 +206,7 @@ export default function DashboardPage() {
         <div className="text-center space-y-4">
           <h2 className="text-2xl font-bold">No Wedding Found</h2>
           <p className="text-muted-foreground mt-2">
-            You haven't created any weddings yet.
+            You haven&apos;t created any weddings yet.
           </p>
           <p className="text-sm text-muted-foreground">
             Create your first wedding to start planning!

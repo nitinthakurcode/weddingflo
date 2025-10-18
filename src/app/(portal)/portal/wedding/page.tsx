@@ -19,7 +19,7 @@ export default async function PortalWeddingPage() {
     .from('users')
     .select('role, company_id')
     .eq('clerk_id', userId)
-    .maybeSingle();
+    .maybeSingle() as { data: { role: string; company_id: string | null } | null };
 
   // Verify client access
   if (!currentUser || currentUser.role !== 'client_user') {
@@ -55,7 +55,7 @@ export default async function PortalWeddingPage() {
       status
     `)
     .eq('company_id', user.company_id)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; partner1_name: string | null; partner2_name: string | null; email: string | null; phone: string | null; wedding_date: string | null; wedding_time: string | null; venue_name: string | null; venue_address: string | null; notes: string | null; budget: number | null; status: string } | null };
 
   if (!client) {
     return (

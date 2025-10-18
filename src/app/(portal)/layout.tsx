@@ -12,7 +12,7 @@ async function getClientData(userId: string) {
     .from('users')
     .select('company_id, company:companies(name)')
     .eq('clerk_id', userId)
-    .maybeSingle();
+    .maybeSingle() as { data: { company_id: string | null; company: { name: string } | null } | null };
 
   if (!user?.company_id) {
     return { companyName: null, weddingDate: null, daysUntilWedding: null };
@@ -22,7 +22,7 @@ async function getClientData(userId: string) {
     .from('clients')
     .select('wedding_date')
     .eq('company_id', user.company_id)
-    .maybeSingle();
+    .maybeSingle() as { data: { wedding_date: string | null } | null };
 
   let daysUntilWedding = null;
   if (client?.wedding_date) {
@@ -70,7 +70,7 @@ export default async function PortalLayout({
                   )}
                 </div>
               </Link>
-              {clientData?.daysUntilWedding !== null && clientData.daysUntilWedding > 0 && (
+              {clientData && clientData.daysUntilWedding !== null && clientData.daysUntilWedding > 0 && (
                 <Badge className="bg-gradient-to-r from-rose-500 to-pink-500 text-white border-0">
                   <Calendar className="h-3 w-3 mr-1" />
                   {clientData.daysUntilWedding} days to go!

@@ -11,7 +11,7 @@ export async function POST() {
     }
 
     // Get Supabase user
-    const supabase = await createServerSupabaseClient();
+    const supabase = createServerSupabaseClient();
     // @ts-ignore - TODO: Regenerate Supabase types from database schema
     const { data: supabaseUser, error } = await supabase
       .from('users')

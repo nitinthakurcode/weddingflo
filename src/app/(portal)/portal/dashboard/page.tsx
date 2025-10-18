@@ -21,7 +21,7 @@ export default async function PortalDashboardPage() {
     .from('users')
     .select('role, company_id, full_name, company:companies(name)')
     .eq('clerk_id', userId)
-    .maybeSingle();
+    .maybeSingle() as { data: { role: string; company_id: string | null; full_name: string | null; company: { name: string } | null } | null };
 
   // Verify client access
   if (!currentUser || currentUser.role !== 'client_user') {
@@ -53,7 +53,7 @@ export default async function PortalDashboardPage() {
       notes
     `)
     .eq('company_id', user.company_id)
-    .maybeSingle();
+    .maybeSingle() as { data: { id: string; partner1_name: string | null; partner2_name: string | null; wedding_date: string | null; wedding_time: string | null; venue_name: string | null; venue_address: string | null; notes: string | null } | null };
 
   // Fetch guest count
   const { count: guestCount } = await supabase

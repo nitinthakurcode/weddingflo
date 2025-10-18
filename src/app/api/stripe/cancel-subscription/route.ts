@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get company data with auth
-    const supabase = await createServerSupabaseClient();
+    const supabase = createServerSupabaseClient();
     // @ts-ignore - TODO: Regenerate Supabase types from database schema
     const { data: company, error } = await supabase
       .from('companies')

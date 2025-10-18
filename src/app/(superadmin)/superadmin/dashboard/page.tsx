@@ -21,7 +21,7 @@ export default async function SuperAdminDashboardPage() {
     .from('users')
     .select('role')
     .eq('clerk_id', userId)
-    .maybeSingle();
+    .maybeSingle() as { data: { role: string } | null };
 
   // Verify super admin access
   if (!currentUser || currentUser.role !== 'super_admin') {
@@ -29,21 +29,23 @@ export default async function SuperAdminDashboardPage() {
   }
 
   // Fetch platform statistics
+  const recentUsersPromise = supabase
+    .from('users')
+    .select('id, full_name, email, role, created_at, company:companies(name)')
+    .order('created_at', { ascending: false })
+    .limit(10);
+
   const [companiesResult, usersResult, clientsResult, recentUsersResult] = await Promise.all([
     supabase.from('companies').select('id', { count: 'exact', head: true }),
     supabase.from('users').select('id', { count: 'exact', head: true }),
     supabase.from('clients').select('id', { count: 'exact', head: true }),
-    supabase
-      .from('users')
-      .select('id, full_name, email, role, created_at, company:companies(name)')
-      .order('created_at', { ascending: false })
-      .limit(10),
+    recentUsersPromise as unknown as Promise<{ data: Array<{ id: string; full_name: string | null; email: string; role: string; created_at: string; company: { name: string } | null }> | null; error: any }>,
   ]);
 
   const totalCompanies = companiesResult.count || 0;
   const totalUsers = usersResult.count || 0;
   const totalClients = clientsResult.count || 0;
-  const recentUsers = recentUsersResult.data || [];
+  const recentUsers = (recentUsersResult.data || []) as Array<{ id: string; full_name: string | null; email: string; role: string; created_at: string; company: { name: string } | null }>;
 
   return (
     <div className="space-y-8">
