@@ -24,12 +24,19 @@ export function useSubscription(companyId: string | undefined) {
       if (!supabase) throw new Error('Supabase client not ready');
       if (!companyId) throw new Error('Company ID not available');
       const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('company_id', companyId)
+        .from('companies')
+        .select('id, subscription_tier, subscription_status, subscription_ends_at, stripe_customer_id, stripe_subscription_id')
+        .eq('id', companyId)
         .single();
       if (error) throw error;
-      return data;
+      // Map company subscription fields to expected format
+      return data ? {
+        tier: data.subscription_tier,
+        status: data.subscription_status,
+        ends_at: data.subscription_ends_at,
+        stripe_customer_id: data.stripe_customer_id,
+        stripe_subscription_id: data.stripe_subscription_id,
+      } : null;
     },
     enabled: !!companyId && !!user && !!supabase,
   });

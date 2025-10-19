@@ -11,7 +11,7 @@
  * @see https://clerk.com/docs/backend-requests/making/custom-session-token
  */
 
-import type { UserRole } from '@/lib/supabase/types';
+import type { UserRole } from '@/lib/database.types';
 
 export {};
 

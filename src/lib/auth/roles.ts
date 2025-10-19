@@ -2,7 +2,10 @@ import { auth, clerkClient } from '@clerk/nextjs/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
-import type { User, Company } from '@/lib/supabase/types';
+import type { Database } from '@/lib/database.types';
+
+type User = Database["public"]["Tables"]["users"]["Row"];
+type Company = Database["public"]["Tables"]["companies"]["Row"];
 
 /**
  * User with company data

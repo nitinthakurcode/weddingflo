@@ -35,20 +35,14 @@ export function Header() {
   });
 
   // Get total unread message count across all clients
+  // TODO: Implement conversations table
   const { data: conversations } = useQuery<any[]>({
     queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
     queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!currentUser?.company_id || !currentUser?.clerk_id) return [];
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('company_id', currentUser.company_id)
-        .or(`user1_id.eq.${currentUser.clerk_id},user2_id.eq.${currentUser.clerk_id}`);
-      if (error) throw error;
-      return data;
+      // Conversations table not yet implemented
+      return [];
     },
-    enabled: !!currentUser?.company_id && !!currentUser?.clerk_id && !!supabase,
+    enabled: false,
   });
 
   const totalUnreadMessages = conversations?.reduce((sum, conv: any) => {

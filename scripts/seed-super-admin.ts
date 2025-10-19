@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
-import { TablesInsert, TablesUpdate, SubscriptionTier, SubscriptionStatus, UserRole } from '@/lib/supabase/types';
+import { TablesInsert, TablesUpdate, SubscriptionTier, SubscriptionStatus, UserRole } from '@/lib/database.types';
 
 const CLERK_USER_ID = 'user_YOUR_CLERK_USER_ID'; // Replace with your actual Clerk user ID
 const YOUR_EMAIL = 'your-email@example.com'; // Replace with your email

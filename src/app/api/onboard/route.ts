@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
-import { TablesInsert, SubscriptionTier, SubscriptionStatus } from '@/lib/supabase/types';
+import { TablesInsert, SubscriptionTier, SubscriptionStatus } from '@/lib/database.types';
 import { clerkClient } from '@clerk/nextjs/server';
 
 export async function POST(request: NextRequest) {

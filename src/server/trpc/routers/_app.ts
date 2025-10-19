@@ -1,5 +1,16 @@
 import { router } from '../trpc';
 import { clientsRouter } from './clients';
+import { messagesRouter } from './messages';
+import { usersRouter } from './users';
+import { guestsRouter } from './guests';
+import { hotelsRouter } from './hotels';
+import { giftsRouter } from './gifts';
+import { vendorsRouter } from './vendors';
+import { budgetRouter } from './budget';
+import { eventsRouter } from './events';
+import { timelineRouter } from './timeline';
+import { documentsRouter } from './documents';
+import { creativesRouter } from './creatives';
 
 /**
  * Application Router
@@ -18,6 +29,17 @@ import { clientsRouter } from './clients';
  */
 export const appRouter = router({
   clients: clientsRouter,
+  messages: messagesRouter,
+  users: usersRouter,
+  guests: guestsRouter,
+  hotels: hotelsRouter,
+  gifts: giftsRouter,
+  vendors: vendorsRouter,
+  budget: budgetRouter,
+  events: eventsRouter,
+  timeline: timelineRouter,
+  documents: documentsRouter,
+  creatives: creativesRouter,
 });
 
 /**

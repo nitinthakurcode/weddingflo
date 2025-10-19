@@ -72,56 +72,38 @@ export default function BudgetPage() {
     enabled: !!currentUser?.company_id && !!supabase,
   });
 
-  // Get weddings for the first client
+  // Get first client (wedding info is in the clients table)
   const selectedClient = clients?.[0];
-  const { data: weddings } = useQuery<any[]>({
-    queryKey: ['weddings', selectedClient?.id],
-    queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
-      if (!selectedClient?.id) throw new Error('Client ID not available');
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('weddings')
-        .select('*')
-        .eq('client_id', selectedClient.id);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!selectedClient?.id && !!supabase,
-  });
-
-  // Use first wedding for now (in production, add wedding selector)
-  const selectedWedding = weddings && weddings.length > 0 ? weddings[0] : null;
-  const weddingId = selectedWedding?.id;
+  const clientId = selectedClient?.id;
 
   // Fetch budget data
   const { data: budgetItems, isLoading: budgetItemsLoading } = useQuery<any[]>({
-    queryKey: ['budget-items', weddingId],
+    queryKey: ['budget-items', clientId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
-      if (!weddingId) throw new Error('Wedding ID not available');
+      if (!clientId) throw new Error('Wedding ID not available');
       if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
-        .from('budget_items')
+        .from('budget')
         .select('*')
-        .eq('wedding_id', weddingId);
+        .eq('client_id', clientId);
       if (error) throw error;
       return data || [];
     },
-    enabled: !!weddingId && !!supabase,
+    enabled: !!clientId && !!supabase,
   });
 
   const deleteBudgetItemMutation = useMutation({
     mutationFn: async (budgetItemId: string) => {
       if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
-        .from('budget_items')
+        .from('budget')
         .delete()
         .eq('id', budgetItemId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['budget-items', weddingId] });
+      queryClient.invalidateQueries({ queryKey: ['budget-items', clientId] });
     },
   });
 
@@ -228,7 +210,7 @@ export default function BudgetPage() {
   }
 
   // Loading data
-  if (clients === undefined || weddings === undefined || (budgetItemsLoading && budgetItems === undefined)) {
+  if (clients === undefined || (budgetItemsLoading && budgetItems === undefined)) {
     return <PageLoader />;
   }
 
@@ -250,7 +232,7 @@ export default function BudgetPage() {
   }
 
   // No wedding found state
-  if (!selectedWedding || !weddingId) {
+  if (!selectedClient || !clientId) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
@@ -424,7 +406,7 @@ export default function BudgetPage() {
         open={budgetDialogOpen}
         onOpenChange={setBudgetDialogOpen}
         item={editingItem}
-        weddingId={weddingId}
+        weddingId={clientId}
       />
     </div>
   );

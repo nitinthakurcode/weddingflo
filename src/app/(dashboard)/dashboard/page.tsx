@@ -1,10 +1,13 @@
 'use client';
 
 import { trpc } from '@/lib/trpc/client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { ChatBox } from '@/components/chat/ChatBox';
 import {
   Dialog,
   DialogContent,
@@ -31,8 +34,11 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useForm } from 'react-hook-form';
-import { EventStatus, type Client } from '@/lib/supabase/types';
-import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { type Database } from '@/lib/database.types';
+
+type Client = Database["public"]["Tables"]["clients"]["Row"];
+type EventStatus = Database["public"]["Enums"]["event_status"];
+import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle, MessageCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface CreateClientForm {
@@ -52,8 +58,22 @@ interface CreateClientForm {
 }
 
 export default function DashboardPage() {
+  const { userId } = useAuth();
   const [search, setSearch] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [chatState, setChatState] = useState<{
+    isOpen: boolean;
+    clientId: string | null;
+    clientUserId: string | null;
+    clientName: string | null;
+  }>({
+    isOpen: false,
+    clientId: null,
+    clientUserId: null,
+    clientName: null,
+  });
+  const [currentUserDbId, setCurrentUserDbId] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string>('You');
   const { toast } = useToast();
 
   const { data: clients, isLoading, error, refetch } = trpc.clients.list.useQuery(
@@ -101,6 +121,16 @@ export default function DashboardPage() {
     },
   });
 
+  // Get current user's database ID for chat
+  const { data: currentUser } = trpc.users.getCurrentUser.useQuery();
+
+  useEffect(() => {
+    if (currentUser) {
+      setCurrentUserDbId(currentUser.id);
+      setCurrentUserName(currentUser.name || 'You');
+    }
+  }, [currentUser]);
+
   const {
     register,
     handleSubmit,
@@ -129,21 +159,21 @@ export default function DashboardPage() {
     return date.getTime() - now.getTime() < thirtyDays && date.getTime() > now.getTime();
   }).length || 0;
 
-  const confirmedClients = clients?.filter((c) => c.status === EventStatus.CONFIRMED).length || 0;
+  const confirmedClients = clients?.filter((c) => c.status === 'confirmed').length || 0;
 
-  const planningClients = clients?.filter((c) => c.status === EventStatus.PLANNING).length || 0;
+  const planningClients = clients?.filter((c) => c.status === 'planning').length || 0;
 
   const getStatusColor = (status: EventStatus) => {
     switch (status) {
-      case EventStatus.CONFIRMED:
+      case 'confirmed':
         return 'bg-green-100 text-green-800';
-      case EventStatus.PLANNING:
+      case 'planning':
         return 'bg-blue-100 text-blue-800';
-      case EventStatus.IN_PROGRESS:
+      case 'in_progress':
         return 'bg-yellow-100 text-yellow-800';
-      case EventStatus.COMPLETED:
+      case 'completed':
         return 'bg-purple-100 text-purple-800';
-      case EventStatus.CANCELED:
+      case 'canceled':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -167,6 +197,25 @@ export default function DashboardPage() {
     if (confirm(`Are you sure you want to delete ${clientName}? This will set their status to CANCELED.`)) {
       deleteClient.mutate({ id });
     }
+  };
+
+  const openChat = (client: Client) => {
+    const clientName = `${client.partner1_first_name} ${client.partner1_last_name}`;
+    setChatState({
+      isOpen: true,
+      clientId: client.id,
+      clientUserId: client.created_by, // User who created the client
+      clientName,
+    });
+  };
+
+  const closeChat = () => {
+    setChatState({
+      isOpen: false,
+      clientId: null,
+      clientUserId: null,
+      clientName: null,
+    });
   };
 
   if (isLoading) {
@@ -516,6 +565,7 @@ export default function DashboardPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-right space-x-2">
+                        <ChatButton clientId={client.id} onClick={() => openChat(client)} />
                         <Button variant="outline" size="sm">
                           View
                         </Button>
@@ -541,6 +591,52 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Chat Modal */}
+      <Dialog open={chatState.isOpen} onOpenChange={closeChat}>
+        <DialogContent className="max-w-2xl h-[600px] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-0">
+            <DialogTitle>Chat with {chatState.clientName}</DialogTitle>
+          </DialogHeader>
+
+          {chatState.isOpen &&
+            chatState.clientId &&
+            chatState.clientUserId &&
+            currentUserDbId && (
+              <div className="flex-1 flex flex-col min-h-0 pb-6">
+                <ChatBox
+                  clientId={chatState.clientId}
+                  currentUserId={currentUserDbId}
+                  otherUserId={chatState.clientUserId}
+                  currentUserName={currentUserName}
+                  otherUserName={chatState.clientName || 'Client'}
+                />
+              </div>
+            )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// Chat button with unread badge component
+function ChatButton({ clientId, onClick }: { clientId: string; onClick: () => void }) {
+  const { data: unreadCount } = trpc.messages.getUnreadCount.useQuery({
+    clientId,
+  });
+
+  return (
+    <Button onClick={onClick} variant="outline" size="sm" className="relative">
+      <MessageCircle className="w-4 h-4 mr-2" />
+      Chat
+      {unreadCount && unreadCount.count > 0 && (
+        <Badge
+          className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0"
+          variant="destructive"
+        >
+          {unreadCount.count}
+        </Badge>
+      )}
+    </Button>
   );
 }

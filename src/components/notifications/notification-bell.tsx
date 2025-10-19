@@ -17,19 +17,14 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   const supabase = useSupabase();
 
   // Get unread notification count
+  // TODO: Implement notifications table
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications-unread-count', userId],
     queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('read', false);
-      if (error) throw error;
-      return count || 0;
+      // Notifications table not yet implemented
+      return 0;
     },
-    enabled: !!userId && !!supabase,
+    enabled: false,
   });
 
   return (

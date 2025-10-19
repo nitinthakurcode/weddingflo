@@ -29,51 +29,29 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
   const queryClient = useQueryClient();
 
   // Fetch notifications
+  // TODO: Implement notifications table
   const { data: notifications } = useQuery<any[]>({
     queryKey: ['notifications', userId],
     queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return data;
+      // Notifications table not yet implemented
+      return [];
     },
-    enabled: !!userId && !!supabase,
+    enabled: false,
   });
 
   // Mark as read mutation
+  // TODO: Implement notifications table
   const markAsRead = useMutation({
     mutationFn: async (notificationId: string) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { error } = await supabase
-        .from('notifications')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ read: true })
-        .eq('id', notificationId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications', userId] });
+      // Notifications table not yet implemented
+      return;
     },
   });
 
   const markAllAsRead = useMutation({
     mutationFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { error } = await supabase
-        .from('notifications')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ read: true })
-        .eq('user_id', userId)
-        .eq('read', false);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications', userId] });
+      // Notifications table not yet implemented
+      return;
     },
   });
 

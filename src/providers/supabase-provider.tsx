@@ -3,7 +3,7 @@
 import { createContext, useContext, useMemo } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import type { Database } from '@/lib/supabase/types'
+import type { Database } from '@/lib/database.types'
 
 const SupabaseContext = createContext<SupabaseClient<Database> | null>(null)
 

@@ -95,7 +95,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const supabase = createServerSupabaseAdminClient();
   await supabase
     .from('companies')
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
     .update({
       stripe_customer_id: subscription.customer as string,
       stripe_subscription_id: subscription.id,
@@ -135,7 +134,6 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   // Update company subscription
   await supabase
     .from('companies')
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
     .update({
       stripe_customer_id: subscription.customer as string,
       stripe_subscription_id: subscription.id,

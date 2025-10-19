@@ -85,25 +85,20 @@ export default function GiftsPage() {
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
-        .from('weddings')
+        .from('clients')
         .select('*')
-        .eq('client_id', clientId);
+        .eq('id', clientId);
       if (error) throw error;
       return data || [];
     },
     enabled: !!clientId && !!supabase,
   });
 
+  // TODO: Re-enable when weddings table is created or update to use clients table
   const createDefaultWedding = useMutation({
     mutationFn: async (clientId: string) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { error } = await supabase.from('weddings').insert({
-        client_id: clientId,
-        wedding_date: new Date().toISOString(),
-        status: 'planning',
-      });
-      if (error) throw error;
+      // Temporarily disabled - weddings table doesn't exist yet
+      return Promise.resolve();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['weddings'] });

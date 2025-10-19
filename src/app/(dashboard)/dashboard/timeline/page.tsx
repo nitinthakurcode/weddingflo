@@ -60,13 +60,13 @@ export default function TimelinePage() {
 
   // Fetch activities
   const { data: activities, isLoading: isLoadingActivities } = useQuery<any[]>({
-    queryKey: ['event_flow', clientId],
+    queryKey: ['timeline', clientId],
     queryFn: async () => {
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
-        .from('event_flow')
+        .from('timeline')
         .select('*')
         .eq('client_id', clientId)
         .order('order', { ascending: true });
@@ -80,11 +80,11 @@ export default function TimelinePage() {
     mutationFn: async (input: any) => {
       if (!supabase) throw new Error('Supabase client not ready');
       // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { error } = await supabase.from('event_flow').insert(input);
+      const { error } = await supabase.from('timeline').insert(input);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['event_flow'] });
+      queryClient.invalidateQueries({ queryKey: ['timeline'] });
     },
   });
 
@@ -92,14 +92,14 @@ export default function TimelinePage() {
     mutationFn: async ({ eventFlowId, ...updates }: any) => {
       if (!supabase) throw new Error('Supabase client not ready');
       const { error } = await supabase
-        .from('event_flow')
+        .from('timeline')
         // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update(updates)
         .eq('id', eventFlowId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['event_flow'] });
+      queryClient.invalidateQueries({ queryKey: ['timeline'] });
     },
   });
 

@@ -3,7 +3,7 @@ import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { WebhookEvent, clerkClient } from '@clerk/nextjs/server';
 import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
-import { UserRole, TablesInsert, TablesUpdate, SubscriptionTier, SubscriptionStatus } from '@/lib/supabase/types';
+import { UserRole, TablesInsert, TablesUpdate, SubscriptionTier, SubscriptionStatus } from '@/lib/database.types';
 
 export async function POST(req: Request) {
   // Get the headers

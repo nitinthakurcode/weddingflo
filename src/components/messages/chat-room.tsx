@@ -92,14 +92,13 @@ export function ChatRoom({
       if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('messages')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .insert({
           company_id: companyId,
           client_id: clientId,
           sender_type: 'company',
           sender_id: currentUserId,
           sender_name: currentUserName,
-          message,
+          body: message,
         })
         .select()
         .single();

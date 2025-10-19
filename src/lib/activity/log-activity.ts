@@ -59,8 +59,7 @@ export function useLogActivity() {
       const deviceType = getDeviceType(userAgent);
 
       const { data: result, error } = await supabase
-        .from('activity_log')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
+        .from('activity_logs')
         .insert({
           ...data,
           user_id: user?.id,

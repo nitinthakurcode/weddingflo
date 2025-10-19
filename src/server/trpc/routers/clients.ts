@@ -2,8 +2,8 @@
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import type { TablesInsert, TablesUpdate } from '@/lib/supabase/types';
-import { EventStatus } from '@/lib/supabase/types';
+import type { TablesInsert, TablesUpdate } from '@/lib/database.types';
+import { EventStatus } from '@/lib/database.types';
 
 /**
  * Clients tRPC Router

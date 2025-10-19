@@ -43,7 +43,6 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
       if (!supabase) throw new Error('Supabase client not ready');
       const { data, error } = await supabase
         .from('guests')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
         .update({
           checked_in: true,
           checked_in_at: new Date().toISOString(),

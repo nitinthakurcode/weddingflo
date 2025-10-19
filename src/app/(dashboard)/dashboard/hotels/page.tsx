@@ -90,7 +90,7 @@ export default function HotelsPage() {
       if (!user?.id) throw new Error('User ID not available');
       if (!clientId) return [];
       const { data, error } = await supabase
-        .from('hotel_details')
+        .from('hotels')
         .select('*')
         .eq('client_id', clientId);
       if (error) throw error;

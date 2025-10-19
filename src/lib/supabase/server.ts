@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { auth } from '@clerk/nextjs/server'
-import type { Database } from './types'
+import type { Database } from '../database.types'
 
 /**
  * Request-scoped Supabase client for PROTECTED server code paths.
