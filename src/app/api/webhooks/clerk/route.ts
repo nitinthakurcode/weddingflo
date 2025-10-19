@@ -217,15 +217,17 @@ export async function POST(req: Request) {
 
       console.log(`✅ [Webhook] User created successfully with company_id: ${companyId}`);
 
-      // Update Clerk user metadata with the role
+      // Update Clerk user metadata with role AND company_id
+      // This enables fast lookups without database queries
       try {
         const client = await clerkClient();
         await client.users.updateUserMetadata(id, {
           publicMetadata: {
             role,
+            company_id: companyId,  // Add company_id for fast path in getCompanyId()
           },
         });
-        console.log(`✅ Updated Clerk metadata with role: ${role}`);
+        console.log(`✅ Updated Clerk metadata with role: ${role}, company_id: ${companyId}`);
       } catch (metadataError) {
         console.error('⚠️  Error updating Clerk metadata:', metadataError);
         // Don't fail the entire operation if metadata update fails

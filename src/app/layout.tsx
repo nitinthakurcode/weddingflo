@@ -7,7 +7,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { AnalyticsProvider } from './providers/analytics-provider';
 import { ThemeInjector } from './providers/theme-injector';
-import { QueryProvider } from './providers/query-provider';
+import { TRPCProvider } from '@/lib/trpc/Provider';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 
@@ -97,7 +97,7 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans`}>
         <AuthProvider>
           <SupabaseProvider>
-            <QueryProvider>
+            <TRPCProvider>
               <ThemeInjector />
               <AnalyticsProvider>
                 <PWAProvider>
@@ -105,7 +105,7 @@ export default function RootLayout({
                   <Toaster />
                 </PWAProvider>
               </AnalyticsProvider>
-            </QueryProvider>
+            </TRPCProvider>
           </SupabaseProvider>
         </AuthProvider>
         <Analytics />

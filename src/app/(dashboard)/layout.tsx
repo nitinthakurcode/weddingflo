@@ -1,15 +1,30 @@
+import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Header } from '@/components/dashboard/header';
 import { ServerThemeScript } from '@/components/theme/server-theme-script';
+import { auth } from '@clerk/nextjs/server';
 
 // Force dynamic rendering for all dashboard pages
 export const dynamic = 'force-dynamic';
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { userId, sessionClaims } = await auth();
+
+  if (!userId) {
+    redirect('/sign-in');
+  }
+
+  const role = sessionClaims?.metadata?.role as string | undefined;
+
+  // Check if user has access to this section
+  if (role !== 'company_admin' && role !== 'staff') {
+    redirect('/sign-in');
+  }
+
   return (
     <>
       {/* Server-side theme injection - NO FOUC on production! */}

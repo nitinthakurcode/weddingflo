@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
 import { TablesInsert, SubscriptionTier, SubscriptionStatus } from '@/lib/supabase/types';
+import { clerkClient } from '@clerk/nextjs/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,17 +32,20 @@ export async function POST(request: NextRequest) {
     // Check if user already exists (webhook may have created them)
     const { data: existingUser } = (await supabase
       .from('users')
-      .select('id')
+      .select('id, company_id, role')
       .eq('clerk_id', clerkId)
-      .maybeSingle()) as { data: { id: string } | null; error: any };
+      .maybeSingle()) as { data: { id: string; company_id: string | null; role: string } | null; error: any };
 
     let userId;
     let companyId: string | null = null;
+    let finalRole = userRole;
 
     if (existingUser) {
-      // User already exists (created by webhook), just return success
-      console.log('[API] User already exists (webhook created), skipping:', existingUser.id);
+      // User already exists (created by webhook), get their data
+      console.log('[API] User already exists (webhook created):', existingUser.id);
       userId = existingUser.id;
+      companyId = existingUser.company_id;
+      finalRole = existingUser.role; // Use the role from DB (webhook may have set it)
     } else {
       // Create a company for this user first (webhook fallback)
       console.log('[API] Creating company for user:', clerkId);
@@ -83,7 +87,7 @@ export async function POST(request: NextRequest) {
         first_name: firstName,
         last_name: lastName,
         avatar_url: avatarUrl || null,
-        role: userRole,
+        role: finalRole,
         company_id: companyId, // Assign the company we just created
         is_active: true,
       };
@@ -107,6 +111,21 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[API] User onboarded successfully:', userId);
+
+    // Update Clerk metadata with role and company_id for fast path lookups
+    try {
+      const client = await clerkClient();
+      await client.users.updateUserMetadata(clerkId, {
+        publicMetadata: {
+          role: finalRole,
+          company_id: companyId,
+        },
+      });
+      console.log('[API] Updated Clerk metadata with role:', finalRole, 'company_id:', companyId);
+    } catch (metadataError) {
+      console.error('[API] Error updating Clerk metadata:', metadataError);
+      // Don't fail the request - metadata can be synced later
+    }
 
     return NextResponse.json({ success: true, userId });
   } catch (error) {

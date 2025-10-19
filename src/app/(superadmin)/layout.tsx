@@ -1,63 +1,86 @@
 import { UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
+import { redirect } from 'next/navigation';
+import { auth } from '@clerk/nextjs/server';
+import { LayoutDashboard, Building2, Users, Settings } from 'lucide-react';
 
-export default function SuperAdminLayout({
+export default async function SuperAdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { userId, sessionClaims } = await auth();
+
+  if (!userId) {
+    redirect('/sign-in');
+  }
+
+  const role = sessionClaims?.metadata?.role as string | undefined;
+
+  if (role !== 'super_admin') {
+    redirect('/sign-in');
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
-      {/* Super Admin Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50 shadow-sm">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/superadmin/dashboard" className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">SA</span>
-                </div>
-                <span className="font-semibold text-lg text-gray-900">
-                  WeddingFlow Pro
-                </span>
-              </Link>
-              <Badge className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-0">
-                Super Admin Mode
-              </Badge>
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar - Desktop only (hidden on mobile < 768px) */}
+      <aside className="hidden md:flex w-60 bg-gray-900 flex-col sticky top-0 h-screen">
+        {/* Logo */}
+        <div className="p-6 border-b border-gray-800">
+          <Link href="/superadmin/dashboard" className="flex items-center gap-2">
+            <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center">
+              <span className="text-white font-bold">SA</span>
             </div>
-
-            <nav className="hidden md:flex items-center gap-6">
-              <Link
-                href="/superadmin/dashboard"
-                className="text-sm font-medium text-gray-700 hover:text-indigo-600 transition-colors"
-              >
-                Platform Overview
-              </Link>
-              <Link
-                href="/superadmin/companies"
-                className="text-sm font-medium text-gray-700 hover:text-indigo-600 transition-colors"
-              >
-                Companies
-              </Link>
-              <Link
-                href="/superadmin/impersonate"
-                className="text-sm font-medium text-gray-700 hover:text-indigo-600 transition-colors"
-              >
-                Impersonate
-              </Link>
-            </nav>
-
-            <div className="flex items-center gap-3">
-              <UserButton afterSignOutUrl="/sign-in" />
+            <div className="flex flex-col">
+              <span className="font-semibold text-white">WeddingFlow Pro</span>
+              <span className="text-xs text-indigo-400 font-medium">Super Admin</span>
             </div>
-          </div>
+          </Link>
         </div>
-      </header>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-1">
+          <Link
+            href="/superadmin/dashboard"
+            className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-gray-800 hover:text-white transition-colors"
+          >
+            <LayoutDashboard className="h-5 w-5" />
+            Dashboard
+          </Link>
+          <Link
+            href="/superadmin/companies"
+            className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-gray-800 hover:text-white transition-colors"
+          >
+            <Building2 className="h-5 w-5" />
+            Companies
+          </Link>
+          <Link
+            href="/superadmin/users"
+            className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-gray-800 hover:text-white transition-colors"
+          >
+            <Users className="h-5 w-5" />
+            Users
+          </Link>
+          <Link
+            href="/superadmin/settings"
+            className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-300 rounded-lg hover:bg-gray-800 hover:text-white transition-colors"
+          >
+            <Settings className="h-5 w-5" />
+            Settings
+          </Link>
+        </nav>
+
+        {/* User Button */}
+        <div className="p-4 border-t border-gray-800">
+          <UserButton />
+        </div>
+      </aside>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {children}
+      <main className="flex-1 overflow-auto">
+        <div className="container mx-auto px-4 md:px-6 py-8">
+          {children}
+        </div>
       </main>
     </div>
   );

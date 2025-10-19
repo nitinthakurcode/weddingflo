@@ -1,325 +1,546 @@
 'use client';
 
-import { useQuery as useReactQuery } from '@tanstack/react-query';
-import dynamic from 'next/dynamic';
-import { useSupabaseClient } from '@/lib/supabase/client';
-import { PageLoader } from '@/components/ui/loading-spinner';
-import { DashboardStatsCards } from '@/components/dashboard/dashboard-stats-cards';
-import { RecentActivity } from '@/components/dashboard/recent-activity';
-import { QuickActions } from '@/components/dashboard/quick-actions';
-import { AlertsPanel } from '@/components/dashboard/alerts-panel';
-import { UpcomingEventsWidget } from '@/components/dashboard/upcoming-events-widget';
-import { AIInsightsPanel } from '@/components/dashboard/ai-insights-panel';
-import { useUser } from '@clerk/nextjs';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { trpc } from '@/lib/trpc/client';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useForm } from 'react-hook-form';
+import { EventStatus, type Client } from '@/lib/supabase/types';
+import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
-// Dynamically import heavy chart components to reduce bundle size
-const DashboardCharts = dynamic(
-  () => import('@/components/dashboard/dashboard-charts').then(mod => ({ default: mod.DashboardCharts })),
-  {
-    loading: () => <div className="h-[400px] flex items-center justify-center bg-muted/20 rounded-lg animate-pulse"><span className="text-sm text-muted-foreground">Loading charts...</span></div>,
-    ssr: false
-  }
-);
+interface CreateClientForm {
+  partner1_first_name: string;
+  partner1_last_name: string;
+  partner1_email: string;
+  partner1_phone?: string;
+  partner2_first_name?: string;
+  partner2_last_name?: string;
+  partner2_email?: string;
+  partner2_phone?: string;
+  wedding_date?: string;
+  venue?: string;
+  budget?: number;
+  guest_count?: number;
+  notes?: string;
+}
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { user, isSignedIn, isLoaded: clerkLoaded } = useUser();
-  const supabase = useSupabaseClient();
+  const [search, setSearch] = useState('');
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const { toast } = useToast();
 
-  // Get current user from Supabase (uses Clerk JWT with proper RLS)
-  const { data: currentUser, isLoading: userLoading } = useReactQuery<any>({
-    queryKey: ['current-user', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return null;
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error} = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', user.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+  const { data: clients, isLoading, error, refetch } = trpc.clients.list.useQuery(
+    { search },
+    {
+      refetchOnWindowFocus: false,
+      retry: 3, // Retry failed requests 3 times
+      retryDelay: 1000, // Wait 1 second between retries
+    }
+  ) as { data: Client[] | undefined; isLoading: boolean; error: any; refetch: () => void };
+
+  const createClient = trpc.clients.create.useMutation({
+    onSuccess: () => {
+      refetch();
+      setIsCreateOpen(false);
+      reset();
+      toast({
+        title: 'Success',
+        description: 'Client created successfully',
+      });
     },
-    enabled: !!user?.id && isSignedIn && !!supabase,
-    retry: 1,
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create client',
+        variant: 'destructive',
+      });
+    },
   });
 
-  const { data: clients, isLoading: clientsLoading } = useReactQuery<any[]>({
-    queryKey: ['clients', currentUser?.company_id],
-    queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('company_id', currentUser!.company_id);
-      if (error) throw error;
-      return data || [];
+  const deleteClient = trpc.clients.delete.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast({
+        title: 'Success',
+        description: 'Client deleted successfully',
+      });
     },
-    enabled: !!currentUser?.company_id && !!supabase,
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete client',
+        variant: 'destructive',
+      });
+    },
   });
 
-  // Use first client for now
-  const selectedClient = clients?.[0];
-  const clientId = selectedClient?.id;
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    watch,
+    setValue,
+  } = useForm<CreateClientForm>();
 
-  // Fetch dashboard data (multiple queries in parallel)
-  const { data: dashboardStats } = useReactQuery({
-    queryKey: ['dashboard-stats', clientId],
-    queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
-      if (!supabase) throw new Error('Supabase client not ready');
-      // Fetch all counts in parallel
-      const [guests, vendors, creatives, budgetItems, events]: any[] = await Promise.all([
-        supabase.from('guests').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
-        supabase.from('vendors').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
-        supabase.from('creative_jobs').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
-        supabase.from('budget_items').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
-        supabase.from('event_brief').select('*', { count: 'exact', head: false }).eq('client_id', clientId!),
-      ]);
+  const onSubmit = (data: CreateClientForm) => {
+    createClient.mutate({
+      ...data,
+      budget: data.budget ? Number(data.budget) : undefined,
+      guest_count: data.guest_count ? Number(data.guest_count) : undefined,
+    });
+  };
 
-      const guestsData = guests.data || [];
-      const vendorsData = vendors.data || [];
-      const creativesData = creatives.data || [];
-      const budgetData = budgetItems.data || [];
+  // Calculate metrics
+  const totalClients = clients?.length || 0;
 
-      const totalGuests = guestsData.length;
-      const confirmedGuests = guestsData.filter((g: any) => g.form_submitted).length;
-      const totalVendors = vendorsData.length;
-      const confirmedVendors = vendorsData.filter((v: any) => v.status === 'confirmed' || v.status === 'booked').length;
-      const totalCreatives = creativesData.length;
-      const completedCreatives = creativesData.filter((c: any) => c.status === 'completed').length;
+  const upcomingWeddings = clients?.filter((c) => {
+    if (!c.wedding_date) return false;
+    const date = new Date(c.wedding_date);
+    const now = new Date();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    return date.getTime() - now.getTime() < thirtyDays && date.getTime() > now.getTime();
+  }).length || 0;
 
-      const totalBudget = budgetData.reduce((sum: number, item: any) => sum + (item.budget || 0), 0);
-      const budgetSpent = budgetData.reduce((sum: number, item: any) => sum + (item.actual_cost || 0), 0);
-      const budgetSpentPercentage = totalBudget > 0 ? (budgetSpent / totalBudget) * 100 : 0;
+  const confirmedClients = clients?.filter((c) => c.status === EventStatus.CONFIRMED).length || 0;
 
-      // Calculate days until wedding (using first event date)
-      const firstEvent = events.data?.[0];
-      const daysUntilWedding = firstEvent?.date
-        ? Math.ceil((firstEvent.date - Date.now()) / (1000 * 60 * 60 * 24))
-        : 0;
+  const planningClients = clients?.filter((c) => c.status === EventStatus.PLANNING).length || 0;
 
-      return {
-        totalGuests,
-        confirmedGuests,
-        totalVendors,
-        confirmedVendors,
-        totalCreatives,
-        completedCreatives,
-        totalActivities: events.data?.length || 0,
-        completedActivities: 0,
-        budgetSpent,
-        totalBudget,
-        budgetSpentPercentage,
-        daysUntilWedding,
-        guestsByCategory: {},
-        budgetByCategory: {},
-        vendorsByStatus: {},
-      };
-    },
-    enabled: !!clientId,
-  });
-
-  const { data: recentActivity } = useReactQuery({
-    queryKey: ['recent-activity', clientId],
-    queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
-      // This would fetch from an activity log table if available
-      // For now, return empty array
-      return [];
-    },
-    enabled: !!clientId && !!supabase,
-  });
-
-  const { data: upcomingEvents } = useReactQuery({
-    queryKey: ['upcoming-events', clientId],
-    queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
-      if (!supabase) throw new Error('Supabase client not ready');
-      const now = Date.now();
-      const { data, error } = await supabase
-        .from('event_brief')
-        .select('*')
-        .eq('client_id', clientId!)
-        .gte('date', now)
-        .order('date', { ascending: true })
-        .limit(5);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!clientId && !!supabase,
-  });
-
-  const { data: alerts } = useReactQuery({
-    queryKey: ['alerts', clientId],
-    queryFn: async () => {
-      if (!user?.id) throw new Error('User ID not available');
-      // This would fetch from an alerts table if available
-      // For now, return empty array
-      return [];
-    },
-    enabled: !!clientId && !!supabase,
-  });
-
-  // Loading state
-  if (userLoading) {
-    return <PageLoader />;
-  }
-
-  // If currentUser is null but user is signed in via Clerk, continue with rendering
-  // This can happen if RLS blocks the client-side query, but Clerk session is still valid
-  if (!currentUser && isSignedIn) {
-    console.log('[Dashboard] User signed in via Clerk, but React Query returned null - continuing with Clerk session');
-    // Continue rendering - clients query will use company_id from wherever it can
-  }
-
-  // Only show "not authenticated" if Clerk also says not signed in
-  if (!currentUser && !isSignedIn) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold">Authentication Required</h2>
-          <p className="text-muted-foreground mt-2">
-            Please sign in to view your dashboard.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Loading clients and stats
-  if (clientsLoading) {
-    return <PageLoader />;
-  }
-
-  if (!clients) {
-    return <PageLoader />;
-  }
-
-  // No client found state - SHOW THIS INSTEAD OF INFINITE LOADING
-  if (clients.length === 0 || !selectedClient || !clientId) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center space-y-4">
-          <h2 className="text-2xl font-bold">No Wedding Found</h2>
-          <p className="text-muted-foreground mt-2">
-            You haven&apos;t created any weddings yet.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Create your first wedding to start planning!
-          </p>
-          <button
-            onClick={() => router.push('/dashboard/clients')}
-            className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
-          >
-            Create Wedding
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Still loading dashboard stats for the selected client
-  if (!dashboardStats) {
-    return <PageLoader />;
-  }
-
-  // Calculate completion percentage
-  const totalTasks =
-    dashboardStats.totalGuests +
-    dashboardStats.totalVendors +
-    dashboardStats.totalCreatives +
-    dashboardStats.totalActivities;
-
-  const completedTasks =
-    dashboardStats.confirmedGuests +
-    dashboardStats.confirmedVendors +
-    dashboardStats.completedCreatives +
-    dashboardStats.completedActivities;
-
-  const completionPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-
-  // Handle filter click - navigate to relevant page
-  const handleFilterChange = (filter: string | null) => {
-    if (!filter) return;
-
-    switch (filter) {
-      case 'guests':
-        router.push('/dashboard/guests');
-        break;
-      case 'confirmed':
-        router.push('/dashboard/guests?filter=confirmed');
-        break;
-      case 'budget':
-        router.push('/dashboard/budget');
-        break;
-      case 'timeline':
-        router.push('/dashboard/timeline');
-        break;
+  const getStatusColor = (status: EventStatus) => {
+    switch (status) {
+      case EventStatus.CONFIRMED:
+        return 'bg-green-100 text-green-800';
+      case EventStatus.PLANNING:
+        return 'bg-blue-100 text-blue-800';
+      case EventStatus.IN_PROGRESS:
+        return 'bg-yellow-100 text-yellow-800';
+      case EventStatus.COMPLETED:
+        return 'bg-purple-100 text-purple-800';
+      case EventStatus.CANCELED:
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
-  return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Hero Section with Gradient */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary-100 via-primary-50 to-secondary-100 border-2 border-primary-300 p-6 sm:p-8 shadow-lg">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary-200 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-secondary-200 rounded-full blur-3xl opacity-50 translate-y-1/2 -translate-x-1/2" />
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'Not set';
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return 'Invalid date';
+    }
+  };
 
-        <div className="relative">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-primary-900 break-words">
-            Dashboard
-          </h1>
-          <p className="mt-2 sm:mt-3 text-base sm:text-lg font-medium text-primary-800 break-words">
-            Welcome back! Here&apos;s what&apos;s happening with <span className="text-primary-950 font-semibold">{selectedClient.client_name}&apos;s</span> wedding.
-          </p>
+  const handleDelete = (id: string, clientName: string) => {
+    if (confirm(`Are you sure you want to delete ${clientName}? This will set their status to CANCELED.`)) {
+      deleteClient.mutate({ id });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <p className="text-lg font-medium">Failed to load clients</p>
+        <p className="text-sm text-muted-foreground">{error.message}</p>
+        <Button onClick={() => refetch()}>Try Again</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-600 mt-1">Manage your wedding clients and track progress</p>
+        </div>
+        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+          <DialogTrigger asChild>
+            <Button className="w-full sm:w-auto">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Client
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add New Client</DialogTitle>
+              <DialogDescription>
+                Create a new wedding client profile. Fields marked with * are required.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              {/* Partner 1 */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-gray-900">Partner 1 Information *</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="partner1_first_name">First Name *</Label>
+                    <Input
+                      id="partner1_first_name"
+                      {...register('partner1_first_name', {
+                        required: 'First name is required',
+                      })}
+                      placeholder="John"
+                    />
+                    {errors.partner1_first_name && (
+                      <p className="text-sm text-destructive">{errors.partner1_first_name.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="partner1_last_name">Last Name *</Label>
+                    <Input
+                      id="partner1_last_name"
+                      {...register('partner1_last_name', {
+                        required: 'Last name is required',
+                      })}
+                      placeholder="Smith"
+                    />
+                    {errors.partner1_last_name && (
+                      <p className="text-sm text-destructive">{errors.partner1_last_name.message}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="partner1_email">Email *</Label>
+                    <Input
+                      id="partner1_email"
+                      type="email"
+                      {...register('partner1_email', {
+                        required: 'Email is required',
+                        pattern: {
+                          value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                          message: 'Invalid email address',
+                        },
+                      })}
+                      placeholder="john@example.com"
+                    />
+                    {errors.partner1_email && (
+                      <p className="text-sm text-destructive">{errors.partner1_email.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="partner1_phone">Phone</Label>
+                    <Input
+                      id="partner1_phone"
+                      type="tel"
+                      {...register('partner1_phone')}
+                      placeholder="+1 (555) 123-4567"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Partner 2 */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-gray-900">Partner 2 Information (Optional)</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="partner2_first_name">First Name</Label>
+                    <Input
+                      id="partner2_first_name"
+                      {...register('partner2_first_name')}
+                      placeholder="Jane"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="partner2_last_name">Last Name</Label>
+                    <Input
+                      id="partner2_last_name"
+                      {...register('partner2_last_name')}
+                      placeholder="Doe"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="partner2_email">Email</Label>
+                    <Input
+                      id="partner2_email"
+                      type="email"
+                      {...register('partner2_email', {
+                        pattern: {
+                          value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                          message: 'Invalid email address',
+                        },
+                      })}
+                      placeholder="jane@example.com"
+                    />
+                    {errors.partner2_email && (
+                      <p className="text-sm text-destructive">{errors.partner2_email.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="partner2_phone">Phone</Label>
+                    <Input
+                      id="partner2_phone"
+                      type="tel"
+                      {...register('partner2_phone')}
+                      placeholder="+1 (555) 987-6543"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Wedding Details */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-gray-900">Wedding Details</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="wedding_date">Wedding Date</Label>
+                    <Input
+                      id="wedding_date"
+                      type="date"
+                      {...register('wedding_date')}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="venue">Venue</Label>
+                    <Input
+                      id="venue"
+                      {...register('venue')}
+                      placeholder="The Grand Ballroom"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="budget">Budget</Label>
+                    <Input
+                      id="budget"
+                      type="number"
+                      min="0"
+                      step="100"
+                      {...register('budget')}
+                      placeholder="50000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="guest_count">Guest Count</Label>
+                    <Input
+                      id="guest_count"
+                      type="number"
+                      min="1"
+                      {...register('guest_count')}
+                      placeholder="150"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Input
+                    id="notes"
+                    {...register('notes')}
+                    placeholder="Additional notes..."
+                  />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsCreateOpen(false);
+                    reset();
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createClient.isPending}>
+                  {createClient.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Create Client
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Metrics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalClients}</div>
+            <p className="text-xs text-muted-foreground">Wedding couples</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Upcoming Weddings</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{upcomingWeddings}</div>
+            <p className="text-xs text-muted-foreground">Next 30 days</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Confirmed</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{confirmedClients}</div>
+            <p className="text-xs text-muted-foreground">Ready to go</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Planning</CardTitle>
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{planningClients}</div>
+            <p className="text-xs text-muted-foreground">In progress</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search */}
+      <div className="flex items-center space-x-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search clients by name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
         </div>
       </div>
 
-      {/* Stat Cards */}
-      <DashboardStatsCards
-        stats={{
-          totalGuests: dashboardStats.totalGuests,
-          confirmedGuests: dashboardStats.confirmedGuests,
-          budgetSpentPercentage: dashboardStats.budgetSpentPercentage,
-          daysUntilWedding: dashboardStats.daysUntilWedding,
-        }}
-        isLoading={false}
-        onFilterChange={handleFilterChange}
-      />
-
-      {/* Quick Actions */}
-      <QuickActions />
-
-      {/* Alerts & Upcoming Events */}
-      <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
-        <AlertsPanel alerts={alerts || []} />
-        <UpcomingEventsWidget events={upcomingEvents || []} />
-      </div>
-
-      {/* Charts Section */}
-      <DashboardCharts
-        guestsByCategory={dashboardStats.guestsByCategory}
-        budgetByCategory={dashboardStats.budgetByCategory}
-        vendorsByStatus={dashboardStats.vendorsByStatus}
-        totalGuests={dashboardStats.totalGuests}
-        confirmedGuests={dashboardStats.confirmedGuests}
-        budgetSpent={dashboardStats.budgetSpent}
-        totalBudget={dashboardStats.totalBudget}
-      />
-
-      {/* AI Insights & Recent Activity */}
-      <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
-        <AIInsightsPanel
-          completionPercentage={completionPercentage}
-          timelineStatus="on_track"
-          budgetHealth={dashboardStats.budgetSpentPercentage > 90 ? 'warning' : 'good'}
-        />
-        <RecentActivity activities={recentActivity || []} />
-      </div>
+      {/* Clients Table */}
+      <Card>
+        <CardContent className="p-0">
+          {!clients || clients.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 space-y-4">
+              <Users className="h-12 w-12 text-muted-foreground" />
+              <div className="text-center">
+                <p className="text-lg font-medium">No clients found</p>
+                <p className="text-sm text-muted-foreground">
+                  {search ? 'Try adjusting your search' : 'Get started by adding your first client'}
+                </p>
+              </div>
+              {!search && (
+                <Button onClick={() => setIsCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Client
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client Name</TableHead>
+                    <TableHead>Wedding Date</TableHead>
+                    <TableHead>Venue</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clients.map((client) => (
+                    <TableRow key={client.id}>
+                      <TableCell className="font-medium">
+                        <div>
+                          <div>
+                            {client.partner1_first_name} {client.partner1_last_name}
+                            {client.partner2_first_name && (
+                              <span className="text-muted-foreground">
+                                {' '}
+                                & {client.partner2_first_name} {client.partner2_last_name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-muted-foreground">{client.partner1_email}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatDate(client.wedding_date)}</TableCell>
+                      <TableCell>{client.venue || 'Not set'}</TableCell>
+                      <TableCell>
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
+                            client.status
+                          )}`}
+                        >
+                          {client.status}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button variant="outline" size="sm">
+                          View
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            handleDelete(
+                              client.id,
+                              `${client.partner1_first_name} ${client.partner1_last_name}`
+                            )
+                          }
+                          disabled={deleteClient.isPending}
+                        >
+                          Delete
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

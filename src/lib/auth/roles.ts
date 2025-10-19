@@ -1,6 +1,7 @@
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { cache } from 'react';
 import type { User, Company } from '@/lib/supabase/types';
 
 /**
@@ -320,3 +321,294 @@ export async function canManageStaff(): Promise<boolean> {
 export async function canManageClients(): Promise<boolean> {
   return await canAccessCompanyResources();
 }
+
+// ============================================================================
+// ENHANCED UTILITIES - Database Fallback & Security Helpers
+// ============================================================================
+
+/**
+ * Get full user record from Supabase database.
+ *
+ * ⚠️ IMPORTANT: Use this ONLY when you need company_id or other user fields.
+ * For role checking only, use getCurrentUserRole() instead (faster - reads from session claims).
+ *
+ * This function queries the database directly and is cached using React's cache()
+ * to prevent multiple database calls within a single request.
+ *
+ * @returns Full user object from database or null if not found
+ *
+ * @example
+ * ```tsx
+ * // When you need company_id or full user data
+ * const user = await getCurrentUser();
+ * if (user) {
+ *   console.log('Company ID:', user.company_id);
+ *   console.log('Email:', user.email);
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // For role checking only, prefer this (faster):
+ * const role = await getCurrentUserRole(); // ✅ Uses session claims
+ *
+ * // Not this:
+ * const user = await getCurrentUser();
+ * const role = user?.role; // ❌ Slower - queries database
+ * ```
+ */
+export const getCurrentUser = cache(async (): Promise<User | null> => {
+  try {
+    // Get userId from Clerk authentication
+    const { userId } = await auth();
+
+    if (!userId) {
+      return null;
+    }
+
+    // Query Supabase for full user record
+    const supabase = createServerSupabaseClient();
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('clerk_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error fetching user from database:', error);
+      return null;
+    }
+
+    return user;
+  } catch (error) {
+    console.error('Unexpected error in getCurrentUser:', error);
+    return null;
+  }
+});
+
+/**
+ * Get current user's company_id.
+ *
+ * Fast path: Reads from Clerk session claims metadata (if available)
+ * Fallback: Queries Supabase database
+ *
+ * @returns The company ID or null if no user/company
+ *
+ * @example
+ * ```tsx
+ * // In a server component
+ * const companyId = await getCompanyId();
+ * if (companyId) {
+ *   // Query company-scoped data
+ *   const clients = await supabase
+ *     .from('clients')
+ *     .select('*')
+ *     .eq('company_id', companyId);
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // In an API route
+ * export async function GET() {
+ *   const companyId = await getCompanyId();
+ *
+ *   if (!companyId) {
+ *     return Response.json({ error: 'No company found' }, { status: 400 });
+ *   }
+ *
+ *   // Proceed with company-scoped logic
+ * }
+ * ```
+ */
+export async function getCompanyId(): Promise<string | null> {
+  try {
+    // Fast path: try session claims first
+    const { sessionClaims } = await auth();
+    const metadata = sessionClaims?.metadata as { company_id?: string } | undefined;
+
+    if (metadata?.company_id) {
+      return metadata.company_id;
+    }
+
+    // Fallback: query database
+    const user = await getCurrentUser();
+    return user?.company_id || null;
+  } catch (error) {
+    console.error('Error getting company ID:', error);
+    return null;
+  }
+}
+
+/**
+ * Verify user has access to a specific company.
+ *
+ * This is a critical security function for multi-tenant applications.
+ * Use it to prevent users from accessing data belonging to other companies.
+ *
+ * @param targetCompanyId - The company ID to verify access to
+ * @throws Error if user is not authenticated or doesn't have access to the company
+ *
+ * @example
+ * ```tsx
+ * // In an API route handler
+ * export async function GET(
+ *   req: Request,
+ *   { params }: { params: { companyId: string } }
+ * ) {
+ *   try {
+ *     // Verify user belongs to this company
+ *     await requireCompanyAccess(params.companyId);
+ *
+ *     // Safe to proceed - user has access to this company
+ *     const data = await fetchCompanyData(params.companyId);
+ *     return Response.json(data);
+ *   } catch (error) {
+ *     return Response.json(
+ *       { error: 'Unauthorized access to company' },
+ *       { status: 403 }
+ *     );
+ *   }
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // When updating company data
+ * export async function PATCH(
+ *   req: Request,
+ *   { params }: { params: { companyId: string } }
+ * ) {
+ *   // Prevent users from updating other companies' data
+ *   await requireCompanyAccess(params.companyId);
+ *
+ *   // Now safe to update
+ *   await updateCompanyData(params.companyId, await req.json());
+ * }
+ * ```
+ */
+export async function requireCompanyAccess(targetCompanyId: string): Promise<void> {
+  // Super admins can access any company
+  const role = await getCurrentUserRole();
+  if (role === 'super_admin') {
+    return; // Allow access
+  }
+
+  // Get user's company ID
+  const userCompanyId = await getCompanyId();
+
+  if (!userCompanyId) {
+    throw new Error('Unauthorized: User has no company association');
+  }
+
+  // Verify company IDs match
+  if (userCompanyId !== targetCompanyId) {
+    throw new Error(
+      `Unauthorized: User belongs to company ${userCompanyId}, ` +
+      `but attempted to access company ${targetCompanyId}`
+    );
+  }
+}
+
+/**
+ * Force refresh of user's session token after role change.
+ *
+ * Call this function after updating a user's role in the database (typically in a webhook)
+ * to ensure their session reflects the new role immediately.
+ *
+ * This invalidates the user's current sessions, forcing them to get a new JWT
+ * with updated role information on their next request.
+ *
+ * @param userId - The Clerk user ID whose session should be refreshed
+ * @returns true if successful, false otherwise
+ *
+ * @example
+ * ```tsx
+ * // In a webhook handler after role update
+ * export async function POST(req: Request) {
+ *   const { userId, newRole } = await req.json();
+ *
+ *   // Update role in database
+ *   await supabase
+ *     .from('users')
+ *     .update({ role: newRole })
+ *     .eq('clerk_id', userId);
+ *
+ *   // Force session refresh so user gets new role immediately
+ *   await forceRefreshRole(userId);
+ *
+ *   return Response.json({ success: true });
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // In an admin panel when changing user roles
+ * async function handleRoleChange(userId: string, newRole: string) {
+ *   // Update in database
+ *   await updateUserRole(userId, newRole);
+ *
+ *   // Force user to re-authenticate with new role
+ *   await forceRefreshRole(userId);
+ *
+ *   console.log('User role updated and session refreshed');
+ * }
+ * ```
+ */
+export async function forceRefreshRole(userId: string): Promise<boolean> {
+  try {
+    const client = await clerkClient();
+
+    // Get all user sessions
+    const sessions = await client.sessions.getSessionList({ userId });
+
+    // Revoke all sessions to force token refresh
+    await Promise.all(
+      sessions.data.map((session) =>
+        client.sessions.revokeSession(session.id)
+      )
+    );
+
+    return true;
+  } catch (error) {
+    console.error('Error refreshing user role:', error);
+    return false;
+  }
+}
+
+// ============================================================================
+// USAGE GUIDE
+// ============================================================================
+
+/**
+ * WHEN TO USE EACH FUNCTION:
+ *
+ * 🚀 Fast Role Checking (Session Claims):
+ * - getCurrentUserRole() - Gets role from Clerk session metadata
+ * - isSuperAdmin() - Checks if super_admin
+ * - isCompanyAdmin() - Checks if company_admin
+ * - isStaff() - Checks if staff
+ * - isClientUser() - Checks if client_user
+ * - canAccessCompanyResources() - Quick permission check
+ * - canManageStaff() - Quick permission check
+ * - canManageClients() - Quick permission check
+ *
+ * 📊 Database Queries (When You Need More Data):
+ * - getCurrentUser() - Full user object (use when you need company_id, email, etc.)
+ * - getCurrentUserWithCompany() - User + company data joined
+ * - getCompanyId() - Fast path to company_id (tries session first, then DB)
+ *
+ * 🔒 Security & Authorization:
+ * - requireRole() - Enforce role access with redirect
+ * - requireCompanyAccess() - Multi-tenant security check
+ *
+ * 🔄 Admin Utilities:
+ * - forceRefreshRole() - Refresh sessions after role changes
+ *
+ * ⚡ PERFORMANCE TIP:
+ * Always prefer session claim functions (getCurrentUserRole, isSuperAdmin, etc.)
+ * over database queries when you only need to check the role.
+ *
+ * Session claims are cached in the JWT and don't require a database query.
+ * Database queries should only be used when you need additional user data.
+ */
