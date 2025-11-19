@@ -1,15 +1,25 @@
 import { getRequestConfig } from 'next-intl/server'
-import { locales, type Locale, defaultLocale } from './config'
+import { routing } from './routing'
 
-export default getRequestConfig(async ({ locale }) => {
-  // Validate that the incoming locale parameter is valid
-  // Use default locale if invalid instead of throwing 404
-  const validLocale = (locale && locales.includes(locale as Locale))
-    ? (locale as Locale)
-    : defaultLocale
+/**
+ * NOVEMBER 2025 i18n REQUEST CONFIGURATION
+ *
+ * Next.js 15 compatible pattern using requestLocale (async)
+ * This is called for each request to provide messages for the current locale
+ */
+
+export default getRequestConfig(async ({ requestLocale }) => {
+  // `requestLocale` is async in Next.js 15 - must await it
+  // Can be undefined if middleware couldn't determine locale
+  let locale = await requestLocale
+
+  // Validate against supported locales
+  if (!locale || !routing.locales.includes(locale as any)) {
+    locale = routing.defaultLocale
+  }
 
   return {
-    locale: validLocale,
-    messages: (await import(`../messages/${validLocale}.json`)).default,
+    locale,
+    messages: (await import(`../messages/${locale}.json`)).default,
   }
 })

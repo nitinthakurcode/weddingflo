@@ -56,7 +56,7 @@ export const usersRouter = router({
       const { data, error } = await ctx.supabase
         .from('users')
         .select('preferred_currency, preferred_language, timezone, auto_detect_locale')
-        .eq('clerk_user_id', ctx.userId)
+        .eq('clerk_id', ctx.userId)
         .single();
 
       if (error) {
@@ -90,7 +90,7 @@ export const usersRouter = router({
           ...input,
           updated_at: new Date().toISOString(),
         })
-        .eq('clerk_user_id', ctx.userId);
+        .eq('clerk_id', ctx.userId);
 
       if (error) {
         throw new TRPCError({
@@ -120,7 +120,7 @@ export const usersRouter = router({
           preferred_language: input.language,
           updated_at: new Date().toISOString(),
         })
-        .eq('clerk_user_id', ctx.userId);
+        .eq('clerk_id', ctx.userId);
 
       if (error) {
         throw new TRPCError({

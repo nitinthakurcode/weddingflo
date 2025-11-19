@@ -28,8 +28,12 @@ yarn-error.log*
 # local env files
 .env*.local
 
-# documentation (private)
+# documentation (temporary/generated)
 /docs/
+/files/
+/test-results/*.md
+*_CLEANUP_*.md
+*_STATUS_*.md
 
 # vercel
 .vercel
