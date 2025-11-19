@@ -109,7 +109,7 @@ Respond ONLY with valid JSON in this exact format:
     messages: [
       {
         role: 'system',
-        content: 'You are an expert wedding budget analyst with extensive experience in cost prediction and financial planning for events.',
+        content: 'You are an expert wedding budget analyst with extensive experience in cost prediction and financial planning for events. Always respond with valid JSON only.',
       },
       {
         role: 'user',
@@ -118,7 +118,6 @@ Respond ONLY with valid JSON in this exact format:
     ],
     temperature: 0.5, // Lower temperature for more consistent predictions
     max_tokens: 2500,
-    response_format: { type: 'json_object' },
   });
 
   const content = response.choices[0]?.message?.content;

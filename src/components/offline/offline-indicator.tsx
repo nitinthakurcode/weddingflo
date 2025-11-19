@@ -2,192 +2,65 @@
 
 import { useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { WifiOff, Wifi, AlertCircle } from 'lucide-react';
-import { getQueueStats } from '@/lib/offline/offline-queue';
+import { WifiOff, Wifi, Clock } from 'lucide-react';
+import { offlineQueue } from '@/lib/offline/queue-manager';
 
-/**
- * Offline Indicator
- * Shows banner when device is offline with pending actions count
- */
 export function OfflineIndicator() {
   const [isOnline, setIsOnline] = useState(true);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [showBanner, setShowBanner] = useState(false);
+  const [queueSize, setQueueSize] = useState(0);
 
   useEffect(() => {
-    // Set initial online status
-    setIsOnline(navigator.onLine);
-    setShowBanner(!navigator.onLine);
+    const updateOnlineStatus = () => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine) {
+        offlineQueue.processQueue();
+      }
+    };
 
-    // Update pending count
-    updatePendingCount();
+    const updateQueueSize = async () => {
+      const size = await offlineQueue.getQueueSize();
+      setQueueSize(size);
+    };
+
+    // Initial check
+    updateOnlineStatus();
+    updateQueueSize();
 
     // Listen for online/offline events
-    const handleOnline = () => {
-      console.log('🌐 Device is online');
-      setIsOnline(true);
-      setShowBanner(true);
-      // Hide success banner after 5 seconds
-      setTimeout(() => {
-        if (navigator.onLine) {
-          setShowBanner(false);
-        }
-      }, 5000);
-    };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
 
-    const handleOffline = () => {
-      console.log('📴 Device is offline');
-      setIsOnline(false);
-      setShowBanner(true);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    // Listen for queue updates
-    const handleQueueUpdate = () => {
-      updatePendingCount();
-    };
-
-    window.addEventListener('offline-queue-updated', handleQueueUpdate);
-
-    // Periodic update of pending count
-    const interval = setInterval(updatePendingCount, 10000); // Every 10 seconds
+    // Poll queue size every 5 seconds
+    const interval = setInterval(updateQueueSize, 5000);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('offline-queue-updated', handleQueueUpdate);
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
       clearInterval(interval);
     };
   }, []);
 
-  async function updatePendingCount() {
-    try {
-      const stats = await getQueueStats();
-      setPendingCount(stats.pending);
-    } catch (error) {
-      console.error('Failed to get queue stats:', error);
-    }
-  }
-
-  if (!showBanner) {
-    return null;
-  }
+  if (isOnline && queueSize === 0) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 animate-in slide-in-from-top duration-300">
-      <Alert
-        variant={isOnline ? 'default' : 'destructive'}
-        className={`rounded-none border-x-0 border-t-0 ${
-          isOnline
-            ? 'bg-green-50 border-green-200 text-green-900'
-            : 'bg-destructive/90 text-destructive-foreground'
-        }`}
-      >
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-3">
-            {isOnline ? (
-              <Wifi className="h-5 w-5 text-green-600" />
-            ) : (
-              <WifiOff className="h-5 w-5" />
-            )}
-            <AlertDescription className="font-medium">
-              {isOnline ? (
-                <>
-                  Back online!
-                  {pendingCount > 0 && (
-                    <span className="ml-2 text-sm">
-                      Syncing {pendingCount} pending {pendingCount === 1 ? 'action' : 'actions'}...
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  You are offline
-                  {pendingCount > 0 && (
-                    <span className="ml-2 text-sm">
-                      · {pendingCount} {pendingCount === 1 ? 'action' : 'actions'} pending
-                    </span>
-                  )}
-                </>
-              )}
-            </AlertDescription>
-          </div>
+    <div className="fixed bottom-4 right-4 z-50 max-w-md">
+      {!isOnline && (
+        <Alert variant="destructive" className="mb-2">
+          <WifiOff className="h-4 w-4" />
+          <AlertDescription>
+            You're offline. Changes will be saved when you reconnect.
+          </AlertDescription>
+        </Alert>
+      )}
 
-          {!isOnline && (
-            <div className="flex items-center gap-2 text-sm">
-              <AlertCircle className="h-4 w-4" />
-              <span>Changes will sync when reconnected</span>
-            </div>
-          )}
-        </div>
-      </Alert>
-    </div>
-  );
-}
-
-/**
- * Compact offline indicator for header/navbar
- */
-export function CompactOfflineIndicator() {
-  const [isOnline, setIsOnline] = useState(true);
-  const [pendingCount, setPendingCount] = useState(0);
-
-  useEffect(() => {
-    setIsOnline(navigator.onLine);
-    updatePendingCount();
-
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    const handleQueueUpdate = () => updatePendingCount();
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('offline-queue-updated', handleQueueUpdate);
-
-    const interval = setInterval(updatePendingCount, 10000);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('offline-queue-updated', handleQueueUpdate);
-      clearInterval(interval);
-    };
-  }, []);
-
-  async function updatePendingCount() {
-    try {
-      const stats = await getQueueStats();
-      setPendingCount(stats.pending);
-    } catch (error) {
-      console.error('Failed to get queue stats:', error);
-    }
-  }
-
-  if (isOnline && pendingCount === 0) {
-    return null;
-  }
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-muted text-sm">
-      {isOnline ? (
-        <>
-          <Wifi className="h-3 w-3 text-green-600" />
-          <span className="text-xs text-muted-foreground">
-            Syncing {pendingCount}...
-          </span>
-        </>
-      ) : (
-        <>
-          <WifiOff className="h-3 w-3 text-destructive" />
-          <span className="text-xs text-destructive">Offline</span>
-          {pendingCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              · {pendingCount} pending
-            </span>
-          )}
-        </>
+      {queueSize > 0 && (
+        <Alert className="bg-yellow-50 border-yellow-200">
+          <Clock className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800">
+            {queueSize} pending {queueSize === 1 ? 'change' : 'changes'} waiting to sync
+            {isOnline && ' - syncing now...'}
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

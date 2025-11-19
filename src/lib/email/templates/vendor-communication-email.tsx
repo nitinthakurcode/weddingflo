@@ -1,0 +1,274 @@
+import { Heading, Text, Hr } from '@react-email/components';
+import * as React from 'react';
+import { BaseEmail } from './base-email';
+
+interface VendorCommunicationEmailProps {
+  recipientName: string;
+  senderName: string;
+  senderRole: string;
+  subject: string;
+  message: string;
+  eventName?: string;
+  eventDate?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  locale?: string;
+}
+
+const TRANSLATIONS = {
+  en: {
+    greeting: (name: string) => `Hello ${name},`,
+    from: (sender: string, role: string) => `Message from ${sender} (${role})`,
+    regarding: 'Regarding:',
+    event: 'Event:',
+    eventDate: 'Event Date:',
+    priority: {
+      low: 'Low Priority',
+      normal: 'Normal Priority',
+      high: 'High Priority',
+      urgent: 'URGENT',
+    },
+    footer: 'This message was sent through WeddingFlow Pro.',
+  },
+  es: {
+    greeting: (name: string) => `Hola ${name},`,
+    from: (sender: string, role: string) => `Mensaje de ${sender} (${role})`,
+    regarding: 'Acerca de:',
+    event: 'Evento:',
+    eventDate: 'Fecha del Evento:',
+    priority: {
+      low: 'Prioridad Baja',
+      normal: 'Prioridad Normal',
+      high: 'Prioridad Alta',
+      urgent: 'URGENTE',
+    },
+    footer: 'Este mensaje fue enviado a través de WeddingFlow Pro.',
+  },
+  fr: {
+    greeting: (name: string) => `Bonjour ${name},`,
+    from: (sender: string, role: string) => `Message de ${sender} (${role})`,
+    regarding: 'Concernant:',
+    event: 'Événement:',
+    eventDate: "Date de l'Événement:",
+    priority: {
+      low: 'Priorité Basse',
+      normal: 'Priorité Normale',
+      high: 'Priorité Haute',
+      urgent: 'URGENT',
+    },
+    footer: 'Ce message a été envoyé via WeddingFlow Pro.',
+  },
+  de: {
+    greeting: (name: string) => `Hallo ${name},`,
+    from: (sender: string, role: string) => `Nachricht von ${sender} (${role})`,
+    regarding: 'Betreffend:',
+    event: 'Veranstaltung:',
+    eventDate: 'Veranstaltungsdatum:',
+    priority: {
+      low: 'Niedrige Priorität',
+      normal: 'Normale Priorität',
+      high: 'Hohe Priorität',
+      urgent: 'DRINGEND',
+    },
+    footer: 'Diese Nachricht wurde über WeddingFlow Pro gesendet.',
+  },
+  ja: {
+    greeting: (name: string) => `${name}様`,
+    from: (sender: string, role: string) => `${sender}（${role}）からのメッセージ`,
+    regarding: '件名：',
+    event: 'イベント：',
+    eventDate: 'イベント日：',
+    priority: {
+      low: '優先度：低',
+      normal: '優先度：通常',
+      high: '優先度：高',
+      urgent: '緊急',
+    },
+    footer: 'このメッセージはWeddingFlow Proを通じて送信されました。',
+  },
+  zh: {
+    greeting: (name: string) => `你好${name}，`,
+    from: (sender: string, role: string) => `来自${sender}（${role}）的消息`,
+    regarding: '关于：',
+    event: '活动：',
+    eventDate: '活动日期：',
+    priority: {
+      low: '低优先级',
+      normal: '正常优先级',
+      high: '高优先级',
+      urgent: '紧急',
+    },
+    footer: '此消息通过WeddingFlow Pro发送。',
+  },
+  hi: {
+    greeting: (name: string) => `नमस्ते ${name},`,
+    from: (sender: string, role: string) => `${sender} (${role}) से संदेश`,
+    regarding: 'विषय:',
+    event: 'कार्यक्रम:',
+    eventDate: 'कार्यक्रम तिथि:',
+    priority: {
+      low: 'कम प्राथमिकता',
+      normal: 'सामान्य प्राथमिकता',
+      high: 'उच्च प्राथमिकता',
+      urgent: 'तत्काल',
+    },
+    footer: 'यह संदेश WeddingFlow Pro के माध्यम से भेजा गया था।',
+  },
+};
+
+const PRIORITY_COLORS = {
+  low: '#94a3b8',
+  normal: '#6366f1',
+  high: '#f59e0b',
+  urgent: '#ef4444',
+};
+
+const PRIORITY_BG_COLORS = {
+  low: '#f1f5f9',
+  normal: '#eef2ff',
+  high: '#fef3c7',
+  urgent: '#fee2e2',
+};
+
+export function VendorCommunicationEmail({
+  recipientName,
+  senderName,
+  senderRole,
+  subject,
+  message,
+  eventName,
+  eventDate,
+  priority = 'normal',
+  locale = 'en',
+}: VendorCommunicationEmailProps) {
+  const t = TRANSLATIONS[locale as keyof typeof TRANSLATIONS] || TRANSLATIONS.en;
+  const priorityColor = PRIORITY_COLORS[priority];
+  const priorityBgColor = PRIORITY_BG_COLORS[priority];
+
+  return (
+    <BaseEmail preview={subject} locale={locale}>
+      <Heading style={h1}>{t.greeting(recipientName)}</Heading>
+
+      <Text style={fromText}>{t.from(senderName, senderRole)}</Text>
+
+      {(eventName || eventDate) && (
+        <div style={eventCard}>
+          {eventName && (
+            <Text style={eventDetail}>
+              <strong>{t.event}</strong> {eventName}
+            </Text>
+          )}
+          {eventDate && (
+            <Text style={eventDetail}>
+              <strong>{t.eventDate}</strong> {eventDate}
+            </Text>
+          )}
+        </div>
+      )}
+
+      <Hr style={divider} />
+
+      <div style={priorityBadge(priorityColor, priorityBgColor)}>
+        <Text style={priorityText}>{t.priority[priority]}</Text>
+      </div>
+
+      <Heading style={h2}>
+        {t.regarding} {subject}
+      </Heading>
+
+      <div style={messageCard(priorityColor)}>
+        <Text style={messageText}>{message}</Text>
+      </div>
+
+      <Text style={footerNote}>{t.footer}</Text>
+    </BaseEmail>
+  );
+}
+
+const h1 = {
+  color: '#1f2937',
+  fontSize: '24px',
+  fontWeight: '600',
+  lineHeight: '32px',
+  margin: '0 0 16px',
+};
+
+const fromText = {
+  color: '#6b7280',
+  fontSize: '14px',
+  lineHeight: '20px',
+  margin: '0 0 16px',
+  fontWeight: '500',
+};
+
+const eventCard = {
+  backgroundColor: '#f9fafb',
+  borderRadius: '6px',
+  padding: '16px',
+  margin: '0 0 16px',
+  border: '1px solid #e5e7eb',
+};
+
+const eventDetail = {
+  color: '#374151',
+  fontSize: '14px',
+  lineHeight: '20px',
+  margin: '0 0 8px',
+};
+
+const divider = {
+  borderColor: '#e5e7eb',
+  margin: '16px 0',
+};
+
+const priorityBadge = (color: string, bgColor: string) => ({
+  backgroundColor: bgColor,
+  borderRadius: '6px',
+  padding: '8px 12px',
+  margin: '0 0 16px',
+  border: `2px solid ${color}`,
+  display: 'inline-block',
+});
+
+const priorityText = {
+  color: '#1f2937',
+  fontSize: '12px',
+  fontWeight: '700',
+  lineHeight: '16px',
+  margin: '0',
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.5px',
+};
+
+const h2 = {
+  color: '#1f2937',
+  fontSize: '20px',
+  fontWeight: '600',
+  lineHeight: '28px',
+  margin: '0 0 16px',
+};
+
+const messageCard = (borderColor: string) => ({
+  backgroundColor: '#f9fafb',
+  borderRadius: '8px',
+  padding: '20px',
+  margin: '0 0 24px',
+  border: '1px solid #e5e7eb',
+  borderLeft: `4px solid ${borderColor}`,
+});
+
+const messageText = {
+  color: '#374151',
+  fontSize: '16px',
+  lineHeight: '24px',
+  margin: '0',
+  whiteSpace: 'pre-wrap' as const,
+};
+
+const footerNote = {
+  color: '#6b7280',
+  fontSize: '14px',
+  lineHeight: '20px',
+  margin: '0',
+  fontStyle: 'italic',
+  textAlign: 'center' as const,
+};

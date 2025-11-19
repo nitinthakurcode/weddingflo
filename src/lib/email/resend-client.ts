@@ -55,7 +55,7 @@ export async function sendEmail({
       subject,
       html,
       text,
-      reply_to: replyTo,
+      replyTo,
       cc,
       bcc,
       attachments,

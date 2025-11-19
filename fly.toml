@@ -1,0 +1,173 @@
+# WeddingFlow Pro - Fly.io Configuration
+# Multi-Region Deployment for Global Performance
+# Target: 60-130ms latency worldwide
+
+app = "weddingflow-pro"
+primary_region = "iad" # US East (Ashburn) - Primary region
+
+# Kill signal: SIGINT for graceful Next.js shutdown
+kill_signal = "SIGINT"
+kill_timeout = "30s"
+
+# Restart policy
+[deploy]
+  strategy = "rolling"
+  wait_timeout = "5m"
+  max_surge = 1
+  max_unavailable = 0
+
+# Build configuration
+[build]
+  dockerfile = "Dockerfile"
+
+# Environment variables (non-sensitive)
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  HOSTNAME = "0.0.0.0"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# HTTP service configuration
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  processes = ["app"]
+  auto_stop_machines = false  # Keep machines running for fast response
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Concurrency limits per machine
+  [[services.concurrency]]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+  # Port configuration
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["http", "tls"]
+
+  # Health checks
+  [[services.tcp_check]]
+    interval = "15s"
+    timeout = "10s"
+    grace_period = "30s"
+    restart_limit = 6
+
+  [[services.http_check]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/api/health"
+    protocol = "http"
+    restart_limit = 6
+    tls_skip_verify = false
+
+    [services.http_check.headers]
+      User-Agent = "Fly-Health-Check"
+
+# VM Resources - Start small, scale as needed
+# Phase 1 (0-1K users): shared-cpu-1x with 512MB RAM
+# Phase 2 (1-10K users): shared-cpu-2x with 1GB RAM
+# Phase 3 (10-50K users): dedicated-cpu-2x with 4GB RAM
+
+[vm]
+  # Start with minimal resources
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+# Multi-region deployment (add regions as you scale)
+# Start: 1 region (iad)
+# Phase 2: Add sjc (US West) + fra (Europe)
+# Phase 3: Add sin (Asia) + syd (Oceania)
+
+# Uncomment regions as you scale:
+
+# US East (Primary) - Always on
+[[placement]]
+  regions = ["iad"]
+  min_machines = 1
+  max_machines = 10
+
+# US West - Phase 2
+# [[placement]]
+#   regions = ["sjc"]
+#   min_machines = 1
+#   max_machines = 5
+
+# Europe - Phase 2
+# [[placement]]
+#   regions = ["fra"]
+#   min_machines = 1
+#   max_machines = 5
+
+# Asia - Phase 3
+# [[placement]]
+#   regions = ["sin"]
+#   min_machines = 1
+#   max_machines = 5
+
+# Oceania - Phase 3
+# [[placement]]
+#   regions = ["syd"]
+#   min_machines = 1
+#   max_machines = 3
+
+# Metrics and monitoring
+[metrics]
+  port = 9091
+  path = "/metrics"
+
+# Persistent storage (if needed for local cache)
+# Note: We use R2 for file storage, but this can be used for temp files
+# [[mounts]]
+#   source = "data"
+#   destination = "/data"
+#   initial_size = "1gb"
+
+# Secrets to set via `fly secrets set`:
+# - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+# - CLERK_SECRET_KEY
+# - NEXT_PUBLIC_SUPABASE_URL
+# - NEXT_PUBLIC_SUPABASE_ANON_KEY
+# - SUPABASE_SERVICE_ROLE_KEY
+# - DATABASE_URL (Supabase connection string)
+# - R2_ENDPOINT
+# - R2_ACCESS_KEY_ID
+# - R2_SECRET_ACCESS_KEY
+# - R2_BUCKET_NAME
+# - CLOUDFLARE_ACCOUNT_ID
+# - OPENAI_API_KEY
+# - RESEND_API_KEY
+# - TWILIO_ACCOUNT_SID
+# - TWILIO_AUTH_TOKEN
+# - STRIPE_SECRET_KEY
+# - STRIPE_WEBHOOK_SECRET
+# - SENTRY_DSN
+# - SENTRY_AUTH_TOKEN
+# - POSTHOG_API_KEY
+# - NEXT_PUBLIC_POSTHOG_HOST
+
+# To set secrets:
+# fly secrets set KEY=VALUE
+
+# To deploy:
+# fly deploy
+
+# To scale VM resources:
+# fly scale vm shared-cpu-2x --memory 1024
+
+# To add a region:
+# fly scale count 2 --region sjc
+
+# To monitor:
+# fly logs
+# fly status
+# fly checks list

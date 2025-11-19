@@ -1,4 +1,11 @@
-import { STRIPE_CONFIG } from './config';
+import { SUBSCRIPTION_TIERS, getPrice, type SubscriptionTier } from './config';
+
+/**
+ * Legacy plans.ts - Maintains backward compatibility with existing code
+ *
+ * This file bridges the old static Price ID structure with the new
+ * multi-currency dynamic pricing system. For new code, use config.ts directly.
+ */
 
 export type PlanTier = 'starter' | 'professional' | 'enterprise';
 
@@ -14,89 +21,55 @@ export interface SubscriptionPlan {
   name: string;
   description: string;
   price: number;
-  priceId: string;
+  priceId: string; // Note: This is now a placeholder. Use tRPC stripe.createCheckoutSession for actual Price IDs
   interval: 'month';
   limits: PlanLimits;
   popular?: boolean;
 }
 
+// Map new SUBSCRIPTION_TIERS structure to old SUBSCRIPTION_PLANS structure
 export const SUBSCRIPTION_PLANS: Record<PlanTier, SubscriptionPlan> = {
   starter: {
     id: 'starter',
-    name: 'Starter',
-    description: 'Perfect for small events and getting started',
-    price: 29,
-    priceId: STRIPE_CONFIG.prices.starter,
+    name: SUBSCRIPTION_TIERS.starter.name,
+    description: SUBSCRIPTION_TIERS.starter.description,
+    price: getPrice('starter', 'USD', 'monthly'),
+    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_STARTER || 'price_starter_placeholder',
     interval: 'month',
     limits: {
-      maxGuests: 100,
-      maxEvents: 5,
-      maxUsers: 2,
-      features: [
-        '100 guests per event',
-        '5 events total',
-        '2 team members',
-        'Basic guest management',
-        'QR code check-in',
-        'Email support',
-        'Basic reporting',
-        'Mobile app access',
-      ],
+      maxGuests: SUBSCRIPTION_TIERS.starter.limits.maxGuestsPerWedding,
+      maxEvents: SUBSCRIPTION_TIERS.starter.limits.maxClients, // Map maxClients to maxEvents
+      maxUsers: SUBSCRIPTION_TIERS.starter.limits.maxStaff,
+      features: [...SUBSCRIPTION_TIERS.starter.features],
     },
   },
   professional: {
     id: 'professional',
-    name: 'Professional',
-    description: 'For professional planners managing multiple events',
-    price: 99,
-    priceId: STRIPE_CONFIG.prices.professional,
+    name: SUBSCRIPTION_TIERS.professional.name,
+    description: SUBSCRIPTION_TIERS.professional.description,
+    price: getPrice('professional', 'USD', 'monthly'),
+    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_PROFESSIONAL || 'price_professional_placeholder',
     interval: 'month',
     popular: true,
     limits: {
-      maxGuests: 1000,
-      maxEvents: -1, // unlimited
-      maxUsers: 10,
-      features: [
-        '1,000 guests per event',
-        'Unlimited events',
-        '10 team members',
-        'Advanced guest management',
-        'QR code check-in',
-        'Bulk email & SMS',
-        'AI seating suggestions',
-        'Budget tracking',
-        'Vendor management',
-        'Advanced analytics',
-        'Priority support',
-        'Custom branding',
-      ],
+      maxGuests: SUBSCRIPTION_TIERS.professional.limits.maxGuestsPerWedding,
+      maxEvents: SUBSCRIPTION_TIERS.professional.limits.maxClients,
+      maxUsers: SUBSCRIPTION_TIERS.professional.limits.maxStaff,
+      features: [...SUBSCRIPTION_TIERS.professional.features],
     },
   },
   enterprise: {
     id: 'enterprise',
-    name: 'Enterprise',
-    description: 'For large organizations with complex needs',
-    price: 299,
-    priceId: STRIPE_CONFIG.prices.enterprise,
+    name: SUBSCRIPTION_TIERS.enterprise.name,
+    description: SUBSCRIPTION_TIERS.enterprise.description,
+    price: getPrice('enterprise', 'USD', 'monthly'),
+    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE || 'price_enterprise_placeholder',
     interval: 'month',
     limits: {
       maxGuests: -1, // unlimited
       maxEvents: -1, // unlimited
       maxUsers: -1, // unlimited
-      features: [
-        'Unlimited guests',
-        'Unlimited events',
-        'Unlimited team members',
-        'Everything in Professional',
-        'White-label branding',
-        'Custom domain',
-        'Advanced AI features',
-        'API access',
-        'Dedicated account manager',
-        'SLA guarantee',
-        '24/7 phone support',
-        'Custom integrations',
-      ],
+      features: [...SUBSCRIPTION_TIERS.enterprise.features],
     },
   },
 };
@@ -109,10 +82,10 @@ export function getPlanByPriceId(priceId: string): SubscriptionPlan | undefined 
   return Object.values(SUBSCRIPTION_PLANS).find((plan) => plan.priceId === priceId);
 }
 
-export function formatPrice(price: number): string {
+export function formatPrice(price: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: currency,
     minimumFractionDigits: 0,
   }).format(price);
 }

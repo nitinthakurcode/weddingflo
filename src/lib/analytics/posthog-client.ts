@@ -14,7 +14,6 @@ export function initPostHog() {
   if (!posthog.__loaded) {
     posthog.init(apiKey, {
       api_host: apiHost,
-      person_profiles: 'identified_only',
 
       // Capture pageviews automatically
       capture_pageview: true,

@@ -80,7 +80,7 @@ Respond ONLY with valid JSON in this exact format:
     messages: [
       {
         role: 'system',
-        content: 'You are an expert wedding communication writer with experience in crafting elegant, appropriate, and effective wedding-related emails.',
+        content: 'You are an expert wedding communication writer with experience in crafting elegant, appropriate, and effective wedding-related emails. Always respond with valid JSON only.',
       },
       {
         role: 'user',
@@ -89,7 +89,6 @@ Respond ONLY with valid JSON in this exact format:
     ],
     temperature: AI_DEFAULTS.temperature,
     max_tokens: 1500,
-    response_format: { type: 'json_object' },
   });
 
   const content = response.choices[0]?.message?.content;

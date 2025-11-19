@@ -20,6 +20,14 @@ const config = {
     '!src/**/*.stories.{js,jsx,ts,tsx}',
     '!src/**/__tests__/**',
   ],
+  coverageThreshold: {
+    global: {
+      branches: 70,
+      functions: 75,
+      lines: 80,
+      statements: 80,
+    },
+  },
   moduleDirectories: ['node_modules', '<rootDir>/'],
   testMatch: [
     '**/__tests__/**/*.[jt]s?(x)',

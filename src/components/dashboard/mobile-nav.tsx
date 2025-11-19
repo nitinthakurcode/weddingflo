@@ -20,6 +20,7 @@ import {
   X,
   Shield,
   Building2,
+  BarChart3,
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useIsSuperAdmin } from '@/lib/permissions/can';
@@ -27,6 +28,7 @@ import { useIsSuperAdmin } from '@/lib/permissions/can';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, available: true },
   { name: 'Clients', href: '/dashboard/clients', icon: Users, available: false },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, available: true },
   { name: 'Events', href: '/dashboard/events', icon: Calendar, available: true },
   { name: 'Timeline', href: '/dashboard/timeline', icon: Clock, available: true },
   { name: 'Guests', href: '/dashboard/guests', icon: UserCheck, available: true },

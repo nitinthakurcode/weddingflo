@@ -70,7 +70,7 @@ export function DashboardCharts({
                 cy="50%"
                 labelLine={false}
                 label={({ name, percent }) =>
-                  `${name}: ${(percent * 100).toFixed(0)}%`
+                  `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`
                 }
                 outerRadius={80}
                 fill="#8884d8"
@@ -111,7 +111,7 @@ export function DashboardCharts({
                   fill="#8884d8"
                   dataKey="value"
                   label={({ name, percent }) =>
-                    `${name}: ${(percent * 100).toFixed(0)}%`
+                    `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`
                   }
                 >
                   {budgetData.map((entry, index) => (
@@ -122,9 +122,10 @@ export function DashboardCharts({
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number) =>
-                    `$${value.toLocaleString()}`
-                  }
+                  formatter={(value: string | number | (string | number)[]) => {
+                    if (Array.isArray(value)) return value.join(', ');
+                    return typeof value === 'number' ? `$${value.toLocaleString()}` : value;
+                  }}
                 />
               </PieChart>
             </ResponsiveContainer>

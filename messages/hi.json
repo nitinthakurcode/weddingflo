@@ -1,0 +1,1069 @@
+{
+  "common": {
+    "appName": "WeddingFlow Pro",
+    "welcome": "स्वागत है",
+    "loading": "लोड हो रहा है...",
+    "saving": "सहेजा जा रहा है...",
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "delete": "हटाएं",
+    "edit": "संपादित करें",
+    "create": "बनाएं",
+    "update": "अपडेट करें",
+    "search": "खोजें",
+    "filter": "फ़िल्टर करें",
+    "export": "निर्यात करें",
+    "import": "आयात करें",
+    "back": "वापस",
+    "next": "अगला",
+    "previous": "पिछला",
+    "continue": "जारी रखें",
+    "submit": "सबमिट करें",
+    "close": "बंद करें",
+    "confirm": "पुष्टि करें",
+    "yes": "हाँ",
+    "no": "नहीं",
+    "ok": "ठीक है",
+    "actions": "कार्रवाई",
+    "viewDetails": "विवरण देखें",
+    "noResults": "कोई परिणाम नहीं मिला",
+    "error": "त्रुटि",
+    "success": "सफल",
+    "warning": "चेतावनी",
+    "info": "जानकारी",
+    "optional": "वैकल्पिक",
+    "required": "आवश्यक",
+    "selectAll": "सभी चुनें",
+    "deselectAll": "सभी अचयनित करें",
+    "clear": "साफ़ करें",
+    "apply": "लागू करें",
+    "reset": "रीसेट करें",
+    "download": "डाउनलोड करें",
+    "upload": "अपलोड करें",
+    "print": "प्रिंट करें",
+    "refresh": "रिफ़्रेश करें",
+    "add": "जोड़ें",
+    "remove": "हटाएं",
+    "name": "नाम",
+    "description": "विवरण",
+    "status": "स्थिति",
+    "date": "तारीख",
+    "time": "समय",
+    "total": "कुल",
+    "subtotal": "उप-योग",
+    "per": "प्रति",
+    "of": "का",
+    "and": "और",
+    "or": "या"
+  },
+  "navigation": {
+    "dashboard": "डैशबोर्ड",
+    "clients": "ग्राहक",
+    "guests": "मेहमान",
+    "vendors": "विक्रेता",
+    "budget": "बजट",
+    "timeline": "समयरेखा",
+    "tasks": "कार्य",
+    "documents": "दस्तावेज़",
+    "chat": "चैट",
+    "settings": "सेटिंग्स",
+    "aiFeatures": "AI सुविधाएं",
+    "budgetPrediction": "बजट पूर्वानुमान",
+    "emailGenerator": "ईमेल जेनरेटर",
+    "timelineOptimizer": "समय अनुकूलक",
+    "profile": "प्रोफ़ाइल",
+    "billing": "बिलिंग",
+    "team": "टीम",
+    "help": "सहायता और सपोर्ट",
+    "signOut": "साइन आउट करें",
+    "notifications": "सूचनाएं",
+    "messages": "संदेश",
+    "emailSettings": "ईमेल सेटिंग्स",
+    "emailLogs": "ईमेल लॉग",
+    "smsSettings": "SMS सेटिंग्स",
+    "smsLogs": "SMS लॉग",
+    "companySettings": "कंपनी सेटिंग्स",
+    "payments": "भुगतान",
+    "invoices": "चालान",
+    "paymentSettings": "भुगतान सेटिंग्स",
+    "analytics": "विश्लेषण",
+    "notification_settings": "सूचना सेटिंग्स",
+    "calendar_settings": "कैलेंडर सेटिंग्स"
+  },
+  "dashboard": {
+    "title": "डैशबोर्ड",
+    "overview": "अवलोकन",
+    "recentActivity": "हाल की गतिविधि",
+    "upcomingEvents": "आगामी कार्यक्रम",
+    "upcomingWeddings": "आगामी शादियां",
+    "statistics": "सांख्यिकी",
+    "quickActions": "त्वरित कार्रवाई",
+    "activeClients": "सक्रिय ग्राहक",
+    "totalRevenue": "कुल राजस्व",
+    "pendingTasks": "लंबित कार्य",
+    "thisMonth": "इस महीने",
+    "viewAll": "सभी देखें",
+    "noActivity": "कोई हाल की गतिविधि नहीं"
+  },
+  "clients": {
+    "title": "ग्राहक",
+    "addClient": "ग्राहक जोड़ें",
+    "editClient": "ग्राहक संपादित करें",
+    "deleteClient": "ग्राहक हटाएं",
+    "clientDetails": "ग्राहक विवरण",
+    "clientInfo": "ग्राहक जानकारी",
+    "partner1Name": "साथी 1 का नाम",
+    "partner2Name": "साथी 2 का नाम",
+    "email": "ईमेल पता",
+    "phone": "फ़ोन नंबर",
+    "weddingDate": "शादी की तारीख",
+    "venue": "स्थल",
+    "venueName": "स्थल का नाम",
+    "venueAddress": "स्थल का पता",
+    "status": "स्थिति",
+    "statusActive": "सक्रिय",
+    "statusCompleted": "पूर्ण",
+    "statusCancelled": "रद्द",
+    "guestCount": "मेहमानों की संख्या",
+    "budget": "बजट",
+    "notes": "नोट्स",
+    "preferences": "प्राथमिकताएं",
+    "contactInfo": "संपर्क जानकारी",
+    "weddingDetails": "शादी का विवरण",
+    "searchClients": "ग्राहक खोजें...",
+    "filterByStatus": "स्थिति के अनुसार फ़िल्टर करें",
+    "allClients": "सभी ग्राहक",
+    "noClients": "अभी तक कोई ग्राहक नहीं",
+    "addFirstClient": "शुरू करने के लिए अपना पहला ग्राहक जोड़ें"
+  },
+  "guests": {
+    "title": "मेहमान",
+    "addGuest": "मेहमान जोड़ें",
+    "addMultipleGuests": "एकाधिक मेहमान जोड़ें",
+    "editGuest": "मेहमान संपादित करें",
+    "deleteGuest": "मेहमान हटाएं",
+    "guestList": "मेहमानों की सूची",
+    "guestDetails": "मेहमान विवरण",
+    "firstName": "पहला नाम",
+    "lastName": "अंतिम नाम",
+    "name": "नाम",
+    "email": "ईमेल",
+    "phone": "फ़ोन",
+    "rsvpStatus": "RSVP स्थिति",
+    "attending": "उपस्थित",
+    "notAttending": "अनुपस्थित",
+    "pending": "लंबित",
+    "tentative": "अनिश्चित",
+    "plusOne": "साथी",
+    "allowPlusOne": "साथी की अनुमति दें",
+    "dietaryRestrictions": "आहार प्रतिबंध",
+    "tableAssignment": "टेबल आवंटन",
+    "group": "समूह",
+    "category": "श्रेणी",
+    "invitationSent": "निमंत्रण भेजा गया",
+    "thankYouSent": "धन्यवाद भेजा गया",
+    "totalGuests": "कुल मेहमान",
+    "confirmedGuests": "पुष्टि किए गए",
+    "pendingGuests": "लंबित",
+    "searchGuests": "मेहमान खोजें...",
+    "importGuests": "मेहमान आयात करें",
+    "exportGuestList": "मेहमानों की सूची निर्यात करें",
+    "noGuests": "अभी तक कोई मेहमान नहीं"
+  },
+  "vendors": {
+    "title": "विक्रेता",
+    "addVendor": "विक्रेता जोड़ें",
+    "editVendor": "विक्रेता संपादित करें",
+    "deleteVendor": "विक्रेता हटाएं",
+    "vendorDetails": "विक्रेता विवरण",
+    "vendorName": "विक्रेता का नाम",
+    "category": "श्रेणी",
+    "categoryPhotographer": "फ़ोटोग्राफ़र",
+    "categoryVideographer": "वीडियोग्राफ़र",
+    "categoryFlorist": "फूलवाला",
+    "categoryCaterer": "केटरर",
+    "categoryVenue": "स्थल",
+    "categoryMusic": "संगीत/DJ",
+    "categoryOther": "अन्य",
+    "contactPerson": "संपर्क व्यक्ति",
+    "email": "ईमेल",
+    "phone": "फ़ोन",
+    "website": "वेबसाइट",
+    "cost": "लागत",
+    "deposit": "अग्रिम",
+    "paid": "भुगतान किया गया",
+    "remaining": "शेष राशि",
+    "contract": "अनुबंध",
+    "contractSigned": "अनुबंध हस्ताक्षरित",
+    "dueDate": "देय तिथि",
+    "paymentSchedule": "भुगतान अनुसूची",
+    "notes": "नोट्स",
+    "services": "सेवाएं",
+    "totalVendors": "कुल विक्रेता",
+    "totalCost": "कुल लागत",
+    "searchVendors": "विक्रेता खोजें...",
+    "noVendors": "अभी तक कोई विक्रेता नहीं"
+  },
+  "budget": {
+    "title": "बजट",
+    "overview": "बजट अवलोकन",
+    "totalBudget": "कुल बजट",
+    "spent": "खर्च किया गया",
+    "remaining": "शेष",
+    "percentSpent": "% खर्च",
+    "categories": "श्रेणियां",
+    "addExpense": "व्यय जोड़ें",
+    "editExpense": "व्यय संपादित करें",
+    "deleteExpense": "व्यय हटाएं",
+    "expenseName": "व्यय का नाम",
+    "amount": "राशि",
+    "category": "श्रेणी",
+    "vendor": "विक्रेता",
+    "date": "तारीख",
+    "paidDate": "भुगतान तिथि",
+    "dueDate": "देय तिथि",
+    "receipt": "रसीद",
+    "uploadReceipt": "रसीद अपलोड करें",
+    "isPaid": "भुगतान किया गया",
+    "paymentMethod": "भुगतान विधि",
+    "paymentStatus": "भुगतान स्थिति",
+    "statusPaid": "भुगतान किया गया",
+    "statusPending": "लंबित",
+    "statusOverdue": "अतिदेय",
+    "notes": "नोट्स",
+    "searchExpenses": "व्यय खोजें...",
+    "filterByCategory": "श्रेणी के अनुसार फ़िल्टर करें",
+    "allExpenses": "सभी व्यय",
+    "recentExpenses": "हाल के व्यय",
+    "upcomingPayments": "आगामी भुगतान",
+    "noBudget": "अभी तक कोई बजट निर्धारित नहीं",
+    "noExpenses": "अभी तक कोई व्यय दर्ज नहीं"
+  },
+  "timeline": {
+    "title": "समयरेखा",
+    "weddingTimeline": "शादी की समयरेखा",
+    "addEvent": "कार्यक्रम जोड़ें",
+    "editEvent": "कार्यक्रम संपादित करें",
+    "deleteEvent": "कार्यक्रम हटाएं",
+    "eventDetails": "कार्यक्रम विवरण",
+    "eventName": "कार्यक्रम का नाम",
+    "startTime": "प्रारंभ समय",
+    "endTime": "समाप्ति समय",
+    "duration": "अवधि",
+    "location": "स्थान",
+    "description": "विवरण",
+    "participants": "प्रतिभागी",
+    "vendor": "विक्रेता",
+    "notes": "नोट्स",
+    "isFixed": "निश्चित समय",
+    "priority": "प्राथमिकता",
+    "priorityHigh": "उच्च",
+    "priorityMedium": "मध्यम",
+    "priorityLow": "निम्न",
+    "viewDay": "दिन दृश्य",
+    "viewWeek": "सप्ताह दृश्य",
+    "viewMonth": "माह दृश्य",
+    "ceremony": "समारोह",
+    "reception": "स्वागत समारोह",
+    "cocktailHour": "कॉकटेल घंटा",
+    "totalEvents": "कुल कार्यक्रम",
+    "noEvents": "अभी तक कोई कार्यक्रम नहीं"
+  },
+  "tasks": {
+    "title": "कार्य",
+    "addTask": "कार्य जोड़ें",
+    "editTask": "कार्य संपादित करें",
+    "deleteTask": "कार्य हटाएं",
+    "taskDetails": "कार्य विवरण",
+    "taskName": "कार्य का नाम",
+    "description": "विवरण",
+    "assignedTo": "आवंटित",
+    "dueDate": "देय तिथि",
+    "priority": "प्राथमिकता",
+    "status": "स्थिति",
+    "statusTodo": "करना है",
+    "statusInProgress": "प्रगति में",
+    "statusCompleted": "पूर्ण",
+    "category": "श्रेणी",
+    "allTasks": "सभी कार्य",
+    "myTasks": "मेरे कार्य",
+    "overdueTasks": "अतिदेय कार्य",
+    "completedTasks": "पूर्ण कार्य",
+    "searchTasks": "कार्य खोजें...",
+    "markComplete": "पूर्ण के रूप में चिह्नित करें",
+    "markIncomplete": "अपूर्ण के रूप में चिह्नित करें",
+    "noTasks": "अभी तक कोई कार्य नहीं"
+  },
+  "documents": {
+    "title": "दस्तावेज़",
+    "uploadDocument": "दस्तावेज़ अपलोड करें",
+    "deleteDocument": "दस्तावेज़ हटाएं",
+    "documentName": "दस्तावेज़ का नाम",
+    "fileName": "फ़ाइल का नाम",
+    "fileSize": "फ़ाइल का आकार",
+    "uploadDate": "अपलोड तिथि",
+    "category": "श्रेणी",
+    "contracts": "अनुबंध",
+    "invoices": "चालान",
+    "receipts": "रसीदें",
+    "other": "अन्य",
+    "download": "डाउनलोड करें",
+    "preview": "पूर्वावलोकन",
+    "searchDocuments": "दस्तावेज़ खोजें...",
+    "allDocuments": "सभी दस्तावेज़",
+    "noDocuments": "अभी तक कोई दस्तावेज़ नहीं",
+    "dragDropUpload": "फ़ाइलें यहां खींचें और छोड़ें या अपलोड करने के लिए क्लिक करें"
+  },
+  "ai": {
+    "title": "AI सुविधाएं",
+    "budgetPrediction": "बजट पूर्वानुमान",
+    "emailGenerator": "ईमेल जेनरेटर",
+    "timelineOptimizer": "समय अनुकूलक",
+    "generating": "जनरेट हो रहा है...",
+    "analyzing": "विश्लेषण हो रहा है...",
+    "processing": "प्रोसेस हो रहा है...",
+    "quotaRemaining": "क्वेरी शेष",
+    "quotaExceeded": "इस महीने के लिए AI कोटा समाप्त",
+    "upgradePrompt": "AI सुविधाओं का उपयोग जारी रखने के लिए अपनी सदस्यता अपग्रेड करें",
+    "aiPowered": "AI संचालित",
+    "getStarted": "शुरू करें",
+    "tryNow": "अभी आज़माएं",
+    "learnMore": "और जानें"
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "profile": "प्रोफ़ाइल",
+    "account": "खाता",
+    "preferences": "प्राथमिकताएं",
+    "language": "भाषा",
+    "selectLanguage": "भाषा चुनें",
+    "currency": "मुद्रा",
+    "selectCurrency": "मुद्रा चुनें",
+    "timezone": "समय क्षेत्र",
+    "selectTimezone": "समय क्षेत्र चुनें",
+    "dateFormat": "तारीख प्रारूप",
+    "timeFormat": "समय प्रारूप",
+    "notifications": "सूचनाएं",
+    "emailNotifications": "ईमेल सूचनाएं",
+    "pushNotifications": "पुश सूचनाएं",
+    "security": "सुरक्षा",
+    "changePassword": "पासवर्ड बदलें",
+    "twoFactor": "दो-कारक प्रमाणीकरण",
+    "billing": "बिलिंग",
+    "subscription": "सदस्यता",
+    "currentPlan": "वर्तमान योजना",
+    "upgradePlan": "योजना अपग्रेड करें",
+    "paymentMethod": "भुगतान विधि",
+    "invoiceHistory": "चालान इतिहास",
+    "team": "टीम के सदस्य",
+    "inviteTeamMember": "टीम सदस्य को आमंत्रित करें",
+    "saveChanges": "परिवर्तन सहेजें",
+    "changesSaved": "परिवर्तन सफलतापूर्वक सहेजे गए"
+  },
+  "auth": {
+    "signIn": "साइन इन करें",
+    "signUp": "साइन अप करें",
+    "signOut": "साइन आउट करें",
+    "email": "ईमेल",
+    "password": "पासवर्ड",
+    "forgotPassword": "पासवर्ड भूल गए?",
+    "resetPassword": "पासवर्ड रीसेट करें",
+    "createAccount": "खाता बनाएं",
+    "alreadyHaveAccount": "पहले से खाता है?",
+    "dontHaveAccount": "खाता नहीं है?",
+    "enterEmail": "ईमेल दर्ज करें",
+    "enterPassword": "पासवर्ड दर्ज करें",
+    "confirmPassword": "पासवर्ड की पुष्टि करें",
+    "agreeToTerms": "मैं सेवा की शर्तों और गोपनीयता नीति से सहमत हूं"
+  },
+  "errors": {
+    "generic": "कुछ गलत हो गया। कृपया पुनः प्रयास करें।",
+    "networkError": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जांचें।",
+    "unauthorized": "अनधिकृत। कृपया पुनः साइन इन करें।",
+    "notFound": "नहीं मिला।",
+    "validationError": "कृपया अपना इनपुट जांचें और पुनः प्रयास करें।",
+    "serverError": "सर्वर त्रुटि। कृपया बाद में पुनः प्रयास करें।"
+  },
+  "onboarding": {
+    "welcome": "WeddingFlow Pro में आपका स्वागत है",
+    "getStarted": "शुरू करें",
+    "step": "चरण",
+    "skip": "छोड़ें",
+    "finish": "समाप्त करें"
+  },
+  "emailSettings": {
+    "pageTitle": "ईमेल सेटिंग्स",
+    "pageDescription": "अपनी ईमेल सूचना प्राथमिकताओं को प्रबंधित करें",
+    "preferencesTab": "प्राथमिकताएं",
+    "testTab": "टेस्ट ईमेल",
+    "logsTab": "ईमेल लॉग"
+  },
+  "emailPreferences": {
+    "title": "सूचना प्रकार",
+    "description": "चुनें कि आप कौन से ईमेल सूचनाएं प्राप्त करना चाहते हैं",
+    "weddingReminders": {
+      "label": "शादी की याद दिलाने वाली सूचनाएं",
+      "description": "अपने शादी के दिन से पहले उल्टी गिनती याद दिलाने वाली सूचनाएं प्राप्त करें"
+    },
+    "guestUpdates": {
+      "label": "मेहमान अपडेट",
+      "description": "जब मेहमान जवाब दें या अपनी जानकारी अपडेट करें तो सूचित हों"
+    },
+    "budgetAlerts": {
+      "label": "बजट अलर्ट",
+      "description": "जब खर्च बजट सीमा के करीब या उससे अधिक हो तो अलर्ट प्राप्त करें"
+    },
+    "vendorMessages": {
+      "label": "विक्रेता संदेश",
+      "description": "विक्रेताओं से संदेश और अपडेट प्राप्त करें"
+    },
+    "timelineChanges": {
+      "label": "समयरेखा परिवर्तन",
+      "description": "जब आपकी शादी की समयरेखा में परिवर्तन हों तो सूचित हों"
+    },
+    "documentSharing": {
+      "label": "दस्तावेज़ साझाकरण",
+      "description": "जब कोई आपके साथ दस्तावेज़ साझा करे तो सूचित हों"
+    },
+    "teamActivity": {
+      "label": "टीम गतिविधि",
+      "description": "टीम सदस्य गतिविधि अपडेट प्राप्त करें"
+    },
+    "systemNotifications": {
+      "label": "सिस्टम सूचनाएं",
+      "description": "महत्वपूर्ण सिस्टम अपडेट और घोषणाएं प्राप्त करें"
+    },
+    "frequency": {
+      "title": "सूचना आवृत्ति",
+      "description": "चुनें कि आप ईमेल सूचनाएं कितनी बार प्राप्त करना चाहते हैं",
+      "realtime": "तुरंत",
+      "daily": "दैनिक सारांश",
+      "weekly": "साप्ताहिक सारांश",
+      "never": "कभी नहीं"
+    },
+    "emailFormat": {
+      "title": "ईमेल प्रारूप",
+      "description": "अपनी ईमेल प्रारूप प्राथमिकता चुनें",
+      "html": "HTML (स्वरूपण और छवियों के साथ)",
+      "text": "सादा पाठ (केवल पाठ)"
+    },
+    "language": {
+      "title": "ईमेल भाषा",
+      "description": "ईमेल सूचनाओं के लिए भाषा चुनें"
+    },
+    "saveButton": "प्राथमिकताएं सहेजें",
+    "cancelButton": "रद्द करें",
+    "successMessage": "आपकी ईमेल प्राथमिकताएं सफलतापूर्वक सहेजी गई हैं",
+    "errorMessage": "प्राथमिकताएं सहेजने में विफल। कृपया पुनः प्रयास करें।"
+  },
+  "emailTest": {
+    "title": "टेस्ट ईमेल सूचनाएं",
+    "description": "सूचनाओं का पूर्वावलोकन करने के लिए अपने आप को एक टेस्ट ईमेल भेजें",
+    "recipientLabel": "प्राप्तकर्ता ईमेल",
+    "recipientPlaceholder": "ईमेल पता दर्ज करें",
+    "templateLabel": "ईमेल टेम्पलेट",
+    "templatePlaceholder": "टेम्पलेट चुनें",
+    "languageLabel": "भाषा",
+    "languagePlaceholder": "भाषा चुनें",
+    "templates": {
+      "weddingReminder": "शादी की याद",
+      "guestUpdate": "मेहमान अपडेट",
+      "budgetAlert": "बजट अलर्ट",
+      "vendorMessage": "विक्रेता संदेश",
+      "timelineChange": "समयरेखा परिवर्तन",
+      "documentShare": "दस्तावेज़ साझाकरण",
+      "teamActivity": "टीम गतिविधि",
+      "systemNotification": "सिस्टम सूचना"
+    },
+    "sendButton": "टेस्ट ईमेल भेजें",
+    "sendingButton": "भेजा जा रहा है...",
+    "successMessage": "टेस्ट ईमेल सफलतापूर्वक {email} को भेजा गया",
+    "errorMessage": "टेस्ट ईमेल भेजने में विफल। कृपया पुनः प्रयास करें।",
+    "validation": {
+      "emailRequired": "ईमेल पता आवश्यक है",
+      "emailInvalid": "अमान्य ईमेल पता",
+      "templateRequired": "टेम्पलेट चुनना आवश्यक है",
+      "languageRequired": "भाषा चुनना आवश्यक है"
+    }
+  },
+  "emailLogs": {
+    "title": "ईमेल लॉग",
+    "description": "सभी भेजी गई ईमेल सूचनाओं का इतिहास देखें",
+    "filterLabel": "फ़िल्टर",
+    "filterAll": "सभी",
+    "filterSent": "भेजे गए",
+    "filterFailed": "विफल",
+    "filterPending": "लंबित",
+    "searchPlaceholder": "ईमेल खोजें...",
+    "table": {
+      "recipient": "प्राप्तकर्ता",
+      "subject": "विषय",
+      "template": "टेम्पलेट",
+      "status": "स्थिति",
+      "sentAt": "भेजने का समय",
+      "actions": "क्रियाएं"
+    },
+    "status": {
+      "sent": "भेजा गया",
+      "failed": "विफल",
+      "pending": "लंबित",
+      "bounced": "वापस आया",
+      "opened": "खोला गया",
+      "clicked": "क्लिक किया गया"
+    },
+    "actions": {
+      "view": "विवरण देखें",
+      "resend": "फिर से भेजें",
+      "delete": "हटाएं"
+    },
+    "pagination": {
+      "previous": "पिछला",
+      "next": "अगला",
+      "showing": "{total} में से {start} से {end} दिखाया जा रहा है"
+    },
+    "empty": "कोई ईमेल लॉग नहीं मिला",
+    "loadingError": "ईमेल लॉग लोड करने में विफल"
+  },
+  "emailStats": {
+    "title": "ईमेल आंकड़े",
+    "description": "अपने ईमेल सूचना प्रदर्शन मेट्रिक्स देखें",
+    "totalSent": {
+      "label": "कुल भेजे गए",
+      "description": "भेजे गए ईमेल की कुल संख्या"
+    },
+    "deliveryRate": {
+      "label": "डिलीवरी दर",
+      "description": "सफलतापूर्वक डिलीवर किए गए ईमेल का प्रतिशत"
+    },
+    "openRate": {
+      "label": "खोलने की दर",
+      "description": "खोले गए ईमेल का प्रतिशत"
+    },
+    "clickRate": {
+      "label": "क्लिक दर",
+      "description": "लिंक पर क्लिक किए गए ईमेल का प्रतिशत"
+    },
+    "bounceRate": {
+      "label": "बाउंस दर",
+      "description": "वापस आए ईमेल का प्रतिशत"
+    },
+    "failureRate": {
+      "label": "विफलता दर",
+      "description": "भेजने में विफल ईमेल का प्रतिशत"
+    },
+    "avgResponseTime": {
+      "label": "औसत प्रतिक्रिया समय",
+      "description": "उपयोगकर्ताओं द्वारा ईमेल का जवाब देने का औसत समय"
+    },
+    "mostPopularTemplate": {
+      "label": "सबसे लोकप्रिय टेम्पलेट",
+      "description": "सबसे अधिक भेजा गया ईमेल टेम्पलेट"
+    },
+    "loadingError": "आंकड़े लोड करने में विफल",
+    "noData": "कोई डेटा उपलब्ध नहीं है"
+  },
+  "smsSettings": {
+    "pageTitle": "SMS सेटिंग्स",
+    "pageDescription": "अपनी SMS सूचना प्राथमिकताएं प्रबंधित करें",
+    "preferencesTab": "प्राथमिकताएं",
+    "testTab": "SMS टेस्ट करें",
+    "logsTab": "SMS लॉग"
+  },
+  "smsPreferences": {
+    "title": "SMS सूचना प्रकार",
+    "description": "चुनें कि आप कौन सी SMS सूचनाएं प्राप्त करना चाहते हैं",
+    "weddingReminders": {
+      "label": "शादी की याददाश्त",
+      "description": "अपनी शादी के दिन से पहले SMS काउंटडाउन रिमाइंडर प्राप्त करें"
+    },
+    "paymentReminders": {
+      "label": "भुगतान अनुस्मारक",
+      "description": "आगामी और अतिदेय भुगतान के बारे में SMS अलर्ट प्राप्त करें"
+    },
+    "rsvpNotifications": {
+      "label": "RSVP सूचनाएं",
+      "description": "जब मेहमान RSVP करते हैं तो SMS पुष्टिकरण प्राप्त करें"
+    },
+    "vendorMessages": {
+      "label": "विक्रेता संदेश",
+      "description": "जब विक्रेता या आपके प्लानर आपको संदेश भेजते हैं तो SMS प्राप्त करें"
+    },
+    "eventUpdates": {
+      "label": "कार्यक्रम अपडेट",
+      "description": "जब कार्यक्रम विवरण बदलते हैं तो SMS अलर्ट प्राप्त करें"
+    },
+    "frequencyTitle": "SMS आवृत्ति",
+    "frequencyDescription": "नियंत्रित करें कि आप कितनी बार SMS सूचनाएं प्राप्त करते हैं",
+    "frequencyLabel": "सूचना आवृत्ति",
+    "immediate": {
+      "label": "तत्काल",
+      "description": "घटनाओं के होते ही SMS प्राप्त करें"
+    },
+    "daily": {
+      "label": "दैनिक सारांश",
+      "description": "सभी सूचनाओं के साथ प्रति दिन एक SMS"
+    },
+    "off": {
+      "label": "बंद करें",
+      "description": "सभी SMS सूचनाएं अक्षम करें"
+    },
+    "costWarning": "SMS संदेशों में कैरियर शुल्क लग सकता है। आपकी मोबाइल योजना के आधार पर संदेश और डेटा दरें लागू हो सकती हैं।",
+    "noteLabel": "ध्यान दें:",
+    "saveButton": "प्राथमिकताएं सहेजें",
+    "saving": "सहेजा जा रहा है...",
+    "successMessage": "SMS प्राथमिकताएं सफलतापूर्वक अपडेट की गईं",
+    "errorMessage": "प्राथमिकताएं अपडेट करने में विफल"
+  },
+  "smsTest": {
+    "title": "SMS टेम्पलेट टेस्ट करें",
+    "description": "विभिन्न भाषाओं में टेम्पलेट का पूर्वावलोकन करने के लिए परीक्षण SMS भेजें",
+    "phoneLabel": "प्राप्तकर्ता फ़ोन नंबर",
+    "phonePlaceholder": "+1234567890 या (123) 456-7890",
+    "phoneHelp": "देश कोड के साथ फ़ोन नंबर दर्ज करें (उदा: भारत के लिए +91)",
+    "templateLabel": "टेम्पलेट प्रकार",
+    "templateHelp": "चुनें कि आप कौन सा SMS टेम्पलेट परीक्षण करना चाहते हैं",
+    "languageLabel": "भाषा",
+    "languageHelp": "परीक्षण SMS के लिए भाषा चुनें",
+    "templates": {
+      "weddingReminder": "शादी की याददाश्त",
+      "rsvpConfirmation": "RSVP पुष्टि",
+      "paymentReminder": "भुगतान अनुस्मारक"
+    },
+    "languages": {
+      "en": "English (अंग्रेज़ी)",
+      "es": "Español (स्पेनिश)",
+      "fr": "Français (फ्रेंच)",
+      "de": "Deutsch (जर्मन)",
+      "ja": "日本語 (जापानी)",
+      "zh": "中文 (चीनी)",
+      "hi": "हिन्दी"
+    },
+    "noteTitle": "ध्यान दें:",
+    "noteDescription": "परीक्षण SMS नमूना डेटा का उपयोग करेगा और [TEST] उपसर्ग के साथ चिह्नित किया जाएगा। मानक SMS दरें लागू हो सकती हैं। SMS आपके इतिहास में लॉग किया जाएगा।",
+    "sendButton": "परीक्षण SMS भेजें",
+    "sending": "परीक्षण SMS भेजा जा रहा है...",
+    "successMessage": "परीक्षण SMS सफलतापूर्वक भेजा गया!",
+    "errorMessage": "परीक्षण SMS भेजने में विफल",
+    "invalidPhone": "कृपया एक वैध फ़ोन नंबर दर्ज करें",
+    "phoneRequired": "कृपया एक फ़ोन नंबर दर्ज करें"
+  },
+  "smsLogs": {
+    "pageTitle": "SMS लॉग",
+    "pageDescription": "अपने खाते से भेजे गए सभी SMS संदेश देखें",
+    "title": "SMS इतिहास",
+    "description": "अपने खाते से भेजे गए सभी SMS संदेशों को देखें और फ़िल्टर करें",
+    "searchPlaceholder": "फ़ोन, नाम या संदेश द्वारा खोजें...",
+    "filters": {
+      "status": "स्थिति",
+      "type": "प्रकार",
+      "allStatus": "सभी स्थिति",
+      "allTypes": "सभी प्रकार"
+    },
+    "status": {
+      "sent": "भेजा गया",
+      "delivered": "वितरित",
+      "failed": "विफल",
+      "undelivered": "अवितरित",
+      "pending": "लंबित",
+      "queued": "कतार में",
+      "sending": "भेजा जा रहा है"
+    },
+    "types": {
+      "weddingReminder": "शादी की याद दिलाना",
+      "rsvpConfirmation": "RSVP पुष्टि",
+      "paymentReminder": "भुगतान अनुस्मारक",
+      "paymentReceived": "भुगतान प्राप्त",
+      "vendorNotification": "विक्रेता सूचना",
+      "eventUpdate": "कार्यक्रम अपडेट",
+      "general": "सामान्य"
+    },
+    "table": {
+      "recipient": "प्राप्तकर्ता",
+      "message": "संदेश",
+      "type": "प्रकार",
+      "status": "स्थिति",
+      "segments": "खंड",
+      "language": "भाषा",
+      "sent": "भेजा गया",
+      "notSent": "नहीं भेजा गया",
+      "unknown": "अज्ञात"
+    },
+    "empty": {
+      "title": "कोई SMS संदेश नहीं मिला",
+      "description": "अधिक परिणाम देखने के लिए अपने फ़िल्टर समायोजित करने का प्रयास करें",
+      "noSmsYet": "अभी तक कोई SMS संदेश नहीं भेजा गया है। अपना पहला SMS भेजना शुरू करें!"
+    },
+    "pagination": {
+      "showing": "दिखा रहा है",
+      "to": "से",
+      "of": "कुल",
+      "messages": "संदेश",
+      "previous": "पिछला",
+      "next": "अगला"
+    }
+  },
+  "smsStats": {
+    "totalSms": "कुल SMS",
+    "successfullySent": "सफलतापूर्वक भेजा गया",
+    "delivered": "वितरित",
+    "failed": "विफल",
+    "successRate": "सफलता दर",
+    "last30Days": "पिछले 30 दिन"
+  },
+  "paymentSettings": {
+    "pageTitle": "भुगतान सेटिंग्स",
+    "pageDescription": "अपनी भुगतान सेटिंग्स और Stripe Connect खाते को प्रबंधित करें",
+    "connectTab": "Stripe Connect",
+    "methodsTab": "भुगतान के तरीके"
+  },
+  "stripeConnect": {
+    "title": "Stripe Connect सेटअप करें",
+    "setupTitle": "Stripe Connect खाता",
+    "description": "ग्राहकों से सीधे भुगतान प्राप्त करने के लिए Stripe Connect खाता बनाएं",
+    "manageDescription": "अपने भुगतान प्रसंस्करण खाते को प्रबंधित करें",
+    "emailLabel": "ईमेल पता",
+    "emailPlaceholder": "your@email.com",
+    "businessNameLabel": "व्यवसाय का नाम",
+    "businessNamePlaceholder": "आपका वेडिंग प्लानिंग व्यवसाय",
+    "whyStripe": "Stripe Connect क्यों?",
+    "whyStripeText": "यह आपको ग्राहकों से सीधे भुगतान प्राप्त करने की अनुमति देता है। हम Stripe के माध्यम से सुरक्षित रूप से भुगतान प्रसंस्करण को संभालते हैं।",
+    "createButton": "Stripe खाता बनाएं",
+    "creating": "खाता बनाया जा रहा है...",
+    "businessName": "व्यवसाय का नाम",
+    "email": "ईमेल",
+    "country": "देश",
+    "currency": "मुद्रा",
+    "chargesEnabled": "शुल्क सक्षम",
+    "chargesDisabled": "शुल्क अक्षम",
+    "payoutsEnabled": "भुगतान सक्षम",
+    "payoutsDisabled": "भुगतान अक्षम",
+    "statusActive": "सक्रिय",
+    "statusReview": "समीक्षा में",
+    "statusRequired": "सेटअप आवश्यक",
+    "actionRequired": "कार्रवाई आवश्यक:",
+    "actionRequiredText": "भुगतान प्राप्त करना शुरू करने के लिए अपना Stripe ऑनबोर्डिंग पूरा करें। इस प्रक्रिया में लगभग 5 मिनट लगते हैं।",
+    "completeOnboarding": "Stripe ऑनबोर्डिंग पूरा करें",
+    "underReview": "समीक्षा में:",
+    "underReviewText": "आपके खाते की Stripe द्वारा समीक्षा की जा रही है। इसमें आमतौर पर 1-2 कार्य दिवस लगते हैं।",
+    "loading": "लोड हो रहा है...",
+    "successMessage": "Stripe Connect खाता सफलतापूर्वक बनाया गया",
+    "errorMessage": "खाता बनाने में विफल"
+  },
+  "payments": {
+    "pageTitle": "भुगतान",
+    "pageDescription": "भुगतान इतिहास देखें और नए भुगतान संसाधित करें",
+    "createInvoice": "चालान बनाएं",
+    "title": "भुगतान इतिहास",
+    "description": "सभी भुगतान लेनदेन देखें और प्रबंधित करें",
+    "searchPlaceholder": "चालान, विवरण या भुगतान ID द्वारा खोजें...",
+    "filters": {
+      "status": "स्थिति",
+      "allStatus": "सभी स्थिति"
+    },
+    "status": {
+      "succeeded": "सफल",
+      "pending": "लंबित",
+      "processing": "प्रसंस्करण में",
+      "requiresAction": "कार्रवाई आवश्यक",
+      "failed": "विफल",
+      "canceled": "रद्द",
+      "refunded": "वापस किया गया",
+      "partiallyRefunded": "आंशिक रूप से वापस किया गया"
+    },
+    "table": {
+      "invoice": "चालान",
+      "client": "ग्राहक",
+      "amount": "राशि",
+      "status": "स्थिति",
+      "method": "तरीका",
+      "date": "तारीख",
+      "noDescription": "कोई विवरण नहीं",
+      "unknown": "अज्ञात"
+    },
+    "empty": {
+      "title": "कोई भुगतान नहीं मिला",
+      "description": "अधिक परिणाम देखने के लिए अपने फ़िल्टर समायोजित करने का प्रयास करें",
+      "noPaymentsYet": "अभी तक कोई भुगतान संसाधित नहीं किया गया है। शुरू करने के लिए एक चालान बनाएं!"
+    },
+    "pagination": {
+      "showing": "दिखा रहा है",
+      "to": "से",
+      "of": "कुल",
+      "payments": "भुगतान",
+      "previous": "पिछला",
+      "next": "अगला"
+    }
+  },
+  "invoices": {
+    "pageTitle": "चालान",
+    "pageDescription": "चालान बनाएं और प्रबंधित करें",
+    "newInvoice": "नया चालान",
+    "title": "चालान",
+    "description": "अपने ग्राहकों के लिए चालान बनाएं और प्रबंधित करें",
+    "searchPlaceholder": "चालान नंबर, ग्राहक या विवरण द्वारा खोजें...",
+    "filters": {
+      "status": "स्थिति",
+      "allStatus": "सभी स्थिति"
+    },
+    "status": {
+      "draft": "मसौदा",
+      "open": "खुला",
+      "paid": "भुगतान किया गया",
+      "overdue": "अतिदेय",
+      "void": "रद्द",
+      "uncollectible": "असंग्रहणीय"
+    },
+    "table": {
+      "invoiceNumber": "चालान नंबर",
+      "client": "ग्राहक",
+      "amount": "राशि",
+      "status": "स्थिति",
+      "dueDate": "नियत तारीख",
+      "created": "बनाया गया",
+      "noDescription": "कोई विवरण नहीं",
+      "unknown": "अज्ञात",
+      "noDueDate": "लागू नहीं"
+    },
+    "empty": {
+      "title": "कोई चालान नहीं मिला",
+      "description": "अधिक परिणाम देखने के लिए अपने फ़िल्टर समायोजित करने का प्रयास करें",
+      "noInvoicesYet": "अभी तक कोई चालान नहीं बनाया गया है। शुरू करने के लिए अपना पहला चालान बनाएं!"
+    },
+    "pagination": {
+      "showing": "दिखा रहा है",
+      "to": "से",
+      "of": "कुल",
+      "invoices": "चालान",
+      "previous": "पिछला",
+      "next": "अगला"
+    }
+  },
+  "paymentStats": {
+    "totalRevenue": "कुल राजस्व",
+    "totalPayments": "कुल भुगतान",
+    "successRate": "सफलता दर",
+    "totalRefunded": "कुल वापसी",
+    "last30Days": "पिछले 30 दिन"
+  },
+  "paymentMethods": {
+    "title": "सहेजे गए भुगतान के तरीके",
+    "description": "त्वरित चेकआउट के लिए अपने सहेजे गए भुगतान के तरीकों को प्रबंधित करें",
+    "empty": {
+      "title": "कोई भुगतान के तरीके सहेजे नहीं गए",
+      "description": "जब आप अपना पहला भुगतान करेंगे तो भुगतान के तरीके स्वचालित रूप से सहेजे जाएंगे।"
+    }
+  },
+  "analytics": {
+    "title": "विश्लेषण डैशबोर्ड",
+    "description": "आपके व्यवसाय प्रदर्शन में व्यापक अंतर्दृष्टि",
+    "tabs": {
+      "revenue": "राजस्व",
+      "payments": "भुगतान",
+      "notifications": "सूचनाएं",
+      "trends": "रुझान"
+    },
+    "stats": {
+      "totalRevenue": "कुल राजस्व",
+      "transactions": "लेनदेन",
+      "averageOrder": "औसत आदेश",
+      "emailsSent": "भेजे गए ईमेल",
+      "smsSent": "भेजे गए SMS",
+      "activeClients": "सक्रिय ग्राहक",
+      "last30Days": "पिछले 30 दिन",
+      "totalPayments": "कुल भुगतान",
+      "perTransaction": "प्रति लेनदेन",
+      "withTransactions": "लेनदेन के साथ"
+    },
+    "charts": {
+      "revenueOverTime": "समय के साथ राजस्व",
+      "revenueDescription": "दैनिक राजस्व और लेनदेन गणना",
+      "paymentStatusBreakdown": "भुगतान स्थिति विवरण",
+      "paymentStatusDescription": "भुगतान स्थिति द्वारा वितरण",
+      "notificationStatistics": "सूचना सांख्यिकी",
+      "notificationDescription": "ईमेल और SMS वितरण प्रदर्शन",
+      "topRevenueClients": "शीर्ष राजस्व ग्राहक",
+      "topClientsDescription": "सबसे अधिक राजस्व उत्पन्न करने वाले ग्राहक",
+      "paymentSummary": "भुगतान सारांश",
+      "paymentSummaryDescription": "स्थिति द्वारा कुल भुगतान",
+      "monthlyRevenueTrend": "मासिक राजस्व रुझान",
+      "monthlyTrendDescription": "पिछले 12 महीनों में राजस्व प्रदर्शन"
+    },
+    "metrics": {
+      "totalSent": "कुल भेजे गए",
+      "delivered": "वितरित",
+      "failed": "विफल",
+      "opened": "खोले गए",
+      "clicked": "क्लिक किए गए",
+      "deliveryRate": "वितरण दर",
+      "transactions": "लेनदेन",
+      "total": "कुल"
+    },
+    "loading": "लोड हो रहा है...",
+    "loadingChartData": "चार्ट डेटा लोड हो रहा है...",
+    "loadingPaymentSummary": "भुगतान सारांश लोड हो रहा है...",
+    "loadingTrendData": "रुझान डेटा लोड हो रहा है...",
+    "showingDataFrom": "डेटा दिखा रहा है",
+    "to": "से",
+    "pickDateRange": "दिनांक सीमा चुनें",
+    "presets": {
+      "last7Days": "पिछले 7 दिन",
+      "last30Days": "पिछले 30 दिन",
+      "last3Months": "पिछले 3 महीने",
+      "thisMonth": "यह महीना",
+      "lastMonth": "पिछला महीना"
+    }
+  },
+  "pdf": {
+    "invoice": "चालान",
+    "downloadInvoice": "चालान डाउनलोड करें",
+    "previewInvoice": "चालान पूर्वावलोकन",
+    "downloadPDF": "PDF डाउनलोड करें",
+    "previewInBrowser": "ब्राउज़र में पूर्वावलोकन करें",
+    "generating": "उत्पन्न हो रहा है...",
+    "generatingPDF": "PDF उत्पन्न हो रहा है...",
+    "success": {
+      "downloaded": "चालान सफलतापूर्वक डाउनलोड किया गया",
+      "opened": "चालान नए टैब में खोला गया"
+    },
+    "error": {
+      "generateFailed": "चालान उत्पन्न करने में विफल। कृपया पुनः प्रयास करें।",
+      "downloadFailed": "PDF डाउनलोड करने में विफल। कृपया पुनः प्रयास करें।"
+    },
+    "invoiceDetails": {
+      "number": "चालान संख्या",
+      "date": "चालान तिथि",
+      "dueDate": "नियत तिथि",
+      "status": "स्थिति",
+      "billTo": "बिल प्राप्तकर्ता",
+      "items": "वस्तुएं",
+      "description": "विवरण",
+      "quantity": "मात्रा",
+      "unitPrice": "इकाई मूल्य",
+      "total": "कुल",
+      "subtotal": "उप-योग",
+      "discount": "छूट",
+      "tax": "कर",
+      "grandTotal": "महायोग",
+      "notes": "टिप्पणियाँ",
+      "paymentTerms": "भुगतान शर्तें",
+      "thankYou": "आपके व्यवसाय के लिए धन्यवाद!",
+      "generatedOn": "उत्पन्न तिथि"
+    },
+    "status": {
+      "paid": "भुगतान किया गया",
+      "pending": "लंबित",
+      "overdue": "अतिदेय"
+    }
+  },
+  "whatsapp": {
+    "title": "WhatsApp Business",
+    "description": "अपने ग्राहकों को WhatsApp संदेश भेजें और वितरण ट्रैक करें",
+    "sendMessage": "संदेश भेजें",
+    "messageHistory": "संदेश इतिहास",
+    "information": "जानकारी",
+    "send": "WhatsApp भेजें",
+    "sending": "भेजा जा रहा है...",
+    "tabs": {
+      "send": "संदेश भेजें",
+      "history": "संदेश इतिहास",
+      "info": "जानकारी"
+    },
+    "form": {
+      "toNumber": "प्राप्तकर्ता नंबर (देश कोड के साथ)",
+      "toNumberPlaceholder": "+1234567890",
+      "message": "संदेश",
+      "messagePlaceholder": "अपना WhatsApp संदेश यहां टाइप करें...",
+      "characterCount": "वर्ण"
+    },
+    "stats": {
+      "totalSent": "कुल भेजे गए",
+      "delivered": "वितरित",
+      "read": "पढ़े गए",
+      "failed": "विफल",
+      "deliveryRate": "वितरण दर"
+    },
+    "tips": {
+      "title": "WhatsApp सुझाव",
+      "description": "WhatsApp संदेशन के लिए सर्वोत्तम प्रथाएं",
+      "phoneFormat": "फोन नंबर प्रारूप",
+      "phoneFormatDesc": "हमेशा देश कोड शामिल करें (उदा., भारत के लिए +91, अमेरिका के लिए +1)। उदाहरण: +1234567890",
+      "messageLimits": "संदेश सीमाएं",
+      "messageLimitsDesc": "WhatsApp संदेश 1,600 वर्णों तक सीमित हैं। अपने संदेश संक्षिप्त रखें।",
+      "optIn": "ऑप्ट-इन आवश्यक",
+      "optInDesc": "उपयोगकर्ताओं को WhatsApp संदेश प्राप्त करने के लिए ऑप्ट-इन करना होगा। सुनिश्चित करें कि आपके पास अनुमति है।",
+      "responseTime": "प्रतिक्रिया समय",
+      "responseTimeDesc": "WhatsApp संदेश आमतौर पर तुरंत वितरित होते हैं, लेकिन कुछ मिनट लग सकते हैं।",
+      "pricing": "मूल्य निर्धारण",
+      "pricingDesc": "Twilio प्रति WhatsApp संदेश शुल्क लेता है। वर्तमान दरों के लिए अपना Twilio कंसोल जांचें।"
+    },
+    "setup": {
+      "title": "WhatsApp सेटअप आवश्यक",
+      "description": "WhatsApp संदेश भेजने के लिए, आपको अपना Twilio WhatsApp Business नंबर कॉन्फ़िगर करना होगा।",
+      "step1": "Twilio खाता",
+      "step1Desc": "एक Twilio खाता बनाएं और WhatsApp Business API सक्षम करें।",
+      "step2": "WhatsApp नंबर",
+      "step2Desc": "Twilio से WhatsApp-सक्षम फोन नंबर का अनुरोध करें।",
+      "step3": "पर्यावरण चर",
+      "step3Desc": "अपनी .env.local फ़ाइल में TWILIO_WHATSAPP_NUMBER जोड़ें।",
+      "step4": "परीक्षण संदेश",
+      "step4Desc": "लाइव होने से पहले संदेशों का परीक्षण करने के लिए Twilio सैंडबॉक्स का उपयोग करें।",
+      "step5": "लाइव करें",
+      "step5Desc": "वास्तविक नंबरों पर भेजने के लिए अनुमोदन के लिए अपनी व्यावसायिक प्रोफ़ाइल सबमिट करें।"
+    },
+    "features": {
+      "title": "WhatsApp Business API",
+      "description": "सुविधाएं और क्षमताएं",
+      "richMedia": "रिच मीडिया समर्थन",
+      "richMediaDesc": "टेक्स्ट संदेशों के साथ चित्र, वीडियो, दस्तावेज़ और स्थान डेटा भेजें।",
+      "twoWay": "द्विदिशीय संदेशन",
+      "twoWayDesc": "अपने ग्राहकों से रीयल-टाइम में संदेश प्राप्त करें और जवाब दें।",
+      "templates": "संदेश टेम्पलेट",
+      "templatesDesc": "सामान्य परिदृश्यों के लिए पूर्व-अनुमोदित संदेश टेम्पलेट बनाएं।",
+      "receipts": "वितरण रसीदें",
+      "receiptsDesc": "ट्रैक करें कि संदेश कब भेजे गए, वितरित किए गए और प्राप्तकर्ताओं द्वारा पढ़े गए।"
+    },
+    "success": {
+      "sent": "WhatsApp संदेश सफलतापूर्वक भेजा गया"
+    },
+    "error": {
+      "invalidNumber": "अमान्य WhatsApp नंबर प्रारूप। देश कोड शामिल होना चाहिए (उदा., +1234567890)",
+      "sendFailed": "WhatsApp संदेश भेजने में विफल",
+      "messageTooLong": "संदेश बहुत लंबा है (अधिकतम 1600 वर्ण)",
+      "messageRequired": "संदेश आवश्यक है"
+    },
+    "table": {
+      "date": "तिथि",
+      "client": "ग्राहक",
+      "toNumber": "प्राप्तकर्ता नंबर",
+      "message": "संदेश",
+      "status": "स्थिति",
+      "noMessages": "अभी तक कोई WhatsApp संदेश नहीं भेजा गया"
+    },
+    "status": {
+      "queued": "कतार में",
+      "sent": "भेजा गया",
+      "delivered": "वितरित",
+      "read": "पढ़ा गया",
+      "failed": "विफल",
+      "undelivered": "अवितरित"
+    }
+  },
+  "notifications": {
+    "push_title": "पुश नोटिफिकेशन",
+    "push_desc": "ब्राउज़र में तुरंत सूचनाएं प्राप्त करें",
+    "enable": "पुश नोटिफिकेशन सक्षम करें",
+    "enabled": "पुश नोटिफिकेशन सक्षम हैं",
+    "blocked": "सूचनाएं अवरुद्ध हैं",
+    "preferences_title": "सूचना प्राथमिकताएं",
+    "payment_alerts": "भुगतान अलर्ट",
+    "payment_alerts_desc": "भुगतान प्राप्त, देय, विफल",
+    "rsvp_updates": "RSVP अपडेट",
+    "rsvp_updates_desc": "मेहमान RSVP पुष्टिकरण",
+    "event_reminders": "कार्यक्रम रिमाइंडर",
+    "event_reminders_desc": "आगामी कार्यक्रम सूचनाएं",
+    "task_deadlines": "कार्य समय सीमा",
+    "task_deadlines_desc": "समय सीमा की याद दिलाना",
+    "vendor_messages": "विक्रेता संदेश",
+    "vendor_messages_desc": "विक्रेताओं से संदेश"
+  }
+}

@@ -19,6 +19,9 @@ import {
   Settings,
   Building2,
   Shield,
+  BarChart3,
+  MessageCircle,
+  Bell,
 } from 'lucide-react'
 import { useIsSuperAdmin } from '@/lib/permissions/can'
 
@@ -39,6 +42,11 @@ export function Sidebar() {
       name: 'Clients',
       href: '/dashboard/clients',
       icon: Users,
+    },
+    {
+      name: 'Analytics',
+      href: '/dashboard/analytics',
+      icon: BarChart3,
     },
   ]
 
@@ -94,6 +102,21 @@ export function Sidebar() {
       name: 'Messages',
       href: '/messages',
       icon: MessageSquare,
+    },
+    {
+      name: 'WhatsApp',
+      href: '/dashboard/whatsapp',
+      icon: MessageCircle,
+    },
+    {
+      name: 'Calendar',
+      href: '/dashboard/settings/calendar',
+      icon: Calendar,
+    },
+    {
+      name: 'Notifications',
+      href: '/dashboard/settings/notifications',
+      icon: Bell,
     },
     {
       name: 'Settings',

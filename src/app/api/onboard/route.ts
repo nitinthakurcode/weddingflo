@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
       const companyInsert: TablesInsert<'companies'> = {
         name: companyName,
         subdomain,
-        subscription_tier: SubscriptionTier.FREE,
-        subscription_status: SubscriptionStatus.TRIALING,
+        subscription_tier: 'free' as SubscriptionTier,
+        subscription_status: 'trialing' as SubscriptionStatus,
         trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
         logo_url: null,
         branding: null,

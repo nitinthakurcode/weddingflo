@@ -9,10 +9,10 @@ export async function renderEmailTemplate(
 ): Promise<{ html: string; text: string }> {
   try {
     // Render HTML version
-    const html = render(component);
+    const html = await render(component);
 
     // Render plain text version
-    const text = render(component, { plainText: true });
+    const text = await render(component, { plainText: true });
 
     return { html, text };
   } catch (error) {

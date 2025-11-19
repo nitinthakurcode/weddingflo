@@ -72,7 +72,7 @@ export async function POST(req: Request) {
       // Determine role based on super admin email
       const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
       const isSuperAdmin = email === superAdminEmail;
-      const role = isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.COMPANY_ADMIN;
+      const role: UserRole = isSuperAdmin ? 'super_admin' : 'company_admin';
 
       console.log(`🔐 Assigning role "${role}" to user ${email}`);
 
@@ -103,8 +103,8 @@ export async function POST(req: Request) {
           const companyInsert: TablesInsert<'companies'> = {
             name: 'WeddingFlow Platform',
             subdomain: 'platform',
-            subscription_tier: SubscriptionTier.ENTERPRISE,
-            subscription_status: SubscriptionStatus.ACTIVE,
+            subscription_tier: 'enterprise' as SubscriptionTier,
+            subscription_status: 'active' as SubscriptionStatus,
             logo_url: null,
             branding: null,
             settings: null,
@@ -140,8 +140,8 @@ export async function POST(req: Request) {
         const companyInsert: TablesInsert<'companies'> = {
           name: companyName,
           subdomain,
-          subscription_tier: SubscriptionTier.FREE,
-          subscription_status: SubscriptionStatus.TRIALING,
+          subscription_tier: 'free' as SubscriptionTier,
+          subscription_status: 'trialing' as SubscriptionStatus,
           trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
           logo_url: null,
           branding: null,
@@ -217,17 +217,18 @@ export async function POST(req: Request) {
 
       console.log(`✅ [Webhook] User created successfully with company_id: ${companyId}`);
 
-      // Update Clerk user metadata with role AND company_id
+      // Update Clerk user metadata with role, company_id, AND onboarding status
       // This enables fast lookups without database queries
       try {
         const client = await clerkClient();
         await client.users.updateUserMetadata(id, {
           publicMetadata: {
             role,
-            company_id: companyId,  // Add company_id for fast path in getCompanyId()
+            company_id: companyId,
+            onboarding_completed: false,  // New users haven't completed onboarding yet
           },
         });
-        console.log(`✅ Updated Clerk metadata with role: ${role}, company_id: ${companyId}`);
+        console.log(`✅ Updated Clerk metadata with role: ${role}, company_id: ${companyId}, onboarding_completed: false`);
       } catch (metadataError) {
         console.error('⚠️  Error updating Clerk metadata:', metadataError);
         // Don't fail the entire operation if metadata update fails

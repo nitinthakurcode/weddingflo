@@ -1,0 +1,1069 @@
+{
+  "common": {
+    "appName": "WeddingFlow Pro",
+    "welcome": "欢迎",
+    "loading": "加载中...",
+    "saving": "保存中...",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "创建",
+    "update": "更新",
+    "search": "搜索",
+    "filter": "筛选",
+    "export": "导出",
+    "import": "导入",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "continue": "继续",
+    "submit": "提交",
+    "close": "关闭",
+    "confirm": "确认",
+    "yes": "是",
+    "no": "否",
+    "ok": "确定",
+    "actions": "操作",
+    "viewDetails": "查看详情",
+    "noResults": "未找到结果",
+    "error": "错误",
+    "success": "成功",
+    "warning": "警告",
+    "info": "信息",
+    "optional": "可选",
+    "required": "必填",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
+    "clear": "清除",
+    "apply": "应用",
+    "reset": "重置",
+    "download": "下载",
+    "upload": "上传",
+    "print": "打印",
+    "refresh": "刷新",
+    "add": "添加",
+    "remove": "移除",
+    "name": "名称",
+    "description": "描述",
+    "status": "状态",
+    "date": "日期",
+    "time": "时间",
+    "total": "总计",
+    "subtotal": "小计",
+    "per": "每",
+    "of": "的",
+    "and": "和",
+    "or": "或"
+  },
+  "navigation": {
+    "dashboard": "仪表盘",
+    "clients": "客户",
+    "guests": "宾客",
+    "vendors": "供应商",
+    "budget": "预算",
+    "timeline": "时间轴",
+    "tasks": "任务",
+    "documents": "文档",
+    "chat": "聊天",
+    "settings": "设置",
+    "aiFeatures": "AI功能",
+    "budgetPrediction": "预算预测",
+    "emailGenerator": "邮件生成",
+    "timelineOptimizer": "时间优化",
+    "profile": "个人资料",
+    "billing": "账单",
+    "team": "团队",
+    "help": "帮助与支持",
+    "signOut": "退出登录",
+    "notifications": "通知",
+    "messages": "消息",
+    "emailSettings": "电子邮件设置",
+    "emailLogs": "邮件日志",
+    "smsSettings": "短信设置",
+    "smsLogs": "短信日志",
+    "companySettings": "公司设置",
+    "payments": "支付",
+    "invoices": "发票",
+    "paymentSettings": "支付设置",
+    "analytics": "分析",
+    "notification_settings": "通知设置",
+    "calendar_settings": "日历设置"
+  },
+  "dashboard": {
+    "title": "仪表盘",
+    "overview": "概览",
+    "recentActivity": "最近活动",
+    "upcomingEvents": "即将到来的活动",
+    "upcomingWeddings": "即将举行的婚礼",
+    "statistics": "统计",
+    "quickActions": "快捷操作",
+    "activeClients": "活跃客户",
+    "totalRevenue": "总收入",
+    "pendingTasks": "待办任务",
+    "thisMonth": "本月",
+    "viewAll": "查看全部",
+    "noActivity": "暂无最近活动"
+  },
+  "clients": {
+    "title": "客户",
+    "addClient": "添加客户",
+    "editClient": "编辑客户",
+    "deleteClient": "删除客户",
+    "clientDetails": "客户详情",
+    "clientInfo": "客户信息",
+    "partner1Name": "伴侣1姓名",
+    "partner2Name": "伴侣2姓名",
+    "email": "电子邮箱",
+    "phone": "电话号码",
+    "weddingDate": "婚礼日期",
+    "venue": "场地",
+    "venueName": "场地名称",
+    "venueAddress": "场地地址",
+    "status": "状态",
+    "statusActive": "活跃",
+    "statusCompleted": "已完成",
+    "statusCancelled": "已取消",
+    "guestCount": "宾客数量",
+    "budget": "预算",
+    "notes": "备注",
+    "preferences": "偏好设置",
+    "contactInfo": "联系信息",
+    "weddingDetails": "婚礼详情",
+    "searchClients": "搜索客户...",
+    "filterByStatus": "按状态筛选",
+    "allClients": "全部客户",
+    "noClients": "暂无客户",
+    "addFirstClient": "添加您的第一位客户以开始"
+  },
+  "guests": {
+    "title": "宾客",
+    "addGuest": "添加宾客",
+    "addMultipleGuests": "批量添加宾客",
+    "editGuest": "编辑宾客",
+    "deleteGuest": "删除宾客",
+    "guestList": "宾客名单",
+    "guestDetails": "宾客详情",
+    "firstName": "名",
+    "lastName": "姓",
+    "name": "姓名",
+    "email": "电子邮箱",
+    "phone": "电话",
+    "rsvpStatus": "确认状态",
+    "attending": "出席",
+    "notAttending": "不出席",
+    "pending": "待确认",
+    "tentative": "待定",
+    "plusOne": "携伴",
+    "allowPlusOne": "允许携伴",
+    "dietaryRestrictions": "饮食限制",
+    "tableAssignment": "桌位安排",
+    "group": "分组",
+    "category": "类别",
+    "invitationSent": "已发送邀请",
+    "thankYouSent": "已发送感谢信",
+    "totalGuests": "宾客总数",
+    "confirmedGuests": "已确认",
+    "pendingGuests": "待确认",
+    "searchGuests": "搜索宾客...",
+    "importGuests": "导入宾客",
+    "exportGuestList": "导出宾客名单",
+    "noGuests": "暂无宾客"
+  },
+  "vendors": {
+    "title": "供应商",
+    "addVendor": "添加供应商",
+    "editVendor": "编辑供应商",
+    "deleteVendor": "删除供应商",
+    "vendorDetails": "供应商详情",
+    "vendorName": "供应商名称",
+    "category": "类别",
+    "categoryPhotographer": "摄影师",
+    "categoryVideographer": "摄像师",
+    "categoryFlorist": "花艺师",
+    "categoryCaterer": "餐饮服务",
+    "categoryVenue": "场地",
+    "categoryMusic": "音乐/DJ",
+    "categoryOther": "其他",
+    "contactPerson": "联系人",
+    "email": "电子邮箱",
+    "phone": "电话",
+    "website": "网站",
+    "cost": "费用",
+    "deposit": "定金",
+    "paid": "已支付",
+    "remaining": "待支付",
+    "contract": "合同",
+    "contractSigned": "已签约",
+    "dueDate": "到期日",
+    "paymentSchedule": "付款计划",
+    "notes": "备注",
+    "services": "服务",
+    "totalVendors": "供应商总数",
+    "totalCost": "总费用",
+    "searchVendors": "搜索供应商...",
+    "noVendors": "暂无供应商"
+  },
+  "budget": {
+    "title": "预算",
+    "overview": "预算概览",
+    "totalBudget": "总预算",
+    "spent": "已支出",
+    "remaining": "剩余",
+    "percentSpent": "支出比例",
+    "categories": "类别",
+    "addExpense": "添加支出",
+    "editExpense": "编辑支出",
+    "deleteExpense": "删除支出",
+    "expenseName": "支出名称",
+    "amount": "金额",
+    "category": "类别",
+    "vendor": "供应商",
+    "date": "日期",
+    "paidDate": "支付日期",
+    "dueDate": "到期日",
+    "receipt": "收据",
+    "uploadReceipt": "上传收据",
+    "isPaid": "已支付",
+    "paymentMethod": "支付方式",
+    "paymentStatus": "支付状态",
+    "statusPaid": "已支付",
+    "statusPending": "待支付",
+    "statusOverdue": "逾期",
+    "notes": "备注",
+    "searchExpenses": "搜索支出...",
+    "filterByCategory": "按类别筛选",
+    "allExpenses": "全部支出",
+    "recentExpenses": "最近支出",
+    "upcomingPayments": "即将支付",
+    "noBudget": "暂未设置预算",
+    "noExpenses": "暂无支出记录"
+  },
+  "timeline": {
+    "title": "时间轴",
+    "weddingTimeline": "婚礼时间轴",
+    "addEvent": "添加活动",
+    "editEvent": "编辑活动",
+    "deleteEvent": "删除活动",
+    "eventDetails": "活动详情",
+    "eventName": "活动名称",
+    "startTime": "开始时间",
+    "endTime": "结束时间",
+    "duration": "时长",
+    "location": "地点",
+    "description": "描述",
+    "participants": "参与者",
+    "vendor": "供应商",
+    "notes": "备注",
+    "isFixed": "固定时间",
+    "priority": "优先级",
+    "priorityHigh": "高",
+    "priorityMedium": "中",
+    "priorityLow": "低",
+    "viewDay": "日视图",
+    "viewWeek": "周视图",
+    "viewMonth": "月视图",
+    "ceremony": "仪式",
+    "reception": "宴会",
+    "cocktailHour": "鸡尾酒会",
+    "totalEvents": "活动总数",
+    "noEvents": "暂无活动"
+  },
+  "tasks": {
+    "title": "任务",
+    "addTask": "添加任务",
+    "editTask": "编辑任务",
+    "deleteTask": "删除任务",
+    "taskDetails": "任务详情",
+    "taskName": "任务名称",
+    "description": "描述",
+    "assignedTo": "分配给",
+    "dueDate": "截止日期",
+    "priority": "优先级",
+    "status": "状态",
+    "statusTodo": "待办",
+    "statusInProgress": "进行中",
+    "statusCompleted": "已完成",
+    "category": "类别",
+    "allTasks": "全部任务",
+    "myTasks": "我的任务",
+    "overdueTasks": "逾期任务",
+    "completedTasks": "已完成任务",
+    "searchTasks": "搜索任务...",
+    "markComplete": "标记为已完成",
+    "markIncomplete": "标记为未完成",
+    "noTasks": "暂无任务"
+  },
+  "documents": {
+    "title": "文档",
+    "uploadDocument": "上传文档",
+    "deleteDocument": "删除文档",
+    "documentName": "文档名称",
+    "fileName": "文件名",
+    "fileSize": "文件大小",
+    "uploadDate": "上传日期",
+    "category": "类别",
+    "contracts": "合同",
+    "invoices": "发票",
+    "receipts": "收据",
+    "other": "其他",
+    "download": "下载",
+    "preview": "预览",
+    "searchDocuments": "搜索文档...",
+    "allDocuments": "全部文档",
+    "noDocuments": "暂无文档",
+    "dragDropUpload": "拖放文件到此处或点击上传"
+  },
+  "ai": {
+    "title": "AI功能",
+    "budgetPrediction": "预算预测",
+    "emailGenerator": "邮件生成",
+    "timelineOptimizer": "时间优化",
+    "generating": "生成中...",
+    "analyzing": "分析中...",
+    "processing": "处理中...",
+    "quotaRemaining": "次查询可用",
+    "quotaExceeded": "本月AI配额已用完",
+    "upgradePrompt": "升级订阅以继续使用AI功能",
+    "aiPowered": "AI驱动",
+    "getStarted": "开始使用",
+    "tryNow": "立即试用",
+    "learnMore": "了解更多"
+  },
+  "settings": {
+    "title": "设置",
+    "profile": "个人资料",
+    "account": "账户",
+    "preferences": "偏好设置",
+    "language": "语言",
+    "selectLanguage": "选择语言",
+    "currency": "货币",
+    "selectCurrency": "选择货币",
+    "timezone": "时区",
+    "selectTimezone": "选择时区",
+    "dateFormat": "日期格式",
+    "timeFormat": "时间格式",
+    "notifications": "通知",
+    "emailNotifications": "邮件通知",
+    "pushNotifications": "推送通知",
+    "security": "安全",
+    "changePassword": "修改密码",
+    "twoFactor": "双因素认证",
+    "billing": "账单",
+    "subscription": "订阅",
+    "currentPlan": "当前套餐",
+    "upgradePlan": "升级套餐",
+    "paymentMethod": "支付方式",
+    "invoiceHistory": "账单历史",
+    "team": "团队成员",
+    "inviteTeamMember": "邀请团队成员",
+    "saveChanges": "保存更改",
+    "changesSaved": "更改已保存"
+  },
+  "auth": {
+    "signIn": "登录",
+    "signUp": "注册",
+    "signOut": "退出登录",
+    "email": "电子邮箱",
+    "password": "密码",
+    "forgotPassword": "忘记密码？",
+    "resetPassword": "重置密码",
+    "createAccount": "创建账户",
+    "alreadyHaveAccount": "已有账户？",
+    "dontHaveAccount": "还没有账户？",
+    "enterEmail": "输入电子邮箱",
+    "enterPassword": "输入密码",
+    "confirmPassword": "确认密码",
+    "agreeToTerms": "我同意服务条款和隐私政策"
+  },
+  "errors": {
+    "generic": "出现错误，请重试。",
+    "networkError": "网络错误，请检查您的连接。",
+    "unauthorized": "未授权，请重新登录。",
+    "notFound": "未找到。",
+    "validationError": "请检查您的输入并重试。",
+    "serverError": "服务器错误，请稍后重试。"
+  },
+  "onboarding": {
+    "welcome": "欢迎使用WeddingFlow Pro",
+    "getStarted": "开始使用",
+    "step": "步骤",
+    "skip": "跳过",
+    "finish": "完成"
+  },
+  "emailSettings": {
+    "pageTitle": "电子邮件设置",
+    "pageDescription": "管理您的电子邮件通知偏好",
+    "preferencesTab": "偏好设置",
+    "testTab": "测试邮件",
+    "logsTab": "邮件日志"
+  },
+  "emailPreferences": {
+    "title": "通知类型",
+    "description": "选择您想接收的电子邮件通知",
+    "weddingReminders": {
+      "label": "婚礼提醒",
+      "description": "在婚礼前接收倒计时提醒"
+    },
+    "guestUpdates": {
+      "label": "宾客更新",
+      "description": "当宾客回复或更新他们的信息时收到通知"
+    },
+    "budgetAlerts": {
+      "label": "预算警报",
+      "description": "当支出接近或超过预算限制时收到警报"
+    },
+    "vendorMessages": {
+      "label": "供应商消息",
+      "description": "接收来自供应商的消息和更新"
+    },
+    "timelineChanges": {
+      "label": "时间表变更",
+      "description": "当婚礼时间表发生变化时收到通知"
+    },
+    "documentSharing": {
+      "label": "文档共享",
+      "description": "当有人与您共享文档时收到通知"
+    },
+    "teamActivity": {
+      "label": "团队活动",
+      "description": "接收团队成员活动更新"
+    },
+    "systemNotifications": {
+      "label": "系统通知",
+      "description": "接收重要的系统更新和公告"
+    },
+    "frequency": {
+      "title": "通知频率",
+      "description": "选择您希望接收电子邮件通知的频率",
+      "realtime": "实时",
+      "daily": "每日摘要",
+      "weekly": "每周摘要",
+      "never": "从不"
+    },
+    "emailFormat": {
+      "title": "电子邮件格式",
+      "description": "选择您的电子邮件格式偏好",
+      "html": "HTML（带格式和图片）",
+      "text": "纯文本（简单文本）"
+    },
+    "language": {
+      "title": "电子邮件语言",
+      "description": "选择电子邮件通知的语言"
+    },
+    "saveButton": "保存偏好",
+    "cancelButton": "取消",
+    "successMessage": "您的电子邮件偏好已成功保存",
+    "errorMessage": "保存偏好失败。请重试。"
+  },
+  "emailTest": {
+    "title": "测试电子邮件通知",
+    "description": "向自己发送测试电子邮件以预览通知",
+    "recipientLabel": "收件人电子邮件",
+    "recipientPlaceholder": "输入电子邮件地址",
+    "templateLabel": "电子邮件模板",
+    "templatePlaceholder": "选择模板",
+    "languageLabel": "语言",
+    "languagePlaceholder": "选择语言",
+    "templates": {
+      "weddingReminder": "婚礼提醒",
+      "guestUpdate": "宾客更新",
+      "budgetAlert": "预算警报",
+      "vendorMessage": "供应商消息",
+      "timelineChange": "时间表变更",
+      "documentShare": "文档共享",
+      "teamActivity": "团队活动",
+      "systemNotification": "系统通知"
+    },
+    "sendButton": "发送测试电子邮件",
+    "sendingButton": "正在发送...",
+    "successMessage": "测试电子邮件已成功发送到 {email}",
+    "errorMessage": "发送测试电子邮件失败。请重试。",
+    "validation": {
+      "emailRequired": "需要电子邮件地址",
+      "emailInvalid": "电子邮件地址无效",
+      "templateRequired": "需要选择模板",
+      "languageRequired": "需要选择语言"
+    }
+  },
+  "emailLogs": {
+    "title": "电子邮件日志",
+    "description": "查看所有已发送电子邮件通知的历史记录",
+    "filterLabel": "筛选条件",
+    "filterAll": "全部",
+    "filterSent": "已发送",
+    "filterFailed": "失败",
+    "filterPending": "待处理",
+    "searchPlaceholder": "搜索电子邮件...",
+    "table": {
+      "recipient": "收件人",
+      "subject": "主题",
+      "template": "模板",
+      "status": "状态",
+      "sentAt": "发送时间",
+      "actions": "操作"
+    },
+    "status": {
+      "sent": "已发送",
+      "failed": "失败",
+      "pending": "待处理",
+      "bounced": "退回",
+      "opened": "已打开",
+      "clicked": "已点击"
+    },
+    "actions": {
+      "view": "查看详情",
+      "resend": "重新发送",
+      "delete": "删除"
+    },
+    "pagination": {
+      "previous": "上一页",
+      "next": "下一页",
+      "showing": "显示 {start} 到 {end}，共 {total} 条"
+    },
+    "empty": "未找到电子邮件日志",
+    "loadingError": "加载电子邮件日志失败"
+  },
+  "emailStats": {
+    "title": "电子邮件统计",
+    "description": "查看您的电子邮件通知性能指标",
+    "totalSent": {
+      "label": "总发送数",
+      "description": "已发送的电子邮件总数"
+    },
+    "deliveryRate": {
+      "label": "投递率",
+      "description": "成功投递的电子邮件百分比"
+    },
+    "openRate": {
+      "label": "打开率",
+      "description": "已打开的电子邮件百分比"
+    },
+    "clickRate": {
+      "label": "点击率",
+      "description": "已点击链接的电子邮件百分比"
+    },
+    "bounceRate": {
+      "label": "退回率",
+      "description": "退回的电子邮件百分比"
+    },
+    "failureRate": {
+      "label": "失败率",
+      "description": "发送失败的电子邮件百分比"
+    },
+    "avgResponseTime": {
+      "label": "平均响应时间",
+      "description": "用户响应电子邮件的平均时间"
+    },
+    "mostPopularTemplate": {
+      "label": "最受欢迎的模板",
+      "description": "发送次数最多的电子邮件模板"
+    },
+    "loadingError": "加载统计数据失败",
+    "noData": "暂无数据"
+  },
+  "smsSettings": {
+    "pageTitle": "短信设置",
+    "pageDescription": "管理您的短信通知偏好",
+    "preferencesTab": "偏好设置",
+    "testTab": "测试短信",
+    "logsTab": "短信日志"
+  },
+  "smsPreferences": {
+    "title": "短信通知类型",
+    "description": "选择您想接收的短信通知",
+    "weddingReminders": {
+      "label": "婚礼提醒",
+      "description": "在婚礼日之前接收倒计时短信提醒"
+    },
+    "paymentReminders": {
+      "label": "付款提醒",
+      "description": "接收有关即将到来和逾期付款的短信提醒"
+    },
+    "rsvpNotifications": {
+      "label": "RSVP通知",
+      "description": "当宾客确认出席时接收短信确认"
+    },
+    "vendorMessages": {
+      "label": "供应商消息",
+      "description": "当供应商或您的策划师向您发送消息时接收短信"
+    },
+    "eventUpdates": {
+      "label": "活动更新",
+      "description": "当活动详情发生变化时接收短信提醒"
+    },
+    "frequencyTitle": "短信频率",
+    "frequencyDescription": "控制接收短信通知的频率",
+    "frequencyLabel": "通知频率",
+    "immediate": {
+      "label": "即时",
+      "description": "事件发生时立即接收短信"
+    },
+    "daily": {
+      "label": "每日摘要",
+      "description": "每天一条包含所有通知的短信"
+    },
+    "off": {
+      "label": "关闭",
+      "description": "禁用所有短信通知"
+    },
+    "costWarning": "短信可能会产生运营商费用。根据您的手机套餐，可能会收取消息和数据费用。",
+    "noteLabel": "注意：",
+    "saveButton": "保存偏好设置",
+    "saving": "保存中...",
+    "successMessage": "短信偏好设置已成功更新",
+    "errorMessage": "更新偏好设置失败"
+  },
+  "smsTest": {
+    "title": "测试短信模板",
+    "description": "发送测试短信以预览不同语言的模板",
+    "phoneLabel": "收件人电话号码",
+    "phonePlaceholder": "+1234567890或(123) 456-7890",
+    "phoneHelp": "输入带国家代码的电话号码（例如：中国为+86）",
+    "templateLabel": "模板类型",
+    "templateHelp": "选择您想测试的短信模板",
+    "languageLabel": "语言",
+    "languageHelp": "选择测试短信的语言",
+    "templates": {
+      "weddingReminder": "婚礼提醒",
+      "rsvpConfirmation": "RSVP确认",
+      "paymentReminder": "付款提醒"
+    },
+    "languages": {
+      "en": "English (英语)",
+      "es": "Español (西班牙语)",
+      "fr": "Français (法语)",
+      "de": "Deutsch (德语)",
+      "ja": "日本語 (日语)",
+      "zh": "中文",
+      "hi": "हिन्दी (印地语)"
+    },
+    "noteTitle": "注意：",
+    "noteDescription": "测试短信将使用示例数据，并带有[TEST]前缀标记。可能需要支付标准短信费率。短信将记录在您的历史记录中。",
+    "sendButton": "发送测试短信",
+    "sending": "正在发送测试短信...",
+    "successMessage": "测试短信发送成功！",
+    "errorMessage": "发送测试短信失败",
+    "invalidPhone": "请输入有效的电话号码",
+    "phoneRequired": "请输入电话号码"
+  },
+  "smsLogs": {
+    "pageTitle": "短信日志",
+    "pageDescription": "查看从您账户发送的所有短信",
+    "title": "短信历史",
+    "description": "查看和筛选从您账户发送的所有短信",
+    "searchPlaceholder": "按电话、姓名或消息搜索...",
+    "filters": {
+      "status": "状态",
+      "type": "类型",
+      "allStatus": "所有状态",
+      "allTypes": "所有类型"
+    },
+    "status": {
+      "sent": "已发送",
+      "delivered": "已送达",
+      "failed": "失败",
+      "undelivered": "未送达",
+      "pending": "待处理",
+      "queued": "队列中",
+      "sending": "发送中"
+    },
+    "types": {
+      "weddingReminder": "婚礼提醒",
+      "rsvpConfirmation": "RSVP确认",
+      "paymentReminder": "付款提醒",
+      "paymentReceived": "收到付款",
+      "vendorNotification": "供应商通知",
+      "eventUpdate": "活动更新",
+      "general": "一般"
+    },
+    "table": {
+      "recipient": "收件人",
+      "message": "消息",
+      "type": "类型",
+      "status": "状态",
+      "segments": "段数",
+      "language": "语言",
+      "sent": "已发送",
+      "notSent": "未发送",
+      "unknown": "未知"
+    },
+    "empty": {
+      "title": "未找到短信",
+      "description": "尝试调整过滤器以查看更多结果",
+      "noSmsYet": "尚未发送短信。开始发送您的第一条短信！"
+    },
+    "pagination": {
+      "showing": "显示",
+      "to": "至",
+      "of": "共",
+      "messages": "条消息",
+      "previous": "上一页",
+      "next": "下一页"
+    }
+  },
+  "smsStats": {
+    "totalSms": "短信总数",
+    "successfullySent": "成功发送",
+    "delivered": "已送达",
+    "failed": "失败",
+    "successRate": "成功率",
+    "last30Days": "最近30天"
+  },
+  "paymentSettings": {
+    "pageTitle": "支付设置",
+    "pageDescription": "管理您的支付设置和Stripe Connect账户",
+    "connectTab": "Stripe Connect",
+    "methodsTab": "支付方式"
+  },
+  "stripeConnect": {
+    "title": "设置Stripe Connect",
+    "setupTitle": "Stripe Connect账户",
+    "description": "创建Stripe Connect账户以直接从客户接收付款",
+    "manageDescription": "管理您的支付处理账户",
+    "emailLabel": "电子邮件地址",
+    "emailPlaceholder": "your@email.com",
+    "businessNameLabel": "企业名称",
+    "businessNamePlaceholder": "您的婚礼策划企业",
+    "whyStripe": "为什么选择Stripe Connect？",
+    "whyStripeText": "这使您能够直接从客户接收付款。我们通过Stripe安全地处理支付流程。",
+    "createButton": "创建Stripe账户",
+    "creating": "创建账户中...",
+    "businessName": "企业名称",
+    "email": "电子邮件",
+    "country": "国家",
+    "currency": "货币",
+    "chargesEnabled": "已启用收款",
+    "chargesDisabled": "已禁用收款",
+    "payoutsEnabled": "已启用付款",
+    "payoutsDisabled": "已禁用付款",
+    "statusActive": "激活",
+    "statusReview": "审核中",
+    "statusRequired": "需要设置",
+    "actionRequired": "需要操作：",
+    "actionRequiredText": "完成您的Stripe入驻流程以开始接收付款。此过程大约需要5分钟。",
+    "completeOnboarding": "完成Stripe入驻",
+    "underReview": "审核中：",
+    "underReviewText": "您的账户正在由Stripe审核中。通常需要1-2个工作日。",
+    "loading": "加载中...",
+    "successMessage": "Stripe Connect账户创建成功",
+    "errorMessage": "账户创建失败"
+  },
+  "payments": {
+    "pageTitle": "支付",
+    "pageDescription": "查看支付历史并处理新支付",
+    "createInvoice": "创建发票",
+    "title": "支付历史",
+    "description": "查看和管理所有支付交易",
+    "searchPlaceholder": "按发票、描述或支付ID搜索...",
+    "filters": {
+      "status": "状态",
+      "allStatus": "所有状态"
+    },
+    "status": {
+      "succeeded": "成功",
+      "pending": "待处理",
+      "processing": "处理中",
+      "requiresAction": "需要操作",
+      "failed": "失败",
+      "canceled": "已取消",
+      "refunded": "已退款",
+      "partiallyRefunded": "部分退款"
+    },
+    "table": {
+      "invoice": "发票",
+      "client": "客户",
+      "amount": "金额",
+      "status": "状态",
+      "method": "方式",
+      "date": "日期",
+      "noDescription": "无描述",
+      "unknown": "未知"
+    },
+    "empty": {
+      "title": "未找到支付",
+      "description": "尝试调整过滤器以查看更多结果",
+      "noPaymentsYet": "尚未处理任何支付。创建发票以开始！"
+    },
+    "pagination": {
+      "showing": "显示",
+      "to": "至",
+      "of": "共",
+      "payments": "笔支付",
+      "previous": "上一页",
+      "next": "下一页"
+    }
+  },
+  "invoices": {
+    "pageTitle": "发票",
+    "pageDescription": "创建和管理发票",
+    "newInvoice": "新发票",
+    "title": "发票",
+    "description": "为您的客户创建和管理发票",
+    "searchPlaceholder": "按发票号、客户或描述搜索...",
+    "filters": {
+      "status": "状态",
+      "allStatus": "所有状态"
+    },
+    "status": {
+      "draft": "草稿",
+      "open": "未付",
+      "paid": "已付",
+      "overdue": "逾期",
+      "void": "作废",
+      "uncollectible": "无法收回"
+    },
+    "table": {
+      "invoiceNumber": "发票号",
+      "client": "客户",
+      "amount": "金额",
+      "status": "状态",
+      "dueDate": "到期日",
+      "created": "创建时间",
+      "noDescription": "无描述",
+      "unknown": "未知",
+      "noDueDate": "无"
+    },
+    "empty": {
+      "title": "未找到发票",
+      "description": "尝试调整过滤器以查看更多结果",
+      "noInvoicesYet": "尚未创建任何发票。创建您的第一张发票以开始！"
+    },
+    "pagination": {
+      "showing": "显示",
+      "to": "至",
+      "of": "共",
+      "invoices": "张发票",
+      "previous": "上一页",
+      "next": "下一页"
+    }
+  },
+  "paymentStats": {
+    "totalRevenue": "总收入",
+    "totalPayments": "总支付笔数",
+    "successRate": "成功率",
+    "totalRefunded": "总退款额",
+    "last30Days": "最近30天"
+  },
+  "paymentMethods": {
+    "title": "保存的支付方式",
+    "description": "管理您保存的支付方式以快速结账",
+    "empty": {
+      "title": "没有保存的支付方式",
+      "description": "支付方式将在您第一次付款时自动保存。"
+    }
+  },
+  "analytics": {
+    "title": "分析仪表板",
+    "description": "全面了解您的业务表现",
+    "tabs": {
+      "revenue": "收入",
+      "payments": "支付",
+      "notifications": "通知",
+      "trends": "趋势"
+    },
+    "stats": {
+      "totalRevenue": "总收入",
+      "transactions": "交易",
+      "averageOrder": "平均订单",
+      "emailsSent": "已发送邮件",
+      "smsSent": "已发送短信",
+      "activeClients": "活跃客户",
+      "last30Days": "过去30天",
+      "totalPayments": "总支付",
+      "perTransaction": "每笔交易",
+      "withTransactions": "有交易"
+    },
+    "charts": {
+      "revenueOverTime": "收入随时间变化",
+      "revenueDescription": "每日收入和交易数量",
+      "paymentStatusBreakdown": "支付状态细分",
+      "paymentStatusDescription": "按支付状态分布",
+      "notificationStatistics": "通知统计",
+      "notificationDescription": "电子邮件和短信送达性能",
+      "topRevenueClients": "收入最高客户",
+      "topClientsDescription": "产生最高收入的客户",
+      "paymentSummary": "支付摘要",
+      "paymentSummaryDescription": "按状态的总支付额",
+      "monthlyRevenueTrend": "月度收入趋势",
+      "monthlyTrendDescription": "过去12个月的收入表现"
+    },
+    "metrics": {
+      "totalSent": "总发送",
+      "delivered": "已送达",
+      "failed": "失败",
+      "opened": "已打开",
+      "clicked": "已点击",
+      "deliveryRate": "送达率",
+      "transactions": "交易",
+      "total": "总计"
+    },
+    "loading": "加载中...",
+    "loadingChartData": "加载图表数据...",
+    "loadingPaymentSummary": "加载支付摘要...",
+    "loadingTrendData": "加载趋势数据...",
+    "showingDataFrom": "显示数据从",
+    "to": "到",
+    "pickDateRange": "选择日期范围",
+    "presets": {
+      "last7Days": "过去7天",
+      "last30Days": "过去30天",
+      "last3Months": "过去3个月",
+      "thisMonth": "本月",
+      "lastMonth": "上月"
+    }
+  },
+  "pdf": {
+    "invoice": "发票",
+    "downloadInvoice": "下载发票",
+    "previewInvoice": "预览发票",
+    "downloadPDF": "下载PDF",
+    "previewInBrowser": "在浏览器中预览",
+    "generating": "生成中...",
+    "generatingPDF": "正在生成PDF...",
+    "success": {
+      "downloaded": "发票下载成功",
+      "opened": "发票已在新标签页中打开"
+    },
+    "error": {
+      "generateFailed": "生成发票失败。请重试。",
+      "downloadFailed": "下载PDF失败。请重试。"
+    },
+    "invoiceDetails": {
+      "number": "发票号码",
+      "date": "发票日期",
+      "dueDate": "到期日期",
+      "status": "状态",
+      "billTo": "账单收件人",
+      "items": "项目",
+      "description": "描述",
+      "quantity": "数量",
+      "unitPrice": "单价",
+      "total": "总计",
+      "subtotal": "小计",
+      "discount": "折扣",
+      "tax": "税费",
+      "grandTotal": "总金额",
+      "notes": "备注",
+      "paymentTerms": "付款条款",
+      "thankYou": "感谢您的惠顾！",
+      "generatedOn": "生成于"
+    },
+    "status": {
+      "paid": "已付款",
+      "pending": "待处理",
+      "overdue": "逾期"
+    }
+  },
+  "whatsapp": {
+    "title": "WhatsApp Business",
+    "description": "向客户发送WhatsApp消息并跟踪送达",
+    "sendMessage": "发送消息",
+    "messageHistory": "消息历史",
+    "information": "信息",
+    "send": "发送WhatsApp",
+    "sending": "发送中...",
+    "tabs": {
+      "send": "发送消息",
+      "history": "消息历史",
+      "info": "信息"
+    },
+    "form": {
+      "toNumber": "接收号码（含国家代码）",
+      "toNumberPlaceholder": "+1234567890",
+      "message": "消息",
+      "messagePlaceholder": "在此输入您的WhatsApp消息...",
+      "characterCount": "字符"
+    },
+    "stats": {
+      "totalSent": "总发送",
+      "delivered": "已送达",
+      "read": "已读",
+      "failed": "失败",
+      "deliveryRate": "送达率"
+    },
+    "tips": {
+      "title": "WhatsApp提示",
+      "description": "WhatsApp消息传递最佳实践",
+      "phoneFormat": "电话号码格式",
+      "phoneFormatDesc": "始终包含国家代码（例如，+86代表中国，+1代表美国）。示例：+1234567890",
+      "messageLimits": "消息限制",
+      "messageLimitsDesc": "WhatsApp消息限制为1,600个字符。保持消息简洁。",
+      "optIn": "需要选择加入",
+      "optInDesc": "用户必须选择加入才能接收WhatsApp消息。确保您获得许可。",
+      "responseTime": "响应时间",
+      "responseTimeDesc": "WhatsApp消息通常会立即送达，但可能需要几分钟。",
+      "pricing": "定价",
+      "pricingDesc": "Twilio按每条WhatsApp消息收费。请查看您的Twilio控制台了解当前费率。"
+    },
+    "setup": {
+      "title": "需要WhatsApp设置",
+      "description": "要发送WhatsApp消息，您需要配置Twilio WhatsApp Business号码。",
+      "step1": "Twilio账户",
+      "step1Desc": "创建Twilio账户并启用WhatsApp Business API。",
+      "step2": "WhatsApp号码",
+      "step2Desc": "从Twilio申请启用WhatsApp的电话号码。",
+      "step3": "环境变量",
+      "step3Desc": "将TWILIO_WHATSAPP_NUMBER添加到您的.env.local文件。",
+      "step4": "测试消息",
+      "step4Desc": "在正式上线前使用Twilio沙箱测试消息。",
+      "step5": "正式上线",
+      "step5Desc": "提交您的商业资料以获得批准，以便发送到真实号码。"
+    },
+    "features": {
+      "title": "WhatsApp Business API",
+      "description": "功能和能力",
+      "richMedia": "富媒体支持",
+      "richMediaDesc": "与文本消息一起发送图像、视频、文档和位置数据。",
+      "twoWay": "双向消息传递",
+      "twoWayDesc": "实时接收和回复客户的消息。",
+      "templates": "消息模板",
+      "templatesDesc": "为常见场景创建预先批准的消息模板。",
+      "receipts": "送达回执",
+      "receiptsDesc": "跟踪消息何时被发送、送达和被接收者阅读。"
+    },
+    "success": {
+      "sent": "WhatsApp消息发送成功"
+    },
+    "error": {
+      "invalidNumber": "无效的WhatsApp号码格式。必须包含国家代码（例如，+1234567890）",
+      "sendFailed": "发送WhatsApp消息失败",
+      "messageTooLong": "消息过长（最多1600字符）",
+      "messageRequired": "消息为必填项"
+    },
+    "table": {
+      "date": "日期",
+      "client": "客户",
+      "toNumber": "接收号码",
+      "message": "消息",
+      "status": "状态",
+      "noMessages": "尚未发送WhatsApp消息"
+    },
+    "status": {
+      "queued": "排队中",
+      "sent": "已发送",
+      "delivered": "已送达",
+      "read": "已读",
+      "failed": "失败",
+      "undelivered": "未送达"
+    }
+  },
+  "notifications": {
+    "push_title": "推送通知",
+    "push_desc": "接收即时浏览器通知",
+    "enable": "启用推送通知",
+    "enabled": "推送通知已启用",
+    "blocked": "通知已被阻止",
+    "preferences_title": "通知偏好设置",
+    "payment_alerts": "付款提醒",
+    "payment_alerts_desc": "收到付款、到期、失败",
+    "rsvp_updates": "RSVP更新",
+    "rsvp_updates_desc": "宾客RSVP确认",
+    "event_reminders": "活动提醒",
+    "event_reminders_desc": "即将到来的活动通知",
+    "task_deadlines": "任务截止日期",
+    "task_deadlines_desc": "截止日期提醒",
+    "vendor_messages": "供应商消息",
+    "vendor_messages_desc": "来自供应商的消息"
+  }
+}

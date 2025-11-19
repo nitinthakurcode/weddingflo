@@ -3,9 +3,11 @@
 import { useEffect, Suspense } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { initPostHog, posthog } from '@/lib/analytics/posthog-client';
+// TODO: PostHog temporarily disabled due to posthog-js compatibility issue
+// import { initPostHog, posthog } from '@/lib/analytics/posthog-client';
 import { setUserContext } from '@/lib/errors/sentry.client';
 
+// TODO: PostHog tracking temporarily disabled
 // Separate component for page view tracking that uses searchParams
 function PageViewTracker() {
   const pathname = usePathname();
@@ -14,10 +16,10 @@ function PageViewTracker() {
   // Track page views
   useEffect(() => {
     if (pathname) {
-      const url = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '');
-      posthog.capture('$pageview', {
-        $current_url: url,
-      });
+      // const url = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '');
+      // posthog.capture('$pageview', {
+      //   $current_url: url,
+      // });
     }
   }, [pathname, searchParams]);
 
@@ -29,22 +31,22 @@ function AnalyticsProviderInner({ children }: { children: React.ReactNode }) {
 
   // Initialize PostHog
   useEffect(() => {
-    initPostHog();
+    // initPostHog(); // Temporarily disabled
   }, []);
 
   // Track user identification
   useEffect(() => {
     if (!user) {
-      posthog.reset();
+      // posthog.reset(); // Temporarily disabled
       return;
     }
 
-    // Identify user in PostHog
-    posthog.identify(user.id, {
-      email: user.emailAddresses[0]?.emailAddress,
-      name: user.fullName || user.firstName,
-      createdAt: user.createdAt,
-    });
+    // Identify user in PostHog (temporarily disabled)
+    // posthog.identify(user.id, {
+    //   email: user.emailAddresses[0]?.emailAddress,
+    //   name: user.fullName || user.firstName,
+    //   createdAt: user.createdAt,
+    // });
 
     // Set user context in Sentry
     setUserContext({

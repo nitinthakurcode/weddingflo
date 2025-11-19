@@ -1,17 +1,31 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
+/**
+ * NOVEMBER 2025 MIDDLEWARE PATTERN (MINIMAL)
+ *
+ * Minimal middleware: ONLY JWT verification
+ * NO database queries in middleware
+ * NO i18n logic in middleware
+ * NO additional processing
+ *
+ * Session claims in tRPC context (<5ms) ⚡
+ */
+
 // Public paths that don't require authentication
 const isPublicRoute = createRouteMatcher([
   "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
+  "/(.*)sign-in(.*)",
+  "/(.*)sign-up(.*)",
+  "/(.*)portal(.*)",
   "/api/webhooks(.*)",
-  "/qr(.*)",
-  "/check-in(.*)",
+  "/api/health(.*)",
+  "/manifest.webmanifest",
+  "/robots.txt",
+  "/sitemap.xml",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Protect all routes except public ones
+  // ONLY JWT verification - no database queries, no i18n logic
   if (!isPublicRoute(req)) {
     await auth.protect();
   }

@@ -42,9 +42,13 @@ test.describe('Authentication', () => {
 
 test.describe('404 Page', () => {
   test('should show 404 page for non-existent routes', async ({ page }) => {
-    await page.goto('/this-page-does-not-exist-xyz123')
+    await page.goto('/en/this-page-does-not-exist-xyz123')
 
-    // Should show 404 content
-    await expect(page.locator('text=/404|not found/i')).toBeVisible()
+    // Wait for page to load
+    await page.waitForLoadState('networkidle')
+
+    // Should show 404 content - check for both heading elements
+    const heading = page.locator('h1, h2').filter({ hasText: /404|not found/i })
+    await expect(heading.first()).toBeVisible({ timeout: 10000 })
   })
 })

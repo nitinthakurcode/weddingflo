@@ -93,7 +93,7 @@ Respond ONLY with valid JSON in this exact format:
     messages: [
       {
         role: 'system',
-        content: 'You are an expert wedding planner with deep knowledge of event scheduling, logistics, and timeline optimization.',
+        content: 'You are an expert wedding planner with deep knowledge of event scheduling, logistics, and timeline optimization. Always respond with valid JSON only.',
       },
       {
         role: 'user',
@@ -102,7 +102,6 @@ Respond ONLY with valid JSON in this exact format:
     ],
     temperature: AI_DEFAULTS.temperature,
     max_tokens: 3000,
-    response_format: { type: 'json_object' },
   });
 
   const content = response.choices[0]?.message?.content;

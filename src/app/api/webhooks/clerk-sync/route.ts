@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       // Determine role based on super admin email
       const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
       const isSuperAdmin = email === superAdminEmail;
-      const role = isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.COMPANY_ADMIN;
+      const role: UserRole = isSuperAdmin ? 'super_admin' : 'company_admin';
 
       console.log(`🔐 Assigning role "${role}" to user ${email}`);
 
@@ -120,8 +120,8 @@ export async function POST(req: Request) {
           const companyInsert: TablesInsert<'companies'> = {
             name: 'WeddingFlow Platform',
             subdomain: 'platform',
-            subscription_tier: SubscriptionTier.ENTERPRISE,
-            subscription_status: SubscriptionStatus.ACTIVE,
+            subscription_tier: 'enterprise' as SubscriptionTier,
+            subscription_status: 'active' as SubscriptionStatus,
             logo_url: null,
             branding: null,
             settings: null,
@@ -152,8 +152,8 @@ export async function POST(req: Request) {
         const companyInsert: TablesInsert<'companies'> = {
           name: companyName,
           subdomain,
-          subscription_tier: SubscriptionTier.FREE,
-          subscription_status: SubscriptionStatus.TRIALING,
+          subscription_tier: 'free' as SubscriptionTier,
+          subscription_status: 'trialing' as SubscriptionStatus,
           trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
           logo_url: null,
           branding: null,

@@ -88,14 +88,12 @@ export function SpendingTimelineChart({ data, isLoading }: SpendingTimelineProps
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
           <ComposedChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
-              className="text-xs"
               tick={{ fill: 'hsl(var(--muted-foreground))' }}
             />
             <YAxis
-              className="text-xs"
               tick={{ fill: 'hsl(var(--muted-foreground))' }}
               tickFormatter={(value) => `$${value / 1000}k`}
             />
