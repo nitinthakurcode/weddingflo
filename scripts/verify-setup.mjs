@@ -75,9 +75,9 @@ async function main() {
       validator: (v) => v?.includes('supabase.co'),
       help: 'Get from Supabase Dashboard > Settings > API',
     },
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: {
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {
       validator: (v) => v?.startsWith('eyJ'),
-      help: 'Get from Supabase Dashboard > Settings > API',
+      help: 'Get from Supabase Dashboard > Settings > API (anon/public key)',
     },
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: {
       validator: (v) => v?.startsWith('pk_'),
@@ -125,11 +125,11 @@ async function main() {
   // 4. Test Supabase connection
   header('Database Connection')
 
-  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
     try {
       const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
       )
 
       // Test basic connection
@@ -197,10 +197,11 @@ async function main() {
   // 6. Check Clerk domain configuration
   header('Clerk Configuration')
 
-  info('Manual verification required:')
-  info('  1. In Clerk Dashboard > Sessions > Customize session token')
-  info('  2. Ensure claims include: {"metadata":{"role":"{{user.public_metadata.role}}","company_id":"{{user.public_metadata.company_id}}"}}')
-  info('  3. In Supabase Dashboard > Authentication > Add Clerk as third-party provider')
+  info('November 2025 Native Integration:')
+  info('  1. Clerk publicMetadata is accessed directly via session claims')
+  info('  2. No JWT templates needed - native integration handles this')
+  info('  3. User metadata synced via /api/user/sync endpoint')
+  info('  4. In Supabase Dashboard > Authentication > Add Clerk as third-party provider')
 
   // Summary
   header('Summary')
