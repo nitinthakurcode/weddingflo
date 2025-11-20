@@ -1,11 +1,17 @@
 import { Resend } from 'resend';
 
-if (!process.env.RESEND_API_KEY) {
-  throw new Error('RESEND_API_KEY is not defined in environment variables');
-}
+// Lazy initialization - client created on first use (not at build time)
+let resendClient: Resend | null = null;
 
-// Initialize Resend client
-export const resend = new Resend(process.env.RESEND_API_KEY);
+function getResendClient(): Resend {
+  if (!resendClient) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY is not defined in environment variables');
+    }
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendClient;
+}
 
 // Default sender email
 // For production: update with your verified domain (verify at https://resend.com/domains)
@@ -49,6 +55,7 @@ export async function sendEmail({
   }>;
 }) {
   try {
+    const resend = getResendClient();
     const result = await resend.emails.send({
       from,
       to,

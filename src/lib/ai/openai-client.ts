@@ -1,53 +1,77 @@
 import OpenAI from 'openai'
 
 // =====================================================
-// DUAL AI PROVIDER ARCHITECTURE (October 2025)
+// DUAL AI PROVIDER ARCHITECTURE (November 2025)
 // =====================================================
 // Primary: DeepSeek V3 (10x cheaper, $0.27/$1.10 per 1M tokens)
 // Fallback: OpenAI GPT-4o ($2.50/$10 per 1M tokens)
 // Auto-switching: Seamless failover for 100% uptime
 // Cost Savings: 85-90% reduction vs OpenAI-only
+// Lazy initialization: Clients created on first use (not at build time)
 // =====================================================
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('Missing OPENAI_API_KEY environment variable (required for fallback)')
+// Lazy initialization - clients created on first use
+let openaiClient: OpenAI | null = null
+let deepseekClient: OpenAI | null = null
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('Missing OPENAI_API_KEY environment variable (required for fallback)')
+    }
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  }
+  return openaiClient
 }
 
-// Initialize DeepSeek client (primary provider)
-const deepseek = process.env.DEEPSEEK_API_KEY
-  ? new OpenAI({
+function getDeepSeekClient(): OpenAI | null {
+  if (deepseekClient === null && process.env.DEEPSEEK_API_KEY) {
+    deepseekClient = new OpenAI({
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseURL: process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1',
     })
-  : null
+  }
+  return deepseekClient
+}
 
-// Initialize OpenAI client (fallback provider)
-const openaiClient = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Export getter for primary client (DeepSeek if available, otherwise OpenAI)
+export function getAIClient(): OpenAI {
+  return getDeepSeekClient() || getOpenAIClient()
+}
+
+// Legacy exports for backward compatibility
+export const openai = new Proxy({} as OpenAI, {
+  get(_, prop) {
+    return (getAIClient() as any)[prop]
+  }
 })
 
-// Export primary client (DeepSeek if available, otherwise OpenAI)
-export const openai = deepseek || openaiClient
+export const fallbackAI = new Proxy({} as OpenAI, {
+  get(_, prop) {
+    return (getOpenAIClient() as any)[prop]
+  }
+})
 
-// Export fallback client for explicit use
-export const fallbackAI = openaiClient
-
-// Export provider status
+// Export provider status (evaluated at runtime)
 export const AI_PROVIDER = {
-  primary: deepseek ? 'deepseek' : 'openai',
-  hasFallback: !!deepseek, // Only true if DeepSeek is primary
-  isUsingDeepSeek: !!deepseek,
+  get primary() { return process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'openai' },
+  get hasFallback() { return !!process.env.DEEPSEEK_API_KEY },
+  get isUsingDeepSeek() { return !!process.env.DEEPSEEK_API_KEY },
 } as const
 
-// Model configuration
+// Model configuration (evaluated at runtime)
 export const AI_CONFIG = {
-  model: deepseek
-    ? process.env.DEEPSEEK_MODEL || 'deepseek-chat'
-    : process.env.OPENAI_MODEL || 'gpt-4o',
+  get model() {
+    return process.env.DEEPSEEK_API_KEY
+      ? (process.env.DEEPSEEK_MODEL || 'deepseek-chat')
+      : (process.env.OPENAI_MODEL || 'gpt-4o')
+  },
   fallbackModel: process.env.OPENAI_MODEL || 'gpt-4o',
   maxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '2000'),
   temperature: 0.7,
-  provider: AI_PROVIDER.primary,
+  get provider() { return AI_PROVIDER.primary },
 } as const
 
 // Cost calculation (per token)

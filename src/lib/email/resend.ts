@@ -1,10 +1,24 @@
 import { Resend } from 'resend';
 
-if (!process.env.RESEND_API_KEY) {
-  throw new Error('RESEND_API_KEY is not set');
+// Lazy initialization - client created on first use (not at build time)
+let resendClient: Resend | null = null;
+
+function getResendClient(): Resend {
+  if (!resendClient) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY is not set');
+    }
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendClient;
 }
 
-export const resend = new Resend(process.env.RESEND_API_KEY);
+// Legacy export for backward compatibility
+export const resend = new Proxy({} as Resend, {
+  get(_, prop) {
+    return (getResendClient() as any)[prop];
+  }
+});
 
 // Email subject lines in all 7 languages
 export const EMAIL_SUBJECTS = {

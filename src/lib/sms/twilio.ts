@@ -1,23 +1,33 @@
 import twilio from 'twilio';
+import type { Twilio } from 'twilio';
 
-if (!process.env.TWILIO_ACCOUNT_SID) {
-  throw new Error('TWILIO_ACCOUNT_SID is not set');
+// Lazy initialization - client created on first use (not at build time)
+let twilioClientInstance: Twilio | null = null;
+
+function getTwilioClient(): Twilio {
+  if (!twilioClientInstance) {
+    if (!process.env.TWILIO_ACCOUNT_SID) {
+      throw new Error('TWILIO_ACCOUNT_SID is not set');
+    }
+    if (!process.env.TWILIO_AUTH_TOKEN) {
+      throw new Error('TWILIO_AUTH_TOKEN is not set');
+    }
+    twilioClientInstance = twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+  }
+  return twilioClientInstance;
 }
 
-if (!process.env.TWILIO_AUTH_TOKEN) {
-  throw new Error('TWILIO_AUTH_TOKEN is not set');
-}
+// Legacy export for backward compatibility
+export const twilioClient = new Proxy({} as Twilio, {
+  get(_, prop) {
+    return (getTwilioClient() as any)[prop];
+  }
+});
 
-if (!process.env.TWILIO_PHONE_NUMBER) {
-  throw new Error('TWILIO_PHONE_NUMBER is not set');
-}
-
-export const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-export const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+export const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER || '';
 
 // SMS message templates by locale (keep concise for SMS limits)
 export const SMS_TEMPLATES = {
