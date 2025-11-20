@@ -106,41 +106,85 @@ export default function ClientsPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    // Map form data to database schema (partner1/partner2 structure)
-    const [bride_first, bride_last] = formData.bride_name.split(' ')
-    const [groom_first, groom_last] = formData.groom_name.split(' ')
+    // Parse names - split on whitespace and handle single-word names
+    const brideParts = formData.bride_name.trim().split(/\s+/)
+    const groomParts = formData.groom_name.trim().split(/\s+/)
 
-    const mappedData = {
-      partner1_first_name: bride_first || formData.bride_name,
-      partner1_last_name: bride_last || '',
-      partner1_email: formData.email,
-      partner1_phone: formData.phone,
-      partner2_first_name: groom_first || formData.groom_name,
-      partner2_last_name: groom_last || '',
-      wedding_date: formData.wedding_date,
-      venue: formData.venue,
-      notes: formData.notes,
-    }
+    // For single-word names, use as both first and last name to satisfy validation
+    const partner1_first_name = brideParts[0] || ''
+    const partner1_last_name = brideParts.length > 1 ? brideParts.slice(1).join(' ') : brideParts[0] || ''
+    const partner2_first_name = groomParts[0] || ''
+    const partner2_last_name = groomParts.length > 1 ? groomParts.slice(1).join(' ') : groomParts[0] || ''
 
     if (editingClient) {
-      updateMutation.mutate({
+      // For updates, only send fields that have values (undefined = don't update)
+      const updateData: {
+        id: string
+        partner1_first_name?: string
+        partner1_last_name?: string
+        partner1_email?: string
+        partner1_phone?: string
+        partner2_first_name?: string
+        partner2_last_name?: string
+        wedding_date?: string
+        venue?: string
+        notes?: string
+      } = {
         id: editingClient.id,
-        ...mappedData,
-      })
+      }
+
+      if (partner1_first_name) updateData.partner1_first_name = partner1_first_name
+      if (partner1_last_name) updateData.partner1_last_name = partner1_last_name
+      if (formData.email) updateData.partner1_email = formData.email
+      if (formData.phone) updateData.partner1_phone = formData.phone
+      if (partner2_first_name) updateData.partner2_first_name = partner2_first_name
+      if (partner2_last_name) updateData.partner2_last_name = partner2_last_name
+      if (formData.wedding_date) updateData.wedding_date = formData.wedding_date
+      if (formData.venue) updateData.venue = formData.venue
+      if (formData.notes) updateData.notes = formData.notes
+
+      updateMutation.mutate(updateData)
     } else {
-      createMutation.mutate(mappedData)
+      // For creates, all required fields must be sent
+      // If email is empty, show error
+      if (!formData.email) {
+        toast({ title: 'Error', description: 'Email is required for new clients', variant: 'destructive' })
+        return
+      }
+
+      const createData = {
+        partner1_first_name,
+        partner1_last_name,
+        partner1_email: formData.email,
+        partner1_phone: formData.phone || undefined,
+        partner2_first_name: partner2_first_name || undefined,
+        partner2_last_name: partner2_last_name || undefined,
+        wedding_date: formData.wedding_date || undefined,
+        venue: formData.venue || undefined,
+        notes: formData.notes || undefined,
+      }
+
+      createMutation.mutate(createData)
     }
   }
 
   const handleEdit = (client: any) => {
     setEditingClient(client)
+
+    // Format wedding date for the date input (YYYY-MM-DD)
+    let formattedDate = ''
+    if (client.wedding_date) {
+      const date = new Date(client.wedding_date)
+      formattedDate = date.toISOString().split('T')[0]
+    }
+
     setFormData({
-      bride_name: client.bride_name || '',
-      groom_name: client.groom_name || '',
-      wedding_date: client.wedding_date || '',
+      bride_name: `${client.partner1_first_name || ''} ${client.partner1_last_name || ''}`.trim(),
+      groom_name: `${client.partner2_first_name || ''} ${client.partner2_last_name || ''}`.trim(),
+      wedding_date: formattedDate,
       venue: client.venue || '',
-      email: client.email || '',
-      phone: client.phone || '',
+      email: client.partner1_email || '',
+      phone: client.partner1_phone || '',
       notes: client.notes || '',
     })
   }

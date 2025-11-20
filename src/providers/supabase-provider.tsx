@@ -8,24 +8,23 @@ import type { Database } from '@/lib/database.types'
 const SupabaseContext = createContext<SupabaseClient<Database> | null>(null)
 
 /**
- * SupabaseProvider - Native Clerk + Supabase Integration (April 2025+)
+ * SupabaseProvider - Native Clerk + Supabase Integration (November 2025)
  *
- * Uses the new native integration where Supabase directly accepts Clerk session tokens.
- * No JWT templates or manual header manipulation required.
+ * Uses native third-party auth integration where Supabase directly accepts
+ * Clerk session tokens. No JWT templates required.
  *
- * Benefits:
- * - No need to create JWT templates in Clerk dashboard
- * - No need to share Supabase JWT secret with Clerk
- * - Tokens are automatically refreshed on each request
- * - Clerk automatically adds "role": "authenticated" claim
+ * Required setup:
+ * 1. Supabase: Add Clerk as third-party auth provider
+ * 2. Clerk: Customize session token with metadata claims:
+ *    { "metadata": { "role": "{{user.public_metadata.role}}", "company_id": "{{user.public_metadata.company_id}}" } }
  *
- * @see https://clerk.com/docs/integrations/databases/supabase
+ * @see https://supabase.com/docs/guides/auth/third-party/clerk
  */
 export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   const { isLoaded, getToken } = useAuth()
 
-  // Create Supabase client with native Clerk integration (2025)
-  // Uses accessToken callback to fetch fresh token per request
+  // Create Supabase client with Clerk JWT template
+  // Uses accessToken callback to fetch fresh token with publicMetadata
   const supabase = useMemo(() => {
     if (!isLoaded) {
       return null  // Return null until Clerk is fully loaded
@@ -36,6 +35,8 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
       {
         async accessToken() {
+          // Native integration (2025) - no template needed
+          // Session token already includes metadata claims
           return (await getToken()) ?? null
         },
       }

@@ -29,7 +29,13 @@ import { routing } from '@/i18n/routing';
 const handleI18nRouting = createMiddleware(routing);
 
 export default clerkMiddleware((auth, req) => {
-  // ONLY handle internationalization routing
+  // Skip i18n routing for API routes
+  const { pathname } = req.nextUrl;
+  if (pathname.startsWith('/api') || pathname.startsWith('/trpc')) {
+    return;
+  }
+
+  // ONLY handle internationalization routing for non-API routes
   // No auth checks here - those happen at page/layout level
   return handleI18nRouting(req);
 });

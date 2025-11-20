@@ -3,11 +3,6 @@ import { GoogleCalendarOAuth } from '@/lib/calendar/google-oauth';
 import { GoogleCalendarSync } from '@/lib/calendar/google-calendar-sync';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SECRET_KEY!
-);
-
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
@@ -21,6 +16,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Create Supabase client inside handler (not at module level)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SECRET_KEY!
+    );
     const oauth = new GoogleCalendarOAuth();
     const tokens = await oauth.getTokensFromCode(code);
 

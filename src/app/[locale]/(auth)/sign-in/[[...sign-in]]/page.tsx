@@ -1,9 +1,13 @@
 'use client';
 
 import { SignIn } from '@clerk/nextjs';
-import { Building2, Sparkles } from 'lucide-react';
+import { Building2 } from 'lucide-react';
+import { useParams } from 'next/navigation';
 
 export default function SignInPage() {
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-pink-50 to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
@@ -31,8 +35,8 @@ export default function SignInPage() {
                 card: 'shadow-2xl',
               },
             }}
-            afterSignInUrl="/en/dashboard"
-            signUpUrl="/en/sign-up"
+            afterSignInUrl={`/${locale}/dashboard`}
+            signUpUrl={`/${locale}/sign-up`}
           />
         </div>
 

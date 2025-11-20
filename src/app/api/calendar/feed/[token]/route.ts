@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ICalGenerator, type ICalEvent } from '@/lib/calendar/ical-generator';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SECRET_KEY!
-);
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -18,6 +13,12 @@ export async function GET(
     if (!token || token.length !== 64) {
       return new NextResponse('Invalid token', { status: 400 });
     }
+
+    // Create Supabase client inside handler (not at module level)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SECRET_KEY!
+    );
 
     // Get token from database
     const { data: tokenData, error: tokenError } = await supabase

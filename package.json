@@ -20,6 +20,7 @@
     "e2e": "playwright test",
     "seed:admin": "tsx scripts/seed-super-admin.ts",
     "verify": "./scripts/pre-deploy-check.sh",
+    "verify:setup": "node scripts/verify-setup.mjs",
     "predeploy": "npm run lint && npm run type-check",
     "deploy": "vercel --prod",
     "deploy:preview": "vercel",

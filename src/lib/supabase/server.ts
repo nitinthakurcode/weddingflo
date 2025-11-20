@@ -53,6 +53,8 @@ export function createServerSupabaseClient() {
     {
       async accessToken() {
         const { getToken } = await auth()
+        // Native integration (2025) - no template needed
+        // Session token already includes metadata claims
         const jwt = await getToken()
         if (!jwt) throw new Error("Not authenticated")
         return jwt

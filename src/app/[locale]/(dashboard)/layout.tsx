@@ -15,22 +15,54 @@ export default async function DashboardLayout({
 }) {
   const { userId, sessionClaims } = await auth();
 
+  // Get locale from headers for proper redirects
+  const headersList = await headers();
+  const url = headersList.get('x-url') || headersList.get('referer') || '';
+  const localeMatch = url.match(/\/([a-z]{2})\//);
+  const locale = localeMatch ? localeMatch[1] : 'en';
+
+  // Not authenticated - redirect to sign-in
   if (!userId) {
-    redirect('/en/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
-  const role = sessionClaims?.metadata?.role as string | undefined;
-  const companyId = sessionClaims?.metadata?.company_id as string | undefined;
+  // Check both paths for compatibility (native integration uses 'metadata', old JWT template uses 'publicMetadata')
+  const metadata = sessionClaims?.metadata as { role?: string; company_id?: string } | undefined;
+  const publicMetadata = (sessionClaims as any)?.publicMetadata as { role?: string; company_id?: string } | undefined;
 
-  // Check if user has access to this section
-  if (role !== 'company_admin' && role !== 'staff') {
-    redirect('/en/sign-in');
+  const role = metadata?.role || publicMetadata?.role as string | undefined;
+  const companyId = metadata?.company_id || publicMetadata?.company_id as string | undefined;
+
+  // Debug: Log what we're getting
+  console.log('[Dashboard Layout] Session claims:', {
+    hasMetadata: !!metadata,
+    hasPublicMetadata: !!publicMetadata,
+    role,
+    companyId,
+    rawClaims: JSON.stringify(sessionClaims).slice(0, 200)
+  });
+
+  // User is authenticated but missing role/company metadata
+  // This happens when webhook hasn't fired yet or failed
+  // Redirect to sync page (outside dashboard layout) to prevent loop
+  if (!role || !companyId) {
+    redirect(`/${locale}/sync`);
+  }
+
+  // Check if user has access to this section (company_admin or staff only)
+  // super_admin should use /superadmin routes
+  if (role && role !== 'company_admin' && role !== 'staff') {
+    // If super_admin, redirect to superadmin dashboard
+    if (role === 'super_admin') {
+      redirect(`/${locale}/superadmin`);
+    }
+    // Unknown role - redirect to sync page
+    redirect(`/${locale}/dashboard/sync`);
   }
 
   // Onboarding check (only for company_admin, using session claims - NO database query!)
   if (role === 'company_admin') {
     // Check if we're already on the onboarding page to prevent redirect loop
-    const headersList = await headers();
     const pathname = headersList.get('x-invoke-path') || '';
 
     if (!pathname.includes('/onboard')) {
@@ -41,10 +73,6 @@ export default async function DashboardLayout({
       // Redirect to onboarding if not completed
       // Note: If onboarding_completed is undefined (legacy users), assume completed to avoid breaking existing accounts
       if (onboardingCompleted === false) {
-        // Get locale from URL or default to 'en'
-        const url = headersList.get('x-url') || headersList.get('referer') || '';
-        const localeMatch = url.match(/\/([a-z]{2})\//);
-        const locale = localeMatch ? localeMatch[1] : 'en';
         redirect(`/${locale}/dashboard/onboard`);
       }
     }
