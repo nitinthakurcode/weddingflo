@@ -24,10 +24,10 @@ const envConfig: EnvConfig[] = [
     validator: (v) => v.includes('supabase.co') || v.includes('localhost'),
   },
   {
-    name: 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    name: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
     required: true,
-    description: 'Supabase anonymous key',
-    validator: (v) => v.startsWith('eyJ'),
+    description: 'Supabase publishable key (November 2025)',
+    validator: (v) => v.startsWith('sb_publishable_') || v.startsWith('eyJ'),
   },
   {
     name: 'SUPABASE_SERVICE_ROLE_KEY',
