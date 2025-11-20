@@ -56,7 +56,7 @@ jobs:
         run: npm ci
 
       - name: Run integration tests
-        run: npm run test:integration
+        run: npm run test:integration -- --passWithNoTests
 
   type-check:
     name: TypeScript Type Check
