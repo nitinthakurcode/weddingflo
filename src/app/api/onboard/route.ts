@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate role
-    const validRoles = ['super_admin', 'company_admin', 'staff', 'client_viewer'];
+    const validRoles = ['super_admin', 'company_admin', 'staff', 'client_user'];
     const userRole = validRoles.includes(role) ? role : 'company_admin';
 
     console.log('[API] Onboarding user:', clerkId, 'with role:', userRole);

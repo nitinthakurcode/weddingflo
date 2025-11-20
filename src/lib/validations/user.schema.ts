@@ -4,7 +4,7 @@ export const userRoleSchema = z.enum([
   'super_admin',
   'company_admin',
   'staff',
-  'client_viewer',
+  'client_user',
 ]);
 
 export const themeSchema = z.enum(['light', 'dark', 'auto']);
@@ -25,7 +25,7 @@ export const userSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   avatar_url: z.string().url('Invalid URL').optional(),
   company_id: z.string().min(1, 'Company ID is required'),
-  role: userRoleSchema.default('client_viewer'),
+  role: userRoleSchema.default('client_user'),
   preferences: userPreferencesSchema.default({}),
 });
 

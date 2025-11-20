@@ -75,9 +75,9 @@ const ROLE_CONFIG = {
     card: 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/50',
     iconBg: 'bg-emerald-100 text-emerald-600',
   },
-  client_viewer: {
-    label: 'Client Viewer',
-    description: 'View-only access to client information',
+  client_user: {
+    label: 'Client',
+    description: 'Wedding client with portal access to view their wedding details',
     icon: Eye,
     badge: 'bg-gradient-to-r from-slate-500 to-gray-600 text-white',
     card: 'border-slate-200 hover:border-slate-400 hover:bg-slate-50/50',
@@ -96,7 +96,7 @@ export default function TeamPage() {
   const currentUserId = user?.id;
 
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'super_admin' | 'company_admin' | 'staff' | 'client_viewer'>('staff');
+  const [inviteRole, setInviteRole] = useState<'super_admin' | 'company_admin' | 'staff' | 'client_user'>('staff');
   const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
   const [isInviting, setIsInviting] = useState(false);
 
@@ -320,14 +320,14 @@ export default function TeamPage() {
                       <SelectItem value="super_admin">Super Admin</SelectItem>
                       <SelectItem value="company_admin">Company Admin</SelectItem>
                       <SelectItem value="staff">Staff</SelectItem>
-                      <SelectItem value="client_viewer">Client Viewer</SelectItem>
+                      <SelectItem value="client_user">Client</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {inviteRole === 'super_admin' && 'Platform-wide access across all companies'}
                     {inviteRole === 'company_admin' && 'Full access to all features and settings'}
                     {inviteRole === 'staff' && 'Access to manage events and clients'}
-                    {inviteRole === 'client_viewer' && 'View-only access to client information'}
+                    {inviteRole === 'client_user' && 'Wedding client with portal access'}
                   </p>
                 </div>
               </div>

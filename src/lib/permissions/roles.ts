@@ -7,7 +7,7 @@ export const Roles = {
   SUPER_ADMIN: 'super_admin',
   COMPANY_ADMIN: 'company_admin',
   STAFF: 'staff',
-  CLIENT_VIEWER: 'client_viewer',
+  CLIENT_USER: 'client_user',
 } as const;
 
 export type Role = typeof Roles[keyof typeof Roles];
@@ -191,8 +191,8 @@ export const RolePermissions: Record<Role, Permission[]> = {
     Permissions.SETTINGS_PREFERENCES,
   ],
 
-  [Roles.CLIENT_VIEWER]: [
-    // Read-only access for clients
+  [Roles.CLIENT_USER]: [
+    // Access for wedding clients (portal users)
     Permissions.COMPANY_VIEW,
     Permissions.CLIENTS_VIEW,
     Permissions.GUESTS_VIEW,

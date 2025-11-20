@@ -50,14 +50,18 @@ export default async function DashboardLayout({
   }
 
   // Check if user has access to this section (company_admin or staff only)
-  // super_admin should use /superadmin routes
+  // Other roles should use their specific routes
   if (role && role !== 'company_admin' && role !== 'staff') {
     // If super_admin, redirect to superadmin dashboard
     if (role === 'super_admin') {
       redirect(`/${locale}/superadmin`);
     }
-    // Unknown role - redirect to sync page
-    redirect(`/${locale}/dashboard/sync`);
+    // If client_user, redirect to client portal
+    if (role === 'client_user') {
+      redirect(`/${locale}/portal`);
+    }
+    // Unknown role - redirect to sign-in
+    redirect(`/${locale}/sign-in`);
   }
 
   // Onboarding check (only for company_admin, using session claims - NO database query!)
