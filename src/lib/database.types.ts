@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_logs: {
@@ -3503,6 +3478,7 @@ export type Database = {
         }
         Returns: string
       }
+      get_clerk_user_id: { Args: never; Returns: string }
       get_company_analytics: {
         Args: {
           p_company_id: string
@@ -3518,8 +3494,7 @@ export type Database = {
           total_paid: number
         }[]
       }
-      get_current_user_company_id: { Args: never; Returns: string }
-      get_current_user_role: { Args: never; Returns: string }
+      get_current_user_id: { Args: never; Returns: string }
       get_email_stats: {
         Args: { p_company_id: string; p_days?: number }
         Returns: {
@@ -3634,6 +3609,8 @@ export type Database = {
           last_name: string
         }[]
       }
+      get_user_company_id: { Args: never; Returns: string }
+      get_user_role: { Args: never; Returns: string }
       get_webhook_stats: {
         Args: { p_hours?: number; p_provider?: string }
         Returns: {
@@ -3679,7 +3656,7 @@ export type Database = {
         Args: { p_website_id: string }
         Returns: undefined
       }
-      is_company_admin_or_higher: { Args: never; Returns: boolean }
+      is_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       mark_webhook_processed: {
         Args: {
@@ -3715,7 +3692,6 @@ export type Database = {
         }[]
       }
       requesting_clerk_id: { Args: never; Returns: string }
-      requesting_user_company_id: { Args: never; Returns: string }
       requesting_user_id: { Args: never; Returns: string }
       should_send_email: {
         Args: { p_email_type: string; p_user_id: string }
@@ -3967,9 +3943,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       event_status: [
