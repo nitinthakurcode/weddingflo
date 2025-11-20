@@ -158,6 +158,3 @@ export default async function LocaleLayout({
     </html>
   )
 }
-
-// Export web vitals reporting for performance monitoring
-export { reportWebVitals } from '@/lib/performance/metrics';

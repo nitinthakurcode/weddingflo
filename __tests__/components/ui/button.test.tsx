@@ -41,31 +41,36 @@ describe('Button', () => {
   it('should render with default variant', () => {
     render(<Button>Click me</Button>)
     const button = screen.getByRole('button', { name: /click me/i })
-    expect(button).toHaveClass('bg-primary')
+    // Default variant uses gradient from primary to secondary
+    expect(button).toHaveClass('bg-gradient-to-r')
   })
 
   it('should render with destructive variant', () => {
     render(<Button variant="destructive">Delete</Button>)
     const button = screen.getByRole('button', { name: /delete/i })
-    expect(button).toHaveClass('bg-destructive')
+    // Destructive variant uses gradient from destructive
+    expect(button).toHaveClass('from-destructive')
   })
 
   it('should render with outline variant', () => {
     render(<Button variant="outline">Cancel</Button>)
     const button = screen.getByRole('button', { name: /cancel/i })
-    expect(button).toHaveClass('border')
+    // Outline variant uses border-2
+    expect(button).toHaveClass('border-2')
   })
 
   it('should render with secondary variant', () => {
     render(<Button variant="secondary">Secondary</Button>)
     const button = screen.getByRole('button', { name: /secondary/i })
-    expect(button).toHaveClass('bg-secondary')
+    // Secondary variant uses gradient from secondary to accent
+    expect(button).toHaveClass('from-secondary')
   })
 
   it('should render with ghost variant', () => {
     render(<Button variant="ghost">Ghost</Button>)
     const button = screen.getByRole('button', { name: /ghost/i })
-    expect(button).toHaveClass('hover:bg-accent')
+    // Ghost variant has hover:bg-primary/10
+    expect(button).toHaveClass('hover:bg-primary/10')
   })
 
   it('should render with link variant', () => {

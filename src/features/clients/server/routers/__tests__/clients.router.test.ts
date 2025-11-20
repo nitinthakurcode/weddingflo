@@ -6,7 +6,6 @@
  */
 
 import { clientsRouter } from '../clients.router'
-import { createInnerTRPCContext } from '@/server/trpc/trpc'
 
 // Mock Supabase client
 const mockSupabase = {
@@ -21,16 +20,28 @@ const mockSupabase = {
   delete: jest.fn(() => ({ data: null, error: null })),
 }
 
-// Helper to create test context
-const createTestContext = (overrides = {}) => {
-  return createInnerTRPCContext({
+// Test UUIDs
+const TEST_COMPANY_ID = '00000000-0000-0000-0000-000000000001'
+const TEST_CLIENT_ID = '00000000-0000-0000-0000-000000000002'
+
+type TestContext = {
+  userId: string
+  companyId?: string
+  role: 'company_admin'
+  subscriptionTier: 'premium'
+  supabase: typeof mockSupabase
+}
+
+// Helper to create test context - creates context object directly
+const createTestContext = (overrides: Partial<TestContext> = {}): TestContext => {
+  return {
     userId: 'test-user-id',
-    companyId: 'test-company-id',
+    companyId: TEST_COMPANY_ID,
     role: 'company_admin',
     subscriptionTier: 'premium',
-    supabase: mockSupabase as any,
+    supabase: mockSupabase,
     ...overrides,
-  })
+  }
 }
 
 describe('Clients Router', () => {
@@ -42,8 +53,8 @@ describe('Clients Router', () => {
     it('fetches clients for the authenticated company', async () => {
       const mockClients = [
         {
-          id: 'client-1',
-          company_id: 'test-company-id',
+          id: TEST_CLIENT_ID,
+          company_id: TEST_COMPANY_ID,
           partner1_first_name: 'John',
           partner1_last_name: 'Doe',
           wedding_date: '2025-06-15',
@@ -100,8 +111,8 @@ describe('Clients Router', () => {
   describe('getById', () => {
     it('returns client when found', async () => {
       const mockClient = {
-        id: 'client-1',
-        company_id: 'test-company-id',
+        id: TEST_CLIENT_ID,
+        company_id: TEST_COMPANY_ID,
         partner1_first_name: 'John',
       }
 
@@ -109,7 +120,7 @@ describe('Clients Router', () => {
         select: jest.fn(() => ({
           eq: jest.fn(() => ({
             eq: jest.fn(() => ({
-              single: jest.fn(() => Promise.resolve({ data: mockClient, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: mockClient, error: null })),
             })),
           })),
         })),
@@ -118,7 +129,7 @@ describe('Clients Router', () => {
       const ctx = createTestContext()
       const caller = clientsRouter.createCaller(ctx)
 
-      const result = await caller.getById({ id: 'client-1' })
+      const result = await caller.getById({ id: TEST_CLIENT_ID })
 
       expect(result).toEqual(mockClient)
     })

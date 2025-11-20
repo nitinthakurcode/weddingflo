@@ -1,6 +1,33 @@
 // Learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom'
 
+type SuperJsonSerialized = {
+  json: string
+  meta: undefined
+}
+
+const mockSerialize = (value: unknown): SuperJsonSerialized => ({
+  json: JSON.stringify(value),
+  meta: undefined,
+})
+
+const mockDeserialize = (value: SuperJsonSerialized): unknown => JSON.parse(value.json)
+
+// Mock superjson to avoid ESM import issues
+jest.mock('superjson', () => {
+  const superjsonMock = {
+    serialize: mockSerialize,
+    deserialize: mockDeserialize,
+    stringify: JSON.stringify,
+    parse: JSON.parse,
+  }
+
+  return {
+    default: superjsonMock,
+    ...superjsonMock,
+  }
+})
+
 // Mock Next.js router
 jest.mock('next/navigation', () => ({
   useRouter() {
@@ -39,23 +66,28 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 // Mock IntersectionObserver
-global.IntersectionObserver = class IntersectionObserver {
-  constructor() {}
-  disconnect() {}
-  observe() {}
-  takeRecords() {
+class MockIntersectionObserver implements IntersectionObserver {
+  readonly root: Element | Document | null = null
+  readonly rootMargin = ''
+  readonly thresholds: ReadonlyArray<number> = []
+  disconnect(): void {}
+  observe(_target: Element): void {}
+  takeRecords(): IntersectionObserverEntry[] {
     return []
   }
-  unobserve() {}
-} as any
+  unobserve(_target: Element): void {}
+}
+
+global.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver
 
 // Mock ResizeObserver
-global.ResizeObserver = class ResizeObserver {
-  constructor() {}
-  disconnect() {}
-  observe() {}
-  unobserve() {}
-} as any
+class MockResizeObserver implements ResizeObserver {
+  disconnect(): void {}
+  observe(_target: Element): void {}
+  unobserve(_target: Element): void {}
+}
+
+global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
 
 // Mock Clerk (Session Claims architecture)
 jest.mock('@clerk/nextjs', () => ({
@@ -178,7 +210,7 @@ const originalError = console.error
 const originalWarn = console.warn
 
 beforeAll(() => {
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     // Suppress known React warnings
     if (
       typeof args[0] === 'string' &&
@@ -191,7 +223,7 @@ beforeAll(() => {
     originalError.call(console, ...args)
   }
 
-  console.warn = (...args: any[]) => {
+  console.warn = (...args: unknown[]) => {
     // Suppress known warnings
     if (
       typeof args[0] === 'string' &&
