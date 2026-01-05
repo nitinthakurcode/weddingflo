@@ -25,6 +25,27 @@ export interface CSVFieldMapping {
 }
 
 /**
+ * Check if a row appears to be a hints/instructions row (not actual data)
+ * January 2026 - Enhanced export format includes hints row 2
+ */
+function isHintsRow(values: string[]): boolean {
+  // Patterns that indicate this is a hints/instructions row
+  const hintsPatterns = [
+    'do not modify', 'required', 'yyyy-mm-dd', 'hh:mm',
+    'true/false', 'numbers only', 'email@', 'pending/',
+    'example', 'format:', 'optional', 'e.g.'
+  ];
+
+  // Check first two cells
+  const firstVal = String(values[0] || '').toLowerCase();
+  const secondVal = String(values[1] || '').toLowerCase();
+
+  return hintsPatterns.some(pattern =>
+    firstVal.includes(pattern) || secondVal.includes(pattern)
+  );
+}
+
+/**
  * Parse CSV file content
  */
 export function parseCSV(
@@ -41,8 +62,8 @@ export function parseCSV(
   const lines = content.split('\n');
   const rows: string[][] = [];
   let headers: string[] = [];
-
-  let startIndex = 0;
+  let hintsRowSkipped = false;
+  let headerRowFound = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -53,9 +74,18 @@ export function parseCSV(
 
     const parsedLine = parseCSVLine(line, delimiter, trimValues);
 
-    if (hasHeaders && headers.length === 0) {
+    if (hasHeaders && !headerRowFound) {
+      // First non-empty row is the header
       headers = parsedLine;
-      startIndex = i + 1;
+      headerRowFound = true;
+    } else if (hasHeaders && !hintsRowSkipped && rows.length === 0) {
+      // Check if this second row is a hints row (January 2026 format)
+      if (isHintsRow(parsedLine)) {
+        hintsRowSkipped = true;
+        console.log('[CSV Parser] Detected and skipping format hints row');
+      } else {
+        rows.push(parsedLine);
+      }
     } else {
       rows.push(parsedLine);
     }
@@ -218,29 +248,32 @@ export function importCSVWithMapping<T>(
  * Import guest list from CSV
  */
 export function importGuestListCSV(content: string): CSVParseResult<{
-  guest_name: string;
-  number_of_packs: number;
-  phone_number?: string;
+  name: string;
   email?: string;
-  events_attending: string[];
+  phone?: string;
+  group_name?: string;
+  rsvp_status?: string;
+  plus_one_allowed?: boolean;
+  dietary_restrictions?: string;
+  accessibility_needs?: string;
+  hotel_required?: boolean;
+  transport_required?: boolean;
 }> {
   const fieldMapping: CSVFieldMapping[] = [
     {
       csvColumn: 'Guest Name',
-      dataField: 'guest_name',
+      dataField: 'name',
       required: true,
       validator: (value) => value && value.trim().length > 0 ? true : 'Guest name is required',
     },
     {
-      csvColumn: 'Party Size',
-      dataField: 'number_of_packs',
-      required: true,
-      transformer: (value) => parseInt(value, 10),
-      validator: (value) => !isNaN(value) && value > 0 ? true : 'Party size must be a positive number',
+      csvColumn: 'Group',
+      dataField: 'group_name',
+      required: false,
     },
     {
       csvColumn: 'Phone',
-      dataField: 'phone_number',
+      dataField: 'phone',
       required: false,
     },
     {
@@ -254,10 +287,44 @@ export function importGuestListCSV(content: string): CSVParseResult<{
       },
     },
     {
-      csvColumn: 'Events Attending',
-      dataField: 'events_attending',
+      csvColumn: 'RSVP Status',
+      dataField: 'rsvp_status',
       required: false,
-      transformer: (value) => value ? value.split(';').map((e: string) => e.trim()) : [],
+      transformer: (value) => {
+        const status = value?.toLowerCase();
+        if (status === 'accepted' || status === 'declined' || status === 'pending') {
+          return status;
+        }
+        return 'pending';
+      },
+    },
+    {
+      csvColumn: 'Plus One',
+      dataField: 'plus_one_allowed',
+      required: false,
+      transformer: (value) => value?.toLowerCase() === 'yes' || value?.toLowerCase() === 'true',
+    },
+    {
+      csvColumn: 'Dietary Restrictions',
+      dataField: 'dietary_restrictions',
+      required: false,
+    },
+    {
+      csvColumn: 'Accessibility Needs',
+      dataField: 'accessibility_needs',
+      required: false,
+    },
+    {
+      csvColumn: 'Hotel Required',
+      dataField: 'hotel_required',
+      required: false,
+      transformer: (value) => value?.toLowerCase() === 'yes' || value?.toLowerCase() === 'true',
+    },
+    {
+      csvColumn: 'Transport Required',
+      dataField: 'transport_required',
+      required: false,
+      transformer: (value) => value?.toLowerCase() === 'yes' || value?.toLowerCase() === 'true',
     },
   ];
 
