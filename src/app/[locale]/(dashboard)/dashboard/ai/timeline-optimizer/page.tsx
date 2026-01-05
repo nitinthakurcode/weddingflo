@@ -153,9 +153,9 @@ export default function TimelineOptimizerPage() {
       case 'critical':
         return <AlertTriangle className="h-5 w-5 text-destructive" />
       case 'warning':
-        return <AlertCircle className="h-5 w-5 text-yellow-500" />
+        return <AlertCircle className="h-5 w-5 text-gold-500 dark:text-gold-400" />
       case 'info':
-        return <Info className="h-5 w-5 text-blue-500" />
+        return <Info className="h-5 w-5 text-cobalt-500 dark:text-cobalt-400" />
     }
   }
 
@@ -474,9 +474,9 @@ export default function TimelineOptimizerPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {optimization.conflictDetected ? (
-                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                      <AlertTriangle className="h-5 w-5 text-gold-500 dark:text-gold-400" />
                     ) : (
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      <CheckCircle2 className="h-5 w-5 text-sage-500 dark:text-sage-400" />
                     )}
                     Overall Assessment
                   </CardTitle>
@@ -578,7 +578,7 @@ export default function TimelineOptimizerPage() {
                     <ul className="space-y-2">
                       {optimization.vendorCoordinationTips.map((tip: string, index: number) => (
                         <li key={index} className="flex items-start gap-2 text-sm">
-                          <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <CheckCircle2 className="h-4 w-4 text-sage-500 dark:text-sage-400 mt-0.5 flex-shrink-0" />
                           <span>{tip}</span>
                         </li>
                       ))}
@@ -600,7 +600,7 @@ export default function TimelineOptimizerPage() {
                     <ul className="space-y-2">
                       {optimization.travelTimeConsiderations.map((consideration: string, index: number) => (
                         <li key={index} className="flex items-start gap-2 text-sm">
-                          <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                          <Info className="h-4 w-4 text-cobalt-500 dark:text-cobalt-400 mt-0.5 flex-shrink-0" />
                           <span>{consideration}</span>
                         </li>
                       ))}

@@ -1,62 +1,74 @@
-import { auth } from '@clerk/nextjs/server'
+import { getServerSession } from '@/lib/auth/server'
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { db, eq, and, inArray, asc } from '@/lib/db'
+import { users, clients, companies } from '@/lib/db/schema'
 import { ChatPage } from './ChatPage'
 
 export default async function PortalChatPage() {
-  const { userId, sessionClaims } = await auth()
+  const { userId, user } = await getServerSession()
 
   if (!userId) {
     redirect('/sign-in')
   }
 
-  const role = sessionClaims?.metadata?.role
+  const role = user?.role
   if (role !== 'client_user') {
     redirect('/sign-in')
   }
 
-  const supabase = await createServerSupabaseClient()
+  // Get current user's database record using Drizzle
+  const userResult = await db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      companyId: users.companyId,
+    })
+    .from(users)
+    .where(eq(users.authId, userId))
+    .limit(1);
 
-  // Get current user's database record
-  const { data: user } = await supabase
-    .from('users')
-    .select('id, name')
-    .eq('clerk_id', userId)
-    .single()
+  const userData = userResult[0] || null;
 
-  if (!user) {
+  if (!userData || !userData.companyId) {
     redirect('/sign-in')
   }
 
-  // Get client record (client is linked to this user)
-  const { data: client } = await supabase
-    .from('clients')
-    .select(`
-      id,
-      name,
-      company_id,
-      companies (
-        id,
-        name
-      )
-    `)
-    .eq('clerk_id', userId)
-    .single()
+  // Get client record via company_id using Drizzle with join
+  const clientResult = await db
+    .select({
+      id: clients.id,
+      weddingName: clients.weddingName,
+      companyId: clients.companyId,
+      companyName: companies.name,
+    })
+    .from(clients)
+    .leftJoin(companies, eq(clients.companyId, companies.id))
+    .where(eq(clients.companyId, userData.companyId))
+    .limit(1);
+
+  const client = clientResult[0] || null;
 
   if (!client) {
     redirect('/portal')
   }
 
-  // Get a planner from the company to chat with
-  // (usually the company admin or assigned planner)
-  const { data: planner } = await supabase
-    .from('users')
-    .select('id, name')
-    .eq('company_id', (client as any).company_id)
-    .in('role', ['company_admin', 'staff'])
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single()
+  // Get a planner from the company to chat with using Drizzle
+  const plannerResult = await db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+    })
+    .from(users)
+    .where(and(
+      eq(users.companyId, client.companyId),
+      inArray(users.role, ['company_admin', 'staff'])
+    ))
+    .orderBy(asc(users.createdAt))
+    .limit(1);
+
+  const planner = plannerResult[0] || null;
 
   if (!planner) {
     return (
@@ -70,18 +82,18 @@ export default async function PortalChatPage() {
     )
   }
 
-  const clientData = client as any
-  const plannerData = planner as any
-  const userData = user as any
+  // Build display names from firstName/lastName (camelCase from Drizzle)
+  const currentUserName = [userData.firstName, userData.lastName].filter(Boolean).join(' ') || 'You'
+  const plannerDisplayName = [planner.firstName, planner.lastName].filter(Boolean).join(' ') || 'Wedding Planner'
 
   return (
     <ChatPage
-      clientId={clientData.id}
+      clientId={client.id}
       currentUserId={userData.id}
-      currentUserName={userData.name || 'You'}
-      plannerUserId={plannerData.id}
-      plannerName={plannerData.name || 'Wedding Planner'}
-      companyName={clientData.companies.name}
+      currentUserName={currentUserName}
+      plannerUserId={planner.id}
+      plannerName={plannerDisplayName}
+      companyName={client.companyName || ''}
     />
   )
 }

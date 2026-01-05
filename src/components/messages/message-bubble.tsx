@@ -2,23 +2,31 @@ import { formatDistanceToNow } from 'date-fns';
 import { Check, CheckCheck, User, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Message interface - aligned with Drizzle schema (December 2025)
+ * Uses 'unknown' for metadata since that's what Drizzle returns
+ */
 interface MessageBubbleProps {
   message: {
     id: string;
-    sender_type: 'company' | 'client' | 'ai_assistant';
-    sender_name: string;
-    message: string;
-    created_at: number;
-    read: boolean;
-    read_by: string[];
-    ai_generated: boolean;
-    edited_at?: number;
+    senderId: string;
+    content: string;
+    isRead: boolean | null;
+    createdAt: Date;
+    updatedAt: Date;
+    metadata: unknown;
   };
   isOwnMessage: boolean;
 }
 
 export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
-  const isAI = message.sender_type === 'ai_assistant';
+  // Safely extract sender info from metadata
+  const meta = (message.metadata && typeof message.metadata === 'object')
+    ? (message.metadata as Record<string, unknown>)
+    : {};
+  const senderType = (meta.senderType as string) || 'company';
+  const senderName = (meta.senderName as string) || 'Unknown';
+  const isAI = senderType === 'ai_assistant';
 
   return (
     <div
@@ -32,13 +40,13 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
           <div
             className={cn(
               'w-8 h-8 rounded-full flex items-center justify-center',
-              isAI ? 'bg-primary/10' : 'bg-blue-100'
+              isAI ? 'bg-primary/10' : 'bg-teal-100 dark:bg-teal-900/30'
             )}
           >
             {isAI ? (
               <Bot className="h-4 w-4 text-primary" />
             ) : (
-              <User className="h-4 w-4 text-blue-600" />
+              <User className="h-4 w-4 text-teal-600 dark:text-teal-400" />
             )}
           </div>
         </div>
@@ -48,8 +56,8 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
         {/* Sender name */}
         {!isOwnMessage && (
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-medium text-gray-700">
-              {message.sender_name}
+            <span className="text-xs font-medium text-mocha-700 dark:text-mocha-300">
+              {senderName}
             </span>
             {isAI && (
               <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
@@ -64,13 +72,13 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
           className={cn(
             'px-4 py-2 rounded-2xl',
             isOwnMessage
-              ? 'bg-blue-600 text-white rounded-br-sm'
+              ? 'bg-teal-600 text-white rounded-br-sm'
               : isAI
-              ? 'bg-primary/5 text-gray-900 border border-primary/20 rounded-bl-sm'
-              : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+              ? 'bg-primary/5 text-mocha-900 dark:text-mocha-100 border border-primary/20 rounded-bl-sm'
+              : 'bg-mocha-100 dark:bg-mocha-800 text-mocha-900 dark:text-mocha-100 rounded-bl-sm'
           )}
         >
-          <p className="text-sm whitespace-pre-wrap break-words">{message.message}</p>
+          <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
         </div>
 
         {/* Timestamp and read status */}
@@ -81,15 +89,15 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
           )}
         >
           <span className="text-xs text-muted-foreground">
-            {formatDistanceToNow(message.created_at, { addSuffix: true })}
+            {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
           </span>
-          {message.edited_at && (
+          {message.updatedAt && message.updatedAt !== message.createdAt && (
             <span className="text-xs text-muted-foreground">(edited)</span>
           )}
           {isOwnMessage && (
             <div className="text-muted-foreground">
-              {message.read_by.length > 1 ? (
-                <CheckCheck className="h-3 w-3 text-blue-600" />
+              {message.isRead ? (
+                <CheckCheck className="h-3 w-3 text-teal-600 dark:text-teal-400" />
               ) : (
                 <Check className="h-3 w-3" />
               )}
@@ -100,7 +108,7 @@ export function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
 
       {isOwnMessage && (
         <div className="flex-shrink-0">
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center">
             <User className="h-4 w-4 text-white" />
           </div>
         </div>

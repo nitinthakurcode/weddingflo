@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { sendSMS, isTwilioEnabled, formatPhoneNumber } from '@/lib/sms/twilio-client';
 import { checkUserRateLimit } from '@/lib/email/rate-limiter';
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticate user
-    const { userId } = await auth();
+    const { userId } = await getServerSession();
 
     if (!userId) {
       return NextResponse.json(
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check rate limits
-    const userLimit = checkUserRateLimit(userId);
+    // Check rate limits (Redis-backed)
+    const userLimit = await checkUserRateLimit(userId);
     if (!userLimit.allowed) {
       return NextResponse.json(
         {
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
 // Get SMS service status
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId } = await getServerSession();
 
     if (!userId) {
       return NextResponse.json(

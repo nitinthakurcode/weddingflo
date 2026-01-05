@@ -16,6 +16,8 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { protectedProcedure, router } from '@/server/trpc/trpc';
+import { eq, and, desc, gte, count } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 
 /**
  * Input validation schemas
@@ -23,16 +25,6 @@ import { protectedProcedure, router } from '@/server/trpc/trpc';
 
 // Device type must match database CHECK constraint
 const deviceTypeSchema = z.enum(['desktop', 'mobile', 'tablet']);
-
-// Notification type must match database CHECK constraint
-const notificationTypeSchema = z.enum([
-  'payment_alert',
-  'rsvp_update',
-  'event_reminder',
-  'task_deadline',
-  'vendor_message',
-  'system_notification',
-]);
 
 // Notification status must match database CHECK constraint
 const notificationStatusSchema = z.enum(['pending', 'sent', 'failed', 'delivered']);
@@ -49,87 +41,81 @@ export const pushRouter = router({
    * Automatically creates default preferences if they don't exist.
    *
    * @param endpoint - FCM registration token or Web Push endpoint
-   * @param p256dhKey - Public key for message encryption (Web Push)
-   * @param authKey - Authentication secret for Web Push
-   * @param userAgent - Browser user agent string
+   * @param p256dh - Public key for message encryption (Web Push)
+   * @param auth - Authentication secret for Web Push
+   * @param fcmToken - FCM token (optional)
    * @param deviceType - Device type (desktop, mobile, tablet)
    */
   subscribe: protectedProcedure
     .input(
       z.object({
         endpoint: z.string().min(1, 'Endpoint is required'),
-        p256dhKey: z.string().min(1, 'P256DH key is required'),
-        authKey: z.string().min(1, 'Auth key is required'),
-        userAgent: z.string().optional(),
+        p256dh: z.string().optional(),
+        auth: z.string().optional(),
+        fcmToken: z.string().optional(),
         deviceType: deviceTypeSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, userId, companyId } = ctx;
-
-      // Verify company context
-      if (!companyId) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'Company context required. Please ensure you are logged in to a company.',
-        });
-      }
+      const { db, userId } = ctx;
 
       try {
-        // Upsert subscription (update if exists, insert if new)
-        // Uses unique constraint on (user_id, endpoint)
-        const { data: subscription, error: subscriptionError } = await supabase
-          .from('push_subscriptions')
-          .upsert(
-            {
-              user_id: userId,
-              company_id: companyId,
-              endpoint: input.endpoint,
-              p256dh_key: input.p256dhKey,
-              auth_key: input.authKey,
-              user_agent: input.userAgent || null,
-              device_type: input.deviceType || null,
-              is_active: true,
-              updated_at: new Date().toISOString(),
-            },
-            {
-              onConflict: 'user_id,endpoint',
-            }
-          )
-          .select()
-          .single();
+        // Check if subscription exists
+        const existing = await db.query.pushSubscriptions.findFirst({
+          where: and(
+            eq(schema.pushSubscriptions.userId, userId),
+            eq(schema.pushSubscriptions.endpoint, input.endpoint)
+          ),
+        });
 
-        if (subscriptionError) {
-          console.error('Failed to save push subscription:', subscriptionError);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to save push subscription',
-          });
+        let subscription;
+
+        if (existing) {
+          // Update existing subscription
+          const [updated] = await db
+            .update(schema.pushSubscriptions)
+            .set({
+              p256dh: input.p256dh || undefined,
+              auth: input.auth || undefined,
+              fcmToken: input.fcmToken || undefined,
+              deviceType: input.deviceType || undefined,
+              isActive: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.pushSubscriptions.id, existing.id))
+            .returning();
+          subscription = updated;
+        } else {
+          // Create new subscription
+          const [created] = await db
+            .insert(schema.pushSubscriptions)
+            .values({
+              userId,
+              endpoint: input.endpoint,
+              p256dh: input.p256dh || undefined,
+              auth: input.auth || undefined,
+              fcmToken: input.fcmToken || undefined,
+              deviceType: input.deviceType || undefined,
+              isActive: true,
+            })
+            .returning();
+          subscription = created;
         }
 
         // Create default preferences if they don't exist
-        // Uses upsert to avoid conflicts if preferences already exist
-        const { error: preferencesError } = await supabase
-          .from('push_notification_preferences')
-          .upsert(
-            {
-              user_id: userId,
-              company_id: companyId,
-              enabled: true,
-              payment_alerts: true,
-              rsvp_updates: true,
-              event_reminders: true,
-              task_deadlines: true,
-              vendor_messages: true,
-            },
-            {
-              onConflict: 'user_id',
-            }
-          );
+        const existingPrefs = await db.query.pushNotificationPreferences.findFirst({
+          where: eq(schema.pushNotificationPreferences.userId, userId),
+        });
 
-        if (preferencesError) {
-          console.warn('Failed to create default preferences:', preferencesError);
-          // Don't throw error - subscription was successful
+        if (!existingPrefs) {
+          await db.insert(schema.pushNotificationPreferences).values({
+            userId,
+            pushEnabled: true,
+            taskReminders: true,
+            eventReminders: true,
+            clientUpdates: true,
+            systemAlerts: true,
+          });
         }
 
         return {
@@ -137,10 +123,6 @@ export const pushRouter = router({
           subscription,
         };
       } catch (error) {
-        if (error instanceof TRPCError) {
-          throw error;
-        }
-
         console.error('Unexpected error in push.subscribe:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -164,34 +146,26 @@ export const pushRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, userId } = ctx;
+      const { db, userId } = ctx;
 
       try {
-        const { error } = await supabase
-          .from('push_subscriptions')
-          .update({
-            is_active: false,
-            updated_at: new Date().toISOString(),
+        await db
+          .update(schema.pushSubscriptions)
+          .set({
+            isActive: false,
+            updatedAt: new Date(),
           })
-          .eq('user_id', userId)
-          .eq('endpoint', input.endpoint);
-
-        if (error) {
-          console.error('Failed to unsubscribe:', error);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to unsubscribe from push notifications',
-          });
-        }
+          .where(
+            and(
+              eq(schema.pushSubscriptions.userId, userId),
+              eq(schema.pushSubscriptions.endpoint, input.endpoint)
+            )
+          );
 
         return {
           success: true,
         };
       } catch (error) {
-        if (error instanceof TRPCError) {
-          throw error;
-        }
-
         console.error('Unexpected error in push.unsubscribe:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -207,30 +181,19 @@ export const pushRouter = router({
    * Useful for displaying subscribed devices.
    */
   getSubscriptions: protectedProcedure.query(async ({ ctx }) => {
-    const { supabase, userId } = ctx;
+    const { db, userId } = ctx;
 
     try {
-      const { data, error } = await supabase
-        .from('push_subscriptions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
+      const subscriptions = await db.query.pushSubscriptions.findMany({
+        where: and(
+          eq(schema.pushSubscriptions.userId, userId),
+          eq(schema.pushSubscriptions.isActive, true)
+        ),
+        orderBy: [desc(schema.pushSubscriptions.createdAt)],
+      });
 
-      if (error) {
-        console.error('Failed to fetch subscriptions:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch push subscriptions',
-        });
-      }
-
-      return data || [];
+      return subscriptions;
     } catch (error) {
-      if (error instanceof TRPCError) {
-        throw error;
-      }
-
       console.error('Unexpected error in push.getSubscriptions:', error);
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -246,69 +209,32 @@ export const pushRouter = router({
    * Creates default preferences if they don't exist.
    */
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
-    const { supabase, userId, companyId } = ctx;
-
-    if (!companyId) {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: 'Company context required',
-      });
-    }
+    const { db, userId } = ctx;
 
     try {
-      const { data, error } = await supabase
-        .from('push_notification_preferences')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Failed to fetch preferences:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch notification preferences',
-        });
-      }
+      let preferences = await db.query.pushNotificationPreferences.findFirst({
+        where: eq(schema.pushNotificationPreferences.userId, userId),
+      });
 
       // If no preferences exist, create defaults
-      if (!data) {
-        const { data: newPreferences, error: insertError } = await supabase
-          .from('push_notification_preferences')
-          .insert({
-            user_id: userId,
-            company_id: companyId,
-            enabled: true,
-            payment_alerts: true,
-            rsvp_updates: true,
-            event_reminders: true,
-            task_deadlines: true,
-            vendor_messages: true,
+      if (!preferences) {
+        const [created] = await db
+          .insert(schema.pushNotificationPreferences)
+          .values({
+            userId,
+            pushEnabled: true,
+            taskReminders: true,
+            eventReminders: true,
+            clientUpdates: true,
+            systemAlerts: true,
           })
-          .select()
-          .single();
+          .returning();
 
-        if (insertError) {
-          console.error('Failed to create default preferences:', insertError);
-          // Return default values even if insert fails
-          return {
-            enabled: true,
-            payment_alerts: true,
-            rsvp_updates: true,
-            event_reminders: true,
-            task_deadlines: true,
-            vendor_messages: true,
-          };
-        }
-
-        return newPreferences;
+        preferences = created;
       }
 
-      return data;
+      return preferences;
     } catch (error) {
-      if (error instanceof TRPCError) {
-        throw error;
-      }
-
       console.error('Unexpected error in push.getPreferences:', error);
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -326,66 +252,34 @@ export const pushRouter = router({
   updatePreferences: protectedProcedure
     .input(
       z.object({
-        enabled: z.boolean().optional(),
-        paymentAlerts: z.boolean().optional(),
-        rsvpUpdates: z.boolean().optional(),
+        pushEnabled: z.boolean().optional(),
+        taskReminders: z.boolean().optional(),
         eventReminders: z.boolean().optional(),
-        taskDeadlines: z.boolean().optional(),
-        vendorMessages: z.boolean().optional(),
+        clientUpdates: z.boolean().optional(),
+        systemAlerts: z.boolean().optional(),
+        quietHoursEnabled: z.boolean().optional(),
+        quietHoursStart: z.string().optional(),
+        quietHoursEnd: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, userId } = ctx;
+      const { db, userId } = ctx;
 
       try {
-        // Build update object with only provided fields
-        const updateData: Record<string, any> = {
-          updated_at: new Date().toISOString(),
-        };
-
-        if (input.enabled !== undefined) {
-          updateData.enabled = input.enabled;
-        }
-        if (input.paymentAlerts !== undefined) {
-          updateData.payment_alerts = input.paymentAlerts;
-        }
-        if (input.rsvpUpdates !== undefined) {
-          updateData.rsvp_updates = input.rsvpUpdates;
-        }
-        if (input.eventReminders !== undefined) {
-          updateData.event_reminders = input.eventReminders;
-        }
-        if (input.taskDeadlines !== undefined) {
-          updateData.task_deadlines = input.taskDeadlines;
-        }
-        if (input.vendorMessages !== undefined) {
-          updateData.vendor_messages = input.vendorMessages;
-        }
-
-        const { data, error } = await supabase
-          .from('push_notification_preferences')
-          .update(updateData)
-          .eq('user_id', userId)
-          .select()
-          .single();
-
-        if (error) {
-          console.error('Failed to update preferences:', error);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to update notification preferences',
-          });
-        }
+        const [updated] = await db
+          .update(schema.pushNotificationPreferences)
+          .set({
+            ...input,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.pushNotificationPreferences.userId, userId))
+          .returning();
 
         return {
           success: true,
-          preferences: data,
+          preferences: updated,
         };
       } catch (error) {
-        if (error instanceof TRPCError) {
-          throw error;
-        }
-
         console.error('Unexpected error in push.updatePreferences:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -413,41 +307,36 @@ export const pushRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, userId } = ctx;
+      const { db, userId } = ctx;
 
       try {
-        let query = supabase
-          .from('push_notification_logs')
-          .select('*', { count: 'exact' })
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .range(input.offset, input.offset + input.limit - 1);
+        const conditions = [eq(schema.pushNotificationLogs.userId, userId)];
 
-        // Apply status filter if provided
         if (input.status) {
-          query = query.eq('status', input.status);
+          conditions.push(eq(schema.pushNotificationLogs.status, input.status));
         }
 
-        const { data, error, count } = await query;
+        const logs = await db.query.pushNotificationLogs.findMany({
+          where: and(...conditions),
+          orderBy: [desc(schema.pushNotificationLogs.createdAt)],
+          limit: input.limit,
+          offset: input.offset,
+        });
 
-        if (error) {
-          console.error('Failed to fetch notification logs:', error);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to fetch notification logs',
-          });
-        }
+        // Get total count
+        const [countResult] = await db
+          .select({ count: count() })
+          .from(schema.pushNotificationLogs)
+          .where(and(...conditions));
+
+        const total = countResult?.count || 0;
 
         return {
-          logs: data || [],
-          total: count || 0,
-          hasMore: (count || 0) > input.offset + input.limit,
+          logs,
+          total,
+          hasMore: total > input.offset + input.limit,
         };
       } catch (error) {
-        if (error instanceof TRPCError) {
-          throw error;
-        }
-
         console.error('Unexpected error in push.getLogs:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -466,32 +355,28 @@ export const pushRouter = router({
    * - Delivery rate percentage
    */
   getStats: protectedProcedure.query(async ({ ctx }) => {
-    const { supabase, userId } = ctx;
+    const { db, userId } = ctx;
 
     try {
       // Get logs from last 30 days
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const { data: logs, error } = await supabase
-        .from('push_notification_logs')
-        .select('status')
-        .eq('user_id', userId)
-        .gte('created_at', thirtyDaysAgo.toISOString());
-
-      if (error) {
-        console.error('Failed to fetch notification stats:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch notification statistics',
-        });
-      }
+      const logs = await db.query.pushNotificationLogs.findMany({
+        where: and(
+          eq(schema.pushNotificationLogs.userId, userId),
+          gte(schema.pushNotificationLogs.createdAt, thirtyDaysAgo)
+        ),
+        columns: {
+          status: true,
+        },
+      });
 
       // Calculate statistics
-      const total = logs?.length || 0;
-      const sent = logs?.filter((l) => l.status === 'sent' || l.status === 'delivered').length || 0;
-      const failed = logs?.filter((l) => l.status === 'failed').length || 0;
-      const pending = logs?.filter((l) => l.status === 'pending').length || 0;
+      const total = logs.length;
+      const sent = logs.filter((l) => l.status === 'sent' || l.status === 'delivered').length;
+      const failed = logs.filter((l) => l.status === 'failed').length;
+      const pending = logs.filter((l) => l.status === 'pending').length;
 
       return {
         total,
@@ -502,10 +387,6 @@ export const pushRouter = router({
         period: 'last_30_days',
       };
     } catch (error) {
-      if (error instanceof TRPCError) {
-        throw error;
-      }
-
       console.error('Unexpected error in push.getStats:', error);
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -527,31 +408,22 @@ export const pushRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, userId } = ctx;
+      const { db, userId } = ctx;
 
       try {
-        const { error } = await supabase
-          .from('push_subscriptions')
-          .delete()
-          .eq('id', input.subscriptionId)
-          .eq('user_id', userId); // Ensure user can only delete their own subscriptions
-
-        if (error) {
-          console.error('Failed to delete subscription:', error);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to delete subscription',
-          });
-        }
+        await db
+          .delete(schema.pushSubscriptions)
+          .where(
+            and(
+              eq(schema.pushSubscriptions.id, input.subscriptionId),
+              eq(schema.pushSubscriptions.userId, userId) // Ensure user can only delete their own subscriptions
+            )
+          );
 
         return {
           success: true,
         };
       } catch (error) {
-        if (error instanceof TRPCError) {
-          throw error;
-        }
-
         console.error('Unexpected error in push.deleteSubscription:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',

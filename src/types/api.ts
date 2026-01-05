@@ -1,4 +1,4 @@
-// Supabase types - no Convex dependencies
+// Drizzle ORM types
 
 /**
  * Generic API response wrapper

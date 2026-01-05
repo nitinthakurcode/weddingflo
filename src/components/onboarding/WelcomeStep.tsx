@@ -14,7 +14,7 @@ export function WelcomeStep({ onNext, onSkip }: WelcomeStepProps) {
     <div className="max-w-4xl mx-auto space-y-6">
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl">Welcome to WeddingFlow Pro! 🎉</CardTitle>
+          <CardTitle className="text-3xl">Welcome to WeddingFlo! 🎉</CardTitle>
           <CardDescription className="text-lg mt-2">
             Let&apos;s get your wedding business set up in just a few minutes
           </CardDescription>

@@ -17,7 +17,7 @@ function getResendClient(): Resend {
 // For production: update with your verified domain (verify at https://resend.com/domains)
 // For development: using Resend's test email
 export const DEFAULT_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-export const DEFAULT_FROM_NAME = 'WeddingFlow Pro';
+export const DEFAULT_FROM_NAME = 'WeddingFlo';
 export const DEFAULT_FROM = `${DEFAULT_FROM_NAME} <${DEFAULT_FROM_EMAIL}>`;
 
 // Email configuration

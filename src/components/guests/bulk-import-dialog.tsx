@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, FileText, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BulkImportRow } from '@/types/guest';
+import { trpc } from '@/lib/trpc/client';
 
 interface BulkImportDialogProps {
   open: boolean;
@@ -32,66 +31,63 @@ export function BulkImportDialog({
   const [isImporting, setIsImporting] = useState(false);
   const [previewData, setPreviewData] = useState<BulkImportRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  const { data: existingGuests } = useQuery({
-    queryKey: ['guests', clientId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('guests')
-        .select('*')
-        .eq('client_id', clientId);
-      if (error) throw error;
-      return data;
+  const { data: existingGuests } = trpc.guests.getAll.useQuery(
+    { clientId },
+    { enabled: !!clientId }
+  );
+
+  const createGuest = trpc.guests.create.useMutation({
+    onSuccess: () => {
+      utils.guests.getAll.invalidate({ clientId });
     },
-    enabled: !!clientId && !!supabase,
   });
 
-  const bulkCreate = useMutation({
-    mutationFn: async (guests: any[]) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      // Bulk insert or update guests
-      const results = { created: 0, updated: 0 };
+  const updateGuest = trpc.guests.update.useMutation({
+    onSuccess: () => {
+      utils.guests.getAll.invalidate({ clientId });
+    },
+  });
 
-      for (const guest of guests) {
-        // Check if guest exists
-        const existing = existingGuests?.find((g: any) =>
-          g.guest_name.toLowerCase() === guest.guest_name?.toLowerCase() ||
+  const bulkImportGuests = async (guests: any[]) => {
+    const results = { created: 0, updated: 0 };
+
+    for (const guest of guests) {
+      // Check if guest exists by matching name, email, or phone
+      const existing = existingGuests?.find((g: any) => {
+        const existingFullName = `${g.first_name} ${g.last_name || ''}`.trim().toLowerCase();
+        const guestFullName = `${guest.first_name} ${guest.last_name || ''}`.trim().toLowerCase();
+        return existingFullName === guestFullName ||
           (g.email && guest.email && g.email === guest.email) ||
-          (g.phone_number && guest.phone_number && g.phone_number === guest.phone_number)
-        );
+          (g.phone && guest.phone && g.phone === guest.phone);
+      });
 
+      try {
         if (existing) {
           // Update
-          const { error } = await supabase
-            .from('guests')
-            // @ts-ignore - TODO: Regenerate Supabase types from database schema
-            .update(guest)
-            .eq('id', (existing as any).id);
-          if (!error) results.updated++;
+          await updateGuest.mutateAsync({
+            id: existing.id,
+            ...guest,
+          });
+          results.updated++;
         } else {
           // Create
-          const { error } = await supabase
-            .from('guests')
-            // @ts-ignore - TODO: Regenerate Supabase types from database schema
-            .insert(guest);
-          if (!error) results.created++;
+          await createGuest.mutateAsync(guest);
+          results.created++;
         }
+      } catch (error) {
+        console.error('Error importing guest:', error);
       }
+    }
 
-      return results;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['guests', clientId] });
-    },
-  });
+    return results;
+  };
 
   const downloadTemplate = () => {
-    const template = `guest_name,guest_email,guest_phone,guest_category,guest_side,plus_one_allowed,plus_one_name,meal_preference,accommodation_needed
-John Doe,john@example.com,+1234567890,bride_family,bride,true,Jane Doe,veg,true
-Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`;
+    const template = `Guest Name,Phone,Email,Party Size,Additional Guests,Arrival Date/Time,Arrival Mode,Departure Date/Time,Departure Mode,Relationship,Group,Attending Events,RSVP Status,Meal Preference,Dietary Restrictions,Plus One,Hotel Required,Transport Required,Gift to Give,Notes
+John Doe,+1234567890,john@example.com,3,"Jane Doe, Bob Doe",2024-12-15 10:00,Flight,2024-12-18 14:00,Flight,Uncle,Bride's Family,"Sangeet, Wedding",accepted,veg,Nut allergy,No,Yes,Yes,Welcome basket,VIP guest
+Mary Smith,+1234567891,mary@example.com,1,,2024-12-14 18:00,Car,2024-12-19 12:00,Car,College Friend,Groom's Friends,"Haldi, Wedding",pending,non_veg,,Yes,No,No,,`;
 
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -162,19 +158,56 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
       // Validate and filter guests
       const validGuests = previewData
         .filter((row) => {
-          // Filter out rows with missing or empty guest_name
-          return row.guest_name && row.guest_name.trim() !== '';
+          // Filter out rows with missing or empty Guest Name
+          const name = (row as any)['Guest Name'] || row.guestName;
+          return name && name.trim() !== '';
         })
-        .map((row, index) => {
+        .map((row) => {
+          const rowData = row as any;
+          const name = rowData['Guest Name'] || rowData.guestName || '';
+          const nameParts = name.trim().split(' ');
+          const firstName = nameParts[0] || name;
+          const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+          // Parse additional guests (comma-separated)
+          const additionalGuestsStr = rowData['Additional Guests'] || '';
+          const additionalGuestNames = additionalGuestsStr
+            ? additionalGuestsStr.split(',').map((n: string) => n.trim()).filter(Boolean)
+            : [];
+
+          // Parse attending events (comma-separated)
+          const eventsStr = rowData['Attending Events'] || '';
+          const attendingEvents = eventsStr
+            ? eventsStr.split(',').map((e: string) => e.trim()).filter(Boolean)
+            : [];
+
           return {
-            serial_number: index + 1,
-            guest_name: row.guest_name.trim(),
-            email: row.guest_email?.trim() || undefined,
-            phone_number: row.guest_phone?.trim() || undefined,
-            guest_category: row.guest_category?.trim() || undefined,
-            number_of_packs: row.plus_one_allowed === 'true' ? 2 : 1,
-            additional_guest_names: row.plus_one_name ? [row.plus_one_name.trim()] : [],
-            events_attending: [],
+            first_name: firstName,
+            last_name: lastName,
+            email: (rowData['Email'] || rowData.guestEmail || '').trim() || undefined,
+            phone: (rowData['Phone'] || rowData.guestPhone || '').trim() || undefined,
+            // Party info
+            party_size: parseInt(rowData['Party Size']) || 1,
+            additional_guest_names: additionalGuestNames,
+            // Travel info
+            arrival_datetime: rowData['Arrival Date/Time'] || undefined,
+            arrival_mode: (rowData['Arrival Mode'] || '').toLowerCase() || undefined,
+            departure_datetime: rowData['Departure Date/Time'] || undefined,
+            departure_mode: (rowData['Departure Mode'] || '').toLowerCase() || undefined,
+            // Relationship
+            relationship_to_family: rowData['Relationship'] || undefined,
+            group_name: (rowData['Group'] || rowData.groupName || '').trim() || undefined,
+            attending_events: attendingEvents,
+            // RSVP
+            rsvp_status: (rowData['RSVP Status'] || 'pending').toLowerCase(),
+            meal_preference: (rowData['Meal Preference'] || '').toLowerCase() || undefined,
+            dietary_restrictions: (rowData['Dietary Restrictions'] || '').trim() || undefined,
+            plus_one_allowed: rowData['Plus One']?.toLowerCase() === 'yes' || rowData.plusOne_allowed === 'true',
+            // Planner fields
+            hotel_required: rowData['Hotel Required']?.toLowerCase() === 'yes',
+            transport_required: rowData['Transport Required']?.toLowerCase() === 'yes',
+            gift_to_give: rowData['Gift to Give'] || undefined,
+            notes: rowData['Notes'] || undefined,
           };
         });
 
@@ -196,7 +229,7 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
         });
       }
 
-      const result = await bulkCreate.mutateAsync(
+      const result = await bulkImportGuests(
         validGuests.map(g => ({
           ...g,
           company_id: companyId,
@@ -294,15 +327,22 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
                   </thead>
                   <tbody>
                     {previewData.slice(0, 10).map((row, index) => {
-                      const isInvalid = !row.guest_name || row.guest_name.trim() === '';
+                      const rowData = row as any;
+                      const guestName = rowData['Guest Name'] || rowData.guestName || '';
+                      const guestEmail = rowData['Email'] || rowData.guestEmail || '';
+                      const guestGroup = rowData['Group'] || rowData.groupName || '';
+                      const guestPhone = rowData['Phone'] || rowData.guestPhone || '';
+
+                      const isInvalid = !guestName || guestName.trim() === '';
 
                       // Check if guest already exists
                       const existingGuest = existingGuests?.find((existing: any) => {
-                        const nameMatch = existing.guest_name.toLowerCase() === row.guest_name?.toLowerCase();
-                        const emailMatch = row.guest_email && existing.email &&
-                          existing.email.toLowerCase() === row.guest_email.toLowerCase();
-                        const phoneMatch = row.guest_phone && existing.phone_number &&
-                          existing.phone_number === row.guest_phone;
+                        const existingFullName = `${existing.first_name} ${existing.last_name || ''}`.trim().toLowerCase();
+                        const nameMatch = existingFullName === guestName.toLowerCase();
+                        const emailMatch = guestEmail && existing.email &&
+                          existing.email.toLowerCase() === guestEmail.toLowerCase();
+                        const phoneMatch = guestPhone && existing.phone &&
+                          existing.phone === guestPhone;
                         return nameMatch || emailMatch || phoneMatch;
                       });
 
@@ -313,9 +353,9 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
                         <tr
                           key={index}
                           className={`border-t ${
-                            isInvalid ? 'bg-red-50' :
-                            willUpdate ? 'bg-blue-50' :
-                            willCreate ? 'bg-green-50' : ''
+                            isInvalid ? 'bg-rose-50 dark:bg-rose-950/30' :
+                            willUpdate ? 'bg-cobalt-50 dark:bg-cobalt-950/30' :
+                            willCreate ? 'bg-sage-50 dark:bg-sage-950/30' : ''
                           }`}
                           title={
                             isInvalid ? 'Missing guest name - will be skipped' :
@@ -325,26 +365,26 @@ Mary Smith,mary@example.com,+1234567891,groom_family,groom,false,,non_veg,false`
                         >
                           <td className="px-2 py-1">
                             {isInvalid && (
-                              <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded">
+                              <span className="text-xs font-semibold text-rose-600 bg-rose-100 dark:text-rose-400 dark:bg-rose-900/50 px-2 py-0.5 rounded">
                                 SKIP
                               </span>
                             )}
                             {willUpdate && (
-                              <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
+                              <span className="text-xs font-semibold text-cobalt-600 bg-cobalt-100 dark:text-cobalt-400 dark:bg-cobalt-900/50 px-2 py-0.5 rounded">
                                 UPDATE
                               </span>
                             )}
                             {willCreate && (
-                              <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded">
+                              <span className="text-xs font-semibold text-sage-600 bg-sage-100 dark:text-sage-400 dark:bg-sage-900/50 px-2 py-0.5 rounded">
                                 NEW
                               </span>
                             )}
                           </td>
-                          <td className={`px-2 py-1 ${isInvalid ? 'text-red-600 font-semibold' : ''}`}>
-                            {row.guest_name || '⚠️ Missing'}
+                          <td className={`px-2 py-1 ${isInvalid ? 'text-rose-600 dark:text-rose-400 font-semibold' : ''}`}>
+                            {guestName || '⚠️ Missing'}
                           </td>
-                          <td className="px-2 py-1">{row.guest_email}</td>
-                          <td className="px-2 py-1">{row.guest_category}</td>
+                          <td className="px-2 py-1">{guestEmail}</td>
+                          <td className="px-2 py-1">{guestGroup}</td>
                         </tr>
                       );
                     })}

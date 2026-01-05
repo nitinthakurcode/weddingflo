@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import NextImage from 'next/image';
-import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { trpc } from '@/lib/trpc/client';
 
 interface LogoUploadProps {
   currentLogoUrl?: string;
@@ -25,8 +25,15 @@ export function LogoUpload({
   const [logoUrl, setLogoUrl] = useState(currentLogoUrl);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const supabase = useSupabase();
   const { toast } = useToast();
+
+  // Get presigned upload URL from storage router
+  const getUploadUrl = trpc.storage.getUploadUrl.useMutation();
+
+  // Sync with prop changes
+  useEffect(() => {
+    setLogoUrl(currentLogoUrl);
+  }, [currentLogoUrl]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -52,36 +59,36 @@ export function LogoUpload({
       return;
     }
 
-    if (!supabase) {
-      toast({
-        title: 'Error',
-        description: 'Supabase client not ready. Please try again.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setIsUploading(true);
 
     try {
-      // Generate unique file path
+      // Generate unique file name
       const fileExt = file.name.split('.').pop();
-      const filePath = `logos/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const fileName = `logo-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
-      // Upload to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('uploads')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+      // Get presigned upload URL from tRPC
+      const { uploadUrl, key } = await getUploadUrl.mutateAsync({
+        fileName,
+        fileType: file.type,
+        fileSize: file.size,
+        category: 'images',
+      });
 
-      if (uploadError) throw uploadError;
+      // Upload file directly to R2 using presigned URL
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type,
+        },
+      });
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('uploads')
-        .getPublicUrl(filePath);
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload file');
+      }
+
+      // Construct public URL (adjust based on R2 configuration)
+      const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL || ''}/${key}`;
 
       // Update local state and notify parent
       setLogoUrl(publicUrl);

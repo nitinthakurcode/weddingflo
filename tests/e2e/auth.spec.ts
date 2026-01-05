@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 
 /**
  * E2E Authentication Flow Test
- * Tests the complete authentication journey including Clerk-Supabase sync
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
+ * Tests the complete authentication journey
  */
 
 test.describe('Authentication Flow', () => {
@@ -34,8 +35,8 @@ test.describe('Authentication Flow', () => {
     // Should be on sign-in page
     await expect(page).toHaveURL(/\/en\/sign-in/);
 
-    // Clerk sign-in component should be visible
-    await expect(page.locator('[data-clerk-id]')).toBeVisible({ timeout: 10000 });
+    // Auth form should be visible
+    await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
   });
 
   test('should navigate to sign-up page', async ({ page }) => {
@@ -45,8 +46,8 @@ test.describe('Authentication Flow', () => {
     // Should be on sign-up page
     await expect(page).toHaveURL(/\/en\/sign-up/);
 
-    // Clerk sign-up component should be visible
-    await expect(page.locator('[data-clerk-id]')).toBeVisible({ timeout: 10000 });
+    // Auth form should be visible
+    await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
   });
 
   test('should access superadmin sign-in page', async ({ page }) => {
@@ -56,15 +57,15 @@ test.describe('Authentication Flow', () => {
     await expect(page.getByText(/super admin access/i)).toBeVisible();
     await expect(page.getByText(/restricted access/i)).toBeVisible();
 
-    // Clerk sign-in component should be visible
-    await expect(page.locator('[data-clerk-id]')).toBeVisible({ timeout: 10000 });
+    // Auth form should be visible
+    await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
   });
 
   test('should access portal sign-in page', async ({ page }) => {
     await page.goto('http://localhost:3000/en/portal/sign-in');
 
-    // Clerk sign-in component should be visible
-    await expect(page.locator('[data-clerk-id]')).toBeVisible({ timeout: 10000 });
+    // Auth form should be visible
+    await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
   });
 
   test('should show onboard page when accessed directly', async ({ page }) => {
@@ -87,14 +88,20 @@ test.describe('Authentication Flow', () => {
 });
 
 test.describe('API Endpoints', () => {
-  test('webhook endpoint should be accessible', async ({ request }) => {
+  test('stripe webhook endpoint should be accessible', async ({ request }) => {
     // GET should return 405 (Method Not Allowed) - webhook only accepts POST
-    const response = await request.get('http://localhost:3000/api/webhooks/clerk');
+    const response = await request.get('http://localhost:3000/api/webhooks/stripe');
     expect(response.status()).toBe(405);
   });
 
   test('health endpoint should return 200', async ({ request }) => {
     const response = await request.get('http://localhost:3000/api/health');
+    expect(response.status()).toBe(200);
+  });
+
+  test('auth session endpoint should be accessible', async ({ request }) => {
+    const response = await request.get('http://localhost:3000/api/auth/session');
+    // Returns 200 even if not authenticated (session will be null)
     expect(response.status()).toBe(200);
   });
 });
@@ -107,7 +114,7 @@ test.describe('Internationalization', () => {
       await page.goto(`http://localhost:3000/${locale}`);
 
       // Should show the home page content
-      await expect(page.getByText(/WeddingFlow Pro/i)).toBeVisible();
+      await expect(page.getByText(/WeddingFlo/i)).toBeVisible();
     });
   }
 });
@@ -117,21 +124,21 @@ test.describe('Responsive Design', () => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('http://localhost:3000/en');
 
-    await expect(page.getByText(/WeddingFlow Pro/i)).toBeVisible();
+    await expect(page.getByText(/WeddingFlo/i)).toBeVisible();
   });
 
   test('should work on tablet viewport', async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('http://localhost:3000/en');
 
-    await expect(page.getByText(/WeddingFlow Pro/i)).toBeVisible();
+    await expect(page.getByText(/WeddingFlo/i)).toBeVisible();
   });
 
   test('should work on desktop viewport', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto('http://localhost:3000/en');
 
-    await expect(page.getByText(/WeddingFlow Pro/i)).toBeVisible();
+    await expect(page.getByText(/WeddingFlo/i)).toBeVisible();
   });
 });
 

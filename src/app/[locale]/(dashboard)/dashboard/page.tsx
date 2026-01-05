@@ -2,7 +2,8 @@
 
 import { trpc } from '@/lib/trpc/client';
 import { useState, useEffect } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useSession } from '@/lib/auth-client';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,23 +35,28 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useForm } from 'react-hook-form';
-import { type Database } from '@/lib/database.types';
-
-type Client = Database["public"]["Tables"]["clients"]["Row"];
-type EventStatus = Database["public"]["Enums"]["event_status"];
-import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle, MessageCircle, Sparkles } from 'lucide-react';
+import type { Client, EventStatus } from '@/lib/db/types';
+import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle, MessageCircle, Sparkles, CalendarDays, Heart, TrendingUp, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter, useParams } from 'next/navigation';
+import { LoadingShimmer, SlideUpItem } from '@/components/ui/micro-interactions';
+import { RevenueWidget } from '@/components/dashboard/revenue-widget';
+import { RecentBookingsWidget } from '@/components/dashboard/recent-bookings-widget';
 
 interface CreateClientForm {
+  wedding_name?: string; // Title/Wedding Name
   partner1_first_name: string;
   partner1_last_name: string;
   partner1_email: string;
   partner1_phone?: string;
+  partner1_father_name?: string;
+  partner1_mother_name?: string;
   partner2_first_name?: string;
   partner2_last_name?: string;
   partner2_email?: string;
   partner2_phone?: string;
+  partner2_father_name?: string;
+  partner2_mother_name?: string;
   wedding_date?: string;
   venue?: string;
   budget?: number;
@@ -59,10 +65,12 @@ interface CreateClientForm {
 }
 
 export default function DashboardPage() {
-  const { userId } = useAuth();
+  const { data: session } = useSession();
   const router = useRouter();
   const params = useParams();
   const locale = params.locale as string || 'en';
+  const t = useTranslations('dashboard');
+  const tc = useTranslations('common');
   const [search, setSearch] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [chatState, setChatState] = useState<{
@@ -77,8 +85,10 @@ export default function DashboardPage() {
     clientName: null,
   });
   const [currentUserDbId, setCurrentUserDbId] = useState<string | null>(null);
-  const [currentUserName, setCurrentUserName] = useState<string>('You');
+  const [currentUserName, setCurrentUserName] = useState<string>('');
   const { toast } = useToast();
+
+  const utils = trpc.useUtils();
 
   const { data: clients, isLoading, error, refetch } = trpc.clients.list.useQuery(
     { search },
@@ -90,36 +100,42 @@ export default function DashboardPage() {
   ) as { data: Client[] | undefined; isLoading: boolean; error: any; refetch: () => void };
 
   const createClient = trpc.clients.create.useMutation({
-    onSuccess: () => {
-      refetch();
+    onSuccess: async () => {
       setIsCreateOpen(false);
       reset();
       toast({
-        title: 'Success',
-        description: 'Client created successfully',
+        title: tc('success'),
+        description: t('clientCreated'),
       });
+      // Invalidate global cache to update stats everywhere
+      // Also invalidate events since we auto-create a main wedding event
+      await Promise.all([
+        utils.clients.list.invalidate(),
+        utils.events.invalidate(), // Auto-created event needs to appear in events pages
+      ]);
     },
     onError: (error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to create client',
+        title: tc('error'),
+        description: error.message || t('createFailed'),
         variant: 'destructive',
       });
     },
   });
 
   const deleteClient = trpc.clients.delete.useMutation({
-    onSuccess: () => {
-      refetch();
+    onSuccess: async () => {
       toast({
-        title: 'Success',
-        description: 'Client deleted successfully',
+        title: tc('success'),
+        description: t('clientDeleted'),
       });
+      // Invalidate global cache to update stats everywhere
+      await utils.clients.list.invalidate();
     },
     onError: (error) => {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete client',
+        title: tc('error'),
+        description: error.message || t('deleteFailed'),
         variant: 'destructive',
       });
     },
@@ -131,9 +147,9 @@ export default function DashboardPage() {
   useEffect(() => {
     if (currentUser) {
       setCurrentUserDbId(currentUser.id);
-      setCurrentUserName(currentUser.name || 'You');
+      setCurrentUserName(currentUser.name || tc('you'));
     }
-  }, [currentUser]);
+  }, [currentUser, tc]);
 
   const {
     register,
@@ -155,9 +171,17 @@ export default function DashboardPage() {
   // Calculate metrics
   const totalClients = clients?.length || 0;
 
+  // All future weddings (any date in the future)
+  const allFutureWeddings = clients?.filter((c) => {
+    if (!c.weddingDate) return false;
+    const date = new Date(c.weddingDate);
+    return date.getTime() > Date.now();
+  }).length || 0;
+
+  // Upcoming weddings (within next 30 days)
   const upcomingWeddings = clients?.filter((c) => {
-    if (!c.wedding_date) return false;
-    const date = new Date(c.wedding_date);
+    if (!c.weddingDate) return false;
+    const date = new Date(c.weddingDate);
     const now = new Date();
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
     return date.getTime() - now.getTime() < thirtyDays && date.getTime() > now.getTime();
@@ -167,48 +191,51 @@ export default function DashboardPage() {
 
   const planningClients = clients?.filter((c) => c.status === 'planning').length || 0;
 
-  const getStatusColor = (status: EventStatus) => {
+  // Dec 2025 Theme-aligned status colors - Sage, Champagne, Rose palette
+  const getStatusVariant = (status: EventStatus): 'success' | 'info' | 'warning' | 'confirmed' | 'destructive' | 'secondary' => {
     switch (status) {
       case 'confirmed':
-        return 'bg-green-100 text-green-800';
+        return 'success'; // Sage green - fresh, nature
       case 'planning':
-        return 'bg-blue-100 text-blue-800';
+        return 'info'; // Cobalt blue - trust, progress
       case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'warning'; // Gold - energy, action
       case 'completed':
-        return 'bg-purple-100 text-purple-800';
+        return 'confirmed'; // Sage green - achievement
       case 'canceled':
-        return 'bg-red-100 text-red-800';
+        return 'destructive'; // Rose red - attention
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'secondary';
     }
   };
 
   const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Not set';
+    if (!dateString) return t('notSet');
     try {
-      return new Date(dateString).toLocaleDateString('en-US', {
+      return new Date(dateString).toLocaleDateString(locale, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
       });
     } catch {
-      return 'Invalid date';
+      return t('invalidDate');
     }
   };
 
   const handleDelete = (id: string, clientName: string) => {
-    if (confirm(`Are you sure you want to delete ${clientName}? This will set their status to CANCELED.`)) {
+    if (confirm(t('deleteConfirm'))) {
       deleteClient.mutate({ id });
     }
   };
 
   const openChat = (client: Client) => {
-    const clientName = `${client.partner1_first_name} ${client.partner1_last_name}`;
+    const clientName = client.partner1LastName
+      ? `${client.partner1FirstName} ${client.partner1LastName}`
+      : client.partner1FirstName;
     setChatState({
       isOpen: true,
       clientId: client.id,
-      clientUserId: client.created_by, // User who created the client
+      clientUserId: client.createdBy, // User who created the client
       clientName,
     });
   };
@@ -224,8 +251,28 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="space-y-6 p-4 sm:p-6">
+        {/* Shimmer Header */}
+        <div className="flex flex-col gap-4">
+          <LoadingShimmer className="h-8 w-48" />
+          <LoadingShimmer className="h-4 w-64" />
+        </div>
+        {/* Shimmer Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+          {[...Array(5)].map((_, i) => (
+            <Card key={i} className="p-4 space-y-3">
+              <LoadingShimmer className="h-4 w-20" />
+              <LoadingShimmer className="h-8 w-12" />
+              <LoadingShimmer className="h-3 w-16" />
+            </Card>
+          ))}
+        </div>
+        {/* Shimmer Table */}
+        <Card className="p-4 space-y-4">
+          {[...Array(4)].map((_, i) => (
+            <LoadingShimmer key={i} className="h-12 w-full" />
+          ))}
+        </Card>
       </div>
     );
   }
@@ -234,46 +281,61 @@ export default function DashboardPage() {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
-        <p className="text-lg font-medium">Failed to load clients</p>
+        <p className="text-lg font-medium">{tc('failedToLoad')}</p>
         <p className="text-sm text-muted-foreground">{error.message}</p>
-        <Button onClick={() => refetch()}>Try Again</Button>
+        <Button onClick={() => refetch()}>{tc('tryAgain')}</Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-1">Manage your wedding clients and track progress</p>
-        </div>
+    <div className="space-y-6 p-4 sm:p-6 pb-24 sm:pb-6">
+      {/* Header - Mobile Optimized */}
+      <SlideUpItem delay={0}>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{t('title')}</h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">{t('subtitle')}</p>
+          </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button className="w-full sm:w-auto">
               <Plus className="h-4 w-4 mr-2" />
-              Add Client
+              {t('addClient')}
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent size="lg" className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Add New Client</DialogTitle>
+              <DialogTitle>{t('addNewClient')}</DialogTitle>
               <DialogDescription>
-                Create a new wedding client profile. Fields marked with * are required.
+                {t('createClientDescription')}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              {/* Wedding Name / Title */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{t('weddingTitle')}</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="wedding_name">{t('weddingName')}</Label>
+                  <Input
+                    id="wedding_name"
+                    {...register('wedding_name')}
+                    placeholder={t('weddingNamePlaceholder')}
+                  />
+                  <p className="text-xs text-muted-foreground">{t('weddingNameHint')}</p>
+                </div>
+              </div>
+
               {/* Partner 1 */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-gray-900">Partner 1 Information *</h3>
+                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{t('partner1Info')} *</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="partner1_first_name">First Name *</Label>
+                    <Label htmlFor="partner1_first_name">{t('firstName')} *</Label>
                     <Input
                       id="partner1_first_name"
                       {...register('partner1_first_name', {
-                        required: 'First name is required',
+                        required: tc('firstNameRequired'),
                       })}
                       placeholder="John"
                     />
@@ -282,11 +344,11 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="partner1_last_name">Last Name *</Label>
+                    <Label htmlFor="partner1_last_name">{t('lastName')} *</Label>
                     <Input
                       id="partner1_last_name"
                       {...register('partner1_last_name', {
-                        required: 'Last name is required',
+                        required: tc('lastNameRequired'),
                       })}
                       placeholder="Smith"
                     />
@@ -297,15 +359,15 @@ export default function DashboardPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="partner1_email">Email *</Label>
+                    <Label htmlFor="partner1_email">{t('email')} *</Label>
                     <Input
                       id="partner1_email"
                       type="email"
                       {...register('partner1_email', {
-                        required: 'Email is required',
+                        required: tc('emailRequired'),
                         pattern: {
                           value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                          message: 'Invalid email address',
+                          message: tc('invalidEmailAddress'),
                         },
                       })}
                       placeholder="john@example.com"
@@ -315,7 +377,7 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="partner1_phone">Phone</Label>
+                    <Label htmlFor="partner1_phone">{t('phone')}</Label>
                     <Input
                       id="partner1_phone"
                       type="tel"
@@ -324,14 +386,33 @@ export default function DashboardPage() {
                     />
                   </div>
                 </div>
+                {/* Family Details - Partner 1 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
+                  <div className="space-y-2">
+                    <Label htmlFor="partner1_father_name">{t('fatherName')}</Label>
+                    <Input
+                      id="partner1_father_name"
+                      {...register('partner1_father_name')}
+                      placeholder={t('fatherNamePlaceholder')}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="partner1_mother_name">{t('motherName')}</Label>
+                    <Input
+                      id="partner1_mother_name"
+                      {...register('partner1_mother_name')}
+                      placeholder={t('motherNamePlaceholder')}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Partner 2 */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-gray-900">Partner 2 Information (Optional)</h3>
+                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{t('partner2Info')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="partner2_first_name">First Name</Label>
+                    <Label htmlFor="partner2_first_name">{t('firstName')}</Label>
                     <Input
                       id="partner2_first_name"
                       {...register('partner2_first_name')}
@@ -339,7 +420,7 @@ export default function DashboardPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="partner2_last_name">Last Name</Label>
+                    <Label htmlFor="partner2_last_name">{t('lastName')}</Label>
                     <Input
                       id="partner2_last_name"
                       {...register('partner2_last_name')}
@@ -349,14 +430,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="partner2_email">Email</Label>
+                    <Label htmlFor="partner2_email">{t('email')}</Label>
                     <Input
                       id="partner2_email"
                       type="email"
                       {...register('partner2_email', {
                         pattern: {
                           value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                          message: 'Invalid email address',
+                          message: tc('invalidEmailAddress'),
                         },
                       })}
                       placeholder="jane@example.com"
@@ -366,7 +447,7 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="partner2_phone">Phone</Label>
+                    <Label htmlFor="partner2_phone">{t('phone')}</Label>
                     <Input
                       id="partner2_phone"
                       type="tel"
@@ -375,14 +456,33 @@ export default function DashboardPage() {
                     />
                   </div>
                 </div>
+                {/* Family Details - Partner 2 */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
+                  <div className="space-y-2">
+                    <Label htmlFor="partner2_father_name">{t('fatherName')}</Label>
+                    <Input
+                      id="partner2_father_name"
+                      {...register('partner2_father_name')}
+                      placeholder={t('fatherNamePlaceholder')}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="partner2_mother_name">{t('motherName')}</Label>
+                    <Input
+                      id="partner2_mother_name"
+                      {...register('partner2_mother_name')}
+                      placeholder={t('motherNamePlaceholder')}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Wedding Details */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-gray-900">Wedding Details</h3>
+                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{tc('weddingDetails')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="wedding_date">Wedding Date</Label>
+                    <Label htmlFor="wedding_date">{t('weddingDate')}</Label>
                     <Input
                       id="wedding_date"
                       type="date"
@@ -390,7 +490,7 @@ export default function DashboardPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="venue">Venue</Label>
+                    <Label htmlFor="venue">{t('venue')}</Label>
                     <Input
                       id="venue"
                       {...register('venue')}
@@ -400,7 +500,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="budget">Budget</Label>
+                    <Label htmlFor="budget">{tc('budget')}</Label>
                     <Input
                       id="budget"
                       type="number"
@@ -411,7 +511,7 @@ export default function DashboardPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="guest_count">Guest Count</Label>
+                    <Label htmlFor="guest_count">{tc('guestCount')}</Label>
                     <Input
                       id="guest_count"
                       type="number"
@@ -422,11 +522,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
+                  <Label htmlFor="notes">{tc('notes')}</Label>
                   <Input
                     id="notes"
                     {...register('notes')}
-                    placeholder="Additional notes..."
+                    placeholder={tc('additionalNotes')}
                   />
                 </div>
               </div>
@@ -440,195 +540,254 @@ export default function DashboardPage() {
                     reset();
                   }}
                 >
-                  Cancel
+                  {tc('cancel')}
                 </Button>
                 <Button type="submit" disabled={createClient.isPending}>
                   {createClient.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Client
+                  {t('createClient')}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-      </div>
+        </div>
+      </SlideUpItem>
 
-      {/* Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalClients}</div>
-            <p className="text-xs text-muted-foreground">Wedding couples</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Upcoming Weddings</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{upcomingWeddings}</div>
-            <p className="text-xs text-muted-foreground">Next 30 days</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Confirmed</CardTitle>
-            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{confirmedClients}</div>
-            <p className="text-xs text-muted-foreground">Ready to go</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Planning</CardTitle>
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{planningClients}</div>
-            <p className="text-xs text-muted-foreground">In progress</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Metrics Cards - Clean Professional Design */}
+      <SlideUpItem delay={100}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+          {/* Total Clients */}
+          <Card className="group hover:shadow-lg transition-all duration-200 bg-card border-border/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Users className="h-4 w-4 text-primary" />
+                </div>
+                <span className="text-xs text-muted-foreground font-medium">{t('totalClients')}</span>
+              </div>
+              <div className="text-3xl font-bold text-foreground">{totalClients}</div>
+              <p className="text-xs text-muted-foreground mt-1">{t('weddingCouples')}</p>
+            </CardContent>
+          </Card>
 
-      {/* AI Features Quick Access */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Future Weddings */}
+          <Card className="group hover:shadow-lg transition-all duration-200 bg-card border-border/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <CalendarDays className="h-4 w-4 text-primary" />
+                </div>
+                <span className="text-xs text-muted-foreground font-medium hidden sm:block">{t('allFutureWeddings') || 'Future'}</span>
+              </div>
+              <div className="text-3xl font-bold text-foreground">{allFutureWeddings}</div>
+              <p className="text-xs text-muted-foreground mt-1">{t('allScheduled') || 'All scheduled'}</p>
+            </CardContent>
+          </Card>
+
+          {/* Upcoming (30 days) */}
+          <Card className="group hover:shadow-lg transition-all duration-200 bg-card border-border/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-lg bg-accent/20">
+                  <Calendar className="h-4 w-4 text-accent" />
+                </div>
+                <Badge variant="outline" className="text-[10px]">30d</Badge>
+              </div>
+              <div className="text-3xl font-bold text-foreground">{upcomingWeddings}</div>
+              <p className="text-xs text-muted-foreground mt-1">{t('next30Days')}</p>
+            </CardContent>
+          </Card>
+
+          {/* Confirmed */}
+          <Card className="group hover:shadow-lg transition-all duration-200 bg-card border-border/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-lg bg-sage-100 dark:bg-sage-900/30">
+                  <CheckCircle2 className="h-4 w-4 text-sage-600 dark:text-sage-400" />
+                </div>
+                <TrendingUp className="h-3 w-3 text-sage-600 dark:text-sage-400" />
+              </div>
+              <div className="text-3xl font-bold text-foreground">{confirmedClients}</div>
+              <p className="text-xs text-muted-foreground mt-1">{t('readyToGo')}</p>
+            </CardContent>
+          </Card>
+
+          {/* Planning */}
+          <Card className="group hover:shadow-lg transition-all duration-200 bg-card border-border/50 col-span-2 sm:col-span-1">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Zap className="h-4 w-4 text-primary" />
+                </div>
+                <span className="text-xs font-medium text-primary">{t('planning')}</span>
+              </div>
+              <div className="text-3xl font-bold text-foreground">{planningClients}</div>
+              <p className="text-xs text-muted-foreground mt-1">{t('inProgress')}</p>
+            </CardContent>
+          </Card>
+        </div>
+      </SlideUpItem>
+
+      {/* AI Features Quick Access - Clean Professional Card */}
+      <SlideUpItem delay={200}>
         <Card
-          className="hover:shadow-lg transition-all duration-200 cursor-pointer border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-secondary/5"
+          className="group cursor-pointer hover:shadow-md transition-all duration-200"
           onClick={() => router.push(`/${locale}/dashboard/ai/budget-prediction`)}
         >
-          <CardHeader>
+          <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Sparkles className="h-5 w-5 text-primary" />
-                AI Budget Prediction
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                </div>
+                <span>{t('aiBudgetPrediction')}</span>
               </CardTitle>
-              <Badge variant="secondary" className="bg-gradient-to-r from-primary to-secondary text-primary-foreground">
-                New
+              <Badge variant="info">
+                {t('aiBudgetNew')}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Get intelligent budget estimates powered by GPT-4. Enter wedding details and receive instant, accurate predictions.
+              {t('aiBudgetDescription')}
             </p>
-            <Button className="w-full" variant="outline">
-              Try AI Budget Prediction →
+            <Button className="w-full sm:w-auto">
+              {t('tryAiBudget')} →
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </SlideUpItem>
 
-      {/* Search */}
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      {/* Revenue and Bookings Widgets */}
+      <SlideUpItem delay={250}>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <RevenueWidget />
+          <RecentBookingsWidget />
+        </div>
+      </SlideUpItem>
+
+      {/* Search - Mobile Optimized */}
+      <SlideUpItem delay={300}>
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
           <Input
-            placeholder="Search clients by name..."
+            id="client-search"
+            name="client-search"
+            placeholder={t('searchClientsPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
+            className="pl-12 h-12 text-base"
           />
         </div>
-      </div>
+      </SlideUpItem>
 
       {/* Clients Table */}
-      <Card>
-        <CardContent className="p-0">
-          {!clients || clients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-4">
-              <Users className="h-12 w-12 text-muted-foreground" />
-              <div className="text-center">
-                <p className="text-lg font-medium">No clients found</p>
-                <p className="text-sm text-muted-foreground">
-                  {search ? 'Try adjusting your search' : 'Get started by adding your first client'}
-                </p>
+      <SlideUpItem delay={400}>
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            {!clients || clients.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 space-y-4">
+                <div className="p-4 rounded-full bg-primary/10">
+                  <Heart className="h-12 w-12 text-primary" />
+                </div>
+                <div className="text-center px-4">
+                  <p className="text-xl font-semibold">{t('noClientsFound')}</p>
+                  <p className="text-sm text-muted-foreground mt-2 max-w-sm">
+                    {search ? t('adjustSearch') : t('noClientsDescription')}
+                  </p>
+                </div>
+                {!search && (
+                  <Button onClick={() => setIsCreateOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t('addClient')}
+                  </Button>
+                )}
               </div>
-              {!search && (
-                <Button onClick={() => setIsCreateOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Client
-                </Button>
-              )}
-            </div>
-          ) : (
+            ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Client Name</TableHead>
-                    <TableHead>Wedding Date</TableHead>
-                    <TableHead>Venue</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{t('weddingTitle')}</TableHead>
+                    <TableHead>{t('clientName')}</TableHead>
+                    <TableHead>{t('weddingDate')}</TableHead>
+                    <TableHead>{t('venue')}</TableHead>
+                    <TableHead>{t('status')}</TableHead>
+                    <TableHead className="text-right">{t('actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {clients.map((client) => (
                     <TableRow key={client.id}>
                       <TableCell className="font-medium">
+                        {client.weddingName || '-'}
+                      </TableCell>
+                      <TableCell>
                         <div>
                           <div>
-                            {client.partner1_first_name} {client.partner1_last_name}
-                            {client.partner2_first_name && (
+                            {client.partner1FirstName}{client.partner1LastName && ` ${client.partner1LastName}`}
+                            {client.partner2FirstName && (
                               <span className="text-muted-foreground">
                                 {' '}
-                                & {client.partner2_first_name} {client.partner2_last_name}
+                                & {client.partner2FirstName}{client.partner2LastName && ` ${client.partner2LastName}`}
                               </span>
                             )}
                           </div>
-                          <div className="text-sm text-muted-foreground">{client.partner1_email}</div>
+                          <div className="text-sm text-muted-foreground">{client.partner1Email}</div>
                         </div>
                       </TableCell>
-                      <TableCell>{formatDate(client.wedding_date)}</TableCell>
-                      <TableCell>{client.venue || 'Not set'}</TableCell>
+                      <TableCell>{formatDate(client.weddingDate)}</TableCell>
+                      <TableCell>{client.venue || t('notSet')}</TableCell>
                       <TableCell>
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
-                            client.status
-                          )}`}
+                        <Badge
+                          variant={getStatusVariant(client.status)}
+                          className="capitalize transition-spring hover:scale-105"
                         >
-                          {client.status}
-                        </span>
+                          {client.status.replace('_', ' ')}
+                        </Badge>
                       </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <ChatButton clientId={client.id} onClick={() => openChat(client)} />
-                        <Button variant="outline" size="sm">
-                          View
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            handleDelete(
-                              client.id,
-                              `${client.partner1_first_name} ${client.partner1_last_name}`
-                            )
-                          }
-                          disabled={deleteClient.isPending}
-                        >
-                          Delete
-                        </Button>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          <ChatButton clientId={client.id} onClick={() => openChat(client)} chatLabel={t('chat')} />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => router.push(`/${locale}/dashboard/clients/${client.id}`)}
+                          >
+                            {t('view')}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              handleDelete(
+                                client.id,
+                                client.partner1LastName
+                                  ? `${client.partner1FirstName} ${client.partner1LastName}`
+                                  : client.partner1FirstName
+                              )
+                            }
+                            disabled={deleteClient.isPending}
+                          >
+                            {tc('delete')}
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      </SlideUpItem>
 
       {/* Chat Modal */}
       <Dialog open={chatState.isOpen} onOpenChange={closeChat}>
-        <DialogContent className="max-w-2xl h-[600px] flex flex-col p-0">
+        <DialogContent size="lg" className="h-[600px] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle>Chat with {chatState.clientName}</DialogTitle>
+            <DialogTitle>{t('chatWith', { name: chatState.clientName || '' })}</DialogTitle>
           </DialogHeader>
 
           {chatState.isOpen &&
@@ -641,7 +800,7 @@ export default function DashboardPage() {
                   currentUserId={currentUserDbId}
                   otherUserId={chatState.clientUserId}
                   currentUserName={currentUserName}
-                  otherUserName={chatState.clientName || 'Client'}
+                  otherUserName={chatState.clientName || t('client')}
                 />
               </div>
             )}
@@ -652,7 +811,7 @@ export default function DashboardPage() {
 }
 
 // Chat button with unread badge component
-function ChatButton({ clientId, onClick }: { clientId: string; onClick: () => void }) {
+function ChatButton({ clientId, onClick, chatLabel }: { clientId: string; onClick: () => void; chatLabel: string }) {
   const { data: unreadCount } = trpc.messages.getUnreadCount.useQuery({
     clientId,
   });
@@ -660,7 +819,7 @@ function ChatButton({ clientId, onClick }: { clientId: string; onClick: () => vo
   return (
     <Button onClick={onClick} variant="outline" size="sm" className="relative">
       <MessageCircle className="w-4 h-4 mr-2" />
-      Chat
+      {chatLabel}
       {unreadCount && unreadCount.count > 0 && (
         <Badge
           className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0"

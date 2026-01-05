@@ -1,6 +1,6 @@
-# WeddingFlow Pro - Production Dockerfile
-# Optimized for Next.js 15.5.3 + tRPC + Multi-Stage Build
-# Target: Fly.io Multi-Region Deployment
+# WeddingFlo - Production Dockerfile
+# Optimized for Next.js 15 + BetterAuth + Drizzle
+# Target: Self-hosted deployment (Dokploy, Docker Compose, etc.)
 
 # ============================================
 # Stage 1: Dependencies
@@ -13,8 +13,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install dependencies with production flag
-RUN npm ci --omit=dev --ignore-scripts
+# Install ALL dependencies (needed for build)
+RUN npm ci --ignore-scripts
 
 # ============================================
 # Stage 2: Builder
@@ -30,9 +30,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Set build-time environment variables
-# Note: Sensitive vars should be set at runtime via Fly secrets
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+
+# Skip validation during build (env vars set at runtime)
+ENV SKIP_ENV_VALIDATION=true
 
 # Build Next.js application
 RUN npm run build
@@ -57,6 +59,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# Copy Drizzle migrations if needed at runtime
+COPY --from=builder /app/drizzle ./drizzle
+
 # Copy package.json for version info
 COPY --from=builder /app/package.json ./package.json
 
@@ -66,14 +71,14 @@ RUN chown -R nextjs:nodejs /app
 # Switch to non-root user
 USER nextjs
 
-# Expose port (Fly.io uses PORT env var)
-EXPOSE 8080
-ENV PORT=8080
+# Expose port (configurable via PORT env var)
+EXPOSE 3000
+ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:8080/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://localhost:${PORT || 3000}/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start the application
 CMD ["node", "server.js"]

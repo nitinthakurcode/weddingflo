@@ -123,7 +123,7 @@ export default function OnboardingPage() {
           partner1_phone: data.phone,
           partner2_first_name: data.partner2_name.split(' ')[0],
           partner2_last_name: data.partner2_name.split(' ').slice(1).join(' ') || data.partner2_name.split(' ')[0],
-          wedding_date: data.wedding_date.toISOString(),
+          wedding_date: data.weddingDate.toISOString(),
         })
         setClientCreated(true)
       } catch (error) {

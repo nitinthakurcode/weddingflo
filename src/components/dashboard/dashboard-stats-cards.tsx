@@ -16,16 +16,17 @@ interface DashboardStatsCardsProps {
 }
 
 export function DashboardStatsCards({ stats, isLoading, onFilterChange }: DashboardStatsCardsProps) {
+  // Theme-aware colors using CSS variables from design tokens
   const cards = [
     {
       title: 'Total Guests',
       value: stats.totalGuests,
       icon: Users,
       description: 'All guests',
-      textColor: '#1e1b4b', // Indigo-950
-      bgColor: '#e0e7ff', // Indigo-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #4f46e5, #6366f1)' }, // Indigo gradient
-      borderColor: '#a5b4fc', // Indigo-300
+      textColor: 'var(--cobalt-900, #172554)',
+      bgColor: 'var(--cobalt-50, #EFF6FF)',
+      iconBgStyle: { background: 'linear-gradient(to bottom right, var(--cobalt-500, #2563EB), var(--cobalt-400, #60A5FA))' },
+      borderColor: 'var(--cobalt-200, #BFDBFE)',
       filter: 'guests',
     },
     {
@@ -33,10 +34,10 @@ export function DashboardStatsCards({ stats, isLoading, onFilterChange }: Dashbo
       value: stats.confirmedGuests,
       icon: CheckCircle,
       description: 'Form submitted',
-      textColor: '#064e3b', // Emerald-900
-      bgColor: '#d1fae5', // Emerald-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #10b981, #059669)' }, // Emerald gradient
-      borderColor: '#a7f3d0', // Emerald-200
+      textColor: 'var(--sage-900, #283F22)',
+      bgColor: 'var(--sage-50, #F6F9F4)',
+      iconBgStyle: { background: 'linear-gradient(to bottom right, var(--sage-500, #5A9A49), var(--sage-400, #7BAF6B))' },
+      borderColor: 'var(--sage-200, #D1E2C8)',
       filter: 'confirmed',
     },
     {
@@ -44,10 +45,10 @@ export function DashboardStatsCards({ stats, isLoading, onFilterChange }: Dashbo
       value: `${stats.budgetSpentPercentage.toFixed(0)}%`,
       icon: DollarSign,
       description: 'Of total budget',
-      textColor: '#500724', // Pink-950
-      bgColor: '#fce7f3', // Pink-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #db2777, #ec4899)' }, // Pink gradient
-      borderColor: '#fbcfe8', // Pink-200
+      textColor: 'var(--rose-900, #4C0519)',
+      bgColor: 'var(--rose-50, #FFF5F6)',
+      iconBgStyle: { background: 'linear-gradient(to bottom right, var(--rose-500, #E11D48), var(--rose-400, #FB7185))' },
+      borderColor: 'var(--rose-200, #FECDD3)',
       filter: 'budget',
     },
     {
@@ -55,10 +56,10 @@ export function DashboardStatsCards({ stats, isLoading, onFilterChange }: Dashbo
       value: stats.daysUntilWedding > 0 ? stats.daysUntilWedding : 'Today!',
       icon: Calendar,
       description: stats.daysUntilWedding > 0 ? 'Days remaining' : 'Wedding day',
-      textColor: '#78350f', // Amber-900
-      bgColor: '#fef3c7', // Amber-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #d97706, #f59e0b)' }, // Amber gradient
-      borderColor: '#fde68a', // Amber-200
+      textColor: 'var(--gold-900, #5F4C1C)',
+      bgColor: 'var(--gold-50, #FFFEF7)',
+      iconBgStyle: { background: 'linear-gradient(to bottom right, var(--gold-600, #B8923E), var(--gold-400, #FACC15))' },
+      borderColor: 'var(--gold-200, #FEF9C3)',
       filter: 'timeline',
     },
   ];

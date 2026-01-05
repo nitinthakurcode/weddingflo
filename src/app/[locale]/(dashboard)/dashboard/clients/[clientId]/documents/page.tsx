@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -22,13 +23,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { Plus, Trash2, Edit, File, FileText, Image, Download, Upload } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Plus, Trash2, Edit, File, FileText, Image, Download, Upload, FileSignature } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { SignatureTracker } from '@/components/documents/signature-tracker'
+import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
+import { ExportButton } from '@/components/export/export-button'
 
 export default function DocumentsPage() {
   const params = useParams()
   const clientId = params?.clientId as string
   const { toast } = useToast()
+  const t = useTranslations('documents')
+  const tc = useTranslations('common')
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingDoc, setEditingDoc] = useState<any>(null)
   const [uploadingFile, setUploadingFile] = useState<File | null>(null)
@@ -50,44 +57,103 @@ export default function DocumentsPage() {
     clientId: clientId,
   })
 
+  const { data: signatureStats } = trpc.documents.getSignatureStats.useQuery({
+    clientId: clientId,
+  })
+
   // Mutations
+  const requestSignatureMutation = trpc.documents.requestSignature.useMutation({
+    onSuccess: async () => {
+      toast({ title: t('signatureRequestSent') })
+      await Promise.all([
+        utils.documents.getAll.invalidate({ clientId }),
+        utils.documents.getSignatureStats.invalidate({ clientId }),
+      ])
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
+  const sendReminderMutation = trpc.documents.sendSignatureReminder.useMutation({
+    onSuccess: async () => {
+      toast({ title: t('reminderSent') })
+      await utils.documents.getAll.invalidate({ clientId })
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
+  const cancelSignatureMutation = trpc.documents.cancelSignatureRequest.useMutation({
+    onSuccess: async () => {
+      toast({ title: t('signatureRequestCancelled') })
+      await Promise.all([
+        utils.documents.getAll.invalidate({ clientId }),
+        utils.documents.getSignatureStats.invalidate({ clientId }),
+      ])
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
+  const signDocumentMutation = trpc.documents.signDocument.useMutation({
+    onSuccess: async () => {
+      toast({ title: t('documentSigned') })
+      await Promise.all([
+        utils.documents.getAll.invalidate({ clientId }),
+        utils.documents.getSignatureStats.invalidate({ clientId }),
+      ])
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
   const generateUploadUrlMutation = trpc.documents.generateUploadUrl.useMutation()
 
   const createMutation = trpc.documents.create.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Document uploaded successfully' })
-      utils.documents.getAll.invalidate()
-      utils.documents.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('documentUploaded') })
       resetForm()
       setIsAddDialogOpen(false)
       setUploadingFile(null)
+      await Promise.all([
+        utils.documents.getAll.invalidate({ clientId }),
+        utils.documents.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const updateMutation = trpc.documents.update.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Document updated successfully' })
-      utils.documents.getAll.invalidate()
-      utils.documents.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('documentUpdated') })
       setEditingDoc(null)
       resetForm()
+      await Promise.all([
+        utils.documents.getAll.invalidate({ clientId }),
+        utils.documents.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const deleteMutation = trpc.documents.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Document deleted successfully' })
-      utils.documents.getAll.invalidate()
-      utils.documents.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('documentDeleted') })
+      await Promise.all([
+        utils.documents.getAll.invalidate({ clientId }),
+        utils.documents.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
@@ -112,7 +178,7 @@ export default function DocumentsPage() {
     e.preventDefault()
 
     if (!editingDoc && !uploadingFile) {
-      toast({ title: 'Error', description: 'Please select a file to upload', variant: 'destructive' })
+      toast({ title: tc('error'), description: t('selectFileToUpload'), variant: 'destructive' })
       return
     }
 
@@ -154,7 +220,7 @@ export default function DocumentsPage() {
           tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
         })
       } catch (error) {
-        toast({ title: 'Error', description: 'Failed to upload file', variant: 'destructive' })
+        toast({ title: tc('error'), description: t('uploadFailed'), variant: 'destructive' })
       }
     }
   }
@@ -163,35 +229,71 @@ export default function DocumentsPage() {
     setEditingDoc(doc)
     setFormData({
       fileName: doc.name || '',
-      fileType: doc.file_type || 'other',
+      fileType: doc.fileType || 'other',
       description: doc.description || '',
       tags: doc.tags?.join(', ') || '',
     })
   }
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this document?')) {
+    if (confirm(t('confirmDelete'))) {
       deleteMutation.mutate({ id })
     }
+  }
+
+  const handleRequestSignature = (
+    documentId: string,
+    signerEmail: string,
+    signerName: string,
+    expiresInDays: number
+  ) => {
+    requestSignatureMutation.mutate({
+      documentId,
+      signerEmail,
+      signerName,
+      expiresInDays,
+    })
+  }
+
+  const handleSendReminder = (documentId: string) => {
+    sendReminderMutation.mutate({ documentId })
+  }
+
+  const handleCancelSignatureRequest = (documentId: string) => {
+    if (confirm(t('confirmCancelSignature'))) {
+      cancelSignatureMutation.mutate({ documentId })
+    }
+  }
+
+  const handleSignDocument = (
+    documentId: string,
+    signatureDataUrl: string,
+    signedAt: string
+  ) => {
+    signDocumentMutation.mutate({
+      documentId,
+      signatureDataUrl,
+      signedAt,
+    })
   }
 
   const getFileIcon = (type: string) => {
     switch (type) {
       case 'contract':
-        return <FileText className="w-5 h-5 text-blue-600" />
+        return <FileText className="w-5 h-5 text-cobalt-600 dark:text-cobalt-400" />
       case 'invoice':
-        return <FileText className="w-5 h-5 text-green-600" />
+        return <FileText className="w-5 h-5 text-sage-600 dark:text-sage-400" />
       case 'photo':
-        return <Image className="w-5 h-5 text-purple-600" />
+        return <Image className="w-5 h-5 text-teal-600 dark:text-teal-400" />
       default:
-        return <File className="w-5 h-5 text-gray-600" />
+        return <File className="w-5 h-5 text-mocha-600 dark:text-mocha-400" />
     }
   }
 
   if (!clientId) {
     return (
       <div className="p-6">
-        <p>No client selected</p>
+        <p>{tc('noClientSelected')}</p>
       </div>
     )
   }
@@ -199,7 +301,7 @@ export default function DocumentsPage() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p>Loading documents...</p>
+        <p>{tc('loading')}</p>
       </div>
     )
   }
@@ -207,57 +309,80 @@ export default function DocumentsPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Documents</h1>
-          <p className="text-muted-foreground">Manage wedding documents and files</p>
-        </div>
+      <ClientModuleHeader
+        title={t('documentManagement')}
+        description={t('manageDocumentsFiles')}
+      >
+        <ExportButton
+          data={documents || []}
+          dataType="documents"
+          variant="outline"
+        />
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
-          Upload Document
+          {t('uploadDocument')}
         </Button>
-      </div>
+      </ClientModuleHeader>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <StatCard
-          title="Total Documents"
-          value={stats?.total || 0}
-          icon={<File className="w-4 h-4" />}
-        />
-        <StatCard
-          title="Contracts"
-          value={stats?.contracts || 0}
-          icon={<FileText className="w-4 h-4" />}
-          color="text-blue-600"
-        />
-        <StatCard
-          title="Invoices"
-          value={stats?.invoices || 0}
-          color="text-green-600"
-        />
-        <StatCard
-          title="Photos"
-          value={stats?.photos || 0}
-          icon={<Image className="w-4 h-4" />}
-          color="text-purple-600"
-        />
-        <StatCard
-          title="Storage Used"
-          value={`${stats?.totalSizeMB || 0} MB`}
-          color="text-orange-600"
-        />
-      </div>
+      {/* Tabs for Documents and Signatures */}
+      <Tabs defaultValue="documents" className="w-full">
+        <TabsList>
+          <TabsTrigger value="documents" className="flex items-center gap-2">
+            <File className="h-4 w-4" />
+            {t('documentsTab')}
+          </TabsTrigger>
+          <TabsTrigger value="signatures" className="flex items-center gap-2">
+            <FileSignature className="h-4 w-4" />
+            {t('eSignatures')}
+            {signatureStats && signatureStats.pending > 0 && (
+              <span className="ml-1 bg-gold-100 dark:bg-gold-900 text-gold-800 dark:text-gold-200 text-xs px-2 py-0.5 rounded-full">
+                {signatureStats.pending}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Document List */}
+        <TabsContent value="documents" className="space-y-6 mt-6">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <StatCard
+              title={t('totalDocuments')}
+              value={stats?.total || 0}
+              icon={<File className="w-4 h-4" />}
+            />
+            <StatCard
+              title={t('contracts')}
+              value={stats?.contracts || 0}
+              icon={<FileText className="w-4 h-4" />}
+              color="text-cobalt-600 dark:text-cobalt-400"
+            />
+            <StatCard
+              title={t('invoices')}
+              value={stats?.invoices || 0}
+              color="text-sage-600 dark:text-sage-400"
+            />
+            <StatCard
+              title={t('photos')}
+              value={stats?.photos || 0}
+              icon={<Image className="w-4 h-4" />}
+              color="text-teal-600 dark:text-teal-400"
+            />
+            <StatCard
+              title={t('storageUsed')}
+              value={`${stats?.totalSizeMB || 0} MB`}
+              color="text-gold-600 dark:text-gold-400"
+            />
+          </div>
+
+          {/* Document List */}
       <Card>
         <CardHeader>
-          <CardTitle>All Documents</CardTitle>
+          <CardTitle>{t('allDocuments')}</CardTitle>
         </CardHeader>
         <CardContent>
           {documents?.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No documents yet. Upload your first document to get started!
+              {t('noDocumentsYet')}
             </div>
           ) : (
             <div className="space-y-2">
@@ -267,22 +392,22 @@ export default function DocumentsPage() {
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
                 >
                   <div className="flex items-center gap-4 flex-1">
-                    {getFileIcon(doc.file_type)}
+                    {getFileIcon(doc.fileType || '')}
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold">{doc.name}</h3>
-                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                          {doc.file_type}
+                        <span className="text-xs bg-cobalt-100 dark:bg-cobalt-900 text-cobalt-700 dark:text-cobalt-300 px-2 py-1 rounded">
+                          {doc.fileType}
                         </span>
                       </div>
                       <div className="text-sm text-muted-foreground space-y-1">
                         {doc.description && <p>{doc.description}</p>}
-                        {doc.file_size && (
-                          <p>Size: {(doc.file_size / 1024 / 1024).toFixed(2)} MB</p>
+                        {doc.fileSize && (
+                          <p>{t('size')}: {(doc.fileSize / 1024 / 1024).toFixed(2)} MB</p>
                         )}
-                        {doc.created_at && (
+                        {doc.createdAt && (
                           <p>
-                            Uploaded: {new Date(doc.created_at).toLocaleDateString()}
+                            {t('uploaded')}: {new Date(doc.createdAt).toLocaleDateString()}
                           </p>
                         )}
                         {doc.metadata && (doc.metadata as any).tags && (doc.metadata as any).tags.length > 0 && (
@@ -290,7 +415,7 @@ export default function DocumentsPage() {
                             {((doc.metadata as any).tags as string[]).map((tag: string, idx: number) => (
                               <span
                                 key={idx}
-                                className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded"
+                                className="text-xs bg-mocha-100 dark:bg-mocha-900 text-mocha-700 dark:text-mocha-300 px-2 py-1 rounded"
                               >
                                 {tag}
                               </span>
@@ -300,29 +425,35 @@ export default function DocumentsPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    {doc.file_url && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    {doc.fileUrl && (
                       <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(doc.file_url, '_blank')}
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => window.open(doc.fileUrl, '_blank')}
+                        className="h-8 w-8 hover:bg-muted"
                       >
                         <Download className="w-4 h-4" />
+                        <span className="sr-only">{tc('download')}</span>
                       </Button>
                     )}
                     <Button
-                      variant="outline"
-                      size="sm"
+                      variant="ghost"
+                      size="icon"
                       onClick={() => handleEdit(doc)}
+                      className="h-8 w-8 hover:bg-muted"
                     >
                       <Edit className="w-4 h-4" />
+                      <span className="sr-only">{tc('edit')}</span>
                     </Button>
                     <Button
-                      variant="outline"
-                      size="sm"
+                      variant="ghost"
+                      size="icon"
                       onClick={() => handleDelete(doc.id)}
+                      className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash2 className="w-4 h-4" />
+                      <span className="sr-only">{tc('delete')}</span>
                     </Button>
                   </div>
                 </div>
@@ -331,6 +462,25 @@ export default function DocumentsPage() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="signatures" className="mt-6">
+          <SignatureTracker
+            documents={documents || []}
+            stats={signatureStats}
+            onRequestSignature={handleRequestSignature}
+            onSendReminder={handleSendReminder}
+            onCancelRequest={handleCancelSignatureRequest}
+            onSignDocument={handleSignDocument}
+            isLoading={
+              requestSignatureMutation.isPending ||
+              sendReminderMutation.isPending ||
+              cancelSignatureMutation.isPending ||
+              signDocumentMutation.isPending
+            }
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Add/Edit Dialog */}
       <Dialog
@@ -347,24 +497,24 @@ export default function DocumentsPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {editingDoc ? 'Edit Document' : 'Upload Document'}
+              {editingDoc ? t('editDocument') : t('uploadDocument')}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!editingDoc && (
               <div>
-                <Label htmlFor="file">Select File *</Label>
+                <Label htmlFor="file">{t('selectFile')} *</Label>
                 <div className="mt-2">
                   <label
                     htmlFor="file"
-                    className="flex items-center justify-center w-full h-32 px-4 transition bg-white border-2 border-gray-300 border-dashed rounded-md appearance-none cursor-pointer hover:border-gray-400 focus:outline-none"
+                    className="flex items-center justify-center w-full h-32 px-4 transition bg-white dark:bg-mocha-950 border-2 border-mocha-300 dark:border-mocha-700 border-dashed rounded-md appearance-none cursor-pointer hover:border-mocha-400 dark:hover:border-mocha-600 focus:outline-none"
                   >
                     <div className="flex flex-col items-center space-y-2">
-                      <Upload className="w-8 h-8 text-gray-400" />
-                      <span className="text-sm text-gray-600">
+                      <Upload className="w-8 h-8 text-mocha-400 dark:text-mocha-500" />
+                      <span className="text-sm text-mocha-600 dark:text-mocha-400">
                         {uploadingFile
                           ? uploadingFile.name
-                          : 'Click to upload or drag and drop'}
+                          : t('clickToUpload')}
                       </span>
                     </div>
                     <Input
@@ -379,7 +529,7 @@ export default function DocumentsPage() {
             )}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="fileName">File Name</Label>
+                <Label htmlFor="fileName">{t('fileName')}</Label>
                 <Input
                   id="fileName"
                   value={formData.fileName}
@@ -389,7 +539,7 @@ export default function DocumentsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="fileType">File Type</Label>
+                <Label htmlFor="fileType">{t('fileType')}</Label>
                 <Select
                   value={formData.fileType}
                   onValueChange={(value: any) =>
@@ -400,16 +550,16 @@ export default function DocumentsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="contract">Contract</SelectItem>
-                    <SelectItem value="invoice">Invoice</SelectItem>
-                    <SelectItem value="photo">Photo</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    <SelectItem value="contract">{t('contract')}</SelectItem>
+                    <SelectItem value="invoice">{t('invoice')}</SelectItem>
+                    <SelectItem value="photo">{t('photo')}</SelectItem>
+                    <SelectItem value="other">{t('other')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div>
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{tc('description')}</Label>
               <Textarea
                 id="description"
                 value={formData.description}
@@ -420,14 +570,14 @@ export default function DocumentsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="tags">Tags (comma-separated)</Label>
+              <Label htmlFor="tags">{t('tagsLabel')}</Label>
               <Input
                 id="tags"
                 value={formData.tags}
                 onChange={(e) =>
                   setFormData({ ...formData, tags: e.target.value })
                 }
-                placeholder="e.g., important, venue, contract"
+                placeholder={t('tagsPlaceholder')}
               />
             </div>
             <DialogFooter>
@@ -441,7 +591,7 @@ export default function DocumentsPage() {
                   resetForm()
                 }}
               >
-                Cancel
+                {tc('cancel')}
               </Button>
               <Button
                 type="submit"
@@ -451,7 +601,7 @@ export default function DocumentsPage() {
                   generateUploadUrlMutation.isPending
                 }
               >
-                {editingDoc ? 'Update' : 'Upload'}
+                {editingDoc ? tc('update') : t('upload')}
               </Button>
             </DialogFooter>
           </form>

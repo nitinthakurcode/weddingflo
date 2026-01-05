@@ -55,9 +55,24 @@ const notificationTypeLabels: Record<string, string> = {
   system_notification: 'System',
 };
 
-function NotificationLogItem({ log }: { log: any }) {
-  const icon = notificationTypeIcons[log.notification_type] || <Bell className="h-4 w-4" />;
-  const label = notificationTypeLabels[log.notification_type] || 'Notification';
+interface NotificationLog {
+  id: string;
+  userId: string;
+  title: string;
+  body: string | null;
+  data: unknown;
+  status: string | null;
+  fcmMessageId: string | null;
+  errorMessage: string | null;
+  clickedAt: Date | null;
+  createdAt: Date;
+}
+
+function NotificationLogItem({ log }: { log: NotificationLog }) {
+  // Try to get notification type from data field
+  const notificationType = (log.data as any)?.type || 'system_notification';
+  const icon = notificationTypeIcons[notificationType] || <Bell className="h-4 w-4" />;
+  const label = notificationTypeLabels[notificationType] || 'Notification';
 
   return (
     <div className="flex items-start gap-4 rounded-lg border p-4 hover:bg-muted/50 transition-colors">
@@ -88,12 +103,10 @@ function NotificationLogItem({ log }: { log: any }) {
         {/* Metadata */}
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span>
-            {log.sent_at
-              ? formatDistanceToNow(new Date(log.sent_at), { addSuffix: true })
-              : formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}
+            {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
           </span>
-          {log.status === 'failed' && log.error_message && (
-            <span className="text-red-600">Error: {log.error_message}</span>
+          {log.status === 'failed' && log.errorMessage && (
+            <span className="text-red-600">Error: {log.errorMessage}</span>
           )}
         </div>
       </div>
@@ -124,7 +137,7 @@ export function PushNotificationHistory() {
     );
   }
 
-  const logs = data?.logs || [];
+  const logs = (data?.logs || []) as NotificationLog[];
   const hasMore = data?.hasMore || false;
   const total = data?.total || 0;
 

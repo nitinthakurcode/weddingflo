@@ -1,81 +1,101 @@
 import { redirect } from 'next/navigation';
-import { auth } from '@clerk/nextjs/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getServerSession } from '@/lib/auth/server';
+import { db, eq } from '@/lib/db';
+import { users, clients } from '@/lib/db/schema';
+import { getTranslations, getLocale } from 'next-intl/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heart, Calendar, Clock, MapPin, FileText, Mail, Phone } from 'lucide-react';
 
 export default async function PortalWeddingPage() {
-  // Get Clerk user ID (not from Supabase auth - accessToken config doesn't support supabase.auth methods)
-  const { userId } = await auth();
+  const t = await getTranslations('portalWedding');
+  const tc = await getTranslations('common');
+  const locale = await getLocale();
+
+  // Get BetterAuth user ID
+  const { userId, user } = await getServerSession();
 
   if (!userId) {
     redirect('/sign-in');
   }
 
-  const supabase = createServerSupabaseClient();
+  // Fetch user role from database using Drizzle
+  const userResult = await db
+    .select({ role: users.role, companyId: users.companyId })
+    .from(users)
+    .where(eq(users.authId, userId))
+    .limit(1);
 
-  // Fetch user role from database
-  const { data: currentUser } = await supabase
-    .from('users')
-    .select('role, company_id')
-    .eq('clerk_id', userId)
-    .maybeSingle() as { data: { role: string; company_id: string | null } | null };
+  const currentUser = userResult[0] || null;
 
   // Verify client access
   if (!currentUser || currentUser.role !== 'client_user') {
     redirect('/dashboard');
   }
 
-  // Fetch current user's data
-  const user = currentUser;
-
-  if (!user?.company_id) {
+  if (!currentUser?.companyId) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">No company associated with your account.</p>
+        <p className="text-gray-500">{tc('noCompanyAssociated')}</p>
       </div>
     );
   }
 
-  // Fetch client/wedding data
-  const { data: client } = await supabase
-    .from('clients')
-    .select(`
-      id,
-      partner1_name,
-      partner2_name,
-      email,
-      phone,
-      wedding_date,
-      wedding_time,
-      venue_name,
-      venue_address,
-      notes,
-      budget,
-      status
-    `)
-    .eq('company_id', user.company_id)
-    .maybeSingle() as { data: { id: string; partner1_name: string | null; partner2_name: string | null; email: string | null; phone: string | null; wedding_date: string | null; wedding_time: string | null; venue_name: string | null; venue_address: string | null; notes: string | null; budget: number | null; status: string } | null };
+  // Fetch client/wedding data using Drizzle
+  const clientResult = await db
+    .select({
+      id: clients.id,
+      partner1FirstName: clients.partner1FirstName,
+      partner1LastName: clients.partner1LastName,
+      partner1Email: clients.partner1Email,
+      partner1Phone: clients.partner1Phone,
+      partner2FirstName: clients.partner2FirstName,
+      partner2LastName: clients.partner2LastName,
+      weddingDate: clients.weddingDate,
+      venue: clients.venue,
+      notes: clients.notes,
+      budget: clients.budget,
+      status: clients.status,
+    })
+    .from(clients)
+    .where(eq(clients.companyId, currentUser.companyId))
+    .limit(1);
+
+  const clientData = clientResult[0] || null;
+  // Transform to expected shape
+  const client = clientData ? {
+    id: clientData.id,
+    partner1_name: [clientData.partner1FirstName, clientData.partner1LastName].filter(Boolean).join(' '),
+    partner2_name: [clientData.partner2FirstName, clientData.partner2LastName].filter(Boolean).join(' '),
+    email: clientData.partner1Email,
+    phone: clientData.partner1Phone,
+    wedding_date: clientData.weddingDate,
+    wedding_time: null,
+    venue_name: clientData.venue,
+    venue_address: null,
+    notes: clientData.notes,
+    budget: clientData.budget,
+    status: clientData.status,
+  } : null;
 
   if (!client) {
     return (
       <div className="text-center py-12">
         <Heart className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-500 text-lg">No wedding details found</p>
-        <p className="text-gray-400 text-sm mt-2">Contact your planner to set up your wedding details</p>
+        <p className="text-gray-500 text-lg">{t('noWeddingDetails')}</p>
+        <p className="text-gray-400 text-sm mt-2">{t('contactPlannerSetup')}</p>
       </div>
     );
   }
 
   const coupleNames = client.partner1_name && client.partner2_name
     ? `${client.partner1_name} & ${client.partner2_name}`
-    : 'Your Wedding';
+    : t('yourWedding');
 
   // Format wedding date
   let weddingDateFormatted = null;
   if (client.wedding_date) {
     const weddingDate = new Date(client.wedding_date);
-    weddingDateFormatted = weddingDate.toLocaleDateString('en-US', {
+    weddingDateFormatted = weddingDate.toLocaleDateString(locale, {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -91,7 +111,7 @@ export default async function PortalWeddingPage() {
           <Heart className="h-8 w-8 text-white fill-white" />
         </div>
         <h1 className="text-4xl font-bold text-gray-900">{coupleNames}</h1>
-        <p className="text-lg text-gray-600">Your wedding details</p>
+        <p className="text-lg text-gray-600">{t('yourWeddingDetails')}</p>
       </div>
 
       {/* Wedding Date & Time */}
@@ -100,12 +120,12 @@ export default async function PortalWeddingPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-rose-900">
               <Calendar className="h-5 w-5 text-rose-600" />
-              Wedding Date
+              {t('weddingDate')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-gray-900">
-              {weddingDateFormatted || 'Date to be determined'}
+              {weddingDateFormatted || t('dateToBeDetermined')}
             </p>
           </CardContent>
         </Card>
@@ -114,12 +134,12 @@ export default async function PortalWeddingPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-pink-900">
               <Clock className="h-5 w-5 text-pink-600" />
-              Wedding Time
+              {t('weddingTime')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-gray-900">
-              {client.wedding_time || 'Time to be determined'}
+              {client.wedding_time || t('timeToBeDetermined')}
             </p>
           </CardContent>
         </Card>
@@ -130,20 +150,20 @@ export default async function PortalWeddingPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-rose-600" />
-            Venue
+            {t('venue')}
           </CardTitle>
-          <CardDescription>Where your special day will take place</CardDescription>
+          <CardDescription>{t('whereSpecialDay')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-1">Venue Name</p>
+            <p className="text-sm font-medium text-gray-700 mb-1">{t('venueName')}</p>
             <p className="text-xl font-semibold text-gray-900">
-              {client.venue_name || 'Venue to be determined'}
+              {client.venue_name || t('venueToBeDetermined')}
             </p>
           </div>
           {client.venue_address && (
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">Address</p>
+              <p className="text-sm font-medium text-gray-700 mb-1">{t('address')}</p>
               <p className="text-gray-900">{client.venue_address}</p>
             </div>
           )}
@@ -155,27 +175,27 @@ export default async function PortalWeddingPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Heart className="h-5 w-5 text-rose-600" />
-            Couple Information
+            {t('coupleInformation')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2">
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">Partner 1</p>
+              <p className="text-sm font-medium text-gray-700 mb-1">{t('partner1')}</p>
               <p className="text-lg font-semibold text-gray-900">
-                {client.partner1_name || 'N/A'}
+                {client.partner1_name || tc('na')}
               </p>
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">Partner 2</p>
+              <p className="text-sm font-medium text-gray-700 mb-1">{t('partner2')}</p>
               <p className="text-lg font-semibold text-gray-900">
-                {client.partner2_name || 'N/A'}
+                {client.partner2_name || tc('na')}
               </p>
             </div>
           </div>
 
           <div className="border-t pt-6">
-            <p className="text-sm font-medium text-gray-700 mb-3">Contact Information</p>
+            <p className="text-sm font-medium text-gray-700 mb-3">{t('contactInformation')}</p>
             <div className="space-y-2">
               {client.email && (
                 <div className="flex items-center gap-2 text-gray-700">
@@ -200,7 +220,7 @@ export default async function PortalWeddingPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-rose-600" />
-              Notes from Your Planner
+              {t('notesFromPlanner')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -214,22 +234,22 @@ export default async function PortalWeddingPage() {
         {client.budget && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-gray-700">Budget</CardTitle>
+              <CardTitle className="text-gray-700">{tc('budget')}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold text-gray-900">
-                ${client.budget.toLocaleString()}
+                ${Number(client.budget).toLocaleString()}
               </p>
             </CardContent>
           </Card>
         )}
         <Card>
           <CardHeader>
-            <CardTitle className="text-gray-700">Planning Status</CardTitle>
+            <CardTitle className="text-gray-700">{t('planningStatus')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-gray-900 capitalize">
-              {client.status || 'Active'}
+              {t(`status.${client.status || 'active'}`)}
             </p>
           </CardContent>
         </Card>

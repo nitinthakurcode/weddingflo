@@ -1,5 +1,6 @@
 /**
  * Core Feature - tRPC Routers
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
  *
  * Business Domain: Identity & Tenant Management
  * Routers:
@@ -7,8 +8,8 @@
  * - companies: Company/tenant management, settings
  *
  * Dependencies:
- * - Supabase (users, companies tables)
- * - Clerk (authentication provider)
+ * - Drizzle ORM (users, companies tables on Hetzner PostgreSQL)
+ * - BetterAuth (self-hosted authentication)
  *
  * Scope:
  * - Cross-cutting concerns used by ALL features
@@ -17,9 +18,9 @@
  * - User preferences (language, currency, timezone)
  *
  * Security:
- * - All procedures protected by Clerk authentication
- * - Company ID enforced from session claims
- * - Row-level security on database tables
+ * - All procedures protected by BetterAuth authentication
+ * - Company ID enforced from session
+ * - Application-level RLS via Drizzle query filters
  *
  * Rate Limits:
  * - Read: 1000/min per user

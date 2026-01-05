@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
-import { useSupabase } from '@/lib/supabase/client';
+import { useSession } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Upload, X } from 'lucide-react';
+import { trpc } from '@/lib/trpc/client';
 
 interface AvatarUploadProps {
   userId: string;
@@ -15,44 +14,35 @@ interface AvatarUploadProps {
 }
 
 export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
-  const { user: clerkUser } = useUser();
-  const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || clerkUser?.imageUrl);
+  const { data: session } = useSession();
+  const user = session?.user;
+  const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || user?.image);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
   const { toast } = useToast();
 
-  const updateUser = useMutation({
-    mutationFn: async ({ avatar_url }: { avatar_url?: string }) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('users')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ avatar_url })
-        .eq('id', userId)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+  const updateUser = trpc.users.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users', userId] });
+      utils.users.getCurrent.invalidate();
     },
   });
 
-  // Sync with Clerk user image
+  // Get presigned upload URL
+  const getUploadUrl = trpc.storage.getUploadUrl.useMutation();
+
+  // Sync with session user image
   useEffect(() => {
-    if (clerkUser?.imageUrl) {
-      setAvatarUrl(clerkUser.imageUrl);
+    if (user?.image) {
+      setAvatarUrl(user.image);
     }
-  }, [clerkUser?.imageUrl]);
+  }, [user?.image]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size (max 10MB for Clerk)
+    // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       toast({
         title: 'File too large',
@@ -75,30 +65,46 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
     setIsUploading(true);
 
     try {
-      // Update Clerk avatar
-      await clerkUser?.setProfileImage({ file });
+      // Generate file name
+      const fileExt = file.name.split('.').pop();
+      const fileName = `avatar-${userId}-${Date.now()}.${fileExt}`;
 
-      // Wait a bit for Clerk to process
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Get presigned upload URL from tRPC
+      const { uploadUrl, key } = await getUploadUrl.mutateAsync({
+        fileName,
+        fileType: file.type,
+        fileSize: file.size,
+        category: 'images',
+      });
 
-      // Reload user to get new image URL
-      await clerkUser?.reload();
+      // Upload file directly to R2 using presigned URL
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type,
+        },
+      });
 
-      const newAvatarUrl = clerkUser?.imageUrl;
-
-      if (newAvatarUrl) {
-        // Update Supabase
-        await updateUser.mutateAsync({
-          avatar_url: newAvatarUrl,
-        });
-
-        setAvatarUrl(newAvatarUrl);
-
-        toast({
-          title: 'Avatar updated',
-          description: 'Your profile picture has been updated successfully.',
-        });
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload file');
       }
+
+      // The public URL pattern for R2 (adjust based on your R2 configuration)
+      // For now, we'll use the key as a reference - the actual URL depends on R2 setup
+      const publicUrl = `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL || ''}/${key}`;
+
+      // Update user in database with avatar URL (user ID from session)
+      await updateUser.mutateAsync({
+        avatar_url: publicUrl,
+      });
+
+      setAvatarUrl(publicUrl);
+
+      toast({
+        title: 'Avatar updated',
+        description: 'Your profile picture has been updated successfully.',
+      });
     } catch (error) {
       console.error('Failed to upload avatar:', error);
       toast({
@@ -118,12 +124,9 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
     setIsUploading(true);
 
     try {
-      // Remove from Clerk
-      await clerkUser?.setProfileImage({ file: null });
-
-      // Update Supabase
+      // Update database to remove avatar (user ID from session)
       await updateUser.mutateAsync({
-        avatar_url: undefined,
+        avatar_url: '',
       });
 
       setAvatarUrl(undefined);
@@ -144,13 +147,18 @@ export function AvatarUpload({ userId, currentAvatarUrl }: AvatarUploadProps) {
     }
   };
 
+  // Get initials from user name
+  const nameParts = user?.name?.split(' ') || [];
+  const initials = nameParts.length >= 2
+    ? `${nameParts[0]?.[0] || ''}${nameParts[1]?.[0] || ''}`.toUpperCase()
+    : (user?.name?.[0] || 'U').toUpperCase();
+
   return (
     <div className="flex items-center gap-6">
       <Avatar className="h-32 w-32 border-2">
-        <AvatarImage src={avatarUrl} alt="Profile picture" />
+        <AvatarImage src={avatarUrl || undefined} alt="Profile picture" />
         <AvatarFallback className="text-3xl bg-primary/10">
-          {clerkUser?.firstName?.[0]?.toUpperCase() || 'U'}
-          {clerkUser?.lastName?.[0]?.toUpperCase() || ''}
+          {initials}
         </AvatarFallback>
       </Avatar>
 

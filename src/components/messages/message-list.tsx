@@ -4,17 +4,26 @@ import { useEffect, useRef } from 'react';
 import { MessageBubble } from './message-bubble';
 import { Loader2 } from 'lucide-react';
 
+/**
+ * Message interface - aligned with Drizzle schema (December 2025)
+ * Uses 'unknown' for metadata since that's what Drizzle returns
+ */
 interface Message {
   id: string;
-  sender_type: 'company' | 'client' | 'ai_assistant';
-  sender_id?: string;
-  sender_name: string;
-  message: string;
-  created_at: number;
-  read: boolean;
-  read_by: string[];
-  ai_generated: boolean;
-  edited_at?: number;
+  companyId: string;
+  clientId: string | null;
+  senderId: string;
+  receiverId: string | null;
+  subject: string | null;
+  content: string;
+  messageType: string | null;
+  isRead: boolean | null;
+  readAt: Date | null;
+  parentId: string | null;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
 }
 
 interface MessageListProps {
@@ -74,7 +83,7 @@ export function MessageList({ messages, currentUserId, isLoading }: MessageListP
         <MessageBubble
           key={message.id}
           message={message}
-          isOwnMessage={message.sender_id === currentUserId}
+          isOwnMessage={message.senderId === currentUserId}
         />
       ))}
       {/* Invisible div at the end for auto-scroll target */}

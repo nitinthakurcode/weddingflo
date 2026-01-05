@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { useToast } from '@/hooks/use-toast'
 
 /**
- * Example component demonstrating i18n usage in WeddingFlow Pro
+ * Example component demonstrating i18n usage in WeddingFlo
  *
  * This component shows:
  * 1. How to use multiple translation namespaces

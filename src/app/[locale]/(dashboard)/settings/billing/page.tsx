@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSupabaseClient } from '@/lib/supabase/client';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { TestModeBanner } from '@/components/billing/test-mode-banner';
 import { CurrentPlanCard } from '@/components/billing/current-plan-card';
 import { PlanComparison } from '@/components/billing/plan-comparison';
@@ -17,108 +16,47 @@ import Link from 'next/link';
 export const dynamic = 'force-dynamic';
 
 export default function BillingPage() {
-  const { user } = useUser();
+  const { data: session } = useSession();
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const supabase = useSupabaseClient();
-  const queryClient = useQueryClient();
 
-  // Get company ID from user metadata
-  const companyId = user?.publicMetadata?.companyId as string | undefined;
+  // Get current user via tRPC
+  const { data: currentUser, isLoading: userLoading } = trpc.users.getCurrent.useQuery(
+    undefined,
+    { enabled: !!session?.user?.id }
+  );
 
-  // Debug logging
-  console.log('🔍 Billing Page Debug:', {
-    hasUser: !!user,
-    companyId,
-    userMetadata: user?.publicMetadata,
-  });
+  const companyId = currentUser?.company_id;
 
-  // Fetch subscription data
-  const { data: subscription, isLoading: subscriptionLoading } = useQuery<any>({
-    queryKey: ['subscription', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!companyId) return null;
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data, error } = await supabase
-        .from('companies')
-        .select('subscription_tier, subscription_status, subscription_ends_at')
-        .eq('id', companyId)
-        .single();
+  // Fetch company data (includes subscription info) via tRPC
+  const { data: company, isLoading: companyLoading } = trpc.companies.getCurrent.useQuery(
+    undefined,
+    { enabled: !!companyId }
+  );
 
-      if (error) throw error;
+  // Fetch dashboard stats for usage via tRPC
+  const { data: dashboardStats, isLoading: statsLoading } = trpc.analytics.getDashboardStats.useQuery(
+    undefined,
+    { enabled: !!companyId }
+  );
 
-      return data ? {
-        tier: (data as any).subscription_tier,
-        status: (data as any).subscription_status,
-        current_period_end: (data as any).subscription_ends_at,
-        cancel_at_period_end: false,
-      } : null;
-    },
-    enabled: !!user && !!companyId && !!supabase,
-  });
+  // Build subscription from company data
+  const subscription = company ? {
+    tier: company.subscriptionTier || 'free',
+    status: company.subscriptionStatus || 'active',
+    current_period_end: company.subscriptionEndsAt ? new Date(company.subscriptionEndsAt).getTime() : undefined,
+    cancel_at_period_end: false,
+  } : null;
 
-  // Fetch usage stats
-  const { data: usage, isLoading: usageLoading } = useQuery<any>({
-    queryKey: ['usage', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!companyId) return null;
+  // Build usage from dashboard stats
+  const usage = dashboardStats ? {
+    guestsCount: dashboardStats.totalGuests || 0,
+    eventsCount: dashboardStats.upcomingWeddings || 0,
+    usersCount: dashboardStats.activeClients || 0,
+  } : null;
 
-      // Get guests count
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const clientQuery = supabase
-        .from('clients')
-        .select('id')
-        .eq('company_id', companyId);
-
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { count: guestsCount, error: guestsError } = await supabase
-        .from('guests')
-        .select('*', { count: 'exact', head: true })
-        .in('client_id', clientQuery as any);
-
-      if (guestsError) throw guestsError;
-
-      // Get clients count (events)
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { count: eventsCount, error: eventsError } = await supabase
-        .from('clients')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId);
-
-      if (eventsError) throw eventsError;
-
-      // Get users count
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { count: usersCount, error: usersError } = await supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId);
-
-      if (usersError) throw usersError;
-
-      return {
-        guestsCount: guestsCount || 0,
-        eventsCount: eventsCount || 0,
-        usersCount: usersCount || 0,
-      };
-    },
-    enabled: !!user && !!companyId && !!supabase,
-  });
-
-  // Debug query results
-  console.log('📊 Query Results:', {
-    subscription,
-    usage,
-    hasSubscription: !!subscription,
-    hasUsage: !!usage,
-  });
-
-  const isLoading = subscriptionLoading || usageLoading;
+  const isLoading = userLoading || companyLoading || statsLoading;
 
   // Handle success/cancel redirects
   useEffect(() => {
@@ -149,10 +87,7 @@ export default function BillingPage() {
 
       const data = await response.json();
 
-      console.log('📦 Checkout response:', data);
-
       if (data.url) {
-        console.log('🚀 Redirecting to checkout:', data.url);
         window.location.href = data.url;
       } else if (data.error) {
         throw new Error(data.error);
@@ -160,7 +95,7 @@ export default function BillingPage() {
         throw new Error('No checkout URL returned');
       }
     } catch (error: any) {
-      console.error('❌ Error creating checkout:', error);
+      console.error('Error creating checkout:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to start checkout. Please try again.',
@@ -252,47 +187,13 @@ export default function BillingPage() {
     }
   };
 
-  const handleSyncSubscription = async () => {
-    if (!companyId) return;
-
-    setLoading(true);
-    try {
-      const response = await fetch('/api/stripe/sync-subscription', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        toast({
-          title: 'Subscription Synced',
-          description: 'Your subscription has been updated from Stripe.',
-        });
-        // Refresh the page to show updated subscription
-        window.location.reload();
-      } else {
-        throw new Error(data.error || 'Failed to sync subscription');
-      }
-    } catch (error: any) {
-      console.error('Error syncing subscription:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to sync subscription. Please try again.',
-        variant: 'destructive',
-      });
-      setLoading(false);
-    }
-  };
-
   // Show error if no company ID
-  if (!companyId) {
+  if (currentUser && !companyId) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900">Company Not Found</h2>
-          <p className="mt-2 text-gray-600">
+          <h2 className="text-2xl font-bold text-mocha-900 dark:text-mocha-100">Company Not Found</h2>
+          <p className="mt-2 text-mocha-600 dark:text-mocha-400">
             Please complete onboarding first to set up your company.
           </p>
           <Link
@@ -311,7 +212,7 @@ export default function BillingPage() {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-gray-600">Loading subscription details...</p>
+        <p className="text-mocha-600 dark:text-mocha-400">Loading subscription details...</p>
       </div>
     );
   }
@@ -320,7 +221,7 @@ export default function BillingPage() {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-gray-600">Loading subscription details...</p>
+        <p className="text-mocha-600 dark:text-mocha-400">Loading subscription details...</p>
       </div>
     );
   }
@@ -328,7 +229,9 @@ export default function BillingPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-3xl font-bold">Billing & Subscription</h1>
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+          Billing & Subscription
+        </h1>
         <p className="text-muted-foreground">Manage your subscription and billing information</p>
       </div>
 

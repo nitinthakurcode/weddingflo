@@ -1,8 +1,8 @@
 import Stripe from 'stripe';
 
-// Initialize Stripe with your secret key (Latest API version: October 2024)
+// Initialize Stripe with your secret key (Latest API version: November 2025)
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-10-28.acacia',
+  apiVersion: '2025-12-15.clover',
   typescript: true,
 });
 

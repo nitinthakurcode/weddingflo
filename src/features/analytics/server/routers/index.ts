@@ -20,5 +20,6 @@
 
 export { analyticsRouter } from './analytics.router';
 export { budgetRouter } from './budget.router';
+export { internalBudgetRouter } from './internal-budget.router';
 export { exportRouter } from './export.router';
 export { importRouter } from './import.router';

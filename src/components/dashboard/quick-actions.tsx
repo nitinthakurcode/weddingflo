@@ -14,62 +14,63 @@ import {
 export function QuickActions() {
   const router = useRouter();
 
+  // Theme-aware colors using CSS variables from design tokens
   const actions = [
     {
       title: 'Add Guest',
       icon: UserPlus,
       href: '/dashboard/guests',
-      iconColor: '#4f46e5', // Indigo-600
-      bgColor: '#e0e7ff', // Indigo-100
-      hoverBgColor: '#c7d2fe', // Indigo-200
+      iconColor: 'var(--cobalt-500, #2563EB)',
+      bgColor: 'var(--cobalt-50, #EFF6FF)',
+      hoverBgColor: 'var(--cobalt-100, #DBEAFE)',
     },
     {
       title: 'Add Vendor',
       icon: Users,
       href: '/dashboard/vendors',
-      iconColor: '#db2777', // Pink-600
-      bgColor: '#fce7f3', // Pink-100
-      hoverBgColor: '#fbcfe8', // Pink-200
+      iconColor: 'var(--rose-500, #E11D48)',
+      bgColor: 'var(--rose-50, #FFF5F6)',
+      hoverBgColor: 'var(--rose-100, #FFE4E8)',
     },
     {
       title: 'Add Event',
       icon: Calendar,
       href: '/dashboard/events',
-      iconColor: '#d97706', // Amber-600
-      bgColor: '#fef3c7', // Amber-100
-      hoverBgColor: '#fde68a', // Amber-200
+      iconColor: 'var(--gold-600, #B8923E)',
+      bgColor: 'var(--gold-50, #FFFEF7)',
+      hoverBgColor: 'var(--gold-100, #FEFCE8)',
     },
     {
       title: 'Add Expense',
       icon: DollarSign,
       href: '/dashboard/budget',
-      iconColor: '#4f46e5', // Indigo-600
-      bgColor: '#e0e7ff', // Indigo-100
-      hoverBgColor: '#c7d2fe', // Indigo-200
+      iconColor: 'var(--teal-500, #14B8A6)',
+      bgColor: 'var(--teal-50, #F0FDFA)',
+      hoverBgColor: 'var(--teal-100, #CCFBF1)',
     },
     {
       title: 'Add Creative',
       icon: FileText,
       href: '/dashboard/creatives',
-      iconColor: '#db2777', // Pink-600
-      bgColor: '#fce7f3', // Pink-100
-      hoverBgColor: '#fbcfe8', // Pink-200
+      iconColor: 'var(--rose-500, #E11D48)',
+      bgColor: 'var(--rose-50, #FFF5F6)',
+      hoverBgColor: 'var(--rose-100, #FFE4E8)',
     },
     {
       title: 'Add Gift',
       icon: Gift,
       href: '/dashboard/gifts',
-      iconColor: '#d97706', // Amber-600
-      bgColor: '#fef3c7', // Amber-100
-      hoverBgColor: '#fde68a', // Amber-200
+      iconColor: 'var(--gold-600, #B8923E)',
+      bgColor: 'var(--gold-50, #FFFEF7)',
+      hoverBgColor: 'var(--gold-100, #FEFCE8)',
     },
     {
       title: 'Add Hotel',
       icon: Hotel,
       href: '/dashboard/hotels',
-      iconColor: '#4f46e5', // Indigo-600
-      bgColor: '#e0e7ff', // Indigo-100
-      hoverBgColor: '#c7d2fe', // Indigo-200
+      iconColor: 'var(--cobalt-500, #2563EB)',
+      bgColor: 'var(--cobalt-50, #EFF6FF)',
+      hoverBgColor: 'var(--cobalt-100, #DBEAFE)',
     },
   ];
 
@@ -78,11 +79,11 @@ export function QuickActions() {
       <CardHeader
         className="border-b-2"
         style={{
-          background: 'linear-gradient(to right, #e0e7ff, #fce7f3)', // Indigo-100 to Pink-100
-          borderBottomColor: '#a5b4fc', // Indigo-300
+          background: 'linear-gradient(to right, var(--teal-50, #F0FDFA), var(--gold-50, #FFFEF7))',
+          borderBottomColor: 'var(--teal-200, #99F6E4)',
         }}
       >
-        <CardTitle className="text-xl font-bold" style={{ color: '#1e1b4b' }}>
+        <CardTitle className="text-xl font-bold text-foreground">
           Quick Actions
         </CardTitle>
       </CardHeader>
@@ -107,7 +108,7 @@ export function QuickActions() {
               <div className="p-3 rounded-xl bg-white shadow-sm">
                 <action.icon className="h-6 w-6" style={{ color: action.iconColor }} />
               </div>
-              <span className="text-sm font-semibold text-gray-700">{action.title}</span>
+              <span className="text-sm font-semibold text-foreground">{action.title}</span>
             </Button>
           ))}
         </div>

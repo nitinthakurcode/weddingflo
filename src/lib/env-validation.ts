@@ -1,10 +1,11 @@
 /**
  * Environment Validation
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
  *
  * Validates all required environment variables at startup.
  * This catches configuration issues immediately rather than at runtime.
  *
- * 2025 Best Practice: Fail fast on misconfiguration
+ * Best Practice: Fail fast on misconfiguration
  */
 
 interface EnvConfig {
@@ -16,40 +17,52 @@ interface EnvConfig {
 }
 
 const envConfig: EnvConfig[] = [
-  // Core Supabase
+  // Core Database (Hetzner PostgreSQL via Drizzle)
   {
-    name: 'NEXT_PUBLIC_SUPABASE_URL',
+    name: 'DATABASE_URL',
     required: true,
-    description: 'Supabase project URL',
-    validator: (v) => v.includes('supabase.co') || v.includes('localhost'),
-  },
-  {
-    name: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
-    required: true,
-    description: 'Supabase publishable key (November 2025)',
-    validator: (v) => v.startsWith('sb_publishable_') || v.startsWith('eyJ'),
-  },
-  {
-    name: 'SUPABASE_SERVICE_ROLE_KEY',
-    required: false,
-    description: 'Supabase service role key (for admin operations)',
-    validator: (v) => v.startsWith('eyJ'),
+    description: 'PostgreSQL connection string (Hetzner)',
+    validator: (v) => v.startsWith('postgresql://') || v.startsWith('postgres://'),
     mask: true,
   },
 
-  // Core Clerk
+  // BetterAuth (Self-hosted authentication)
   {
-    name: 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
+    name: 'BETTER_AUTH_SECRET',
     required: true,
-    description: 'Clerk publishable key',
-    validator: (v) => v.startsWith('pk_'),
+    description: 'BetterAuth secret key for session encryption',
+    validator: (v) => v.length >= 32,
+    mask: true,
   },
   {
-    name: 'CLERK_SECRET_KEY',
+    name: 'BETTER_AUTH_URL',
     required: true,
-    description: 'Clerk secret key',
-    validator: (v) => v.startsWith('sk_'),
+    description: 'BetterAuth base URL',
+    validator: (v) => v.startsWith('http'),
+  },
+
+  // Cloudflare R2 Storage (S3-compatible)
+  {
+    name: 'R2_ENDPOINT',
+    required: false,
+    description: 'Cloudflare R2 endpoint URL',
+    validator: (v) => v.includes('r2.cloudflarestorage.com') || v.includes('s3'),
+  },
+  {
+    name: 'R2_ACCESS_KEY_ID',
+    required: false,
+    description: 'R2 access key ID',
+  },
+  {
+    name: 'R2_SECRET_ACCESS_KEY',
+    required: false,
+    description: 'R2 secret access key',
     mask: true,
+  },
+  {
+    name: 'R2_BUCKET',
+    required: false,
+    description: 'R2 bucket name',
   },
 
   // Optional: Payments

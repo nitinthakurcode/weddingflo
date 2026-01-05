@@ -1,47 +1,31 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
-import { useSupabaseClient } from '@/lib/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { useEffect } from 'react';
 
+// Type for company branding configuration
+interface CompanyBranding {
+  primary_color?: string;
+  secondary_color?: string;
+  accent_color?: string;
+  text_color?: string;
+  font_family?: string;
+  custom_css?: string;
+}
+
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useUser();
-  const supabase = useSupabaseClient();
+  const { data: session } = useSession();
 
-  const { data: currentUser } = useQuery<any>({
-    queryKey: ['current-user', user?.id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!user?.id) return null;
-      const { data } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', user.id)
-        .maybeSingle();
-      return data;
-    },
-    enabled: !!user?.id && !!supabase,
+  // Get company ID from session
+  const companyId = (session?.user as any)?.companyId;
+
+  // Fetch company data via tRPC
+  const { data: company } = trpc.companies.getCurrent.useQuery(undefined, {
+    enabled: !!companyId,
   });
 
-  const { data: company } = useQuery<any>({
-    queryKey: ['company', currentUser?.company_id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!currentUser?.company_id) return null;
-      const { data } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', currentUser.company_id)
-        .maybeSingle();
-      return data;
-    },
-    enabled: !!currentUser?.company_id && !!supabase,
-  });
-
-  console.log('🔍 BrandingProvider:', { hasUser: !!currentUser, hasCompany: !!company, company });
+  console.log('🔍 BrandingProvider:', { hasUser: !!session?.user, hasCompany: !!company, company });
 
   useEffect(() => {
     console.log('🔍 BrandingProvider useEffect triggered, company?.branding =', company?.branding);
@@ -53,7 +37,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
 
     console.log('✅ BrandingProvider: Starting to apply colors:', company.branding);
 
-    const { primary_color, secondary_color, accent_color, text_color, font_family, custom_css } = company.branding;
+    const branding = company.branding as CompanyBranding;
+    const { primary_color, secondary_color, accent_color, text_color, font_family, custom_css } = branding;
 
     // Convert hex to HSL and return as object
     const hexToHSL = (hex: string): { h: number; s: number; l: number } | null => {

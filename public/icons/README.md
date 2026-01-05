@@ -1,6 +1,6 @@
 # PWA Icons
 
-Generate PWA icons for WeddingFlow Pro app.
+Generate PWA icons for WeddingFlo app.
 
 ## Required Sizes
 

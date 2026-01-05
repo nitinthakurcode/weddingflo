@@ -1,7 +1,15 @@
 import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { eq, and, isNull, asc } from 'drizzle-orm'
+import { hotels, clients, guests } from '@/lib/db/schema'
 
+/**
+ * Hotels tRPC Router - Drizzle ORM Version
+ *
+ * Provides CRUD operations for hotel accommodations with multi-tenant security.
+ * Migrated from Supabase to Drizzle - December 2025
+ */
 export const hotelsRouter = router({
   getAll: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
@@ -10,33 +18,31 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Fetch hotels
-      const { data: hotels, error } = await ctx.supabase
-        .from('hotels')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('guest_name', { ascending: true })
+      const hotelList = await ctx.db
+        .select()
+        .from(hotels)
+        .where(eq(hotels.clientId, input.clientId))
+        .orderBy(asc(hotels.guestName))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
-
-      return hotels || []
+      return hotelList
     }),
 
   getById: adminProcedure
@@ -46,13 +52,13 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: hotel, error } = await ctx.supabase
-        .from('hotels')
-        .select('*')
-        .eq('id', input.id)
-        .single()
+      const [hotel] = await ctx.db
+        .select()
+        .from(hotels)
+        .where(eq(hotels.id, input.id))
+        .limit(1)
 
-      if (error || !hotel) {
+      if (!hotel) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
@@ -64,6 +70,12 @@ export const hotelsRouter = router({
       clientId: z.string().uuid(),
       guestId: z.string().uuid().optional(),
       guestName: z.string().min(1),
+      partySize: z.number().int().positive().optional(),
+      guestNamesInRoom: z.string().optional(),
+      roomAssignments: z.record(z.string(), z.object({
+        guests: z.array(z.string()),
+        roomType: z.string().optional(),
+      })).optional(),
       hotelName: z.string().optional(),
       roomNumber: z.string().optional(),
       roomType: z.string().optional(),
@@ -78,41 +90,74 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      // Also fetch wedding date for default check-in/out dates
+      const [client] = await ctx.db
+        .select({
+          id: clients.id,
+          weddingDate: clients.weddingDate,
+        })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Create hotel record
-      const { data: hotel, error } = await ctx.supabase
-        .from('hotels')
-        .insert({
-          client_id: input.clientId,
-          guest_id: input.guestId,
-          guest_name: input.guestName,
-          hotel_name: input.hotelName,
-          room_number: input.roomNumber,
-          room_type: input.roomType,
-          check_in_date: input.checkInDate,
-          check_out_date: input.checkOutDate,
-          accommodation_needed: input.accommodationNeeded,
-          cost: input.cost,
-          notes: input.notes,
-        })
-        .select()
-        .single()
+      // Calculate default check-in/out dates from wedding date if not provided
+      let effectiveCheckIn = input.checkInDate || null
+      let effectiveCheckOut = input.checkOutDate || null
 
-      if (error) {
+      if (client.weddingDate) {
+        const weddingDate = new Date(client.weddingDate)
+
+        // Default check-in: day before wedding
+        if (!effectiveCheckIn) {
+          const checkIn = new Date(weddingDate)
+          checkIn.setDate(checkIn.getDate() - 1)
+          effectiveCheckIn = checkIn.toISOString().split('T')[0]
+        }
+
+        // Default check-out: day after wedding
+        if (!effectiveCheckOut) {
+          const checkOut = new Date(weddingDate)
+          checkOut.setDate(checkOut.getDate() + 1)
+          effectiveCheckOut = checkOut.toISOString().split('T')[0]
+        }
+      }
+
+      // Create hotel record
+      const [hotel] = await ctx.db
+        .insert(hotels)
+        .values({
+          clientId: input.clientId,
+          guestId: input.guestId || null,
+          guestName: input.guestName,
+          partySize: input.partySize || 1,
+          guestNamesInRoom: input.guestNamesInRoom || null,
+          roomAssignments: input.roomAssignments || {},
+          hotelName: input.hotelName || null,
+          roomNumber: input.roomNumber || null,
+          roomType: input.roomType || null,
+          checkInDate: effectiveCheckIn,
+          checkOutDate: effectiveCheckOut,
+          accommodationNeeded: input.accommodationNeeded,
+          cost: input.cost?.toString() || null,
+          notes: input.notes || null,
+        })
+        .returning()
+
+      if (!hotel) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          message: 'Failed to create hotel record'
         })
       }
 
@@ -124,6 +169,12 @@ export const hotelsRouter = router({
       id: z.string().uuid(),
       data: z.object({
         guestName: z.string().optional(),
+        partySize: z.number().int().positive().optional(),
+        guestNamesInRoom: z.string().optional(),
+        roomAssignments: z.record(z.string(), z.object({
+          guests: z.array(z.string()),
+          roomType: z.string().optional(),
+        })).optional(),
         hotelName: z.string().optional(),
         roomNumber: z.string().optional(),
         roomType: z.string().optional(),
@@ -143,35 +194,37 @@ export const hotelsRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
-        updated_at: new Date().toISOString(),
+      const updateData: Record<string, any> = {
+        updatedAt: new Date(),
       }
 
-      if (input.data.guestName !== undefined) updateData.guest_name = input.data.guestName
-      if (input.data.hotelName !== undefined) updateData.hotel_name = input.data.hotelName
-      if (input.data.roomNumber !== undefined) updateData.room_number = input.data.roomNumber
-      if (input.data.roomType !== undefined) updateData.room_type = input.data.roomType
-      if (input.data.checkInDate !== undefined) updateData.check_in_date = input.data.checkInDate
-      if (input.data.checkOutDate !== undefined) updateData.check_out_date = input.data.checkOutDate
-      if (input.data.accommodationNeeded !== undefined) updateData.accommodation_needed = input.data.accommodationNeeded
-      if (input.data.bookingConfirmed !== undefined) updateData.booking_confirmed = input.data.bookingConfirmed
-      if (input.data.checkedIn !== undefined) updateData.checked_in = input.data.checkedIn
-      if (input.data.cost !== undefined) updateData.cost = input.data.cost
-      if (input.data.paymentStatus !== undefined) updateData.payment_status = input.data.paymentStatus
+      if (input.data.guestName !== undefined) updateData.guestName = input.data.guestName
+      if (input.data.partySize !== undefined) updateData.partySize = input.data.partySize
+      if (input.data.guestNamesInRoom !== undefined) updateData.guestNamesInRoom = input.data.guestNamesInRoom
+      if (input.data.roomAssignments !== undefined) updateData.roomAssignments = input.data.roomAssignments
+      if (input.data.hotelName !== undefined) updateData.hotelName = input.data.hotelName
+      if (input.data.roomNumber !== undefined) updateData.roomNumber = input.data.roomNumber
+      if (input.data.roomType !== undefined) updateData.roomType = input.data.roomType
+      if (input.data.checkInDate !== undefined) updateData.checkInDate = input.data.checkInDate
+      if (input.data.checkOutDate !== undefined) updateData.checkOutDate = input.data.checkOutDate
+      if (input.data.accommodationNeeded !== undefined) updateData.accommodationNeeded = input.data.accommodationNeeded
+      if (input.data.bookingConfirmed !== undefined) updateData.bookingConfirmed = input.data.bookingConfirmed
+      if (input.data.checkedIn !== undefined) updateData.checkedIn = input.data.checkedIn
+      if (input.data.cost !== undefined) updateData.cost = input.data.cost.toString()
+      if (input.data.paymentStatus !== undefined) updateData.paymentStatus = input.data.paymentStatus
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
       // Update hotel
-      const { data: hotel, error } = await ctx.supabase
-        .from('hotels')
-        .update(updateData)
-        .eq('id', input.id)
-        .select()
-        .single()
+      const [hotel] = await ctx.db
+        .update(hotels)
+        .set(updateData)
+        .where(eq(hotels.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!hotel) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Hotel record not found'
         })
       }
 
@@ -185,17 +238,9 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { error } = await ctx.supabase
-        .from('hotels')
-        .delete()
-        .eq('id', input.id)
-
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
+      await ctx.db
+        .delete(hotels)
+        .where(eq(hotels.id, input.id))
 
       return { success: true }
     }),
@@ -207,20 +252,19 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: hotel, error } = await ctx.supabase
-        .from('hotels')
-        .update({
-          checked_in: true,
-          updated_at: new Date().toISOString(),
+      const [hotel] = await ctx.db
+        .update(hotels)
+        .set({
+          checkedIn: true,
+          updatedAt: new Date(),
         })
-        .eq('id', input.id)
-        .select()
-        .single()
+        .where(eq(hotels.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!hotel) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Hotel record not found'
         })
       }
 
@@ -234,32 +278,206 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get hotels
-      const { data: hotels } = await ctx.supabase
-        .from('hotels')
-        .select('booking_confirmed, checked_in, accommodation_needed')
-        .eq('client_id', input.clientId)
+      const hotelList = await ctx.db
+        .select({
+          bookingConfirmed: hotels.bookingConfirmed,
+          checkedIn: hotels.checkedIn,
+          accommodationNeeded: hotels.accommodationNeeded,
+        })
+        .from(hotels)
+        .where(eq(hotels.clientId, input.clientId))
 
       const stats = {
-        total: hotels?.length || 0,
-        needingAccommodation: hotels?.filter(h => h.accommodation_needed).length || 0,
-        bookingConfirmed: hotels?.filter(h => h.booking_confirmed).length || 0,
-        checkedIn: hotels?.filter(h => h.checked_in).length || 0,
-        pending: hotels?.filter(h => h.accommodation_needed && !h.booking_confirmed).length || 0,
+        total: hotelList.length,
+        needingAccommodation: hotelList.filter(h => h.accommodationNeeded).length,
+        bookingConfirmed: hotelList.filter(h => h.bookingConfirmed).length,
+        checkedIn: hotelList.filter(h => h.checkedIn).length,
+        pending: hotelList.filter(h => h.accommodationNeeded && !h.bookingConfirmed).length,
       }
 
       return stats
+    }),
+
+  // Sync hotels with guests who have hotel_required = true
+  syncWithGuests: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      // Get all guests with hotel_required = true
+      const guestsNeedingHotel = await ctx.db
+        .select({
+          id: guests.id,
+          firstName: guests.firstName,
+          lastName: guests.lastName,
+          hotelName: guests.hotelName,
+          hotelCheckIn: guests.hotelCheckIn,
+          hotelCheckOut: guests.hotelCheckOut,
+          hotelRoomType: guests.hotelRoomType,
+          arrivalDatetime: guests.arrivalDatetime,
+          departureDatetime: guests.departureDatetime,
+          additionalGuestNames: guests.additionalGuestNames,
+          partySize: guests.partySize,
+        })
+        .from(guests)
+        .where(
+          and(
+            eq(guests.clientId, input.clientId),
+            eq(guests.hotelRequired, true)
+          )
+        )
+
+      if (!guestsNeedingHotel || guestsNeedingHotel.length === 0) {
+        return { synced: 0, message: 'No guests require hotel accommodation' }
+      }
+
+      // Get existing hotel records for this client
+      const existingHotels = await ctx.db
+        .select({ guestId: hotels.guestId })
+        .from(hotels)
+        .where(eq(hotels.clientId, input.clientId))
+
+      const existingGuestIds = new Set(existingHotels.map(h => h.guestId).filter(Boolean))
+
+      // Create hotel records for guests who don't have one
+      const newHotelRecords = guestsNeedingHotel
+        .filter(guest => !existingGuestIds.has(guest.id))
+        .map(guest => {
+          // Use hotel-specific dates if available, otherwise fall back to arrival/departure
+          const checkInDate = guest.hotelCheckIn ||
+            (guest.arrivalDatetime ? new Date(guest.arrivalDatetime).toISOString().split('T')[0] : null)
+          const checkOutDate = guest.hotelCheckOut ||
+            (guest.departureDatetime ? new Date(guest.departureDatetime).toISOString().split('T')[0] : null)
+
+          return {
+            clientId: input.clientId,
+            guestId: guest.id,
+            guestName: `${guest.firstName} ${guest.lastName || ''}`.trim(),
+            partySize: guest.partySize || 1,
+            hotelName: guest.hotelName || null,
+            checkInDate,
+            checkOutDate,
+            roomType: guest.hotelRoomType || null,
+            accommodationNeeded: true,
+          }
+        })
+
+      if (newHotelRecords.length > 0) {
+        await ctx.db
+          .insert(hotels)
+          .values(newHotelRecords)
+      }
+
+      return {
+        synced: newHotelRecords.length,
+        total: guestsNeedingHotel.length,
+        message: `Synced ${newHotelRecords.length} new hotel records`
+      }
+    }),
+
+  // Get hotels with guest information
+  getAllWithGuests: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      // Fetch hotels - Drizzle doesn't have automatic joins like Supabase
+      // So we fetch hotels first, then guests separately if needed
+      const hotelList = await ctx.db
+        .select()
+        .from(hotels)
+        .where(eq(hotels.clientId, input.clientId))
+        .orderBy(asc(hotels.guestName))
+
+      // Get guest info for hotels that have guestId
+      const guestIds = hotelList.map(h => h.guestId).filter(Boolean) as string[]
+
+      let guestMap: Record<string, any> = {}
+      if (guestIds.length > 0) {
+        const guestList = await ctx.db
+          .select({
+            id: guests.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            email: guests.email,
+            phone: guests.phone,
+            partySize: guests.partySize,
+            additionalGuestNames: guests.additionalGuestNames,
+            arrivalDatetime: guests.arrivalDatetime,
+            departureDatetime: guests.departureDatetime,
+            relationshipToFamily: guests.relationshipToFamily,
+          })
+          .from(guests)
+          .where(eq(guests.clientId, input.clientId))
+
+        guestMap = guestList.reduce((acc, g) => {
+          acc[g.id] = g
+          return acc
+        }, {} as Record<string, any>)
+      }
+
+      // Combine hotels with guest info
+      const hotelsWithGuests = hotelList.map(hotel => ({
+        ...hotel,
+        guests: hotel.guestId && guestMap[hotel.guestId] ? guestMap[hotel.guestId] : null,
+      }))
+
+      return hotelsWithGuests
     }),
 })

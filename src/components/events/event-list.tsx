@@ -10,9 +10,10 @@ interface EventListProps {
   onEdit?: (event: Event) => void;
   onDelete?: (eventId: string) => void;
   onView?: (event: Event) => void;
+  onConfirm?: (eventId: string) => void;
 }
 
-export function EventList({ events, onEdit, onDelete, onView }: EventListProps) {
+export function EventList({ events, onEdit, onDelete, onView, onConfirm }: EventListProps) {
   if (events.length === 0) {
     return (
       <EmptyState
@@ -32,6 +33,7 @@ export function EventList({ events, onEdit, onDelete, onView }: EventListProps) 
           onEdit={onEdit}
           onDelete={onDelete}
           onView={onView}
+          onConfirm={onConfirm}
         />
       ))}
     </div>

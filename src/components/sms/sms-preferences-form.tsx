@@ -1,21 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from '@/lib/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Loader2, MessageSquare, Bell, DollarSign, CheckCircle, Calendar } from 'lucide-react';
-import type { SmsPreferences } from '@/types/sms';
+import { Loader2, MessageSquare, Bell, Send, Phone } from 'lucide-react';
 
 export function SmsPreferencesForm() {
-  const router = useRouter();
   const t = useTranslations('smsPreferences');
+  const tCommon = useTranslations('common');
   const [isSaving, setIsSaving] = useState(false);
 
   // Fetch current preferences
@@ -28,40 +27,42 @@ export function SmsPreferencesForm() {
       refetch();
       setIsSaving(false);
     },
-    onError: (error) => {
+    onError: () => {
       toast.error(t('errorMessage'));
       setIsSaving(false);
     },
   });
 
-  const typedPreferences = preferences as SmsPreferences | undefined;
-
   const [localPreferences, setLocalPreferences] = useState({
-    receive_wedding_reminders: typedPreferences?.receive_wedding_reminders ?? true,
-    receive_payment_reminders: typedPreferences?.receive_payment_reminders ?? true,
-    receive_rsvp_notifications: typedPreferences?.receive_rsvp_notifications ?? true,
-    receive_vendor_messages: typedPreferences?.receive_vendor_messages ?? true,
-    receive_event_updates: typedPreferences?.receive_event_updates ?? true,
-    sms_frequency: typedPreferences?.sms_frequency ?? 'immediate' as 'immediate' | 'daily' | 'off',
+    smsEnabled: true,
+    marketingSms: false,
+    transactionalSms: true,
+    reminderSms: true,
+    phoneNumber: '',
   });
 
   // Update local state when preferences load
   useEffect(() => {
-    if (typedPreferences) {
+    if (preferences) {
       setLocalPreferences({
-        receive_wedding_reminders: typedPreferences.receive_wedding_reminders,
-        receive_payment_reminders: typedPreferences.receive_payment_reminders,
-        receive_rsvp_notifications: typedPreferences.receive_rsvp_notifications,
-        receive_vendor_messages: typedPreferences.receive_vendor_messages,
-        receive_event_updates: typedPreferences.receive_event_updates,
-        sms_frequency: typedPreferences.sms_frequency,
+        smsEnabled: preferences.smsEnabled ?? true,
+        marketingSms: preferences.marketingSms ?? false,
+        transactionalSms: preferences.transactionalSms ?? true,
+        reminderSms: preferences.reminderSms ?? true,
+        phoneNumber: preferences.phoneNumber ?? '',
       });
     }
-  }, [typedPreferences]);
+  }, [preferences]);
 
   const handleSave = async () => {
     setIsSaving(true);
-    updateMutation.mutate(localPreferences);
+    updateMutation.mutate({
+      smsEnabled: localPreferences.smsEnabled,
+      marketingSms: localPreferences.marketingSms,
+      transactionalSms: localPreferences.transactionalSms,
+      reminderSms: localPreferences.reminderSms,
+      phoneNumber: localPreferences.phoneNumber || undefined,
+    });
   };
 
   if (isLoading) {
@@ -78,174 +79,136 @@ export function SmsPreferencesForm() {
 
   return (
     <div className="space-y-6">
-      {/* Notification Types */}
+      {/* Master Switch */}
       <Card>
         <CardHeader>
-          <CardTitle>{t('title')}</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" />
+            {t('title')}
+          </CardTitle>
           <CardDescription>
             {t('description')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Wedding Reminders */}
-          <div className="flex items-center justify-between space-x-2">
-            <div className="flex items-center space-x-3">
-              <Bell className="h-5 w-5 text-muted-foreground" />
-              <div className="space-y-0.5">
-                <Label htmlFor="sms-wedding-reminders" className="text-base">
-                  {t('weddingReminders.label')}
+          {/* Global SMS Enable */}
+          <div className="rounded-lg bg-muted/50 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="sms-enabled" className="text-base font-semibold">
+                  {t('masterSwitch')}
                 </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('weddingReminders.description')}
+                <p className="text-sm text-muted-foreground mt-1">
+                  {t('masterSwitchDescription')}
                 </p>
               </div>
+              <Switch
+                id="sms-enabled"
+                checked={localPreferences.smsEnabled}
+                onCheckedChange={(checked) =>
+                  setLocalPreferences({ ...localPreferences, smsEnabled: checked })
+                }
+              />
             </div>
-            <Switch
-              id="sms-wedding-reminders"
-              checked={localPreferences.receive_wedding_reminders}
-              onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_wedding_reminders: checked })
-              }
-            />
           </div>
 
-          {/* Payment Reminders */}
-          <div className="flex items-center justify-between space-x-2">
-            <div className="flex items-center space-x-3">
-              <DollarSign className="h-5 w-5 text-muted-foreground" />
-              <div className="space-y-0.5">
-                <Label htmlFor="sms-payment-reminders" className="text-base">
-                  {t('paymentReminders.label')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('paymentReminders.description')}
-                </p>
-              </div>
-            </div>
-            <Switch
-              id="sms-payment-reminders"
-              checked={localPreferences.receive_payment_reminders}
-              onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_payment_reminders: checked })
-              }
-            />
-          </div>
+          <Separator />
 
-          {/* RSVP Notifications */}
-          <div className="flex items-center justify-between space-x-2">
-            <div className="flex items-center space-x-3">
-              <CheckCircle className="h-5 w-5 text-muted-foreground" />
-              <div className="space-y-0.5">
-                <Label htmlFor="sms-rsvp-notifications" className="text-base">
-                  {t('rsvpNotifications.label')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('rsvpNotifications.description')}
-                </p>
-              </div>
-            </div>
-            <Switch
-              id="sms-rsvp-notifications"
-              checked={localPreferences.receive_rsvp_notifications}
-              onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_rsvp_notifications: checked })
-              }
-            />
-          </div>
-
-          {/* Vendor Messages */}
-          <div className="flex items-center justify-between space-x-2">
-            <div className="flex items-center space-x-3">
-              <MessageSquare className="h-5 w-5 text-muted-foreground" />
-              <div className="space-y-0.5">
-                <Label htmlFor="sms-vendor-messages" className="text-base">
-                  {t('vendorMessages.label')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('vendorMessages.description')}
-                </p>
-              </div>
-            </div>
-            <Switch
-              id="sms-vendor-messages"
-              checked={localPreferences.receive_vendor_messages}
-              onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_vendor_messages: checked })
-              }
-            />
-          </div>
-
-          {/* Event Updates */}
-          <div className="flex items-center justify-between space-x-2">
-            <div className="flex items-center space-x-3">
-              <Calendar className="h-5 w-5 text-muted-foreground" />
-              <div className="space-y-0.5">
-                <Label htmlFor="sms-event-updates" className="text-base">
-                  {t('eventUpdates.label')}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {t('eventUpdates.description')}
-                </p>
-              </div>
-            </div>
-            <Switch
-              id="sms-event-updates"
-              checked={localPreferences.receive_event_updates}
-              onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_event_updates: checked })
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* SMS Frequency */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('frequencyTitle')}</CardTitle>
-          <CardDescription>
-            {t('frequencyDescription')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+          {/* Phone Number */}
           <div className="space-y-2">
-            <Label htmlFor="sms-frequency">{t('frequencyLabel')}</Label>
-            <Select
-              value={localPreferences.sms_frequency}
-              onValueChange={(value: 'immediate' | 'daily' | 'off') =>
-                setLocalPreferences({ ...localPreferences, sms_frequency: value })
+            <Label htmlFor="phone-number" className="flex items-center gap-2">
+              <Phone className="h-4 w-4" />
+              {t('phoneNumber')}
+            </Label>
+            <Input
+              id="phone-number"
+              type="tel"
+              placeholder={t('phoneNumberPlaceholder')}
+              value={localPreferences.phoneNumber}
+              onChange={(e) =>
+                setLocalPreferences({ ...localPreferences, phoneNumber: e.target.value })
               }
-            >
-              <SelectTrigger id="sms-frequency">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="immediate">
-                  <div className="space-y-1">
-                    <div className="font-medium">{t('immediate.label')}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {t('immediate.description')}
-                    </div>
-                  </div>
-                </SelectItem>
-                <SelectItem value="daily">
-                  <div className="space-y-1">
-                    <div className="font-medium">{t('daily.label')}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {t('daily.description')}
-                    </div>
-                  </div>
-                </SelectItem>
-                <SelectItem value="off">
-                  <div className="space-y-1">
-                    <div className="font-medium">{t('off.label')}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {t('off.description')}
-                    </div>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+              disabled={!localPreferences.smsEnabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('phoneNumberHelp')}
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Notification Types */}
+          <div className="space-y-4">
+            <h4 className="font-medium">{t('notificationTypes')}</h4>
+
+            {/* Transactional SMS */}
+            <div className="flex items-center justify-between space-x-2">
+              <div className="flex items-center space-x-3">
+                <Send className="h-5 w-5 text-muted-foreground" />
+                <div className="space-y-0.5">
+                  <Label htmlFor="sms-transactional" className="text-base">
+                    {t('transactional.label')}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t('transactional.description')}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="sms-transactional"
+                checked={localPreferences.transactionalSms}
+                onCheckedChange={(checked) =>
+                  setLocalPreferences({ ...localPreferences, transactionalSms: checked })
+                }
+                disabled={!localPreferences.smsEnabled}
+              />
+            </div>
+
+            {/* Reminder SMS */}
+            <div className="flex items-center justify-between space-x-2">
+              <div className="flex items-center space-x-3">
+                <Bell className="h-5 w-5 text-muted-foreground" />
+                <div className="space-y-0.5">
+                  <Label htmlFor="sms-reminders" className="text-base">
+                    {t('reminders.label')}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t('reminders.description')}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="sms-reminders"
+                checked={localPreferences.reminderSms}
+                onCheckedChange={(checked) =>
+                  setLocalPreferences({ ...localPreferences, reminderSms: checked })
+                }
+                disabled={!localPreferences.smsEnabled}
+              />
+            </div>
+
+            {/* Marketing SMS */}
+            <div className="flex items-center justify-between space-x-2">
+              <div className="flex items-center space-x-3">
+                <MessageSquare className="h-5 w-5 text-muted-foreground" />
+                <div className="space-y-0.5">
+                  <Label htmlFor="sms-marketing" className="text-base">
+                    {t('marketing.label')}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t('marketing.description')}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="sms-marketing"
+                checked={localPreferences.marketingSms}
+                onCheckedChange={(checked) =>
+                  setLocalPreferences({ ...localPreferences, marketingSms: checked })
+                }
+                disabled={!localPreferences.smsEnabled}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -265,10 +228,10 @@ export function SmsPreferencesForm() {
           {isSaving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('saving')}
+              {tCommon('saving')}
             </>
           ) : (
-            t('saveButton')
+            tCommon('save')
           )}
         </Button>
       </div>

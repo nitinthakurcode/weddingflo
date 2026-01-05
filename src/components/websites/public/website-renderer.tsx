@@ -1,26 +1,31 @@
 'use client';
 
 import { useEffect } from 'react';
-import type { Database } from '@/lib/database.types';
+import type { WeddingWebsite } from '@/lib/db/types';
 import type { WeddingTemplate } from '@/lib/templates/wedding-templates';
 import { ClassicTemplate } from './templates/classic-template';
 import { ModernTemplate } from './templates/modern-template';
 import { ElegantTemplate } from './templates/elegant-template';
 import { RusticTemplate } from './templates/rustic-template';
 import { MinimalistTemplate } from './templates/minimalist-template';
+import { GenericTemplate } from './templates/generic-template';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+type Website = WeddingWebsite;
 
 interface WebsiteRendererProps {
   website: Website;
   template: WeddingTemplate;
 }
 
+// Original 5 templates with custom components
+const LEGACY_TEMPLATES = ['classic', 'modern', 'elegant', 'rustic', 'minimalist'];
+
 /**
  * Website Renderer
- * Session 49: Template-based rendering system
+ * December 2025: Template-based rendering system for 20 templates
  *
  * Dynamically renders the appropriate template
+ * Supports both legacy custom templates and new generic templates
  * Tracks analytics
  */
 export function WebsiteRenderer({ website, template }: WebsiteRendererProps) {
@@ -44,6 +49,11 @@ export function WebsiteRenderer({ website, template }: WebsiteRendererProps) {
   }, [website.id]);
 
   // Render appropriate template
+  // Use legacy custom templates for original 5, generic for new 15
+  if (!LEGACY_TEMPLATES.includes(template.id)) {
+    return <GenericTemplate website={website} template={template} />;
+  }
+
   switch (template.id) {
     case 'modern':
       return <ModernTemplate website={website} template={template} />;

@@ -11,9 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { db, sql } from '@/lib/db';
 import crypto from 'node:crypto';
-import type { Database } from '@/lib/database.types';
 
 // Import professional webhook helpers
 import {
@@ -37,23 +36,6 @@ import {
   type TransactionContext,
   type ResendEventType,
 } from '@/lib/webhooks/types';
-
-// ============================================================================
-// SUPABASE ADMIN CLIENT
-// ============================================================================
-
-function getSupabaseAdmin() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
-}
 
 // ============================================================================
 // SIGNATURE VERIFICATION
@@ -246,15 +228,19 @@ export async function POST(req: NextRequest) {
 // ============================================================================
 
 async function handleEmailSent(emailId: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_email_status', {
-    p_resend_id: emailId,
-    p_status: 'sent',
-    p_sent_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      SELECT update_email_status(
+        ${emailId},
+        'sent',
+        ${new Date().toISOString()}::timestamptz,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update email sent status: ${error.message}`,
       'resend',
@@ -265,15 +251,19 @@ async function handleEmailSent(emailId: string, context: TransactionContext): Pr
 }
 
 async function handleEmailDelivered(emailId: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_email_status', {
-    p_resend_id: emailId,
-    p_status: 'delivered',
-    p_delivered_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      SELECT update_email_status(
+        ${emailId},
+        'delivered',
+        NULL,
+        ${new Date().toISOString()}::timestamptz,
+        NULL,
+        NULL,
+        NULL
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update email delivered status: ${error.message}`,
       'resend',
@@ -288,15 +278,14 @@ async function handleEmailDelayed(
   reason: string | undefined,
   context: TransactionContext
 ): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_email_status', {
-    p_resend_id: emailId,
-    p_status: 'delayed',
-    p_error_message: reason || 'Delivery delayed by recipient server',
-  });
-
-  if (error) {
+  try {
+    const errorMessage = reason || 'Delivery delayed by recipient server';
+    await db.execute(sql`
+      UPDATE email_logs
+      SET status = 'delayed', error_message = ${errorMessage}, updated_at = NOW()
+      WHERE resend_id = ${emailId}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update email delayed status: ${error.message}`,
       'resend',
@@ -307,15 +296,13 @@ async function handleEmailDelayed(
 }
 
 async function handleEmailComplained(emailId: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_email_status', {
-    p_resend_id: emailId,
-    p_status: 'complained',
-    p_complained_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      UPDATE email_logs
+      SET status = 'complained', complained_at = ${new Date().toISOString()}::timestamptz, updated_at = NOW()
+      WHERE resend_id = ${emailId}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update email complained status: ${error.message}`,
       'resend',
@@ -330,16 +317,14 @@ async function handleEmailBounced(
   reason: string | undefined,
   context: TransactionContext
 ): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_email_status', {
-    p_resend_id: emailId,
-    p_status: 'bounced',
-    p_error_message: reason || 'Email bounced',
-    p_bounced_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    const errorMessage = reason || 'Email bounced';
+    await db.execute(sql`
+      UPDATE email_logs
+      SET status = 'bounced', error_message = ${errorMessage}, bounced_at = ${new Date().toISOString()}::timestamptz, updated_at = NOW()
+      WHERE resend_id = ${emailId}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update email bounced status: ${error.message}`,
       'resend',
@@ -350,14 +335,10 @@ async function handleEmailBounced(
 }
 
 async function handleEmailOpened(emailId: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  // Use atomic function to prevent race conditions
-  const { error } = await supabase.rpc('increment_email_opened', {
-    p_resend_id: emailId,
-  });
-
-  if (error) {
+  try {
+    // Use atomic function to prevent race conditions
+    await db.execute(sql`SELECT increment_email_opened(${emailId})`);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to increment email opened count: ${error.message}`,
       'resend',
@@ -368,14 +349,10 @@ async function handleEmailOpened(emailId: string, context: TransactionContext): 
 }
 
 async function handleEmailClicked(emailId: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  // Use atomic function to prevent race conditions
-  const { error } = await supabase.rpc('increment_email_clicked', {
-    p_resend_id: emailId,
-  });
-
-  if (error) {
+  try {
+    // Use atomic function to prevent race conditions
+    await db.execute(sql`SELECT increment_email_clicked(${emailId})`);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to increment email clicked count: ${error.message}`,
       'resend',

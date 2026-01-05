@@ -68,7 +68,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{metrics.dau.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">+12%</span> from yesterday
+              <span className="text-sage-600 dark:text-sage-400">+12%</span> from yesterday
             </p>
           </CardContent>
         </Card>
@@ -81,7 +81,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{metrics.mau.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">+23%</span> from last month
+              <span className="text-sage-600 dark:text-sage-400">+23%</span> from last month
             </p>
           </CardContent>
         </Card>
@@ -94,7 +94,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{metrics.activeSubscriptions}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">+8%</span> from last month
+              <span className="text-sage-600 dark:text-sage-400">+8%</span> from last month
             </p>
           </CardContent>
         </Card>
@@ -107,7 +107,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{metrics.errorRate}%</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600">-0.2%</span> from last week
+              <span className="text-sage-600 dark:text-sage-400">-0.2%</span> from last week
             </p>
           </CardContent>
         </Card>
@@ -177,7 +177,7 @@ export default function AnalyticsPage() {
               <CardContent>
                 <div className="text-3xl font-bold">{metrics.avgLoadTime}s</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  <span className="text-green-600">-0.3s</span> improvement
+                  <span className="text-sage-600 dark:text-sage-400">-0.3s</span> improvement
                 </p>
               </CardContent>
             </Card>
@@ -191,15 +191,15 @@ export default function AnalyticsPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-sm">LCP</span>
-                    <span className="text-sm font-medium text-green-600">Good</span>
+                    <span className="text-sm font-medium text-sage-600 dark:text-sage-400">Good</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">FID</span>
-                    <span className="text-sm font-medium text-green-600">Good</span>
+                    <span className="text-sm font-medium text-sage-600 dark:text-sage-400">Good</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">CLS</span>
-                    <span className="text-sm font-medium text-yellow-600">Needs Improvement</span>
+                    <span className="text-sm font-medium text-gold-600 dark:text-gold-400">Needs Improvement</span>
                   </div>
                 </div>
               </CardContent>

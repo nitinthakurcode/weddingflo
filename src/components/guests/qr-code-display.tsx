@@ -20,7 +20,7 @@ export function QRCodeDisplay({ guest, open, onOpenChange }: QRCodeDisplayProps)
 
   if (!guest) return null;
 
-  const qrValue = guest.qr_code_token || guest.id;
+  const qrValue = guest.id;
 
   const handleDownload = () => {
     try {
@@ -40,7 +40,7 @@ export function QRCodeDisplay({ guest, open, onOpenChange }: QRCodeDisplayProps)
         const pngFile = canvas.toDataURL('image/png');
 
         const downloadLink = document.createElement('a');
-        downloadLink.download = `${guest.guest_name.replace(/\s+/g, '_')}_QR.png`;
+        downloadLink.download = `${`${guest.firstName} ${guest.lastName || ''}`.trim().replace(/\s+/g, '_')}_QR.png`;
         downloadLink.href = pngFile;
         downloadLink.click();
 
@@ -66,7 +66,7 @@ export function QRCodeDisplay({ guest, open, onOpenChange }: QRCodeDisplayProps)
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>QR Code - {guest.guest_name}</DialogTitle>
+          <DialogTitle>QR Code - {`${guest.firstName} ${guest.lastName || ''}`.trim()}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col items-center space-y-4 py-4">
           <div className="bg-white p-4 rounded-lg">
@@ -79,9 +79,9 @@ export function QRCodeDisplay({ guest, open, onOpenChange }: QRCodeDisplayProps)
             />
           </div>
           <div className="text-center text-sm text-muted-foreground">
-            <p className="font-medium">{guest.guest_name}</p>
-            {guest.number_of_packs > 1 && guest.additional_guest_names.length > 0 && (
-              <p className="text-xs">+{guest.number_of_packs - 1}: {guest.additional_guest_names.join(', ')}</p>
+            <p className="font-medium">{`${guest.firstName} ${guest.lastName || ''}`.trim()}</p>
+            {guest.partySize > 1 && guest.additionalGuestNames && guest.additionalGuestNames.length > 0 && (
+              <p className="text-xs">+{guest.partySize - 1}: {guest.additionalGuestNames.join(', ')}</p>
             )}
             <p className="text-xs mt-2">Scan this QR code for check-in</p>
           </div>

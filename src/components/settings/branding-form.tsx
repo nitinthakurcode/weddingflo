@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
-import { useUser } from '@clerk/nextjs';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -26,52 +25,35 @@ interface BrandingFormData {
 }
 
 const DEFAULT_BRANDING: BrandingFormData = {
-  primary_color: '#6366f1', // Elite Indigo - Sophisticated luxury
-  secondary_color: '#ec4899', // Elegant Pink - Romantic & posh
-  accent_color: '#f59e0b', // Warm Amber - Luxurious gold
-  text_color: '#1e293b', // Slate 800 - Professional & clean
-  font_family: 'Inter, system-ui, sans-serif',
+  primary_color: '#14B8A6', // Transformative Teal - 2026 Primary
+  secondary_color: '#A38B73', // Mocha Mousse - 2025 Pantone COTY
+  accent_color: '#D4A853', // Champagne Gold - Celebration
+  text_color: '#3D322A', // Mocha 900 - Warm professional
+  font_family: 'Plus Jakarta Sans, system-ui, sans-serif',
 };
 
 const FONT_OPTIONS = [
+  'Plus Jakarta Sans, system-ui, sans-serif',
+  'Cormorant Garamond, Georgia, serif',
+  'DM Mono, SF Mono, monospace',
   'Inter, system-ui, sans-serif',
   'Roboto, sans-serif',
   'Open Sans, sans-serif',
-  'Lato, sans-serif',
   'Montserrat, sans-serif',
   'Playfair Display, serif',
   'Merriweather, serif',
-  'Georgia, serif',
 ];
 
 export function BrandingForm() {
-  const { user } = useUser();
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const user = session?.user;
+  const utils = trpc.useUtils();
   const { toast } = useToast();
 
-  const { data: company } = useQuery<any>({
-    queryKey: ['companies', 'current', user?.id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('company_id')
-        .eq('clerk_id', user.id)
-        .maybeSingle();
-      if (userError) throw userError;
-
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', (userData as any).company_id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id && !!supabase,
-  });
+  const { data: company } = trpc.companies.getCurrent.useQuery(
+    undefined,
+    { enabled: !!user?.id }
+  );
 
   const [formData, setFormData] = useState<BrandingFormData>(DEFAULT_BRANDING);
   const [isSaving, setIsSaving] = useState(false);
@@ -79,34 +61,24 @@ export function BrandingForm() {
   // Initialize form data when company data loads
   useEffect(() => {
     if (company?.branding) {
+      // Cast branding to expected type (stored as JSON in DB)
+      const branding = company.branding as BrandingFormData;
       setFormData({
-        logo_url: company.branding.logo_url,
-        app_icon_url: company.branding.app_icon_url,
-        primary_color: company.branding.primary_color || DEFAULT_BRANDING.primary_color,
-        secondary_color: company.branding.secondary_color || DEFAULT_BRANDING.secondary_color,
-        accent_color: company.branding.accent_color || DEFAULT_BRANDING.accent_color,
-        text_color: company.branding.text_color || DEFAULT_BRANDING.text_color,
-        font_family: company.branding.font_family || DEFAULT_BRANDING.font_family,
-        custom_css: company.branding.custom_css,
+        logo_url: branding.logo_url,
+        app_icon_url: branding.app_icon_url,
+        primary_color: branding.primary_color || DEFAULT_BRANDING.primary_color,
+        secondary_color: branding.secondary_color || DEFAULT_BRANDING.secondary_color,
+        accent_color: branding.accent_color || DEFAULT_BRANDING.accent_color,
+        text_color: branding.text_color || DEFAULT_BRANDING.text_color,
+        font_family: branding.font_family || DEFAULT_BRANDING.font_family,
+        custom_css: branding.custom_css,
       });
     }
   }, [company]);
 
-  const updateBranding = useMutation({
-    mutationFn: async (branding: BrandingFormData) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('companies')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ branding })
-        .eq('id', company?.id)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+  const updateBranding = trpc.companies.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      utils.companies.getCurrent.invalidate();
     },
   });
 
@@ -125,7 +97,10 @@ export function BrandingForm() {
     setIsSaving(true);
 
     try {
-      await updateBranding.mutateAsync(formData);
+      // Company ID comes from session context - just pass branding data
+      await updateBranding.mutateAsync({
+        branding: formData as unknown as Record<string, unknown>,
+      });
 
       toast({
         title: 'Branding updated',
@@ -220,7 +195,7 @@ export function BrandingForm() {
           <ColorPicker
             label="Text Color (Optional)"
             description="Manual override for all text colors. Leave default for automatic contrast"
-            value={formData.text_color || '#1f2937'}
+            value={formData.text_color || DEFAULT_BRANDING.text_color || '#3D322A'}
             onChange={(color) => setFormData({ ...formData, text_color: color })}
           />
 
@@ -363,15 +338,17 @@ export function BrandingForm() {
           variant="outline"
           onClick={() => {
             if (company?.branding) {
+              // Cast branding to expected type (stored as JSON in DB)
+              const branding = company.branding as BrandingFormData;
               setFormData({
-                logo_url: company.branding.logo_url,
-                app_icon_url: company.branding.app_icon_url,
-                primary_color: company.branding.primary_color || DEFAULT_BRANDING.primary_color,
-                secondary_color: company.branding.secondary_color || DEFAULT_BRANDING.secondary_color,
-                accent_color: company.branding.accent_color || DEFAULT_BRANDING.accent_color,
-                text_color: company.branding.text_color || DEFAULT_BRANDING.text_color,
-                font_family: company.branding.font_family || DEFAULT_BRANDING.font_family,
-                custom_css: company.branding.custom_css,
+                logo_url: branding.logo_url,
+                app_icon_url: branding.app_icon_url,
+                primary_color: branding.primary_color || DEFAULT_BRANDING.primary_color,
+                secondary_color: branding.secondary_color || DEFAULT_BRANDING.secondary_color,
+                accent_color: branding.accent_color || DEFAULT_BRANDING.accent_color,
+                text_color: branding.text_color || DEFAULT_BRANDING.text_color,
+                font_family: branding.font_family || DEFAULT_BRANDING.font_family,
+                custom_css: branding.custom_css,
               });
             }
           }}

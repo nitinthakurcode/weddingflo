@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabaseClient } from '@/lib/supabase/client';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,36 +11,20 @@ import { useToast } from '@/hooks/use-toast';
 import { Building2, Loader2, Save } from 'lucide-react';
 
 export default function CompanyPage() {
-  const { user } = useUser();
-  const supabase = useSupabaseClient();
-  const queryClient = useQueryClient();
+  const { data: session } = useSession();
   const { toast } = useToast();
 
-  const companyId = user?.publicMetadata?.companyId as string | undefined;
+  const companyId = (session?.user as any)?.companyId as string | undefined;
 
   const [companyName, setCompanyName] = useState('');
   const [customDomain, setCustomDomain] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch company data
-  const { data: company, isLoading } = useQuery<any>({
-    queryKey: ['company', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!companyId) return null;
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', companyId)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user && !!companyId && !!supabase,
-  });
+  // Fetch company data using tRPC
+  const { data: company, isLoading } = trpc.companies.getCurrent.useQuery(
+    undefined,
+    { enabled: !!session?.user && !!companyId }
+  );
 
   useEffect(() => {
     if (company) {
@@ -50,26 +33,9 @@ export default function CompanyPage() {
     }
   }, [company]);
 
-  // Update company mutation
-  const updateMutation = useMutation({
-    mutationFn: async (input: { name: string; subdomain?: string }) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!companyId) throw new Error('No company ID');
-
-      const { error} = await supabase
-        .from('companies')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({
-          name: input.name,
-          subdomain: input.subdomain,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', companyId);
-
-      if (error) throw error;
-    },
+  // Update company mutation using tRPC
+  const updateMutation = trpc.companies.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['company', companyId] });
       toast({
         title: 'Company updated',
         description: 'Your company settings have been saved successfully.',
@@ -121,17 +87,24 @@ export default function CompanyPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Company Settings</h1>
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-mocha-100 dark:to-mocha-300 bg-clip-text text-transparent">
+          Company Settings
+        </h1>
         <p className="text-muted-foreground">
           Manage your company information and details
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
+        <Card
+          variant="glass"
+          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+        >
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
+            <CardTitle className="flex items-center gap-2 bg-gradient-to-r from-teal-600 to-teal-500 bg-clip-text text-transparent">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg shadow-teal-500/30">
+                <Building2 className="h-4 w-4 text-white" />
+              </div>
               Company Information
             </CardTitle>
             <CardDescription>
@@ -154,7 +127,7 @@ export default function CompanyPage() {
               <Label htmlFor="subdomain">Subdomain</Label>
               <Input
                 id="subdomain"
-                value={company.subdomain}
+                value={company.subdomain || ''}
                 disabled
                 className="bg-muted"
               />

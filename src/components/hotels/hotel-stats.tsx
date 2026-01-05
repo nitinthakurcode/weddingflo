@@ -4,6 +4,56 @@ import { Hotel, Building2, Bed, Users, CheckCircle, Filter } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { HotelStats } from '@/types/hotel';
 
+/**
+ * Hotel Stats Theme Colors
+ * Uses WeddingFlo design tokens with fallback hex values
+ * Colors mapped to semantic hotel stat categories
+ */
+const HOTEL_STAT_COLORS = {
+  // Total Hotels - Cobalt/Info theme
+  totalHotels: {
+    text: 'var(--cobalt-900, #1e3a5f)',
+    bg: 'var(--cobalt-100, #dbeafe)',
+    iconGradient: 'linear-gradient(to bottom right, var(--cobalt-500, #3B82F6), var(--cobalt-400, #60a5fa))',
+    border: 'var(--cobalt-300, #93c5fd)',
+  },
+  // Total Rooms - Rose theme
+  totalRooms: {
+    text: 'var(--rose-900, #4c0519)',
+    bg: 'var(--rose-100, #ffe4e6)',
+    iconGradient: 'linear-gradient(to bottom right, var(--rose-500, #E11D48), var(--rose-400, #fb7185))',
+    border: 'var(--rose-200, #fecdd3)',
+  },
+  // Guests Accommodated - Gold/Warning theme
+  guestsAccommodated: {
+    text: 'var(--gold-900, #713f12)',
+    bg: 'var(--gold-100, #fef3c7)',
+    iconGradient: 'linear-gradient(to bottom right, var(--gold-500, #D4A853), var(--gold-400, #FACC15))',
+    border: 'var(--gold-200, #fde68a)',
+  },
+  // Occupancy Rate - Teal/Primary theme
+  occupancyRate: {
+    text: 'var(--teal-900, #134e4a)',
+    bg: 'var(--teal-100, #ccfbf1)',
+    iconGradient: 'linear-gradient(to bottom right, var(--teal-500, #14B8A6), var(--teal-400, #2dd4bf))',
+    border: 'var(--teal-200, #99f6e4)',
+  },
+  // Pending Bookings - Mocha/Neutral theme
+  pendingBookings: {
+    text: 'var(--mocha-900, #3D3027)',
+    bg: 'var(--mocha-100, #F5F0EB)',
+    iconGradient: 'linear-gradient(to bottom right, var(--mocha-500, #8B7355), var(--mocha-400, #B8A089))',
+    border: 'var(--mocha-200, #D4C4B5)',
+  },
+  // Confirmed Bookings - Sage/Success theme
+  confirmedBookings: {
+    text: 'var(--sage-900, #1a2e1a)',
+    bg: 'var(--sage-100, #dcfce7)',
+    iconGradient: 'linear-gradient(to bottom right, var(--sage-500, #739574), var(--sage-400, #8fb38f))',
+    border: 'var(--sage-200, #bbf7d0)',
+  },
+} as const;
+
 interface HotelStatsCardsProps {
   stats: HotelStats;
   isLoading?: boolean;
@@ -17,10 +67,10 @@ export function HotelStatsCards({ stats, isLoading, onFilterChange }: HotelStats
       value: stats.total_hotels || 0,
       icon: Building2,
       description: 'Hotels booked',
-      textColor: '#1e1b4b', // Indigo-950
-      bgColor: '#e0e7ff', // Indigo-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #4f46e5, #6366f1)' }, // Indigo gradient
-      borderColor: '#a5b4fc', // Indigo-300
+      textColor: HOTEL_STAT_COLORS.totalHotels.text,
+      bgColor: HOTEL_STAT_COLORS.totalHotels.bg,
+      iconBgStyle: { background: HOTEL_STAT_COLORS.totalHotels.iconGradient },
+      borderColor: HOTEL_STAT_COLORS.totalHotels.border,
       filter: 'all',
     },
     {
@@ -28,10 +78,10 @@ export function HotelStatsCards({ stats, isLoading, onFilterChange }: HotelStats
       value: stats.total_rooms_booked || 0,
       icon: Bed,
       description: 'Rooms reserved',
-      textColor: '#500724', // Pink-950
-      bgColor: '#fce7f3', // Pink-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #db2777, #ec4899)' }, // Pink gradient
-      borderColor: '#fbcfe8', // Pink-200
+      textColor: HOTEL_STAT_COLORS.totalRooms.text,
+      bgColor: HOTEL_STAT_COLORS.totalRooms.bg,
+      iconBgStyle: { background: HOTEL_STAT_COLORS.totalRooms.iconGradient },
+      borderColor: HOTEL_STAT_COLORS.totalRooms.border,
       filter: 'all',
     },
     {
@@ -39,10 +89,10 @@ export function HotelStatsCards({ stats, isLoading, onFilterChange }: HotelStats
       value: stats.total_guests_accommodated || 0,
       icon: Users,
       description: 'Guests with rooms',
-      textColor: '#78350f', // Amber-900
-      bgColor: '#fef3c7', // Amber-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #d97706, #f59e0b)' }, // Amber gradient
-      borderColor: '#fde68a', // Amber-200
+      textColor: HOTEL_STAT_COLORS.guestsAccommodated.text,
+      bgColor: HOTEL_STAT_COLORS.guestsAccommodated.bg,
+      iconBgStyle: { background: HOTEL_STAT_COLORS.guestsAccommodated.iconGradient },
+      borderColor: HOTEL_STAT_COLORS.guestsAccommodated.border,
       filter: 'accommodated',
     },
     {
@@ -50,10 +100,10 @@ export function HotelStatsCards({ stats, isLoading, onFilterChange }: HotelStats
       value: `${isNaN(stats.occupancy_rate) ? 0 : stats.occupancy_rate.toFixed(0)}%`,
       icon: Hotel,
       description: 'Room utilization',
-      textColor: '#581c87', // Purple-900
-      bgColor: '#f3e8ff', // Purple-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #9333ea, #a855f7)' }, // Purple gradient
-      borderColor: '#e9d5ff', // Purple-200
+      textColor: HOTEL_STAT_COLORS.occupancyRate.text,
+      bgColor: HOTEL_STAT_COLORS.occupancyRate.bg,
+      iconBgStyle: { background: HOTEL_STAT_COLORS.occupancyRate.iconGradient },
+      borderColor: HOTEL_STAT_COLORS.occupancyRate.border,
       filter: 'all',
     },
     {
@@ -61,10 +111,10 @@ export function HotelStatsCards({ stats, isLoading, onFilterChange }: HotelStats
       value: stats.pending_bookings || 0,
       icon: Hotel,
       description: 'Awaiting confirmation',
-      textColor: '#0c4a6e', // Sky-900
-      bgColor: '#e0f2fe', // Sky-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #0ea5e9, #0284c7)' }, // Sky gradient
-      borderColor: '#bae6fd', // Sky-200
+      textColor: HOTEL_STAT_COLORS.pendingBookings.text,
+      bgColor: HOTEL_STAT_COLORS.pendingBookings.bg,
+      iconBgStyle: { background: HOTEL_STAT_COLORS.pendingBookings.iconGradient },
+      borderColor: HOTEL_STAT_COLORS.pendingBookings.border,
       filter: 'pending',
     },
     {
@@ -72,10 +122,10 @@ export function HotelStatsCards({ stats, isLoading, onFilterChange }: HotelStats
       value: stats.confirmed_bookings || 0,
       icon: CheckCircle,
       description: 'Confirmed bookings',
-      textColor: '#064e3b', // Emerald-900
-      bgColor: '#d1fae5', // Emerald-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #10b981, #059669)' }, // Emerald gradient
-      borderColor: '#a7f3d0', // Emerald-200
+      textColor: HOTEL_STAT_COLORS.confirmedBookings.text,
+      bgColor: HOTEL_STAT_COLORS.confirmedBookings.bg,
+      iconBgStyle: { background: HOTEL_STAT_COLORS.confirmedBookings.iconGradient },
+      borderColor: HOTEL_STAT_COLORS.confirmedBookings.border,
       filter: 'confirmed',
     },
   ];

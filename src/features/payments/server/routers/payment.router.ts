@@ -13,6 +13,8 @@ import {
   type SupportedCurrency,
 } from '@/lib/payments/stripe';
 import { TRPCError } from '@trpc/server';
+import { eq, and, desc, sql, isNull } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 
 export const paymentRouter = router({
   // Create Stripe Connect account for vendor/planner
@@ -25,7 +27,7 @@ export const paymentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId, userId } = ctx;
+      const { db, companyId, userId } = ctx;
       const { email, businessName, country } = input;
 
       if (!companyId) {
@@ -35,19 +37,18 @@ export const paymentRouter = router({
         });
       }
 
-      try{
+      try {
         // Check if account already exists
-        const { data: existing } = await supabase
-          .from('stripe_accounts')
-          .select('*')
-          .eq('company_id', companyId)
-          .eq('user_id', userId)
-          .single();
+        const [existing] = await db
+          .select()
+          .from(schema.stripeAccounts)
+          .where(eq(schema.stripeAccounts.companyId, companyId))
+          .limit(1);
 
         if (existing) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
-            message: 'Stripe account already exists for this user',
+            message: 'Stripe account already exists for this company',
           });
         }
 
@@ -59,29 +60,19 @@ export const paymentRouter = router({
         });
 
         // Save to database
-        const { data: stripeAccount, error } = await supabase
-          .from('stripe_accounts')
-          .insert({
-            company_id: companyId,
-            user_id: userId,
-            stripe_account_id: account.id,
-            email,
-            business_name: businessName,
+        const [stripeAccount] = await db
+          .insert(schema.stripeAccounts)
+          .values({
+            companyId,
+            stripeAccountId: account.id,
             country,
             status: 'pending',
-            charges_enabled: account.charges_enabled || false,
-            payouts_enabled: account.payouts_enabled || false,
-            details_submitted: account.details_submitted || false,
+            chargesEnabled: account.charges_enabled || false,
+            payoutsEnabled: account.payouts_enabled || false,
+            detailsSubmitted: account.details_submitted || false,
+            businessProfile: { email, businessName },
           })
-          .select()
-          .single();
-
-        if (error) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to save Stripe account: ${error.message}`,
-          });
-        }
+          .returning();
 
         return {
           success: true,
@@ -105,7 +96,7 @@ export const paymentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { stripeAccountId } = input;
 
       if (!companyId) {
@@ -117,12 +108,14 @@ export const paymentRouter = router({
 
       try {
         // Verify account belongs to company
-        const { data: account } = await supabase
-          .from('stripe_accounts')
-          .select('stripe_account_id')
-          .eq('id', stripeAccountId)
-          .eq('company_id', companyId)
-          .single();
+        const [account] = await db
+          .select({ stripeAccountId: schema.stripeAccounts.stripeAccountId })
+          .from(schema.stripeAccounts)
+          .where(and(
+            eq(schema.stripeAccounts.id, stripeAccountId),
+            eq(schema.stripeAccounts.companyId, companyId)
+          ))
+          .limit(1);
 
         if (!account) {
           throw new TRPCError({
@@ -136,7 +129,7 @@ export const paymentRouter = router({
         const refreshUrl = `${baseUrl}/dashboard/settings/payments?onboarding=refresh`;
 
         const onboardingUrl = await createAccountLink({
-          accountId: account.stripe_account_id,
+          accountId: account.stripeAccountId,
           returnUrl,
           refreshUrl,
         });
@@ -156,7 +149,7 @@ export const paymentRouter = router({
 
   // Get Stripe account status
   getStripeAccount: protectedProcedure.query(async ({ ctx }) => {
-    const { supabase, companyId, userId } = ctx;
+    const { db, companyId, userId } = ctx;
 
     if (!companyId) {
       throw new TRPCError({
@@ -165,14 +158,13 @@ export const paymentRouter = router({
       });
     }
 
-    const { data: account } = await supabase
-      .from('stripe_accounts')
-      .select('*')
-      .eq('company_id', companyId)
-      .eq('user_id', userId)
-      .single();
+    const [account] = await db
+      .select()
+      .from(schema.stripeAccounts)
+      .where(eq(schema.stripeAccounts.companyId, companyId))
+      .limit(1);
 
-    return account;
+    return account || null;
   }),
 
   // Create invoice
@@ -188,8 +180,8 @@ export const paymentRouter = router({
           z.object({
             description: z.string(),
             quantity: z.number().positive(),
-            unitPrice: z.number().positive(), // In decimal (e.g., 100.50)
-            amount: z.number().positive(), // quantity * unitPrice
+            unitPrice: z.number().positive(),
+            amount: z.number().positive(),
           })
         ),
         taxAmount: z.number().default(0),
@@ -211,7 +203,7 @@ export const paymentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const {
         clientId,
         currency,
@@ -232,57 +224,36 @@ export const paymentRouter = router({
       }
 
       try {
-        // Generate invoice number
-        const { data: invoiceNumber, error: invoiceNumError } = await supabase.rpc('generate_invoice_number', {
-          p_company_id: companyId,
-        });
-
-        if (invoiceNumError || !invoiceNumber) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to generate invoice number',
-          });
-        }
+        // Generate invoice number (simple approach - use timestamp + random)
+        const timestamp = Date.now().toString(36).toUpperCase();
+        const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const invoiceNumber = `INV-${timestamp}-${random}`;
 
         // Calculate subtotal from line items
         const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
-
-        // Convert to smallest currency unit (cents)
-        const subtotalInCents = toStripeAmount(subtotal, currency);
-        const taxInCents = toStripeAmount(taxAmount, currency);
-        const discountInCents = toStripeAmount(discountAmount, currency);
-        const totalInCents = subtotalInCents + taxInCents - discountInCents;
+        const total = subtotal + taxAmount - discountAmount;
+        const amountDue = total;
 
         // Create invoice
-        const { data: invoice, error } = await supabase
-          .from('invoices')
-          .insert({
-            company_id: companyId,
-            client_id: clientId,
-            invoice_number: invoiceNumber,
-            currency,
-            subtotal: subtotalInCents,
-            tax_amount: taxInCents,
-            discount_amount: discountInCents,
-            total_amount: totalInCents,
-            amount_due: totalInCents,
-            issue_date: new Date().toISOString().split('T')[0],
-            due_date: dueDate,
-            description,
+        const [invoice] = await db
+          .insert(schema.invoices)
+          .values({
+            companyId,
+            clientId,
+            invoiceNumber,
+            currency: currency.toUpperCase(),
+            subtotal: subtotal.toString(),
+            taxAmount: taxAmount.toString(),
+            discountAmount: discountAmount.toString(),
+            total: total.toString(),
+            amountDue: amountDue.toString(),
+            dueDate: dueDate ? new Date(dueDate) : null,
             notes,
-            line_items: lineItems,
-            billing_details: billingDetails || {},
+            lineItems,
+            metadata: { description, billingDetails },
             status: 'open',
           })
-          .select()
-          .single();
-
-        if (error) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to create invoice: ${error.message}`,
-          });
-        }
+          .returning();
 
         return {
           success: true,
@@ -309,7 +280,7 @@ export const paymentRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { limit, offset, status, clientId } = input;
 
       if (!companyId) {
@@ -319,34 +290,54 @@ export const paymentRouter = router({
         });
       }
 
-      let query = supabase
-        .from('invoices')
-        .select('*, client:clients(partner1_first_name, partner1_last_name, partner2_first_name, partner2_last_name, partner1_email), payments!left(id, status)', { count: 'exact' })
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+      // Build conditions
+      const conditions = [
+        eq(schema.invoices.companyId, companyId),
+        isNull(schema.invoices.deletedAt)
+      ];
 
       if (status) {
-        query = query.eq('status', status);
+        conditions.push(eq(schema.invoices.status, status));
       }
 
       if (clientId) {
-        query = query.eq('client_id', clientId);
+        conditions.push(eq(schema.invoices.clientId, clientId));
       }
 
-      const { data, error, count } = await query;
+      // Get invoices with client info via join
+      const invoices = await db
+        .select({
+          invoice: schema.invoices,
+          client: {
+            partner1FirstName: schema.clients.partner1FirstName,
+            partner1LastName: schema.clients.partner1LastName,
+            partner2FirstName: schema.clients.partner2FirstName,
+            partner2LastName: schema.clients.partner2LastName,
+            partner1Email: schema.clients.partner1Email,
+          }
+        })
+        .from(schema.invoices)
+        .leftJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
+        .where(and(...conditions))
+        .orderBy(desc(schema.invoices.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: `Failed to fetch invoices: ${error.message}`,
-        });
-      }
+      // Get total count
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.invoices)
+        .where(and(...conditions));
+
+      const total = Number(countResult?.count || 0);
 
       return {
-        invoices: data || [],
-        total: count || 0,
-        hasMore: (count || 0) > offset + limit,
+        invoices: invoices.map(row => ({
+          ...row.invoice,
+          client: row.client
+        })),
+        total,
+        hasMore: total > offset + limit,
       };
     }),
 
@@ -360,7 +351,7 @@ export const paymentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { invoiceId, clientId, stripeCustomerId } = input;
 
       if (!companyId) {
@@ -372,14 +363,16 @@ export const paymentRouter = router({
 
       try {
         // Get invoice
-        const { data: invoice, error: invoiceError } = await supabase
-          .from('invoices')
-          .select('*')
-          .eq('id', invoiceId)
-          .eq('company_id', companyId)
-          .single();
+        const [invoice] = await db
+          .select()
+          .from(schema.invoices)
+          .where(and(
+            eq(schema.invoices.id, invoiceId),
+            eq(schema.invoices.companyId, companyId)
+          ))
+          .limit(1);
 
-        if (invoiceError || !invoice) {
+        if (!invoice) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Invoice not found',
@@ -393,7 +386,8 @@ export const paymentRouter = router({
           });
         }
 
-        if (!invoice.amount_due) {
+        const amountDue = parseFloat(invoice.amountDue || '0');
+        if (!amountDue || amountDue <= 0) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Invoice amount is invalid',
@@ -401,59 +395,56 @@ export const paymentRouter = router({
         }
 
         // Get Stripe Connect account if exists
-        const { data: stripeAccount } = await supabase
-          .from('stripe_accounts')
-          .select('stripe_account_id')
-          .eq('company_id', companyId)
-          .eq('charges_enabled', true)
-          .single();
+        const [stripeAccount] = await db
+          .select({ stripeAccountId: schema.stripeAccounts.stripeAccountId })
+          .from(schema.stripeAccounts)
+          .where(and(
+            eq(schema.stripeAccounts.companyId, companyId),
+            eq(schema.stripeAccounts.chargesEnabled, true)
+          ))
+          .limit(1);
 
         // Calculate platform fee (10% by default)
         const platformFeePercent = parseInt(process.env.STRIPE_PLATFORM_FEE_PERCENT || '10');
+        const amountInCents = toStripeAmount(amountDue, (invoice.currency?.toLowerCase() || 'usd') as SupportedCurrency);
         const applicationFeeAmount = stripeAccount
-          ? Math.round((invoice.amount_due * platformFeePercent) / 100)
+          ? Math.round((amountInCents * platformFeePercent) / 100)
           : undefined;
 
         // Create payment intent
         const paymentIntent = await createPaymentIntent({
-          amount: invoice.amount_due,
-          currency: invoice.currency as SupportedCurrency,
+          amount: amountInCents,
+          currency: (invoice.currency?.toLowerCase() || 'usd') as SupportedCurrency,
           customerId: stripeCustomerId,
-          connectedAccountId: stripeAccount?.stripe_account_id,
+          connectedAccountId: stripeAccount?.stripeAccountId,
           applicationFeeAmount,
           metadata: {
             invoice_id: invoiceId,
-            invoice_number: invoice.invoice_number,
+            invoice_number: invoice.invoiceNumber,
             company_id: companyId,
             client_id: clientId,
           },
         });
 
         // Save payment record
-        const { data: payment, error: paymentError } = await supabase
-          .from('payments')
-          .insert({
-            company_id: companyId,
-            client_id: clientId,
-            invoice_id: invoiceId,
-            stripe_payment_intent_id: paymentIntent.id,
-            stripe_customer_id: stripeCustomerId,
-            amount: invoice.amount_due,
-            currency: invoice.currency,
+        const [payment] = await db
+          .insert(schema.payments)
+          .values({
+            companyId,
+            clientId,
+            invoiceId,
+            stripePaymentIntentId: paymentIntent.id,
+            amount: amountDue.toString(),
+            currency: invoice.currency || 'USD',
             status: 'pending',
-            client_secret: paymentIntent.client_secret,
-            application_fee_amount: applicationFeeAmount || 0,
-            description: `Payment for invoice ${invoice.invoice_number}`,
+            description: `Payment for invoice ${invoice.invoiceNumber}`,
+            metadata: {
+              stripeCustomerId,
+              clientSecret: paymentIntent.client_secret,
+              applicationFeeAmount: applicationFeeAmount || 0,
+            },
           })
-          .select()
-          .single();
-
-        if (paymentError) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to save payment: ${paymentError.message}`,
-          });
-        }
+          .returning();
 
         return {
           success: true,
@@ -483,7 +474,7 @@ export const paymentRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { limit, offset, status, clientId } = input;
 
       if (!companyId) {
@@ -493,36 +484,55 @@ export const paymentRouter = router({
         });
       }
 
-      let query = supabase
-        .from('payments')
-        .select('*, invoice:invoices(invoice_number), client:clients(partner1_first_name, partner1_last_name, partner2_first_name, partner2_last_name)', {
-          count: 'exact',
-        })
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+      // Build conditions
+      const conditions = [eq(schema.payments.companyId, companyId)];
 
       if (status) {
-        query = query.eq('status', status);
+        conditions.push(eq(schema.payments.status, status));
       }
 
       if (clientId) {
-        query = query.eq('client_id', clientId);
+        conditions.push(eq(schema.payments.clientId, clientId));
       }
 
-      const { data, error, count } = await query;
+      // Get payments with joins
+      const paymentsData = await db
+        .select({
+          payment: schema.payments,
+          invoice: {
+            invoiceNumber: schema.invoices.invoiceNumber,
+          },
+          client: {
+            partner1FirstName: schema.clients.partner1FirstName,
+            partner1LastName: schema.clients.partner1LastName,
+            partner2FirstName: schema.clients.partner2FirstName,
+            partner2LastName: schema.clients.partner2LastName,
+          }
+        })
+        .from(schema.payments)
+        .leftJoin(schema.invoices, eq(schema.payments.invoiceId, schema.invoices.id))
+        .leftJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
+        .where(and(...conditions))
+        .orderBy(desc(schema.payments.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: `Failed to fetch payments: ${error.message}`,
-        });
-      }
+      // Get total count
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.payments)
+        .where(and(...conditions));
+
+      const total = Number(countResult?.count || 0);
 
       return {
-        payments: data || [],
-        total: count || 0,
-        hasMore: (count || 0) > offset + limit,
+        payments: paymentsData.map(row => ({
+          ...row.payment,
+          invoice: row.invoice,
+          client: row.client
+        })),
+        total,
+        hasMore: total > offset + limit,
       };
     }),
 
@@ -531,13 +541,13 @@ export const paymentRouter = router({
     .input(
       z.object({
         paymentId: z.string().uuid(),
-        amount: z.number().positive().optional(), // Optional for partial refund
+        amount: z.number().positive().optional(),
         reason: z.enum(['duplicate', 'fraudulent', 'requested_by_customer', 'other']).default('requested_by_customer'),
         description: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId, userId } = ctx;
       const { paymentId, amount, reason, description } = input;
 
       if (!companyId) {
@@ -549,14 +559,16 @@ export const paymentRouter = router({
 
       try {
         // Get payment
-        const { data: payment, error: paymentError } = await supabase
-          .from('payments')
-          .select('*')
-          .eq('id', paymentId)
-          .eq('company_id', companyId)
-          .single();
+        const [payment] = await db
+          .select()
+          .from(schema.payments)
+          .where(and(
+            eq(schema.payments.id, paymentId),
+            eq(schema.payments.companyId, companyId)
+          ))
+          .limit(1);
 
-        if (paymentError || !payment) {
+        if (!payment) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Payment not found',
@@ -570,7 +582,7 @@ export const paymentRouter = router({
           });
         }
 
-        if (!payment.stripe_payment_intent_id) {
+        if (!payment.stripePaymentIntentId) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Payment does not have a Stripe payment intent ID',
@@ -578,46 +590,39 @@ export const paymentRouter = router({
         }
 
         // Create refund in Stripe
-        const refundAmount = amount ? toStripeAmount(amount, payment.currency as SupportedCurrency) : undefined;
+        const refundAmount = amount ? toStripeAmount(amount, (payment.currency?.toLowerCase() || 'usd') as SupportedCurrency) : undefined;
         const stripeRefund = await createRefund({
-          paymentIntentId: payment.stripe_payment_intent_id,
+          paymentIntentId: payment.stripePaymentIntentId,
           amount: refundAmount,
           reason: reason === 'other' ? undefined : reason,
         });
 
         // Save refund record
-        const { data: refund, error: refundError } = await supabase
-          .from('refunds')
-          .insert({
-            company_id: companyId,
-            payment_id: paymentId,
-            stripe_refund_id: stripeRefund.id,
-            amount: stripeRefund.amount,
-            currency: payment.currency,
+        const [refund] = await db
+          .insert(schema.refunds)
+          .values({
+            paymentId,
+            stripeRefundId: stripeRefund.id,
+            amount: fromStripeAmount(stripeRefund.amount, (payment.currency?.toLowerCase() || 'usd') as SupportedCurrency).toString(),
+            currency: payment.currency || 'USD',
             reason,
             status: stripeRefund.status === 'succeeded' ? 'succeeded' : 'pending',
-            description,
-            processed_at: stripeRefund.status === 'succeeded' ? new Date().toISOString() : null,
+            notes: description,
+            refundedBy: userId,
+            metadata: {
+              processedAt: stripeRefund.status === 'succeeded' ? new Date().toISOString() : null,
+            },
           })
-          .select()
-          .single();
-
-        if (refundError) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to save refund: ${refundError.message}`,
-          });
-        }
+          .returning();
 
         // Update payment status
-        // Note: Database enum only has 'refunded', not 'partially_refunded'
-        // Partial refund tracking is handled by the refunds table
-        await supabase
-          .from('payments')
-          .update({
+        await db
+          .update(schema.payments)
+          .set({
             status: 'refunded',
+            updatedAt: new Date()
           })
-          .eq('id', paymentId);
+          .where(eq(schema.payments.id, paymentId));
 
         return {
           success: true,
@@ -638,11 +643,12 @@ export const paymentRouter = router({
     .input(
       z.object({
         days: z.number().int().min(1).max(365).default(30),
+        clientId: z.string().uuid().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
-      const { days } = input;
+      const { db, companyId } = ctx;
+      const { days, clientId } = input;
 
       if (!companyId) {
         throw new TRPCError({
@@ -651,25 +657,63 @@ export const paymentRouter = router({
         });
       }
 
-      const { data, error } = await supabase.rpc('get_payment_stats', {
-        p_company_id: companyId,
-        p_days: days,
-      });
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: `Failed to fetch payment stats: ${error.message}`,
-        });
+      // Build conditions for payments query
+      const paymentConditions = [
+        eq(schema.payments.companyId, companyId),
+        sql`${schema.payments.createdAt} >= ${startDate}`
+      ];
+
+      if (clientId) {
+        paymentConditions.push(eq(schema.payments.clientId, clientId));
       }
 
-      return data?.[0] || {
-        total_payments: 0,
-        successful_payments: 0,
-        failed_payments: 0,
-        total_amount: 0,
-        total_refunded: 0,
-        success_rate: 0,
+      // Get all payments in the date range
+      const paymentsData = await db
+        .select()
+        .from(schema.payments)
+        .where(and(...paymentConditions));
+
+      // Get refunds - need to join with payments to filter by clientId
+      const refundsQuery = clientId
+        ? db
+            .select({ refund: schema.refunds })
+            .from(schema.refunds)
+            .innerJoin(schema.payments, eq(schema.refunds.paymentId, schema.payments.id))
+            .where(and(
+              sql`${schema.refunds.createdAt} >= ${startDate}`,
+              eq(schema.payments.clientId, clientId)
+            ))
+        : db
+            .select()
+            .from(schema.refunds)
+            .where(sql`${schema.refunds.createdAt} >= ${startDate}`);
+
+      const refundsData = clientId
+        ? (await refundsQuery).map((r: any) => r.refund)
+        : await refundsQuery;
+
+      // Calculate stats
+      const totalPayments = paymentsData.length;
+      const successfulPayments = paymentsData.filter(p => p.status === 'paid').length;
+      const failedPayments = paymentsData.filter(p => p.status === 'failed' || p.status === 'canceled').length;
+      const totalAmount = paymentsData
+        .filter(p => p.status === 'paid')
+        .reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+      const totalRefunded = refundsData
+        .filter(r => r.status === 'succeeded')
+        .reduce((sum, r) => sum + parseFloat(r.amount || '0'), 0);
+      const successRate = totalPayments > 0 ? (successfulPayments / totalPayments) * 100 : 0;
+
+      return {
+        total_payments: totalPayments,
+        successful_payments: successfulPayments,
+        failed_payments: failedPayments,
+        total_amount: totalAmount,
+        total_refunded: totalRefunded,
+        success_rate: Math.round(successRate * 100) / 100,
         currency: 'usd',
       };
     }),
@@ -680,11 +724,11 @@ export const paymentRouter = router({
       z.object({
         invoiceId: z.string().uuid(),
         status: z.enum(['draft', 'open', 'paid', 'void', 'uncollectible']),
-        amountPaid: z.number().optional(), // Amount paid in decimal
+        amountPaid: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { invoiceId, status, amountPaid } = input;
 
       if (!companyId) {
@@ -694,37 +738,39 @@ export const paymentRouter = router({
         });
       }
 
-      // Get current invoice to get currency and total
-      const { data: currentInvoice } = await supabase
-        .from('invoices')
-        .select('total_amount, currency')
-        .eq('id', invoiceId)
-        .eq('company_id', companyId)
-        .single();
+      // Get current invoice
+      const [currentInvoice] = await db
+        .select({ total: schema.invoices.total, currency: schema.invoices.currency })
+        .from(schema.invoices)
+        .where(and(
+          eq(schema.invoices.id, invoiceId),
+          eq(schema.invoices.companyId, companyId)
+        ))
+        .limit(1);
 
-      const updateData: any = {
+      const updateData: Partial<typeof schema.invoices.$inferInsert> = {
         status,
-        paid_at: status === 'paid' ? new Date().toISOString() : null,
+        paidAt: status === 'paid' ? new Date() : null,
+        updatedAt: new Date()
       };
 
       if (status === 'paid') {
-        updateData.amount_paid = amountPaid
-          ? toStripeAmount(amountPaid, (currentInvoice?.currency || 'usd') as SupportedCurrency)
-          : currentInvoice?.total_amount || 0;
+        updateData.amountPaid = amountPaid?.toString() || currentInvoice?.total || '0';
       }
 
-      const { data: invoice, error } = await supabase
-        .from('invoices')
-        .update(updateData)
-        .eq('id', invoiceId)
-        .eq('company_id', companyId)
-        .select()
-        .single();
+      const [invoice] = await db
+        .update(schema.invoices)
+        .set(updateData)
+        .where(and(
+          eq(schema.invoices.id, invoiceId),
+          eq(schema.invoices.companyId, companyId)
+        ))
+        .returning();
 
-      if (error) {
+      if (!invoice) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: `Failed to update invoice: ${error.message}`,
+          code: 'NOT_FOUND',
+          message: 'Invoice not found',
         });
       }
 
@@ -742,7 +788,7 @@ export const paymentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { invoiceId } = input;
 
       if (!companyId) {
@@ -753,32 +799,30 @@ export const paymentRouter = router({
       }
 
       // Check if invoice has payments
-      const { data: payments } = await supabase
-        .from('payments')
-        .select('id')
-        .eq('invoice_id', invoiceId)
-        .eq('status', 'paid')
+      const [paymentExists] = await db
+        .select({ id: schema.payments.id })
+        .from(schema.payments)
+        .where(and(
+          eq(schema.payments.invoiceId, invoiceId),
+          eq(schema.payments.status, 'paid')
+        ))
         .limit(1);
 
-      if (payments && payments.length > 0) {
+      if (paymentExists) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'Cannot delete invoice with successful payments',
         });
       }
 
-      const { error } = await supabase
-        .from('invoices')
-        .delete()
-        .eq('id', invoiceId)
-        .eq('company_id', companyId);
-
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: `Failed to delete invoice: ${error.message}`,
-        });
-      }
+      // Soft delete
+      await db
+        .update(schema.invoices)
+        .set({ deletedAt: new Date() })
+        .where(and(
+          eq(schema.invoices.id, invoiceId),
+          eq(schema.invoices.companyId, companyId)
+        ));
 
       return {
         success: true,
@@ -794,7 +838,7 @@ export const paymentRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { invoiceId } = input;
 
       if (!companyId) {
@@ -804,21 +848,38 @@ export const paymentRouter = router({
         });
       }
 
-      const { data: invoice, error } = await supabase
-        .from('invoices')
-        .select('*, client:clients(*), payments(*)')
-        .eq('id', invoiceId)
-        .eq('company_id', companyId)
-        .single();
+      // Get invoice with client
+      const [result] = await db
+        .select({
+          invoice: schema.invoices,
+          client: schema.clients,
+        })
+        .from(schema.invoices)
+        .leftJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
+        .where(and(
+          eq(schema.invoices.id, invoiceId),
+          eq(schema.invoices.companyId, companyId)
+        ))
+        .limit(1);
 
-      if (error) {
+      if (!result) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Invoice not found',
         });
       }
 
-      return invoice;
+      // Get payments for this invoice
+      const invoicePayments = await db
+        .select()
+        .from(schema.payments)
+        .where(eq(schema.payments.invoiceId, invoiceId));
+
+      return {
+        ...result.invoice,
+        client: result.client,
+        payments: invoicePayments,
+      };
     }),
 
   // Get single payment
@@ -829,7 +890,7 @@ export const paymentRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { paymentId } = input;
 
       if (!companyId) {
@@ -839,20 +900,134 @@ export const paymentRouter = router({
         });
       }
 
-      const { data: payment, error } = await supabase
-        .from('payments')
-        .select('*, invoice:invoices(*), client:clients(*), refunds(*)')
-        .eq('id', paymentId)
-        .eq('company_id', companyId)
-        .single();
+      // Get payment with relations
+      const [result] = await db
+        .select({
+          payment: schema.payments,
+          invoice: schema.invoices,
+          client: schema.clients,
+        })
+        .from(schema.payments)
+        .leftJoin(schema.invoices, eq(schema.payments.invoiceId, schema.invoices.id))
+        .leftJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
+        .where(and(
+          eq(schema.payments.id, paymentId),
+          eq(schema.payments.companyId, companyId)
+        ))
+        .limit(1);
 
-      if (error) {
+      if (!result) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Payment not found',
         });
       }
 
-      return payment;
+      // Get refunds for this payment
+      const paymentRefunds = await db
+        .select()
+        .from(schema.refunds)
+        .where(eq(schema.refunds.paymentId, paymentId));
+
+      return {
+        ...result.payment,
+        invoice: result.invoice,
+        client: result.client,
+        refunds: paymentRefunds,
+      };
+    }),
+
+  /**
+   * Portal Invoices - For client users (couples) to view their invoices
+   * Uses protectedProcedure and looks up clientId from client_users table
+   */
+  getPortalInvoices: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' })
+      }
+
+      // Get user record
+      const [user] = await ctx.db
+        .select({ id: schema.users.id, role: schema.users.role })
+        .from(schema.users)
+        .where(eq(schema.users.authId, ctx.userId))
+        .limit(1)
+
+      if (!user) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' })
+      }
+
+      // Get client_user link to find the client
+      const [clientUser] = await ctx.db
+        .select({ clientId: schema.clientUsers.clientId })
+        .from(schema.clientUsers)
+        .where(eq(schema.clientUsers.userId, user.id))
+        .limit(1)
+
+      if (!clientUser) {
+        return []
+      }
+
+      // Fetch invoices for this client
+      const invoices = await ctx.db
+        .select()
+        .from(schema.invoices)
+        .where(eq(schema.invoices.clientId, clientUser.clientId))
+        .orderBy(desc(schema.invoices.createdAt))
+
+      return invoices
+    }),
+
+  /**
+   * Portal Payments - For client users (couples) to view their payments
+   * Uses protectedProcedure and looks up clientId from client_users table
+   */
+  getPortalPayments: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' })
+      }
+
+      // Get user record
+      const [user] = await ctx.db
+        .select({ id: schema.users.id, role: schema.users.role })
+        .from(schema.users)
+        .where(eq(schema.users.authId, ctx.userId))
+        .limit(1)
+
+      if (!user) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' })
+      }
+
+      // Get client_user link to find the client
+      const [clientUser] = await ctx.db
+        .select({ clientId: schema.clientUsers.clientId })
+        .from(schema.clientUsers)
+        .where(eq(schema.clientUsers.userId, user.id))
+        .limit(1)
+
+      if (!clientUser) {
+        return []
+      }
+
+      // Fetch payments for this client with invoice info
+      const payments = await ctx.db
+        .select({
+          payment: schema.payments,
+          invoice: {
+            invoiceNumber: schema.invoices.invoiceNumber,
+            description: schema.invoices.notes,
+          },
+        })
+        .from(schema.payments)
+        .leftJoin(schema.invoices, eq(schema.payments.invoiceId, schema.invoices.id))
+        .where(eq(schema.payments.clientId, clientUser.clientId))
+        .orderBy(desc(schema.payments.createdAt))
+
+      return payments.map(row => ({
+        ...row.payment,
+        invoice: row.invoice,
+      }))
     }),
 });

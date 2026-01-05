@@ -89,52 +89,121 @@ class MockResizeObserver implements ResizeObserver {
 
 global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
 
-// Mock Clerk (Session Claims architecture)
-jest.mock('@clerk/nextjs', () => ({
+// Mock BetterAuth client hooks
+jest.mock('@/lib/auth-client', () => ({
   useAuth: () => ({
-    userId: 'test-user-id',
-    sessionId: 'test-session-id',
-    isLoaded: true,
-    isSignedIn: true,
-  }),
-  useUser: () => ({
     user: {
       id: 'test-user-id',
-      publicMetadata: {
-        company_id: 'test-company-id',
-        role: 'company_admin',
-        subscription_tier: 'premium',
-      },
+      email: 'test@weddingflo.com',
+      name: 'Test User',
+      image: null,
+      role: 'company_admin',
+      companyId: 'test-company-id',
       firstName: 'Test',
       lastName: 'User',
-      emailAddresses: [{ emailAddress: 'test@weddingflow.com' }],
     },
-    isLoaded: true,
+    session: {
+      id: 'test-session-id',
+      userId: 'test-user-id',
+    },
+    isAuthenticated: true,
+    isLoading: false,
+    error: null,
   }),
-  auth: () => ({
-    userId: 'test-user-id',
-    sessionClaims: {
-      metadata: {
-        company_id: 'test-company-id',
+  useSession: () => ({
+    data: {
+      user: {
+        id: 'test-user-id',
+        email: 'test@weddingflo.com',
+        name: 'Test User',
         role: 'company_admin',
-        subscription_tier: 'premium',
+        companyId: 'test-company-id',
+      },
+      session: {
+        id: 'test-session-id',
       },
     },
+    isPending: false,
+    error: null,
   }),
+  useUserRole: () => ({
+    role: 'company_admin',
+    isSuperAdmin: false,
+    isCompanyAdmin: true,
+    isStaff: false,
+    isClientUser: false,
+  }),
+  signIn: {
+    email: jest.fn(() => Promise.resolve({ error: null })),
+    social: jest.fn(() => Promise.resolve({ error: null })),
+  },
+  signUp: {
+    email: jest.fn(() => Promise.resolve({ error: null })),
+  },
+  signOut: jest.fn(() => Promise.resolve()),
+  signInWithEmail: jest.fn(() => Promise.resolve({ error: null })),
+  signUpWithEmail: jest.fn(() => Promise.resolve({ error: null })),
+  signInWithGoogle: jest.fn(() => Promise.resolve({ error: null })),
+  signOutAndRedirect: jest.fn(() => Promise.resolve()),
 }))
 
-// Mock @clerk/nextjs/server
-jest.mock('@clerk/nextjs/server', () => ({
-  auth: jest.fn(() => ({
+// Mock BetterAuth server functions
+jest.mock('@/lib/auth/server', () => ({
+  getServerSession: jest.fn(() => Promise.resolve({
     userId: 'test-user-id',
-    sessionClaims: {
-      metadata: {
-        company_id: 'test-company-id',
-        role: 'company_admin',
-        subscription_tier: 'premium',
-      },
+    user: {
+      id: 'test-user-id',
+      email: 'test@weddingflo.com',
+      name: 'Test User',
+      role: 'company_admin',
+      companyId: 'test-company-id',
+    },
+    session: {
+      id: 'test-session-id',
     },
   })),
+  requireAuth: jest.fn(() => Promise.resolve({
+    userId: 'test-user-id',
+    user: {
+      id: 'test-user-id',
+      email: 'test@weddingflo.com',
+      name: 'Test User',
+      role: 'company_admin',
+      companyId: 'test-company-id',
+    },
+    session: {
+      id: 'test-session-id',
+    },
+  })),
+  hasRole: jest.fn(() => Promise.resolve(true)),
+  getCompanyId: jest.fn(() => Promise.resolve('test-company-id')),
+  isSuperAdmin: jest.fn(() => Promise.resolve(false)),
+  isCompanyAdmin: jest.fn(() => Promise.resolve(true)),
+}))
+
+// Mock BetterAuth session helpers
+jest.mock('@/lib/auth/session', () => ({
+  getAuthSession: jest.fn(() => Promise.resolve({
+    session: {
+      userId: 'test-user-id',
+      authId: 'test-user-id',
+      role: 'company_admin',
+      companyId: 'test-company-id',
+      email: 'test@weddingflo.com',
+      isRepaired: false,
+    },
+    error: null,
+  })),
+  requireAuthSession: jest.fn(() => Promise.resolve({
+    userId: 'test-user-id',
+    authId: 'test-user-id',
+    role: 'company_admin',
+    companyId: 'test-company-id',
+    email: 'test@weddingflo.com',
+    isRepaired: false,
+  })),
+  hasValidSession: jest.fn(() => Promise.resolve(true)),
+  invalidateUserSessionCache: jest.fn(() => Promise.resolve()),
 }))
 
 // Mock Supabase

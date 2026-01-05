@@ -3,7 +3,7 @@
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { useEffect } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useSession } from '@/lib/auth-client';
 
 if (typeof window !== 'undefined') {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
@@ -19,15 +19,15 @@ export function PHProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function PostHogIdentifier() {
-  const { userId, sessionId } = useAuth();
+  const { data: session } = useSession();
 
   useEffect(() => {
-    if (userId) {
-      posthog.identify(userId, {
-        session_id: sessionId
+    if (session?.user?.id) {
+      posthog.identify(session.user.id, {
+        session_id: session.session?.id
       });
     }
-  }, [userId, sessionId]);
+  }, [session]);
 
   return null;
 }

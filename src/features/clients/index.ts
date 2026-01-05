@@ -1,5 +1,6 @@
 /**
  * Clients Feature Pocket
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
  *
  * @description Client relationship management system
  * @owner Client Management Team
@@ -12,8 +13,8 @@
  * - Client onboarding flow
  *
  * ## External Dependencies
- * - Supabase: clients table
- * - Clerk: Authentication
+ * - Drizzle ORM: clients table on Hetzner PostgreSQL
+ * - BetterAuth: Self-hosted authentication
  *
  * ## Database Tables
  * - clients (primary)

@@ -3,20 +3,19 @@
 import { useEffect } from 'react';
 
 /**
- * ThemeInjector - Client-side component that fixes Clerk avatar images
- * NUCLEAR OPTION: Continuous monitoring every 100ms + DOM mutations
+ * ThemeInjector - Client-side component that fixes avatar images
+ * Ensures proper aspect ratio and styling for all avatar images
  */
 export function ThemeInjector() {
   useEffect(() => {
-    // NUCLEAR AVATAR FIX - Target EVERYTHING and check ALL ancestors
+    // Avatar fix - Target all avatar images in the UI
     const fixAvatars = () => {
       // Find ALL images in the header that could be avatars
       const allImages = document.querySelectorAll<HTMLImageElement>(
-        'header img, .cl-avatarImage, .cl-avatarBox img, .cl-userButtonTrigger img, ' +
-        'img[class*="avatar"], img[class*="Avatar"], [data-avatar] img, ' +
+        'header img, img[class*="avatar"], img[class*="Avatar"], [data-avatar] img, ' +
         'button[aria-label*="account" i] img, button[aria-label*="profile" i] img, ' +
         '[role="img"] img, img[alt*="profile" i], img[alt*="avatar" i], ' +
-        'button img[src*="clerk"], button img[src*="googleusercontent"], ' +
+        'button img[src*="googleusercontent"], ' +
         'button img[src*="gravatar"], img[src*="profile"]'
       );
 

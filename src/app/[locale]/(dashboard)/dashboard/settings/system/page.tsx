@@ -70,11 +70,11 @@ export default function SystemStatusPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'healthy':
-        return <CheckCircle className="w-5 h-5 text-green-500" />
+        return <CheckCircle className="w-5 h-5 text-sage-500" />
       case 'unhealthy':
-        return <XCircle className="w-5 h-5 text-red-500" />
+        return <XCircle className="w-5 h-5 text-rose-500" />
       case 'warning':
-        return <AlertTriangle className="w-5 h-5 text-yellow-500" />
+        return <AlertTriangle className="w-5 h-5 text-gold-500" />
       default:
         return null
     }
@@ -83,13 +83,13 @@ export default function SystemStatusPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'healthy':
-        return <Badge className="bg-green-100 text-green-800">Healthy</Badge>
+        return <Badge className="bg-sage-100 text-sage-800 dark:bg-sage-900/30 dark:text-sage-400">Healthy</Badge>
       case 'unhealthy':
         return <Badge variant="destructive">Unhealthy</Badge>
       case 'warning':
-        return <Badge className="bg-yellow-100 text-yellow-800">Warning</Badge>
+        return <Badge className="bg-gold-100 text-gold-800 dark:bg-gold-900/30 dark:text-gold-400">Warning</Badge>
       case 'degraded':
-        return <Badge className="bg-yellow-100 text-yellow-800">Degraded</Badge>
+        return <Badge className="bg-gold-100 text-gold-800 dark:bg-gold-900/30 dark:text-gold-400">Degraded</Badge>
       default:
         return <Badge variant="secondary">Unknown</Badge>
     }
@@ -99,7 +99,7 @@ export default function SystemStatusPage() {
     if (name.includes('Supabase') || name.includes('RLS')) {
       return <Database className="w-5 h-5" />
     }
-    if (name.includes('Clerk') || name.includes('Auth')) {
+    if (name.includes('BetterAuth') || name.includes('Auth')) {
       return <Shield className="w-5 h-5" />
     }
     if (name.includes('JWT') || name.includes('Claims')) {
@@ -113,7 +113,9 @@ export default function SystemStatusPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">System Status</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+            System Status
+          </h1>
           <p className="text-muted-foreground">
             Monitor integration health and system status
           </p>
@@ -126,10 +128,15 @@ export default function SystemStatusPage() {
 
       {/* Overall Status */}
       {healthData && (
-        <Card>
+        <Card
+          variant="glass"
+          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+        >
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-xl">Overall System Health</CardTitle>
+              <CardTitle className="text-xl bg-gradient-to-r from-teal-600 to-cobalt-600 bg-clip-text text-transparent">
+                Overall System Health
+              </CardTitle>
               {getStatusBadge(healthData.overall)}
             </div>
             <CardDescription>
@@ -144,23 +151,23 @@ export default function SystemStatusPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">
+              <div className="p-3 bg-sage-50 dark:bg-sage-900/20 rounded-lg">
+                <div className="text-2xl font-bold text-sage-600 dark:text-sage-400">
                   {healthData.summary.healthy}
                 </div>
-                <div className="text-sm text-green-800">Healthy</div>
+                <div className="text-sm text-sage-800 dark:text-sage-300">Healthy</div>
               </div>
-              <div className="p-3 bg-yellow-50 rounded-lg">
-                <div className="text-2xl font-bold text-yellow-600">
+              <div className="p-3 bg-gold-50 dark:bg-gold-900/20 rounded-lg">
+                <div className="text-2xl font-bold text-gold-600 dark:text-gold-400">
                   {healthData.summary.warnings}
                 </div>
-                <div className="text-sm text-yellow-800">Warnings</div>
+                <div className="text-sm text-gold-800 dark:text-gold-300">Warnings</div>
               </div>
-              <div className="p-3 bg-red-50 rounded-lg">
-                <div className="text-2xl font-bold text-red-600">
+              <div className="p-3 bg-rose-50 dark:bg-rose-900/20 rounded-lg">
+                <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
                   {healthData.summary.unhealthy}
                 </div>
-                <div className="text-sm text-red-800">Unhealthy</div>
+                <div className="text-sm text-rose-800 dark:text-rose-300">Unhealthy</div>
               </div>
             </div>
           </CardContent>
@@ -169,9 +176,9 @@ export default function SystemStatusPage() {
 
       {/* Error State */}
       {error && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-red-600">
+            <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
               <XCircle className="w-5 h-5" />
               <span>Failed to fetch system status: {error}</span>
             </div>
@@ -186,9 +193,9 @@ export default function SystemStatusPage() {
           <div className="grid gap-4">
             {healthData.checks.map((check, index) => (
               <Card key={index} className={
-                check.status === 'unhealthy' ? 'border-red-200' :
-                check.status === 'warning' ? 'border-yellow-200' :
-                'border-green-200'
+                check.status === 'unhealthy' ? 'border-rose-200 dark:border-rose-800' :
+                check.status === 'warning' ? 'border-gold-200 dark:border-gold-800' :
+                'border-sage-200 dark:border-sage-800'
               }>
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
@@ -228,26 +235,31 @@ export default function SystemStatusPage() {
       )}
 
       {/* Troubleshooting Guide */}
-      <Card>
+      <Card
+        variant="glass"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+      >
         <CardHeader>
-          <CardTitle>Troubleshooting Guide</CardTitle>
+          <CardTitle className="bg-gradient-to-r from-teal-600 to-cobalt-600 bg-clip-text text-transparent">
+            Troubleshooting Guide
+          </CardTitle>
           <CardDescription>
             Common issues and how to resolve them
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <h4 className="font-medium">JWT Claims Missing</h4>
+            <h4 className="font-medium">Session Data Missing</h4>
             <p className="text-sm text-muted-foreground">
-              If role or company_id is missing, check your Clerk session token customization.
-              The token should include: {`{"metadata":{"role":"{{user.public_metadata.role}}","company_id":"{{user.public_metadata.company_id}}"}}`}
+              If role or company_id is missing, check that your user record in the database has the correct
+              role and companyId fields set. BetterAuth session includes this data from the users table.
             </p>
           </div>
           <div className="space-y-2">
-            <h4 className="font-medium">RLS Policy Errors</h4>
+            <h4 className="font-medium">Database Connection Errors</h4>
             <p className="text-sm text-muted-foreground">
-              Ensure the Supabase RLS helper functions (get_user_role, get_user_company_id)
-              read from the correct JWT claim path. For native integration, use "metadata" not "publicMetadata".
+              Ensure DATABASE_URL is correctly configured pointing to your Hetzner PostgreSQL instance.
+              Check that the Drizzle schema is in sync with the database.
             </p>
           </div>
           <div className="space-y-2">

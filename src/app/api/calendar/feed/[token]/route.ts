@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { db, eq, sql, and, gte } from '@/lib/db';
 import { ICalGenerator, type ICalEvent } from '@/lib/calendar/ical-generator';
 
 export async function GET(
@@ -14,20 +14,22 @@ export async function GET(
       return new NextResponse('Invalid token', { status: 400 });
     }
 
-    // Create Supabase client inside handler (not at module level)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SECRET_KEY!
-    );
+    // Get token from database using Drizzle
+    const tokenResult = await db.execute(sql`
+      SELECT user_id, company_id, is_active, access_count
+      FROM ical_feed_tokens
+      WHERE feed_token = ${token}
+      LIMIT 1
+    `);
 
-    // Get token from database
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('ical_feed_tokens')
-      .select('user_id, company_id, is_active, access_count')
-      .eq('feed_token', token)
-      .single();
+    const tokenData = tokenResult.rows[0] as {
+      user_id: string;
+      company_id: string;
+      is_active: boolean;
+      access_count: number;
+    } | undefined;
 
-    if (tokenError || !tokenData) {
+    if (!tokenData) {
       return new NextResponse('Token not found', { status: 404 });
     }
 
@@ -35,12 +37,19 @@ export async function GET(
       return new NextResponse('Feed disabled', { status: 403 });
     }
 
-    // Get user settings
-    const { data: settings } = await supabase
-      .from('calendar_sync_settings')
-      .select('*')
-      .eq('user_id', tokenData.user_id)
-      .single();
+    // Get user settings using Drizzle
+    const settingsResult = await db.execute(sql`
+      SELECT * FROM calendar_sync_settings
+      WHERE user_id = ${tokenData.user_id}
+      LIMIT 1
+    `);
+
+    const settings = settingsResult.rows[0] as {
+      ical_feed_enabled: boolean;
+      ical_include_events: boolean;
+      ical_include_timeline: boolean;
+      ical_include_tasks: boolean;
+    } | undefined;
 
     if (!settings || !settings.ical_feed_enabled) {
       return new NextResponse('Feed disabled', { status: 403 });
@@ -48,116 +57,113 @@ export async function GET(
 
     // Fetch events based on settings
     const events: ICalEvent[] = [];
+    const today = new Date().toISOString().split('T')[0];
+    const nowIso = new Date().toISOString();
 
     // Fetch events if enabled
     if (settings.ical_include_events) {
-      const { data: eventsData } = await supabase
-        .from('events')
-        .select('*, clients!inner(company_id)')
-        .eq('clients.company_id', tokenData.company_id)
-        .gte('event_date', new Date().toISOString().split('T')[0])
-        .order('event_date', { ascending: true })
-        .limit(500);
+      const eventsResult = await db.execute(sql`
+        SELECT e.* FROM events e
+        INNER JOIN clients c ON e.client_id = c.id
+        WHERE c.company_id = ${tokenData.company_id}
+          AND e.event_date >= ${today}
+        ORDER BY e.event_date ASC
+        LIMIT 500
+      `);
 
-      if (eventsData) {
-        for (const event of eventsData) {
-          const startDate = new Date(`${event.event_date}T${event.start_time || '09:00:00'}`);
-          const endDate = new Date(`${event.event_date}T${event.end_time || '17:00:00'}`);
+      for (const event of eventsResult.rows as any[]) {
+        const startDate = new Date(`${event.event_date}T${event.start_time || '09:00:00'}`);
+        const endDate = new Date(`${event.event_date}T${event.end_time || '17:00:00'}`);
 
-          events.push({
-            uid: `event-${event.id}@weddingflow.pro`,
-            summary: event.title,
-            description: event.description || event.notes || undefined,
-            location: event.location || event.venue_name || undefined,
-            startDate,
-            endDate,
-            created: new Date(event.created_at),
-            lastModified: new Date(event.updated_at),
-            sequence: 0,
-            status: event.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE',
-          });
-        }
+        events.push({
+          uid: `event-${event.id}@weddingflow.pro`,
+          summary: event.title,
+          description: event.description || event.notes || undefined,
+          location: event.location || event.venue_name || undefined,
+          startDate,
+          endDate,
+          created: new Date(event.created_at),
+          lastModified: new Date(event.updated_at),
+          sequence: 0,
+          status: event.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE',
+        });
       }
     }
 
     // Fetch timeline items if enabled
     if (settings.ical_include_timeline) {
-      const { data: timelineData } = await supabase
-        .from('timeline')
-        .select('*, clients!inner(company_id)')
-        .eq('clients.company_id', tokenData.company_id)
-        .gte('start_time', new Date().toISOString())
-        .order('start_time', { ascending: true })
-        .limit(500);
+      const timelineResult = await db.execute(sql`
+        SELECT t.* FROM timeline t
+        INNER JOIN clients c ON t.client_id = c.id
+        WHERE c.company_id = ${tokenData.company_id}
+          AND t.start_time >= ${nowIso}
+        ORDER BY t.start_time ASC
+        LIMIT 500
+      `);
 
-      if (timelineData) {
-        for (const item of timelineData) {
-          const startDate = new Date(item.start_time);
-          const endDate = item.end_time ? new Date(item.end_time) : new Date(startDate.getTime() + item.duration_minutes * 60000);
+      for (const item of timelineResult.rows as any[]) {
+        const startDate = new Date(item.start_time);
+        const endDate = item.end_time ? new Date(item.end_time) : new Date(startDate.getTime() + item.duration_minutes * 60000);
 
-          events.push({
-            uid: `timeline-${item.id}@weddingflow.pro`,
-            summary: item.title,
-            description: item.description || undefined,
-            location: item.location || undefined,
-            startDate,
-            endDate,
-            created: new Date(item.created_at),
-            lastModified: new Date(item.updated_at),
-            sequence: 0,
-            status: item.completed ? 'CONFIRMED' : 'TENTATIVE',
-          });
-        }
+        events.push({
+          uid: `timeline-${item.id}@weddingflow.pro`,
+          summary: item.title,
+          description: item.description || undefined,
+          location: item.location || undefined,
+          startDate,
+          endDate,
+          created: new Date(item.created_at),
+          lastModified: new Date(item.updated_at),
+          sequence: 0,
+          status: item.completed ? 'CONFIRMED' : 'TENTATIVE',
+        });
       }
     }
 
     // Fetch tasks if enabled
     if (settings.ical_include_tasks) {
-      const { data: tasksData } = await supabase
-        .from('tasks')
-        .select('*, clients!inner(company_id)')
-        .eq('clients.company_id', tokenData.company_id)
-        .not('due_date', 'is', null)
-        .gte('due_date', new Date().toISOString().split('T')[0])
-        .in('status', ['todo', 'in_progress'])
-        .order('due_date', { ascending: true })
-        .limit(200);
+      const tasksResult = await db.execute(sql`
+        SELECT t.* FROM tasks t
+        INNER JOIN clients c ON t.client_id = c.id
+        WHERE c.company_id = ${tokenData.company_id}
+          AND t.due_date IS NOT NULL
+          AND t.due_date >= ${today}
+          AND t.status IN ('todo', 'in_progress')
+        ORDER BY t.due_date ASC
+        LIMIT 200
+      `);
 
-      if (tasksData) {
-        for (const task of tasksData) {
-          const dueDate = new Date(`${task.due_date}T09:00:00`);
-          const endDate = new Date(`${task.due_date}T17:00:00`);
+      for (const task of tasksResult.rows as any[]) {
+        const dueDate = new Date(`${task.due_date}T09:00:00`);
+        const endDate = new Date(`${task.due_date}T17:00:00`);
 
-          events.push({
-            uid: `task-${task.id}@weddingflow.pro`,
-            summary: `[Task] ${task.title}`,
-            description: task.description || undefined,
-            location: undefined,
-            startDate: dueDate,
-            endDate,
-            created: new Date(task.created_at),
-            lastModified: new Date(task.updated_at),
-            sequence: 0,
-            status: 'TENTATIVE',
-          });
-        }
+        events.push({
+          uid: `task-${task.id}@weddingflow.pro`,
+          summary: `[Task] ${task.title}`,
+          description: task.description || undefined,
+          location: undefined,
+          startDate: dueDate,
+          endDate,
+          created: new Date(task.created_at),
+          lastModified: new Date(task.updated_at),
+          sequence: 0,
+          status: 'TENTATIVE',
+        });
       }
     }
 
     // Generate iCal feed
     const icalContent = ICalGenerator.generate(
       events,
-      'WeddingFlow Pro Calendar'
+      'WeddingFlo Calendar'
     );
 
-    // Update access tracking
-    await supabase
-      .from('ical_feed_tokens')
-      .update({
-        last_accessed: new Date().toISOString(),
-        access_count: (tokenData.access_count || 0) + 1,
-      })
-      .eq('feed_token', token);
+    // Update access tracking using Drizzle
+    await db.execute(sql`
+      UPDATE ical_feed_tokens
+      SET last_accessed = NOW(), access_count = ${(tokenData.access_count || 0) + 1}
+      WHERE feed_token = ${token}
+    `);
 
     // Return iCal feed
     return new NextResponse(icalContent, {

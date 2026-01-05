@@ -1,19 +1,22 @@
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
+import { db, eq } from '@/lib/db';
+import { user as userTable } from '@/lib/db/schema/auth';
 
 /**
  * Sync Layout
  *
  * This layout only requires authentication (userId), not role.
  * Used for the sync page that helps users without metadata.
+ * With BetterAuth, this page helps users complete their profile setup.
  */
 export default async function SyncLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { userId, sessionClaims } = await auth();
+  const { userId, user } = await getServerSession();
 
   // Get locale from headers
   const headersList = await headers();
@@ -22,20 +25,38 @@ export default async function SyncLayout({
   const locale = localeMatch ? localeMatch[1] : 'en';
 
   // Must be authenticated to access sync
-  if (!userId) {
+  if (!userId || !user) {
     redirect(`/${locale}/sign-in`);
   }
 
-  // Check both paths for compatibility
-  const metadata = sessionClaims?.metadata as { role?: string; company_id?: string } | undefined;
-  const publicMetadata = (sessionClaims as any)?.publicMetadata as { role?: string; company_id?: string } | undefined;
+  // Get role and companyId from BetterAuth user object
+  let role = (user as any).role as string | undefined;
+  let companyId = (user as any).companyId as string | undefined;
 
-  const role = metadata?.role || publicMetadata?.role as string | undefined;
-  const companyId = metadata?.company_id || publicMetadata?.company_id as string | undefined;
+  console.log('[Sync Layout] Session data:', { role, companyId });
 
-  console.log('[Sync Layout] Session claims:', { role, companyId });
+  // Check database directly to avoid stale session cache
+  if (!role || !companyId) {
+    try {
+      const [dbUser] = await db
+        .select({ role: userTable.role, companyId: userTable.companyId })
+        .from(userTable)
+        .where(eq(userTable.id, userId))
+        .limit(1);
 
+      if (dbUser) {
+        role = dbUser.role || undefined;
+        companyId = dbUser.companyId || undefined;
+        console.log('[Sync Layout] Fresh DB data:', { role, companyId });
+      }
+    } catch (dbError) {
+      console.error('[Sync Layout] DB lookup error:', dbError);
+    }
+  }
+
+  // If user already has role and company, redirect to dashboard
   if (role && companyId) {
+    console.log('[Sync Layout] User has role and company, redirecting to dashboard');
     redirect(`/${locale}/dashboard`);
   }
 

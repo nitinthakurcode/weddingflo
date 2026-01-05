@@ -69,7 +69,7 @@ export function HotelForm({
   });
 
   const handleAddAmenity = () => {
-    const currentAmenities = form.getValues('amenities');
+    const currentAmenities = form.getValues('amenities') || [];
     if (amenityInput.trim() && !currentAmenities.includes(amenityInput.trim())) {
       form.setValue('amenities', [...currentAmenities, amenityInput.trim()]);
       setAmenityInput('');
@@ -77,7 +77,7 @@ export function HotelForm({
   };
 
   const handleRemoveAmenity = (amenity: string) => {
-    const currentAmenities = form.getValues('amenities');
+    const currentAmenities = form.getValues('amenities') || [];
     form.setValue(
       'amenities',
       currentAmenities.filter((a) => a !== amenity)
@@ -391,7 +391,7 @@ export function HotelForm({
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {form.watch('amenities').map((amenity) => (
+                  {(form.watch('amenities') || []).map((amenity) => (
                     <Badge key={amenity} variant="secondary">
                       {amenity}
                       <button

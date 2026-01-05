@@ -1,4 +1,4 @@
-// Supabase types - no Convex dependencies
+// Gift types - Drizzle ORM
 
 export type DeliveryStatus = "pending" | "in_transit" | "delivered" | "returned";
 export type ThankYouStatus = "not_sent" | "draft" | "sent";

@@ -27,7 +27,7 @@ const TRANSLATIONS = {
       high: 'High Priority',
       urgent: 'URGENT',
     },
-    footer: 'This message was sent through WeddingFlow Pro.',
+    footer: 'This message was sent through WeddingFlo.',
   },
   es: {
     greeting: (name: string) => `Hola ${name},`,
@@ -41,7 +41,7 @@ const TRANSLATIONS = {
       high: 'Prioridad Alta',
       urgent: 'URGENTE',
     },
-    footer: 'Este mensaje fue enviado a través de WeddingFlow Pro.',
+    footer: 'Este mensaje fue enviado a través de WeddingFlo.',
   },
   fr: {
     greeting: (name: string) => `Bonjour ${name},`,
@@ -55,7 +55,7 @@ const TRANSLATIONS = {
       high: 'Priorité Haute',
       urgent: 'URGENT',
     },
-    footer: 'Ce message a été envoyé via WeddingFlow Pro.',
+    footer: 'Ce message a été envoyé via WeddingFlo.',
   },
   de: {
     greeting: (name: string) => `Hallo ${name},`,
@@ -69,7 +69,7 @@ const TRANSLATIONS = {
       high: 'Hohe Priorität',
       urgent: 'DRINGEND',
     },
-    footer: 'Diese Nachricht wurde über WeddingFlow Pro gesendet.',
+    footer: 'Diese Nachricht wurde über WeddingFlo gesendet.',
   },
   ja: {
     greeting: (name: string) => `${name}様`,
@@ -83,7 +83,7 @@ const TRANSLATIONS = {
       high: '優先度：高',
       urgent: '緊急',
     },
-    footer: 'このメッセージはWeddingFlow Proを通じて送信されました。',
+    footer: 'このメッセージはWeddingFloを通じて送信されました。',
   },
   zh: {
     greeting: (name: string) => `你好${name}，`,
@@ -97,7 +97,7 @@ const TRANSLATIONS = {
       high: '高优先级',
       urgent: '紧急',
     },
-    footer: '此消息通过WeddingFlow Pro发送。',
+    footer: '此消息通过WeddingFlo发送。',
   },
   hi: {
     greeting: (name: string) => `नमस्ते ${name},`,
@@ -111,22 +111,26 @@ const TRANSLATIONS = {
       high: 'उच्च प्राथमिकता',
       urgent: 'तत्काल',
     },
-    footer: 'यह संदेश WeddingFlow Pro के माध्यम से भेजा गया था।',
+    footer: 'यह संदेश WeddingFlo के माध्यम से भेजा गया था।',
   },
 };
 
+/**
+ * Email priority colors using WeddingFlo design tokens
+ * Note: Email clients don't support CSS variables
+ */
 const PRIORITY_COLORS = {
-  low: '#94a3b8',
-  normal: '#6366f1',
-  high: '#f59e0b',
-  urgent: '#ef4444',
+  low: '#B8A089',     // mocha-400 (neutral)
+  normal: '#14B8A6',  // teal-500 (primary)
+  high: '#D4A853',    // gold-500 (warning)
+  urgent: '#E11D48',  // rose-500 (danger)
 };
 
 const PRIORITY_BG_COLORS = {
-  low: '#f1f5f9',
-  normal: '#eef2ff',
-  high: '#fef3c7',
-  urgent: '#fee2e2',
+  low: '#F5F0EB',     // mocha-50
+  normal: '#F0FDFA',  // teal-50
+  high: '#FFFEF7',    // gold-50
+  urgent: '#FFF5F6',  // rose-50
 };
 
 export function VendorCommunicationEmail({
@@ -184,8 +188,20 @@ export function VendorCommunicationEmail({
   );
 }
 
+/**
+ * Email styles using WeddingFlo design token colors
+ * Note: Email clients don't support CSS variables
+ */
+const EMAIL_COLORS = {
+  text: '#3D3027',          // mocha-900
+  textSecondary: '#6B5D4F', // mocha-700
+  textMuted: '#8B7355',     // mocha-500
+  background: '#F6F9F4',    // sage-50
+  border: '#D4C4B5',        // mocha-200
+} as const;
+
 const h1 = {
-  color: '#1f2937',
+  color: EMAIL_COLORS.text,
   fontSize: '24px',
   fontWeight: '600',
   lineHeight: '32px',
@@ -193,7 +209,7 @@ const h1 = {
 };
 
 const fromText = {
-  color: '#6b7280',
+  color: EMAIL_COLORS.textMuted,
   fontSize: '14px',
   lineHeight: '20px',
   margin: '0 0 16px',
@@ -201,22 +217,22 @@ const fromText = {
 };
 
 const eventCard = {
-  backgroundColor: '#f9fafb',
+  backgroundColor: EMAIL_COLORS.background,
   borderRadius: '6px',
   padding: '16px',
   margin: '0 0 16px',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${EMAIL_COLORS.border}`,
 };
 
 const eventDetail = {
-  color: '#374151',
+  color: EMAIL_COLORS.textSecondary,
   fontSize: '14px',
   lineHeight: '20px',
   margin: '0 0 8px',
 };
 
 const divider = {
-  borderColor: '#e5e7eb',
+  borderColor: EMAIL_COLORS.border,
   margin: '16px 0',
 };
 
@@ -230,7 +246,7 @@ const priorityBadge = (color: string, bgColor: string) => ({
 });
 
 const priorityText = {
-  color: '#1f2937',
+  color: EMAIL_COLORS.text,
   fontSize: '12px',
   fontWeight: '700',
   lineHeight: '16px',
@@ -240,7 +256,7 @@ const priorityText = {
 };
 
 const h2 = {
-  color: '#1f2937',
+  color: EMAIL_COLORS.text,
   fontSize: '20px',
   fontWeight: '600',
   lineHeight: '28px',
@@ -248,16 +264,16 @@ const h2 = {
 };
 
 const messageCard = (borderColor: string) => ({
-  backgroundColor: '#f9fafb',
+  backgroundColor: EMAIL_COLORS.background,
   borderRadius: '8px',
   padding: '20px',
   margin: '0 0 24px',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${EMAIL_COLORS.border}`,
   borderLeft: `4px solid ${borderColor}`,
 });
 
 const messageText = {
-  color: '#374151',
+  color: EMAIL_COLORS.textSecondary,
   fontSize: '16px',
   lineHeight: '24px',
   margin: '0',
@@ -265,7 +281,7 @@ const messageText = {
 };
 
 const footerNote = {
-  color: '#6b7280',
+  color: EMAIL_COLORS.textMuted,
   fontSize: '14px',
   lineHeight: '20px',
   margin: '0',

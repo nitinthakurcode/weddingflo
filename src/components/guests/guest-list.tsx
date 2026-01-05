@@ -58,17 +58,17 @@ export function GuestList({
       enableHiding: false,
     },
     {
-      accessorKey: 'guest_name',
+      accessorKey: 'firstName',
       header: 'Name',
       cell: ({ row }) => {
         const guest = row.original;
-        const hasPlus = guest.additional_guest_names && guest.additional_guest_names.length > 0;
+        const hasPlus = guest.additionalGuestNames && guest.additionalGuestNames.length > 0;
         return (
           <div>
-            <div className="font-medium">{guest.guest_name}</div>
-            {hasPlus && (
+            <div className="font-medium">{`${guest.firstName} ${guest.lastName || ''}`.trim()}</div>
+            {hasPlus && guest.additionalGuestNames && (
               <div className="text-sm text-muted-foreground">
-                +{guest.additional_guest_names.length}: {guest.additional_guest_names.join(', ')}
+                +{guest.additionalGuestNames.length}: {guest.additionalGuestNames.join(', ')}
               </div>
             )}
           </div>
@@ -83,29 +83,21 @@ export function GuestList({
         return (
           <div className="text-sm">
             {guest.email && <div>{guest.email}</div>}
-            {guest.phone_number && (
-              <div className="text-muted-foreground">{guest.phone_number}</div>
+            {guest.phone && (
+              <div className="text-muted-foreground">{guest.phone}</div>
             )}
           </div>
         );
       },
     },
     {
-      accessorKey: 'guest_category',
-      header: 'Category',
+      accessorKey: 'groupName',
+      header: 'Group',
       cell: ({ row }) => {
-        const category = row.getValue('guest_category') as string;
-        const categoryLabels: Record<string, string> = {
-          bride_family: 'Bride Family',
-          groom_family: 'Groom Family',
-          bride_friends: 'Bride Friends',
-          groom_friends: 'Groom Friends',
-          colleagues: 'Colleagues',
-          relatives: 'Relatives',
-          vip: 'VIP',
-        };
+        const group = row.getValue('groupName') as string;
+        if (!group) return <span className="text-muted-foreground text-sm">-</span>;
         return (
-          <Badge variant="outline">{categoryLabels[category] || category}</Badge>
+          <Badge variant="outline">{group}</Badge>
         );
       },
       filterFn: (row, id, value) => {
@@ -113,10 +105,10 @@ export function GuestList({
       },
     },
     {
-      accessorKey: 'relationship_to_family',
+      accessorKey: 'relationshipToFamily',
       header: 'Side',
       cell: ({ row }) => {
-        const side = row.getValue('relationship_to_family') as string | undefined;
+        const side = row.getValue('relationshipToFamily') as string | undefined;
         if (!side) return <span className="text-muted-foreground text-sm">-</span>;
         return (
           <Badge
@@ -137,10 +129,10 @@ export function GuestList({
       },
     },
     {
-      accessorKey: 'events_attending',
+      accessorKey: 'attendingEvents',
       header: 'Events',
       cell: ({ row }) => {
-        const events = row.getValue('events_attending') as string[];
+        const events = row.getValue('attendingEvents') as string[];
         if (!events || events.length === 0) {
           return <span className="text-muted-foreground text-sm">None</span>;
         }
@@ -148,28 +140,29 @@ export function GuestList({
       },
     },
     {
-      accessorKey: 'form_submitted',
+      accessorKey: 'rsvpStatus',
       header: 'RSVP',
       cell: ({ row }) => {
-        const submitted = row.getValue('form_submitted') as boolean;
-        return submitted ? (
-          <Badge className="bg-green-600">Confirmed</Badge>
-        ) : (
-          <Badge variant="outline">Pending</Badge>
-        );
+        const status = row.getValue('rsvpStatus') as string;
+        if (status === 'accepted') {
+          return <Badge className="bg-green-600">Accepted</Badge>;
+        } else if (status === 'declined') {
+          return <Badge variant="destructive">Declined</Badge>;
+        }
+        return <Badge variant="outline">Pending</Badge>;
       },
     },
     {
-      accessorKey: 'checked_in',
+      accessorKey: 'checkedIn',
       header: 'Check-in',
       cell: ({ row }) => {
-        const checkedIn = row.getValue('checked_in') as boolean;
-        const checkedInAt = row.original.checked_in_at;
+        const checkedIn = row.getValue('checkedIn') as boolean;
+        const checkedInAt = row.original.checkedInAt;
         return checkedIn ? (
           <div className="flex items-center gap-1 text-green-600">
             <CheckCircle className="h-4 w-4" />
             <span className="text-xs">
-              {checkedInAt && format(checkedInAt, 'MMM d, HH:mm')}
+              {checkedInAt && format(new Date(checkedInAt), 'MMM d, HH:mm')}
             </span>
           </div>
         ) : (
@@ -178,14 +171,14 @@ export function GuestList({
       },
     },
     {
-      accessorKey: 'dietary_restrictions',
+      accessorKey: 'dietaryRestrictions',
       header: 'Dietary',
       cell: ({ row }) => {
-        const restrictions = row.getValue('dietary_restrictions') as string[];
-        if (!restrictions || restrictions.length === 0) {
+        const restrictions = row.getValue('dietaryRestrictions') as string;
+        if (!restrictions) {
           return <span className="text-muted-foreground text-sm">None</span>;
         }
-        return <Badge variant="outline">{restrictions.length} restriction(s)</Badge>;
+        return <Badge variant="outline">{restrictions}</Badge>;
       },
     },
     {
@@ -210,7 +203,7 @@ export function GuestList({
                 <QrCode className="mr-2 h-4 w-4" />
                 View QR Code
               </DropdownMenuItem>
-              {!guest.checked_in && (
+              {!guest.checkedIn && (
                 <DropdownMenuItem onClick={() => onCheckIn(guest)}>
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Check In
@@ -235,29 +228,25 @@ export function GuestList({
     <DataTable
       columns={columns}
       data={guests}
-      searchKey="guest_name"
+      searchKey="firstName"
       searchPlaceholder="Search guests..."
       filters={[
         {
-          column: 'guest_category',
-          title: 'Category',
-          options: [
-            { label: 'Bride Family', value: 'bride_family' },
-            { label: 'Groom Family', value: 'groom_family' },
-            { label: 'Bride Friends', value: 'bride_friends' },
-            { label: 'Groom Friends', value: 'groom_friends' },
-            { label: 'Colleagues', value: 'colleagues' },
-            { label: 'Relatives', value: 'relatives' },
-            { label: 'VIP', value: 'vip' },
-          ],
-        },
-        {
-          column: 'relationship_to_family',
+          column: 'relationshipToFamily',
           title: 'Side',
           options: [
             { label: 'Bride', value: 'bride' },
             { label: 'Groom', value: 'groom' },
             { label: 'Neutral', value: 'neutral' },
+          ],
+        },
+        {
+          column: 'rsvpStatus',
+          title: 'RSVP',
+          options: [
+            { label: 'Accepted', value: 'accepted' },
+            { label: 'Pending', value: 'pending' },
+            { label: 'Declined', value: 'declined' },
           ],
         },
       ]}

@@ -11,9 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { db, sql } from '@/lib/db';
 import crypto from 'node:crypto';
-import type { Database } from '@/lib/database.types';
 
 // Import professional webhook helpers
 import {
@@ -37,23 +36,6 @@ import {
   type TransactionContext,
   type TwilioMessageStatus,
 } from '@/lib/webhooks/types';
-
-// ============================================================================
-// SUPABASE ADMIN CLIENT
-// ============================================================================
-
-function getSupabaseAdmin() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
-}
 
 // ============================================================================
 // SIGNATURE VERIFICATION
@@ -281,14 +263,13 @@ export async function POST(req: NextRequest) {
 // ============================================================================
 
 async function handleSmsQueued(messageSid: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_sms_status', {
-    p_twilio_sid: messageSid,
-    p_status: 'queued',
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      UPDATE sms_logs
+      SET status = 'queued', updated_at = NOW()
+      WHERE twilio_sid = ${messageSid}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update SMS queued status: ${error.message}`,
       'twilio',
@@ -299,14 +280,13 @@ async function handleSmsQueued(messageSid: string, context: TransactionContext):
 }
 
 async function handleSmsSending(messageSid: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_sms_status', {
-    p_twilio_sid: messageSid,
-    p_status: 'sending',
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      UPDATE sms_logs
+      SET status = 'sending', updated_at = NOW()
+      WHERE twilio_sid = ${messageSid}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update SMS sending status: ${error.message}`,
       'twilio',
@@ -317,15 +297,13 @@ async function handleSmsSending(messageSid: string, context: TransactionContext)
 }
 
 async function handleSmsSent(messageSid: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_sms_status', {
-    p_twilio_sid: messageSid,
-    p_status: 'sent',
-    p_sent_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      UPDATE sms_logs
+      SET status = 'sent', sent_at = ${new Date().toISOString()}::timestamptz, updated_at = NOW()
+      WHERE twilio_sid = ${messageSid}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update SMS sent status: ${error.message}`,
       'twilio',
@@ -336,15 +314,13 @@ async function handleSmsSent(messageSid: string, context: TransactionContext): P
 }
 
 async function handleSmsDelivered(messageSid: string, context: TransactionContext): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_sms_status', {
-    p_twilio_sid: messageSid,
-    p_status: 'delivered',
-    p_delivered_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      UPDATE sms_logs
+      SET status = 'delivered', delivered_at = ${new Date().toISOString()}::timestamptz, updated_at = NOW()
+      WHERE twilio_sid = ${messageSid}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update SMS delivered status: ${error.message}`,
       'twilio',
@@ -360,17 +336,18 @@ async function handleSmsFailed(
   errorMessage: string | undefined,
   context: TransactionContext
 ): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_sms_status', {
-    p_twilio_sid: messageSid,
-    p_status: 'failed',
-    p_error_code: errorCode || undefined,
-    p_error_message: errorMessage || 'SMS delivery failed',
-    p_failed_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    const errMsg = errorMessage || 'SMS delivery failed';
+    await db.execute(sql`
+      UPDATE sms_logs
+      SET status = 'failed',
+          error_code = ${errorCode || null},
+          error_message = ${errMsg},
+          failed_at = ${new Date().toISOString()}::timestamptz,
+          updated_at = NOW()
+      WHERE twilio_sid = ${messageSid}
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update SMS failed status: ${error.message}`,
       'twilio',

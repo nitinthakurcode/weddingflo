@@ -3,12 +3,29 @@
 **STOP! Before making ANY code changes, you MUST:**
 
 1. Read `.claude/WEDDINGFLOW_PERMANENT_STANDARDS.md`
-2. Verify your changes against November 2025 patterns
+2. Verify your changes against December 2025 patterns
 3. Follow the patterns below - NO EXCEPTIONS
 
 ---
 
-## Quick Reference: November 2025 Patterns
+## Quick Reference: December 2025 Patterns
+
+### Authentication - BetterAuth (MANDATORY)
+```typescript
+// ✅ CORRECT - Server-side session (cookie-based, fast)
+import { getServerSession } from '@/lib/auth/server'
+const { userId, user } = await getServerSession()
+const role = user?.role
+const companyId = user?.companyId
+
+// ✅ CORRECT - Client-side hooks
+import { useAuth } from '@/lib/auth-client'
+const { user, isAuthenticated, isLoading } = useAuth()
+
+// ❌ FORBIDDEN - Old Clerk patterns
+import { auth } from '@clerk/nextjs/server'  // REMOVED
+const { sessionClaims } = await auth()  // REMOVED
+```
 
 ### Supabase API (MANDATORY)
 ```typescript
@@ -21,40 +38,53 @@ import { createClient } from '@supabase/ssr'  // WRONG PACKAGE
 process.env.SUPABASE_ANON_KEY  // DEPRECATED
 ```
 
-### Authentication (MANDATORY)
-```typescript
-// ✅ CORRECT - Session claims only (<5ms)
-const { sessionClaims } = await auth()
-const role = sessionClaims?.metadata?.role
-const companyId = sessionClaims?.metadata?.company_id
-
-// ❌ FORBIDDEN - Database queries for auth
-const user = await supabase.from('users').select('role')  // SLOW!
-```
-
 ### API Routes (MANDATORY)
 ```typescript
-// ✅ CORRECT - Create client inside handler
+// ✅ CORRECT - Get session inside handler
 export async function GET() {
-  const supabase = createClient(...)  // Inside handler
+  const { userId, user } = await getServerSession()
+  if (!userId) return new Response('Unauthorized', { status: 401 })
+  // ... rest of handler
 }
 
-// ❌ FORBIDDEN - Module-level client
-const supabase = createClient(...)  // Outside handler - breaks build
+// ❌ FORBIDDEN - Module-level auth calls
+const session = await getServerSession()  // Outside handler - breaks build
 export async function GET() { ... }
 ```
 
-### Middleware (MANDATORY)
+### Proxy (MANDATORY - Next.js 16+)
 ```typescript
-// ✅ CORRECT - i18n only, no auth
-export default clerkMiddleware((auth, req) => {
-  return handleI18nRouting(req)  // NO auth.protect()
-})
+// ✅ CORRECT - proxy.ts (renamed from middleware.ts in Next.js 16)
+// i18n only, no auth - runs on Node.js runtime
+export function proxy(request: NextRequest): NextResponse | Response {
+  // Skip API routes
+  if (request.nextUrl.pathname.startsWith('/api')) {
+    return NextResponse.next()
+  }
+  // Only handle i18n routing
+  return handleI18nRouting(request)
+}
+export default proxy
 
-// ❌ FORBIDDEN - Auth in middleware
-export default clerkMiddleware((auth, req) => {
-  auth().protect()  // Causes redirect loops with next-intl
-})
+// ❌ FORBIDDEN - Auth in proxy
+export function proxy(req) {
+  const session = await auth.api.getSession(...)  // Causes redirect loops
+}
+
+// ❌ FORBIDDEN - Old middleware.ts (deprecated in Next.js 16)
+export default function middleware(req) { ... }
+```
+
+### Sign In/Out (MANDATORY)
+```typescript
+// ✅ CORRECT - Client-side sign in
+import { signInWithEmail, signInWithGoogle } from '@/lib/auth-client'
+await signInWithEmail(email, password)
+await signInWithGoogle()
+
+// ✅ CORRECT - Client-side sign out
+import { signOutAndRedirect } from '@/lib/auth-client'
+await signOutAndRedirect('/sign-in')
 ```
 
 ---
@@ -62,10 +92,10 @@ export default clerkMiddleware((auth, req) => {
 ## Before Every Edit
 
 Ask yourself:
-1. Am I creating Supabase clients inside handlers? (not module level)
-2. Am I using PUBLISHABLE_KEY? (not ANON_KEY)
-3. Am I using session claims for auth? (not database queries)
-4. Am I keeping middleware minimal? (i18n only)
+1. Am I using `getServerSession()` from `@/lib/auth/server` for server-side auth?
+2. Am I using `useAuth()` from `@/lib/auth-client` for client-side auth?
+3. Am I using `proxy.ts` (NOT middleware.ts) for i18n routing? (Next.js 16+)
+4. Am I handling auth at the page/layout level, not proxy?
 
 If NO to any → Read the full standards document first.
 

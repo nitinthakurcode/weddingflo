@@ -1,10 +1,13 @@
 'use client';
 
+import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { FileQuestion, Home, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 export default function NotFound() {
+  const t = useTranslations('notFoundPage')
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4">
       <div className="w-full max-w-md space-y-6 text-center">
@@ -17,10 +20,10 @@ export default function NotFound() {
         <div className="space-y-2">
           <h1 className="text-6xl font-bold tracking-tight text-gray-900">404</h1>
           <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
-            Page not found
+            {t('pageNotFound')}
           </h2>
           <p className="text-gray-600">
-            Sorry, we couldn&apos;t find the page you&apos;re looking for.
+            {t('sorryNotFound')}
           </p>
         </div>
 
@@ -28,7 +31,7 @@ export default function NotFound() {
           <Link href="/">
             <Button variant="default" className="w-full gap-2 sm:w-auto">
               <Home className="h-4 w-4" />
-              Go home
+              {t('goHome')}
             </Button>
           </Link>
 
@@ -38,13 +41,13 @@ export default function NotFound() {
             className="gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
-            Go back
+            {t('goBack')}
           </Button>
         </div>
 
         <div className="pt-4">
           <p className="text-sm text-gray-500">
-            If you believe this is a mistake, please contact support.
+            {t('contactSupport')}
           </p>
         </div>
       </div>

@@ -41,7 +41,7 @@ export const eventFormSchema = z.object({
   event_date: z.number().positive('Event date is required'),
   event_start_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format (HH:MM)'),
   event_end_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format (HH:MM)'),
-  event_status: eventStatusSchema.default('draft'),
+  event_status: eventStatusSchema.optional().default('draft'),
   venue_details: venueDetailsSchema,
   estimated_guests: z.number().positive('Must have at least 1 guest').int(),
   actual_guests: z.number().positive().int().optional(),
@@ -49,7 +49,7 @@ export const eventFormSchema = z.object({
   dress_code: z.string().max(100).optional(),
   special_instructions: z.string().max(500).optional(),
   budget_allocated: z.number().positive('Budget must be positive').optional(),
-  tags: z.array(z.string()).default([]),
+  tags: z.array(z.string()).optional().default([]),
 }).refine(
   (data) => {
     const [startHour, startMin] = data.event_start_time.split(':').map(Number);
@@ -64,5 +64,5 @@ export const eventFormSchema = z.object({
   }
 );
 
-export type EventFormValues = z.infer<typeof eventFormSchema>;
+export type EventFormValues = z.input<typeof eventFormSchema>;
 export type VenueDetailsValues = z.infer<typeof venueDetailsSchema>;

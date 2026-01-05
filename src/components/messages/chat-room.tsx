@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { MessageList } from './message-list';
 import { MessageInput } from './message-input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { Calendar, Mail, Phone, Sparkles } from 'lucide-react';
+import { trpc } from '@/lib/trpc/client';
 
 interface ChatRoomProps {
   clientId: string;
@@ -26,92 +25,48 @@ export function ChatRoom({
   onRequestAIAssistant,
   onBack,
 }: ChatRoomProps) {
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
   // Fetch client details
-  const { data: client } = useQuery<any>({
-    queryKey: ['clients', clientId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', clientId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!clientId && !!supabase,
-  });
+  const { data: client } = trpc.clients.getById.useQuery(
+    { id: clientId },
+    { enabled: !!clientId }
+  );
 
-  // Fetch messages
-  const { data: messages } = useQuery<any[]>({
-    queryKey: ['messages', clientId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!clientId && !!supabase,
-  });
+  // Fetch messages using getMessages procedure
+  const { data: messagesData } = trpc.messages.getMessages.useQuery(
+    { clientId, limit: 50 },
+    { enabled: !!clientId }
+  );
+  const messages = messagesData?.messages || [];
 
-  // Real-time subscription for new messages
+  // Poll for new messages (replaces realtime subscription)
+  // TODO: Consider implementing Server-Sent Events or WebSockets for true realtime
   useEffect(() => {
-    if (!clientId || !supabase) return;
+    if (!clientId) return;
 
-    const channel = supabase
-      .channel(`messages:${clientId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `client_id=eq.${clientId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
-        }
-      )
-      .subscribe();
+    const pollInterval = setInterval(() => {
+      utils.messages.getMessages.invalidate({ clientId });
+    }, 5000); // Poll every 5 seconds for chat
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [clientId, supabase, queryClient]);
+  }, [clientId, utils]);
 
   // Send message mutation
-  const sendMessage = useMutation({
-    mutationFn: async (message: string) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({
-          company_id: companyId,
-          client_id: clientId,
-          sender_type: 'company',
-          sender_id: currentUserId,
-          sender_name: currentUserName,
-          body: message,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+  const sendMessageMutation = trpc.messages.sendMessage.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', clientId] });
+      utils.messages.getMessages.invalidate({ clientId });
     },
   });
 
   const handleSendMessage = async (message: string) => {
-    await sendMessage.mutateAsync(message);
+    await sendMessageMutation.mutateAsync({
+      clientId,
+      recipientId: currentUserId, // For now, send to self (will need proper recipient logic)
+      content: message,
+    });
   };
 
   if (!client) {
@@ -125,28 +80,37 @@ export function ChatRoom({
     );
   }
 
+  // Build client display name from partner fields
+  const clientDisplayName = client.partner2FirstName
+    ? `${client.partner1FirstName} & ${client.partner2FirstName}`
+    : `${client.partner1FirstName} ${client.partner1LastName || ''}`.trim();
+
   return (
     <div className="flex-1 flex flex-col h-full bg-white">
       {/* Chat Header */}
       <div className="border-b bg-white px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-semibold truncate">{client.client_name}</h2>
+            <h2 className="text-xl font-semibold truncate">{clientDisplayName}</h2>
             <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Mail className="h-3.5 w-3.5" />
-                <span className="truncate">{client.email}</span>
-              </div>
-              {client.phone && (
+              {client.partner1Email && (
                 <div className="flex items-center gap-1">
-                  <Phone className="h-3.5 w-3.5" />
-                  <span>{client.phone}</span>
+                  <Mail className="h-3.5 w-3.5" />
+                  <span className="truncate">{client.partner1Email}</span>
                 </div>
               )}
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5" />
-                <span>{format(client.wedding_date, 'MMM dd, yyyy')}</span>
-              </div>
+              {client.partner1Phone && (
+                <div className="flex items-center gap-1">
+                  <Phone className="h-3.5 w-3.5" />
+                  <span>{client.partner1Phone}</span>
+                </div>
+              )}
+              {client.weddingDate && (
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-3.5 w-3.5" />
+                  <span>{format(new Date(client.weddingDate), 'MMM dd, yyyy')}</span>
+                </div>
+              )}
             </div>
           </div>
 

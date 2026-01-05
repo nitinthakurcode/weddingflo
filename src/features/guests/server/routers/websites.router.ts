@@ -3,19 +3,53 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { eq, and, desc, isNull, ne, sql } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 
 /**
- * Wedding Websites Router
- * Session 49: Guest Websites with custom domains
+ * Wedding Websites Router - Drizzle ORM
  *
- * Features:
- * - Free subdomain (john-jane.weddingflow.com)
- * - Custom domain ($19.99/year)
- * - 5 templates
- * - Password protection
- * - Analytics tracking
- * - RSVP integration
+ * Uses BetterAuth session for authorization
+ * - ctx.companyId - from session
+ * - ctx.db - Drizzle database client
+ *
+ * Schema uses:
+ * - weddingWebsites table with: id, clientId, subdomain, customDomain, theme, isPublished, password, isPasswordProtected, settings (JSONB), content (JSONB)
+ * - content JSONB: heroSection, ourStorySection, eventDetailsSection, travelSection, registrySection, photoGallery, weddingPartySection
+ * - settings JSONB: themeColors, fonts, metaTitle, metaDescription, ogImageUrl, customDomainVerified, dnsVerificationToken, viewCount, publishedAt
  */
+
+// Type for content JSONB
+interface WebsiteContent {
+  heroSection?: Record<string, unknown>;
+  ourStorySection?: Record<string, unknown>;
+  weddingPartySection?: Record<string, unknown>;
+  eventDetailsSection?: Record<string, unknown>;
+  travelSection?: Record<string, unknown>;
+  registrySection?: Record<string, unknown>;
+  photoGallery?: unknown[];
+}
+
+// Type for settings JSONB
+interface WebsiteSettings {
+  themeColors?: Record<string, unknown>;
+  fonts?: Record<string, unknown>;
+  metaTitle?: string;
+  metaDescription?: string;
+  ogImageUrl?: string;
+  customDomainVerified?: boolean;
+  dnsVerificationToken?: string;
+  viewCount?: number;
+  uniqueVisitors?: number;
+  publishedAt?: string;
+  dnsInstructions?: {
+    type: string;
+    name: string;
+    value: string;
+    txtRecord?: { name: string; value: string };
+  };
+}
+
 export const websitesRouter = router({
   /**
    * List all websites for a company
@@ -25,31 +59,49 @@ export const websitesRouter = router({
       clientId: z.string().uuid().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID not found',
         });
       }
 
-      const query = ctx.supabase
-        .from('wedding_websites')
-        .select('*')
-        .eq('company_id', ctx.companyId)
-        .order('created_at', { ascending: false });
+      // Get clients belonging to company first
+      const companyClients = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(
+          and(
+            eq(schema.clients.companyId, companyId),
+            isNull(schema.clients.deletedAt)
+          )
+        );
 
-      if (input.clientId) {
-        query.eq('client_id', input.clientId);
+      const clientIds = companyClients.map(c => c.id);
+
+      if (clientIds.length === 0) {
+        return [];
       }
 
-      const { data, error } = await query;
+      // Build conditions
+      const conditions = [
+        sql`${schema.weddingWebsites.clientId} IN (${sql.join(clientIds.map(id => sql`${id}`), sql`, `)})`,
+        isNull(schema.weddingWebsites.deletedAt),
+      ];
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
+      if (input.clientId) {
+        conditions.push(eq(schema.weddingWebsites.clientId, input.clientId));
+      }
 
-      return data || [];
+      const websites = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .where(and(...conditions))
+        .orderBy(desc(schema.weddingWebsites.createdAt));
+
+      return websites;
     }),
 
   /**
@@ -58,31 +110,36 @@ export const websitesRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID not found',
         });
       }
 
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .select('*')
-        .eq('id', input.id)
-        .eq('company_id', ctx.companyId)
-        .maybeSingle();
+      // Get website with client info
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, input.id),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
 
-      if (!data) throw new TRPCError({
-        code: 'NOT_FOUND',
-        message: 'Website not found',
-      });
-
-      return data;
+      return website.wedding_websites;
     }),
 
   /**
@@ -91,26 +148,46 @@ export const websitesRouter = router({
   getByClient: protectedProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID not found',
         });
       }
 
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .maybeSingle();
+      // Verify client belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(
+          and(
+            eq(schema.clients.id, input.clientId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
+        });
+      }
 
-      return data;
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .where(
+          and(
+            eq(schema.weddingWebsites.clientId, input.clientId),
+            isNull(schema.weddingWebsites.deletedAt)
+          )
+        )
+        .limit(1);
+
+      return website || null;
     }),
 
   /**
@@ -122,14 +199,21 @@ export const websitesRouter = router({
       password: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .select('*')
-        .eq('subdomain', input.subdomain)
-        .eq('is_published', true)
-        .maybeSingle();
+      const { db } = ctx;
 
-      if (error || !data) {
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .where(
+          and(
+            eq(schema.weddingWebsites.subdomain, input.subdomain),
+            eq(schema.weddingWebsites.isPublished, true),
+            isNull(schema.weddingWebsites.deletedAt)
+          )
+        )
+        .limit(1);
+
+      if (!website) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Website not found',
@@ -137,7 +221,7 @@ export const websitesRouter = router({
       }
 
       // Check password protection
-      if (data.is_password_protected && data.password_hash) {
+      if (website.isPasswordProtected && website.password) {
         if (!input.password) {
           throw new TRPCError({
             code: 'UNAUTHORIZED',
@@ -145,7 +229,7 @@ export const websitesRouter = router({
           });
         }
 
-        const isValid = await bcrypt.compare(input.password, data.password_hash);
+        const isValid = await bcrypt.compare(input.password, website.password);
         if (!isValid) {
           throw new TRPCError({
             code: 'UNAUTHORIZED',
@@ -154,8 +238,8 @@ export const websitesRouter = router({
         }
       }
 
-      // Don't expose password hash
-      const { password_hash, ...safeData } = data;
+      // Don't expose password
+      const { password, ...safeData } = website;
       return safeData;
     }),
 
@@ -171,7 +255,9 @@ export const websitesRouter = router({
       password: z.string().min(6).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
@@ -179,12 +265,21 @@ export const websitesRouter = router({
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('partner1_first_name, partner1_last_name, partner2_first_name')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      const [client] = await db
+        .select({
+          id: schema.clients.id,
+          partner1FirstName: schema.clients.partner1FirstName,
+          partner1LastName: schema.clients.partner1LastName,
+          partner2FirstName: schema.clients.partner2FirstName,
+        })
+        .from(schema.clients)
+        .where(
+          and(
+            eq(schema.clients.id, input.clientId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
       if (!client) {
         throw new TRPCError({
@@ -196,22 +291,26 @@ export const websitesRouter = router({
       // Generate subdomain if not provided
       let subdomain = input.subdomain;
       if (!subdomain) {
-        // Use database function to generate unique subdomain
-        const { data: generatedSubdomain } = await ctx.supabase.rpc(
-          'generate_unique_subdomain',
-          {
-            p_partner1_first: client.partner1_first_name || 'guest',
-            p_partner1_last: client.partner1_last_name || 'website',
-          }
-        );
-        subdomain = generatedSubdomain as string;
+        const base = `${client.partner1FirstName || 'guest'}-${client.partner1LastName || 'website'}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        // Check if unique
+        const [existing] = await db
+          .select({ id: schema.weddingWebsites.id })
+          .from(schema.weddingWebsites)
+          .where(eq(schema.weddingWebsites.subdomain, base))
+          .limit(1);
+
+        if (existing) {
+          subdomain = `${base}-${Date.now().toString(36)}`;
+        } else {
+          subdomain = base;
+        }
       } else {
         // Check subdomain uniqueness if provided
-        const { data: existing } = await ctx.supabase
-          .from('wedding_websites')
-          .select('id')
-          .eq('subdomain', subdomain)
-          .maybeSingle();
+        const [existing] = await db
+          .select({ id: schema.weddingWebsites.id })
+          .from(schema.weddingWebsites)
+          .where(eq(schema.weddingWebsites.subdomain, subdomain))
+          .limit(1);
 
         if (existing) {
           throw new TRPCError({
@@ -227,37 +326,37 @@ export const websitesRouter = router({
         passwordHash = await bcrypt.hash(input.password, 10);
       }
 
-      // Create website with default hero section
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .insert({
-          client_id: input.clientId,
-          company_id: ctx.companyId,
+      // Create initial content
+      const heroTitle = client.partner2FirstName
+        ? `${client.partner1FirstName} & ${client.partner2FirstName}`
+        : `${client.partner1FirstName} ${client.partner1LastName}`;
+
+      const content: WebsiteContent = {
+        heroSection: {
+          title: heroTitle,
+          subtitle: "We're getting married!",
+        },
+      };
+
+      // Create website
+      const [newWebsite] = await db
+        .insert(schema.weddingWebsites)
+        .values({
+          clientId: input.clientId,
           subdomain,
-          template_id: input.templateId,
-          is_password_protected: input.isPasswordProtected,
-          password_hash: passwordHash,
-          hero_section: {
-            title: client.partner2_first_name
-              ? `${client.partner1_first_name} & ${client.partner2_first_name}`
-              : `${client.partner1_first_name} ${client.partner1_last_name}`,
-            subtitle: "We're getting married!",
-          },
+          theme: input.templateId,
+          isPasswordProtected: input.isPasswordProtected,
+          password: passwordHash,
+          content,
+          settings: {},
         })
-        .select()
-        .single();
+        .returning();
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
-
-      return data;
+      return newWebsite;
     }),
 
   /**
    * Update website content
-   * Accepts either websiteId or id for backwards compatibility
    */
   update: adminProcedure
     .input(z.object({
@@ -278,7 +377,6 @@ export const websitesRouter = router({
         ogImageUrl: z.string().url().optional(),
         template_id: z.string().optional(),
       }).optional(),
-      // Also accept flat structure for backwards compatibility
       heroSection: z.any().optional(),
       ourStorySection: z.any().optional(),
       weddingPartySection: z.any().optional(),
@@ -294,7 +392,9 @@ export const websitesRouter = router({
       template_id: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
@@ -309,43 +409,76 @@ export const websitesRouter = router({
         });
       }
 
+      // Get current website (verify access)
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, websiteId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
+
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
+
       // Merge data from both input formats
       const updates = input.data || input;
+      const currentContent = (website.wedding_websites.content as WebsiteContent) || {};
+      const currentSettings = (website.wedding_websites.settings as WebsiteSettings) || {};
 
-      const updateData: any = {};
-      if (updates.heroSection !== undefined) updateData.hero_section = updates.heroSection;
-      if (updates.ourStorySection !== undefined) updateData.our_story_section = updates.ourStorySection;
-      if (updates.weddingPartySection !== undefined) updateData.wedding_party_section = updates.weddingPartySection;
-      if (updates.eventDetailsSection !== undefined) updateData.event_details_section = updates.eventDetailsSection;
-      if (updates.travelSection !== undefined) updateData.travel_section = updates.travelSection;
-      if (updates.registrySection !== undefined) updateData.registry_section = updates.registrySection;
-      if (updates.photoGallery !== undefined) updateData.photo_gallery = updates.photoGallery;
-      if (updates.themeColors !== undefined) updateData.theme_colors = updates.themeColors;
-      if (updates.fonts !== undefined) updateData.fonts = updates.fonts;
-      if (updates.metaTitle !== undefined) updateData.meta_title = updates.metaTitle;
-      if (updates.metaDescription !== undefined) updateData.meta_description = updates.metaDescription;
-      if (updates.ogImageUrl !== undefined) updateData.og_image_url = updates.ogImageUrl;
-      if (updates.template_id !== undefined) updateData.template_id = updates.template_id;
+      // Update content JSONB
+      const newContent: WebsiteContent = { ...currentContent };
+      if (updates.heroSection !== undefined) newContent.heroSection = updates.heroSection;
+      if (updates.ourStorySection !== undefined) newContent.ourStorySection = updates.ourStorySection;
+      if (updates.weddingPartySection !== undefined) newContent.weddingPartySection = updates.weddingPartySection;
+      if (updates.eventDetailsSection !== undefined) newContent.eventDetailsSection = updates.eventDetailsSection;
+      if (updates.travelSection !== undefined) newContent.travelSection = updates.travelSection;
+      if (updates.registrySection !== undefined) newContent.registrySection = updates.registrySection;
+      if (updates.photoGallery !== undefined) newContent.photoGallery = updates.photoGallery;
 
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .update(updateData)
-        .eq('id', websiteId)
-        .eq('company_id', ctx.companyId)
-        .select()
-        .single();
+      // Update settings JSONB
+      const newSettings: WebsiteSettings = { ...currentSettings };
+      if (updates.themeColors !== undefined) newSettings.themeColors = updates.themeColors;
+      if (updates.fonts !== undefined) newSettings.fonts = updates.fonts;
+      if (updates.metaTitle !== undefined) newSettings.metaTitle = updates.metaTitle;
+      if (updates.metaDescription !== undefined) newSettings.metaDescription = updates.metaDescription;
+      if (updates.ogImageUrl !== undefined) newSettings.ogImageUrl = updates.ogImageUrl;
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
+      // Update theme if provided
+      const updateData: {
+        content: WebsiteContent;
+        settings: WebsiteSettings;
+        updatedAt: Date;
+        theme?: string;
+      } = {
+        content: newContent,
+        settings: newSettings,
+        updatedAt: new Date(),
+      };
 
-      return data;
+      if (updates.template_id) {
+        updateData.theme = updates.template_id;
+      }
+
+      const [updatedWebsite] = await db
+        .update(schema.weddingWebsites)
+        .set(updateData)
+        .where(eq(schema.weddingWebsites.id, websiteId))
+        .returning();
+
+      return updatedWebsite;
     }),
 
   /**
    * Toggle publish status
-   * Accepts either websiteId or id for backwards compatibility
    */
   togglePublish: adminProcedure
     .input(z.object({
@@ -354,7 +487,9 @@ export const websitesRouter = router({
       isPublished: z.boolean(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
@@ -369,28 +504,48 @@ export const websitesRouter = router({
         });
       }
 
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .update({
-          is_published: input.isPublished,
-          published_at: input.isPublished ? new Date().toISOString() : null,
-        })
-        .eq('id', websiteId)
-        .eq('company_id', ctx.companyId)
+      // Verify access
+      const [website] = await db
         .select()
-        .single();
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, websiteId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
 
-      return data;
+      // Update publish status and store publishedAt in settings
+      const currentSettings = (website.wedding_websites.settings as WebsiteSettings) || {};
+      const newSettings: WebsiteSettings = {
+        ...currentSettings,
+        publishedAt: input.isPublished ? new Date().toISOString() : undefined,
+      };
+
+      const [updatedWebsite] = await db
+        .update(schema.weddingWebsites)
+        .set({
+          isPublished: input.isPublished,
+          settings: newSettings,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.weddingWebsites.id, websiteId))
+        .returning();
+
+      return updatedWebsite;
     }),
 
   /**
    * Add custom domain (Premium feature)
-   * Accepts either websiteId or id for backwards compatibility
    */
   addCustomDomain: adminProcedure
     .input(z.object({
@@ -400,7 +555,9 @@ export const websitesRouter = router({
       customDomain: z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
@@ -425,12 +582,16 @@ export const websitesRouter = router({
       }
 
       // Check if domain is already in use
-      const { data: existing } = await ctx.supabase
-        .from('wedding_websites')
-        .select('id')
-        .eq('custom_domain', domain)
-        .neq('id', websiteId)
-        .maybeSingle();
+      const [existing] = await db
+        .select({ id: schema.weddingWebsites.id })
+        .from(schema.weddingWebsites)
+        .where(
+          and(
+            eq(schema.weddingWebsites.customDomain, domain),
+            ne(schema.weddingWebsites.id, websiteId)
+          )
+        )
+        .limit(1);
 
       if (existing) {
         throw new TRPCError({
@@ -439,46 +600,35 @@ export const websitesRouter = router({
         });
       }
 
+      // Verify access
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, websiteId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
+
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
+
       // Generate verification token
       const verificationToken = 'wf-verify-' + crypto.randomUUID().slice(0, 16);
 
-      const { data, error } = await ctx.supabase
-        .from('wedding_websites')
-        .update({
-          custom_domain: domain,
-          custom_domain_verified: false,
-          dns_verification_token: verificationToken,
-        })
-        .eq('id', websiteId)
-        .eq('company_id', ctx.companyId)
-        .select()
-        .single();
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
-
-      // Create DNS record instructions
-      await ctx.supabase.from('domain_dns_records').insert([
-        {
-          website_id: websiteId,
-          record_type: 'TXT',
-          record_name: '_weddingflow',
-          record_value: verificationToken,
-          instructions: `Add a TXT record with name "_weddingflow" and value "${verificationToken}"`,
-        },
-        {
-          website_id: websiteId,
-          record_type: 'CNAME',
-          record_name: '@',
-          record_value: 'websites.weddingflow.com',
-          instructions: 'Add a CNAME record for "@" pointing to "websites.weddingflow.com"',
-        },
-      ]);
-
-      return {
-        ...data,
+      // Update settings with DNS info
+      const currentSettings = (website.wedding_websites.settings as WebsiteSettings) || {};
+      const newSettings: WebsiteSettings = {
+        ...currentSettings,
+        customDomainVerified: false,
+        dnsVerificationToken: verificationToken,
         dnsInstructions: {
           type: 'CNAME',
           name: '@',
@@ -488,6 +638,21 @@ export const websitesRouter = router({
             value: verificationToken,
           },
         },
+      };
+
+      const [updatedWebsite] = await db
+        .update(schema.weddingWebsites)
+        .set({
+          customDomain: domain,
+          settings: newSettings,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.weddingWebsites.id, websiteId))
+        .returning();
+
+      return {
+        ...updatedWebsite,
+        dnsInstructions: newSettings.dnsInstructions,
       };
     }),
 
@@ -499,22 +664,37 @@ export const websitesRouter = router({
       websiteId: z.string().uuid(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
         });
       }
 
-      // Get website with verification token
-      const { data: website } = await ctx.supabase
-        .from('wedding_websites')
-        .select('custom_domain, dns_verification_token')
-        .eq('id', input.websiteId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      // Get website with settings
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, input.websiteId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
-      if (!website || !website.custom_domain || !website.dns_verification_token) {
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
+
+      const settings = website.wedding_websites.settings as WebsiteSettings;
+      if (!website.wedding_websites.customDomain || !settings?.dnsVerificationToken) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'No custom domain configured',
@@ -522,30 +702,28 @@ export const websitesRouter = router({
       }
 
       try {
-        // In production, you would use dns.promises.resolveTxt() here
-        // For now, we'll simulate the verification
+        // In production, use dns.promises.resolveTxt() here
         const dns = require('dns/promises');
-        const txtRecordName = `_weddingflow.${website.custom_domain}`;
+        const txtRecordName = `_weddingflow.${website.wedding_websites.customDomain}`;
 
         try {
           const records = await dns.resolveTxt(txtRecordName);
           const flatRecords = records.flat();
 
-          if (flatRecords.includes(website.dns_verification_token)) {
+          if (flatRecords.includes(settings.dnsVerificationToken)) {
             // Verification successful
-            await ctx.supabase
-              .from('wedding_websites')
-              .update({ custom_domain_verified: true })
-              .eq('id', input.websiteId);
+            const newSettings: WebsiteSettings = {
+              ...settings,
+              customDomainVerified: true,
+            };
 
-            await ctx.supabase
-              .from('domain_dns_records')
-              .update({
-                verified: true,
-                verified_at: new Date().toISOString(),
+            await db
+              .update(schema.weddingWebsites)
+              .set({
+                settings: newSettings,
+                updatedAt: new Date(),
               })
-              .eq('website_id', input.websiteId)
-              .eq('record_type', 'TXT');
+              .where(eq(schema.weddingWebsites.id, input.websiteId));
 
             return { verified: true, success: true };
           } else {
@@ -555,24 +733,27 @@ export const websitesRouter = router({
               error: 'Verification token not found in DNS records',
             };
           }
-        } catch (dnsError: any) {
+        } catch (dnsError: unknown) {
+          const errorMessage = dnsError instanceof Error ? dnsError.message : 'Unknown error';
           return {
             verified: false,
             success: false,
-            error: `DNS lookup failed: ${dnsError.message}. Please ensure DNS records are configured correctly.`,
+            error: `DNS lookup failed: ${errorMessage}. Please ensure DNS records are configured correctly.`,
           };
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return {
           verified: false,
           success: false,
-          error: error.message,
+          error: errorMessage,
         };
       }
     }),
 
   /**
    * Track website visit (public)
+   * Stores view count in settings JSONB (simplified without separate visits table)
    */
   trackVisit: publicProcedure
     .input(z.object({
@@ -582,32 +763,29 @@ export const websitesRouter = router({
       sessionId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Hash IP for privacy (if available)
-      const ipHash = input.referrer
-        ? crypto.createHash('sha256').update(input.referrer).digest('hex').substring(0, 16)
-        : null;
+      const { db } = ctx;
 
-      // Insert visit record
-      await ctx.supabase.from('website_visits').insert({
-        website_id: input.websiteId,
-        visitor_ip: ipHash,
-        page_path: input.pagePath,
-        referrer: input.referrer,
-        session_id: input.sessionId,
-      });
-
-      // Increment view count (fetch current, increment, update)
-      const { data: website } = await ctx.supabase
-        .from('wedding_websites')
-        .select('view_count')
-        .eq('id', input.websiteId)
-        .single();
+      // Get current website settings
+      const [website] = await db
+        .select({
+          id: schema.weddingWebsites.id,
+          settings: schema.weddingWebsites.settings,
+        })
+        .from(schema.weddingWebsites)
+        .where(eq(schema.weddingWebsites.id, input.websiteId))
+        .limit(1);
 
       if (website) {
-        await ctx.supabase
-          .from('wedding_websites')
-          .update({ view_count: website.view_count + 1 })
-          .eq('id', input.websiteId);
+        const settings = (website.settings as WebsiteSettings) || {};
+        const newSettings: WebsiteSettings = {
+          ...settings,
+          viewCount: (settings.viewCount || 0) + 1,
+        };
+
+        await db
+          .update(schema.weddingWebsites)
+          .set({ settings: newSettings })
+          .where(eq(schema.weddingWebsites.id, input.websiteId));
       }
 
       return { success: true };
@@ -622,40 +800,46 @@ export const websitesRouter = router({
       days: z.number().int().min(1).max(90).default(30),
     }))
     .query(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
         });
       }
 
-      // Get website stats
-      const { data: website } = await ctx.supabase
-        .from('wedding_websites')
-        .select('view_count, unique_visitors')
-        .eq('id', input.websiteId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      // Get website with settings
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, input.websiteId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
-      // Get visit data
-      const cutoffDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000).toISOString();
-      const { data: visits } = await ctx.supabase
-        .from('website_visits')
-        .select('*')
-        .eq('website_id', input.websiteId)
-        .gte('visited_at', cutoffDate)
-        .order('visited_at', { ascending: false });
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
+
+      const settings = (website.wedding_websites.settings as WebsiteSettings) || {};
 
       return {
-        totalViews: website?.view_count || 0,
-        uniqueVisitors: website?.unique_visitors || 0,
-        visits: visits || [],
+        totalViews: settings.viewCount || 0,
+        uniqueVisitors: settings.uniqueVisitors || 0,
+        visits: [], // No separate visits table in simplified schema
       };
     }),
 
   /**
    * Delete website
-   * Accepts either websiteId or id for backwards compatibility
    */
   delete: adminProcedure
     .input(z.object({
@@ -663,7 +847,9 @@ export const websitesRouter = router({
       id: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Company ID required',
@@ -678,16 +864,34 @@ export const websitesRouter = router({
         });
       }
 
-      const { error } = await ctx.supabase
-        .from('wedding_websites')
-        .delete()
-        .eq('id', websiteId)
-        .eq('company_id', ctx.companyId);
+      // Verify access
+      const [website] = await db
+        .select()
+        .from(schema.weddingWebsites)
+        .leftJoin(schema.clients, eq(schema.weddingWebsites.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.weddingWebsites.id, websiteId),
+            eq(schema.clients.companyId, companyId)
+          )
+        )
+        .limit(1);
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      });
+      if (!website?.wedding_websites) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Website not found',
+        });
+      }
+
+      // Soft delete
+      await db
+        .update(schema.weddingWebsites)
+        .set({
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.weddingWebsites.id, websiteId));
 
       return { success: true };
     }),

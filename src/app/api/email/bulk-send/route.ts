@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { sendBulkEmails } from '@/lib/email/resend-client';
 import { renderEmailTemplate } from '@/lib/email/template-renderer';
 import { queueEmail } from '@/lib/email/email-queue';
@@ -31,7 +31,7 @@ interface BulkSendRequest {
 export async function POST(request: NextRequest) {
   try {
     // Authenticate user
-    const { userId } = await auth();
+    const { userId } = await getServerSession();
 
     if (!userId) {
       return NextResponse.json(
@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check rate limits
-    const userLimit = checkUserRateLimit(userId);
+    // Check rate limits (Redis-backed)
+    const userLimit = await checkUserRateLimit(userId);
     if (!userLimit.allowed) {
       return NextResponse.json(
         {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const globalLimit = checkGlobalRateLimit();
+    const globalLimit = await checkGlobalRateLimit();
     if (!globalLimit.allowed) {
       return NextResponse.json(
         {

@@ -14,4 +14,4 @@ export * from './creative';
 export * from './event';
 export * from './eventFlow';
 
-// All types migrated to Supabase - no Convex dependencies
+// All types use Drizzle ORM schema

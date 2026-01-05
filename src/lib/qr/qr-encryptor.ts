@@ -3,10 +3,12 @@
  * Generates secure, time-limited tokens for QR codes
  */
 
+export type QRCodeType = 'check-in' | 'rsvp' | 'guest-form' | 'gift-registry';
+
 export interface QRToken {
   guestId: string;
   weddingId: string;
-  type: 'check-in' | 'rsvp' | 'gift-registry';
+  type: QRCodeType;
   expiresAt: number;
   issuedAt: number;
   metadata?: Record<string, any>;
@@ -99,7 +101,7 @@ function createSignature(payload: string, secret: string): string {
 export function generateGuestQRToken(
   guestId: string,
   weddingId: string,
-  type: 'check-in' | 'rsvp' | 'gift-registry' = 'check-in',
+  type: QRCodeType = 'check-in',
   expiryHours: number = 24 * 365, // Default: 1 year
   metadata?: Record<string, any>
 ): EncryptedQRData {

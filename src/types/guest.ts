@@ -1,4 +1,4 @@
-// Supabase types - no Convex dependencies
+// Drizzle types - camelCase naming convention
 export type GuestCategory =
   | 'bride_family'
   | 'groom_family'
@@ -20,94 +20,177 @@ export type MealPreference =
   | 'jain'
   | 'custom';
 
+export type RsvpStatus = 'pending' | 'accepted' | 'declined';
+
+export type TravelMode = 'flight' | 'car' | 'train' | 'bus' | 'other';
+
 export interface Guest {
-  id: string; // UUID
-  created_at: string;
-  company_id: string;
-  client_id: string;
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  clientId: string;
 
-  // Basic info (matching Convex schema)
-  serial_number: number;
-  guest_name: string;
-  phone_number?: string;
-  email?: string;
+  // Basic info
+  firstName: string;
+  lastName: string;
+  email?: string | null;
+  phone?: string | null;
+  serialNumber?: number | null;
 
-  // Guest details
-  number_of_packs: number;
-  additional_guest_names: string[];
-  mode_of_arrival?: string;
-  arrival_date_time?: number;
-  mode_of_departure?: string;
-  departure_date_time?: number;
-  relationship_to_family?: string;
-  guest_category?: string;
-  events_attending: string[];
+  // Party information
+  partySize: number;
+  additionalGuestNames?: string[] | null;
 
-  // Preferences
-  dietary_restrictions: string[];
-  special_needs?: string;
-  seating_preferences: string[];
+  // Travel information
+  arrivalDatetime?: string | null;
+  arrivalMode?: TravelMode | null;
+  departureDatetime?: string | null;
+  departureMode?: TravelMode | null;
 
-  // QR System
-  qr_code_token: string;
-  qr_scan_count: number;
-  qr_last_scanned?: number;
+  // Relationship and events
+  relationshipToFamily?: string | null;
+  groupName?: string | null;
+  attendingEvents?: string[] | null;
 
-  // Form status
-  form_submitted: boolean;
-  form_submitted_at?: number;
-  form_ip_address?: string;
+  // RSVP and meal
+  rsvpStatus: RsvpStatus;
+  mealPreference?: MealPreference | null;
+  dietaryRestrictions?: string | null;
+
+  // Plus one
+  plusOneAllowed: boolean;
+  plusOneName?: string | null;
+  plusOneRsvp?: RsvpStatus | null;
+  plusOneMealPreference?: MealPreference | null;
+
+  // Seating
+  tableNumber?: number | null;
+
+  // Accommodation
+  hotelRequired?: boolean | null;
+  hotelName?: string | null;
+  hotelCheckIn?: string | null;
+  hotelCheckOut?: string | null;
+  hotelRoomType?: string | null;
+
+  // Transport
+  transportRequired?: boolean | null;
+  transportType?: string | null;
+  transportPickupLocation?: string | null;
+  transportPickupTime?: string | null;
+  transportNotes?: string | null;
+
+  // Planner-only fields
+  giftToGive?: string | null;
+  notes?: string | null;
 
   // Check-in status
-  checked_in: boolean;
-  checked_in_at?: number;
-  checked_in_by?: string; // UUID
-  checked_in_location?: {
-    lat: number;
-    lng: number;
-  };
+  checkedIn?: boolean | null;
+  checkedInAt?: Date | null;
+  checkedInBy?: string | null;
+  checkInTime?: Date | null;
 
-  // AI-suggested seating
-  ai_suggested_table?: number;
-  ai_compatibility_score?: number;
+  // Side/family
+  sideFamily?: string | null;
 
-  updated_at: string;
+  // Accessibility
+  accessibilityNeeds?: string | null;
+
+  // Metadata
+  metadata?: Record<string, any> | null;
 }
 
 export interface GuestFormData {
-  guest_name: string;
-  guest_email?: string;
-  guest_phone?: string;
-  guest_category: GuestCategory;
-  guest_side: 'bride' | 'groom' | 'neutral';
-  plus_one_allowed: boolean;
-  plus_one_name?: string;
-  invite_status: GuestInviteStatus;
-  meal_preference?: MealPreference;
-  dietary_restrictions?: string;
-  accommodation_needed: boolean;
-  special_requests?: string;
-  seating_preference?: string;
-  tags: string[];
+  // Basic info
+  guestName: string;
+  guestEmail?: string;
+  guestPhone?: string;
+
+  // Party info
+  partySize: number;
+  additionalGuestNames: string[];
+
+  // Travel info
+  arrivalDatetime?: string;
+  arrivalMode?: TravelMode;
+  departureDatetime?: string;
+  departureMode?: TravelMode;
+
+  // Relationship
+  relationshipToFamily?: string;
+  groupName?: string;
+  attendingEvents: string[];
+
+  // RSVP and preferences
+  rsvpStatus: RsvpStatus;
+  mealPreference?: MealPreference;
+  dietaryRestrictions?: string;
+
+  // Plus one
+  plusOneAllowed: boolean;
+  plusOneName?: string;
+
+  // Accommodation
+  hotelRequired: boolean;
+  hotelName?: string;
+  hotelCheckIn?: string;
+  hotelCheckOut?: string;
+  hotelRoomType?: string;
+
+  // Transport
+  transportRequired: boolean;
+  transportType?: string;
+  transportPickupLocation?: string;
+  transportPickupTime?: string;
+  transportNotes?: string;
+
+  // Planner-only
+  giftToGive?: string;
+  notes?: string;
 }
 
 export interface GuestStats {
   total: number;
   invited: number;
   confirmed: number;
-  checked_in: number;
-  accommodation_needed: number;
+  checkedIn: number;
+  accommodationNeeded: number;
   pending: number;
 }
 
 export interface BulkImportRow {
-  guest_name: string;
-  guest_email?: string;
-  guest_phone?: string;
-  guest_category: string;
-  guest_side: string;
-  plus_one_allowed: string;
-  plus_one_name?: string;
-  meal_preference?: string;
-  accommodation_needed: string;
+  // Basic info
+  guestName: string;
+  guestEmail?: string;
+  guestPhone?: string;
+
+  // Party info
+  partySize?: string;
+  additionalGuestNames?: string;
+
+  // Travel info
+  arrivalDatetime?: string;
+  arrivalMode?: string;
+  departureDatetime?: string;
+  departureMode?: string;
+
+  // Relationship
+  relationshipToFamily?: string;
+  groupName?: string;
+  attendingEvents?: string;
+
+  // Preferences
+  rsvpStatus?: string;
+  mealPreference?: string;
+  dietaryRestrictions?: string;
+
+  // Accommodation
+  hotelRequired?: string;
+
+  // Transport
+  transportRequired?: string;
+
+  // Planner fields
+  giftToGive?: string;
+  notes?: string;
 }

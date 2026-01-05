@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 import { Cross2Icon } from "@radix-ui/react-icons"
 
@@ -28,18 +29,49 @@ const DialogOverlay = React.forwardRef<
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
+const dialogContentVariants = cva(
+  "fixed left-[50%] top-[50%] z-[100] grid w-full translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+  {
+    variants: {
+      variant: {
+        default: "bg-background border-border",
+        // Luxury - Premium gradient (Teal + Champagne Gold undertones)
+        luxury: "bg-gradient-to-br from-white via-teal-50/20 to-gold-50/10 border-teal-200/40 shadow-xl dark:from-mocha-900 dark:via-teal-950/20 dark:to-gold-950/10 dark:border-teal-700/30",
+        // Sage Glass - Soft sage tint
+        "sage-glass": "bg-white/95 backdrop-blur-xl border-sage-200/40 dark:bg-mocha-900/95 dark:border-sage-800/30",
+        // Glass - Modern glass morphism (Cloud Dancer aesthetic)
+        glass: "bg-white/90 backdrop-blur-xl border-white/40 shadow-xl dark:bg-mocha-900/90 dark:border-white/15",
+        // Celebration - Gold accent for special moments
+        celebration: "bg-gradient-to-br from-gold-50 via-white to-rose-50 border-gold-200/60 shadow-xl dark:from-gold-950/30 dark:via-mocha-900 dark:to-rose-950/20 dark:border-gold-700/30",
+      },
+      size: {
+        default: "max-w-lg",
+        sm: "max-w-sm",
+        lg: "max-w-2xl",
+        xl: "max-w-4xl",
+        full: "max-w-[90vw] max-h-[90vh]",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+interface DialogContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>,
+    VariantProps<typeof dialogContentVariants> {}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  DialogContentProps
+>(({ className, children, variant, size, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
-      className={cn(
-        "fixed left-[50%] top-[50%] z-[100] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
-        className
-      )}
+      className={cn(dialogContentVariants({ variant, size, className }))}
       {...props}
     >
       {children}

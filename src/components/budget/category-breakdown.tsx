@@ -18,22 +18,23 @@ interface CategoryBreakdownProps {
   isLoading?: boolean;
 }
 
+// Theme-aware chart colors using CSS variables
 const COLORS = [
-  '#8b5cf6', // primary purple
-  '#a78bfa', // light purple
-  '#c4b5fd', // lighter purple
-  '#ddd6fe', // very light purple
-  '#10b981', // green
-  '#3b82f6', // blue
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#ec4899', // pink
-  '#8b5cf6', // purple
-  '#06b6d4', // cyan
-  '#84cc16', // lime
-  '#f97316', // orange
-  '#6366f1', // indigo
-  '#14b8a6', // teal
+  'var(--teal-500, #14B8A6)',
+  'var(--teal-400, #2DD4BF)',
+  'var(--teal-300, #5EEAD4)',
+  'var(--teal-200, #99F6E4)',
+  'var(--sage-500, #5A9A49)',
+  'var(--cobalt-500, #2563EB)',
+  'var(--gold-500, #D4A853)',
+  'var(--rose-500, #E11D48)',
+  'var(--rose-400, #FB7185)',
+  'var(--teal-600, #0D9488)',
+  'var(--cobalt-400, #60A5FA)',
+  'var(--sage-400, #7BAF6B)',
+  'var(--gold-400, #FACC15)',
+  'var(--cobalt-600, #1D4ED8)',
+  'var(--teal-700, #0F766E)',
 ];
 
 export function CategoryBreakdown({ data, isLoading }: CategoryBreakdownProps) {

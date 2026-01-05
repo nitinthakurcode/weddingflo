@@ -25,22 +25,22 @@ interface ActivityCardProps {
 }
 
 const activityTypeColors: Record<string, string> = {
-  setup: 'bg-gradient-to-r from-gray-400 to-gray-600 text-white shadow-lg',
-  ceremony: 'bg-gradient-to-r from-primary to-pink-600 text-white shadow-lg',
-  reception: 'bg-gradient-to-r from-pink-500 to-pink-700 text-white shadow-lg',
-  entertainment: 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg',
-  break: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-lg',
-  photography: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg',
-  catering: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-lg',
-  cleanup: 'bg-gradient-to-r from-gray-500 to-gray-700 text-white shadow-lg',
-  other: 'bg-gradient-to-r from-purple-400 to-purple-600 text-white shadow-lg',
+  setup: 'bg-gradient-to-r from-mocha-400 to-mocha-600 text-white shadow-lg',
+  ceremony: 'bg-gradient-to-r from-primary to-rose-600 text-white shadow-lg',
+  reception: 'bg-gradient-to-r from-rose-500 to-rose-700 text-white shadow-lg',
+  entertainment: 'bg-gradient-to-r from-gold-500 to-gold-600 text-white shadow-lg',
+  break: 'bg-gradient-to-r from-cobalt-500 to-cobalt-700 text-white shadow-lg',
+  photography: 'bg-gradient-to-r from-sage-500 to-sage-600 text-white shadow-lg',
+  catering: 'bg-gradient-to-r from-gold-500 to-gold-600 text-white shadow-lg',
+  cleanup: 'bg-gradient-to-r from-mocha-500 to-mocha-700 text-white shadow-lg',
+  other: 'bg-gradient-to-r from-teal-400 to-teal-600 text-white shadow-lg',
 };
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-md',
-  in_progress: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-md',
-  completed: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
-  cancelled: 'bg-gradient-to-r from-red-500 to-red-700 text-white shadow-md',
+  pending: 'bg-gradient-to-r from-gold-500 to-gold-600 text-white shadow-md',
+  in_progress: 'bg-gradient-to-r from-cobalt-500 to-cobalt-700 text-white shadow-md',
+  completed: 'bg-gradient-to-r from-sage-500 to-sage-600 text-white shadow-md',
+  cancelled: 'bg-gradient-to-r from-rose-500 to-rose-700 text-white shadow-md',
 };
 
 export function ActivityCard({
@@ -72,7 +72,7 @@ export function ActivityCard({
       className={cn(
         'p-4 border-2 hover:shadow-2xl transition-all hover:scale-[1.02]',
         hasConflict
-          ? 'border-red-500 bg-gradient-to-br from-red-50/50 via-transparent to-transparent'
+          ? 'border-rose-500 bg-gradient-to-br from-rose-50/50 dark:from-rose-950/30 via-transparent to-transparent'
           : 'border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-transparent hover:border-primary/30',
         isDragging && 'opacity-50',
         draggable && 'cursor-move'
@@ -86,7 +86,7 @@ export function ActivityCard({
           <div className="flex items-center gap-2 mb-2">
             <h4 className="font-bold text-primary">{activity.activity}</h4>
             {hasConflict && (
-              <AlertCircle className="h-4 w-4 text-red-500 animate-pulse" />
+              <AlertCircle className="h-4 w-4 text-rose-500 animate-pulse" />
             )}
           </div>
 
@@ -154,7 +154,7 @@ export function ActivityCard({
             {onDelete && (
               <DropdownMenuItem
                 onClick={() => onDelete(activity.id)}
-                className="text-red-600"
+                className="text-rose-600"
               >
                 Delete
               </DropdownMenuItem>

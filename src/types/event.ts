@@ -1,4 +1,4 @@
-// Supabase types - no Convex dependencies
+// Drizzle ORM types
 export type EventType =
   | 'ceremony'
   | 'reception'
@@ -80,6 +80,7 @@ export interface EventFormData {
 
 export interface EventStats {
   total: number;
+  confirmed: number;
   upcoming: number;
   completed: number;
   this_month: number;

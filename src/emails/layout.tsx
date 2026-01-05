@@ -23,7 +23,7 @@ interface EmailLayoutProps {
 export function EmailLayout({
   preview,
   children,
-  companyName = 'WeddingFlow Pro',
+  companyName = 'WeddingFlo',
   companyLogo,
   primaryColor = '#3b82f6',
 }: EmailLayoutProps) {

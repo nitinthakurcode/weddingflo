@@ -1,7 +1,5 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
@@ -25,35 +23,18 @@ interface NotificationDropdownProps {
 export function NotificationDropdown({ userId, onClose }: NotificationDropdownProps) {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
 
-  // Fetch notifications
-  // TODO: Implement notifications table
-  const { data: notifications } = useQuery<any[]>({
-    queryKey: ['notifications', userId],
-    queryFn: async () => {
-      // Notifications table not yet implemented
-      return [];
-    },
-    enabled: false,
-  });
+  // TODO: Implement notifications via tRPC
+  // For now, notifications are disabled
+  const notifications: any[] = [];
 
-  // Mark as read mutation
-  // TODO: Implement notifications table
-  const markAsRead = useMutation({
-    mutationFn: async (notificationId: string) => {
-      // Notifications table not yet implemented
-      return;
-    },
-  });
+  const handleMarkAsRead = async (notificationId: string) => {
+    // TODO: Implement via tRPC
+  };
 
-  const markAllAsRead = useMutation({
-    mutationFn: async () => {
-      // Notifications table not yet implemented
-      return;
-    },
-  });
+  const handleMarkAllAsRead = async () => {
+    // TODO: Implement via tRPC
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -83,23 +64,23 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
   };
 
   const getNotificationColor = (priority: string, read: boolean) => {
-    if (read) return 'bg-gray-50 text-gray-600';
+    if (read) return 'bg-mocha-50 text-mocha-600 dark:bg-mocha-900/50 dark:text-mocha-400';
     switch (priority) {
       case 'high':
-        return 'bg-red-50 text-red-600';
+        return 'bg-rose-50 text-rose-600 dark:bg-rose-900/50 dark:text-rose-400';
       case 'normal':
-        return 'bg-blue-50 text-blue-600';
+        return 'bg-cobalt-50 text-cobalt-600 dark:bg-cobalt-900/50 dark:text-cobalt-400';
       case 'low':
-        return 'bg-gray-50 text-gray-600';
+        return 'bg-mocha-50 text-mocha-600 dark:bg-mocha-900/50 dark:text-mocha-400';
       default:
-        return 'bg-gray-50 text-gray-600';
+        return 'bg-mocha-50 text-mocha-600 dark:bg-mocha-900/50 dark:text-mocha-400';
     }
   };
 
   const handleNotificationClick = async (notification: any) => {
     // Mark as read
     if (!notification.read) {
-      await markAsRead.mutateAsync(notification.id);
+      await handleMarkAsRead(notification.id);
     }
 
     // Navigate if there's an action URL
@@ -109,14 +90,10 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
     }
   };
 
-  const handleMarkAllRead = async () => {
-    await markAllAsRead.mutateAsync();
-  };
-
   return (
     <div
       ref={dropdownRef}
-      className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-lg border z-50"
+      className="absolute right-0 mt-2 w-96 bg-card rounded-lg shadow-lg border z-50"
     >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b">
@@ -125,7 +102,7 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleMarkAllRead}
+            onClick={handleMarkAllAsRead}
             className="text-xs"
           >
             <CheckCheck className="h-3 w-3 mr-1" />
@@ -154,8 +131,8 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
                 <button
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
-                  className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-                    !notification.read ? 'bg-blue-50/50' : ''
+                  className={`w-full p-4 text-left hover:bg-muted transition-colors ${
+                    !notification.read ? 'bg-cobalt-50/50 dark:bg-cobalt-950/30' : ''
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -166,14 +143,14 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
                       <div className="flex items-start justify-between gap-2">
                         <h4 className="font-semibold text-sm">{notification.title}</h4>
                         {!notification.read && (
-                          <div className="w-2 h-2 rounded-full bg-blue-600 flex-shrink-0 mt-1" />
+                          <div className="w-2 h-2 rounded-full bg-teal-600 flex-shrink-0 mt-1" />
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
                         {notification.message}
                       </p>
                       {notification.action_label && (
-                        <span className="text-xs text-blue-600 mt-2 inline-block">
+                        <span className="text-xs text-teal-600 dark:text-teal-400 mt-2 inline-block">
                           {notification.action_label} →
                         </span>
                       )}

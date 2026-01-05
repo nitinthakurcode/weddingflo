@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -17,11 +18,15 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Plus, Trash2, Edit, Clock, CheckCircle, AlertTriangle, ListChecks } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { ExportButton } from '@/components/export/export-button'
+import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
 
 export default function TimelinePage() {
   const params = useParams()
   const clientId = params?.clientId as string
   const { toast } = useToast()
+  const t = useTranslations('timeline')
+  const tc = useTranslations('common')
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [formData, setFormData] = useState({
@@ -39,6 +44,10 @@ export default function TimelinePage() {
   const utils = trpc.useUtils()
 
   // Queries
+  const { data: client } = trpc.clients.getById.useQuery({
+    id: clientId,
+  })
+
   const { data: timelineItems, isLoading } = trpc.timeline.getAll.useQuery({
     clientId: clientId,
   })
@@ -51,55 +60,70 @@ export default function TimelinePage() {
     clientId: clientId,
   })
 
+  // Generate client name for export filename
+  const partner1Name = client?.partner1FirstName
+  const partner2Name = client?.partner2FirstName
+  const clientName = partner1Name && partner2Name
+    ? `${partner1Name}-${partner2Name}`
+    : partner1Name || partner2Name || 'Wedding'
+
   // Mutations
   const createMutation = trpc.timeline.create.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Timeline item added successfully' })
-      utils.timeline.getAll.invalidate()
-      utils.timeline.getStats.invalidate()
-      utils.timeline.detectConflicts.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('itemAdded') })
       resetForm()
       setIsAddDialogOpen(false)
+      await Promise.all([
+        utils.timeline.getAll.invalidate({ clientId }),
+        utils.timeline.getStats.invalidate({ clientId }),
+        utils.timeline.detectConflicts.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const updateMutation = trpc.timeline.update.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Timeline item updated successfully' })
-      utils.timeline.getAll.invalidate()
-      utils.timeline.getStats.invalidate()
-      utils.timeline.detectConflicts.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('itemUpdated') })
       setEditingItem(null)
       resetForm()
+      await Promise.all([
+        utils.timeline.getAll.invalidate({ clientId }),
+        utils.timeline.getStats.invalidate({ clientId }),
+        utils.timeline.detectConflicts.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const deleteMutation = trpc.timeline.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Timeline item deleted successfully' })
-      utils.timeline.getAll.invalidate()
-      utils.timeline.getStats.invalidate()
-      utils.timeline.detectConflicts.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('itemDeleted') })
+      await Promise.all([
+        utils.timeline.getAll.invalidate({ clientId }),
+        utils.timeline.getStats.invalidate({ clientId }),
+        utils.timeline.detectConflicts.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const markCompleteMutation = trpc.timeline.markComplete.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Timeline item updated' })
-      utils.timeline.getAll.invalidate()
-      utils.timeline.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('itemUpdated') })
+      await Promise.all([
+        utils.timeline.getAll.invalidate({ clientId }),
+        utils.timeline.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
@@ -144,18 +168,18 @@ export default function TimelinePage() {
     setFormData({
       title: item.title || '',
       description: item.description || '',
-      startTime: item.start_time || '',
-      endTime: item.end_time || '',
-      durationMinutes: item.duration_minutes ? item.duration_minutes.toString() : '',
+      startTime: item.startTime || '',
+      endTime: item.endTime || '',
+      durationMinutes: item.durationMinutes ? item.durationMinutes.toString() : '',
       location: item.location || '',
-      responsiblePerson: item.responsible_person || '',
-      sortOrder: item.sort_order ? item.sort_order.toString() : '0',
+      responsiblePerson: item.responsiblePerson || '',
+      sortOrder: item.sortOrder ? item.sortOrder.toString() : '0',
       notes: item.notes || '',
     })
   }
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this timeline item?')) {
+    if (confirm(t('confirmDelete'))) {
       deleteMutation.mutate({ id })
     }
   }
@@ -167,7 +191,7 @@ export default function TimelinePage() {
   if (!clientId) {
     return (
       <div className="p-6">
-        <p>No client selected</p>
+        <p>{tc('noClientSelected')}</p>
       </div>
     )
   }
@@ -175,7 +199,7 @@ export default function TimelinePage() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p>Loading timeline...</p>
+        <p>{tc('loading')}</p>
       </div>
     )
   }
@@ -183,58 +207,64 @@ export default function TimelinePage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Wedding Day Timeline</h1>
-          <p className="text-muted-foreground">Manage your wedding day schedule</p>
-        </div>
+      <ClientModuleHeader
+        title={t('weddingDayTimeline')}
+        description={t('manageSchedule')}
+      >
+        <ExportButton
+          data={timelineItems || []}
+          dataType="timeline"
+          clientName={clientName}
+          onExportComplete={(format) => {
+            toast({ title: t('timelineExported', { format: format.toUpperCase() }) })
+          }}
+        />
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
-          Add Timeline Item
+          {t('addTimelineItem')}
         </Button>
-      </div>
+      </ClientModuleHeader>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
-          title="Total Items"
+          title={t('totalItems')}
           value={stats?.total || 0}
           icon={<ListChecks className="w-4 h-4" />}
         />
         <StatCard
-          title="Completed"
+          title={t('completed')}
           value={stats?.completed || 0}
           icon={<CheckCircle className="w-4 h-4" />}
-          color="text-green-600"
+          color="text-sage-600"
         />
         <StatCard
-          title="Pending"
+          title={tc('pending')}
           value={stats?.pending || 0}
           icon={<Clock className="w-4 h-4" />}
-          color="text-yellow-600"
+          color="text-gold-600"
         />
         <StatCard
-          title="Total Duration"
+          title={t('totalDuration')}
           value={`${stats?.totalDurationHours || 0}h ${stats?.totalDurationMinutes || 0}m`}
-          color="text-blue-600"
+          color="text-cobalt-600"
         />
       </div>
 
       {/* Conflicts Warning */}
       {conflicts && conflicts.length > 0 && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-rose-200 bg-rose-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-700">
+            <CardTitle className="flex items-center gap-2 text-rose-700">
               <AlertTriangle className="w-5 h-5" />
-              Time Conflicts Detected
+              {t('timeConflicts')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {conflicts.map((conflict, idx) => (
-                <div key={idx} className="text-sm text-red-600">
-                  &quot;{conflict.item1.title}&quot; overlaps with &quot;{conflict.item2.title}&quot; by{' '}
-                  {conflict.overlapMinutes} minutes
+                <div key={idx} className="text-sm text-rose-600">
+                  {t('conflictOverlap', { item1: conflict.item1.title, item2: conflict.item2.title, minutes: conflict.overlapMinutes })}
                 </div>
               ))}
             </div>
@@ -245,12 +275,12 @@ export default function TimelinePage() {
       {/* Timeline Items */}
       <Card>
         <CardHeader>
-          <CardTitle>Timeline Schedule</CardTitle>
+          <CardTitle>{t('timelineSchedule')}</CardTitle>
         </CardHeader>
         <CardContent>
           {timelineItems?.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No timeline items yet. Add your first item to get started!
+              {t('noTimelineItems')}
             </div>
           ) : (
             <div className="space-y-2">
@@ -274,21 +304,21 @@ export default function TimelinePage() {
                           {item.title}
                         </h3>
                         {item.completed && (
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
-                            Completed
+                          <span className="text-xs bg-sage-100 text-sage-700 px-2 py-1 rounded">
+                            {t('completed')}
                           </span>
                         )}
                       </div>
                       <div className="text-sm text-muted-foreground space-y-1">
                         <p className="flex items-center gap-2">
                           <Clock className="w-3 h-3" />
-                          {item.start_time}
-                          {item.end_time && ` - ${item.end_time}`}
-                          {item.duration_minutes && ` (${item.duration_minutes} min)`}
+                          {item.startTime ? new Date(item.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                          {item.endTime && ` - ${new Date(item.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                          {item.durationMinutes && ` (${item.durationMinutes} min)`}
                         </p>
-                        {item.location && <p>Location: {item.location}</p>}
-                        {item.responsible_person && (
-                          <p>Responsible: {item.responsible_person}</p>
+                        {item.location && <p>{t('location')}: {item.location}</p>}
+                        {item.responsiblePerson && (
+                          <p>{t('responsible')}: {item.responsiblePerson}</p>
                         )}
                         {item.description && <p className="italic">{item.description}</p>}
                       </div>
@@ -331,13 +361,13 @@ export default function TimelinePage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingItem ? 'Edit Timeline Item' : 'Add Timeline Item'}
+              {editingItem ? t('editTimelineItem') : t('addTimelineItem')}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title">{t('itemTitle')} *</Label>
                 <Input
                   id="title"
                   value={formData.title}
@@ -348,7 +378,7 @@ export default function TimelinePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="startTime">Start Time *</Label>
+                <Label htmlFor="startTime">{t('startTime')} *</Label>
                 <Input
                   id="startTime"
                   type="time"
@@ -360,7 +390,7 @@ export default function TimelinePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="endTime">End Time</Label>
+                <Label htmlFor="endTime">{t('endTime')}</Label>
                 <Input
                   id="endTime"
                   type="time"
@@ -371,7 +401,7 @@ export default function TimelinePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="durationMinutes">Duration (minutes)</Label>
+                <Label htmlFor="durationMinutes">{t('durationMinutes')}</Label>
                 <Input
                   id="durationMinutes"
                   type="number"
@@ -382,7 +412,7 @@ export default function TimelinePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="location">Location</Label>
+                <Label htmlFor="location">{t('location')}</Label>
                 <Input
                   id="location"
                   value={formData.location}
@@ -392,7 +422,7 @@ export default function TimelinePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="responsiblePerson">Responsible Person</Label>
+                <Label htmlFor="responsiblePerson">{t('responsiblePerson')}</Label>
                 <Input
                   id="responsiblePerson"
                   value={formData.responsiblePerson}
@@ -402,7 +432,7 @@ export default function TimelinePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="sortOrder">Sort Order</Label>
+                <Label htmlFor="sortOrder">{t('sortOrder')}</Label>
                 <Input
                   id="sortOrder"
                   type="number"
@@ -414,7 +444,7 @@ export default function TimelinePage() {
               </div>
             </div>
             <div>
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{tc('description')}</Label>
               <Textarea
                 id="description"
                 value={formData.description}
@@ -425,7 +455,7 @@ export default function TimelinePage() {
               />
             </div>
             <div>
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">{tc('notes')}</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}
@@ -445,10 +475,10 @@ export default function TimelinePage() {
                   resetForm()
                 }}
               >
-                Cancel
+                {tc('cancel')}
               </Button>
               <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                {editingItem ? 'Update' : 'Add'} Item
+                {editingItem ? tc('update') : tc('add')} {t('item')}
               </Button>
             </DialogFooter>
           </form>

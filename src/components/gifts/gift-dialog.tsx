@@ -3,8 +3,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
+import { trpc } from '@/lib/trpc/client';
 import {
   Dialog,
   DialogContent,
@@ -31,88 +30,60 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { giftSchema, type GiftFormData } from '@/lib/validations/gift.schema';
 
 interface Gift {
   id: string;
-  guestName: string;
-  description: string;
-  category?: string;
-  estimatedValue?: number;
-  receivedDate: string;
-  deliveryStatus: 'pending' | 'in_transit' | 'delivered' | 'returned';
-  thankYouStatus: 'not_sent' | 'draft' | 'sent';
-  notes?: string;
+  giftName: string;
+  fromName?: string | null;
+  fromEmail?: string | null;
+  deliveryDate?: string | null;
+  deliveryStatus?: string | null;
+  thankYouSent?: boolean | null;
+  thankYouSentDate?: string | null;
+  notes?: string | null;
 }
 
 interface GiftDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   gift?: Gift;
-  weddingId: string;
+  clientId: string;
 }
 
 export function GiftDialog({
   open,
   onOpenChange,
   gift,
-  weddingId,
+  clientId,
 }: GiftDialogProps) {
   const { toast } = useToast();
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  const createGift = useMutation({
-    mutationFn: async (data: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('gifts')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .insert(data)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const createGift = trpc.gifts.create.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['gifts', weddingId] });
+      utils.gifts.getAll.invalidate({ clientId });
     },
   });
 
-  const updateGift = useMutation({
-    mutationFn: async ({ giftId, ...data }: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('gifts')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update(data)
-        .eq('id', giftId)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const updateGift = trpc.gifts.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['gifts', weddingId] });
+      utils.gifts.getAll.invalidate({ clientId });
     },
   });
 
   const form = useForm<GiftFormData>({
     resolver: zodResolver(giftSchema),
     defaultValues: {
-      guestName: '',
-      description: '',
-      category: '',
-      estimatedValue: 0,
-      receivedDate: new Date().toISOString().split('T')[0],
+      giftName: '',
+      fromName: '',
+      fromEmail: '',
+      deliveryDate: '',
       deliveryStatus: 'pending',
-      deliveryTrackingNumber: '',
-      deliveryNotes: '',
-      thankYouStatus: 'not_sent',
+      thankYouSent: false,
       thankYouSentDate: '',
-      thankYouNotes: '',
-      tags: [],
       notes: '',
     },
   });
@@ -121,43 +92,45 @@ export function GiftDialog({
   useEffect(() => {
     if (gift) {
       form.reset({
-        guestName: gift.guestName,
-        description: gift.description,
-        category: gift.category || '',
-        estimatedValue: gift.estimatedValue || 0,
-        receivedDate: gift.receivedDate,
-        deliveryStatus: gift.deliveryStatus,
-        thankYouStatus: gift.thankYouStatus,
+        giftName: gift.giftName || '',
+        fromName: gift.fromName || '',
+        fromEmail: gift.fromEmail || '',
+        deliveryDate: gift.deliveryDate || '',
+        deliveryStatus: (gift.deliveryStatus as GiftFormData['deliveryStatus']) || 'pending',
+        thankYouSent: gift.thankYouSent || false,
+        thankYouSentDate: gift.thankYouSentDate ? new Date(gift.thankYouSentDate).toISOString().split('T')[0] : '',
         notes: gift.notes || '',
       });
     } else {
       form.reset({
-        guestName: '',
-        description: '',
-        category: '',
-        estimatedValue: 0,
-        receivedDate: new Date().toISOString().split('T')[0],
+        giftName: '',
+        fromName: '',
+        fromEmail: '',
+        deliveryDate: '',
         deliveryStatus: 'pending',
-        thankYouStatus: 'not_sent',
+        thankYouSent: false,
+        thankYouSentDate: '',
         notes: '',
       });
     }
-  }, [gift, form]);
+  }, [gift, form, open]);
 
   const onSubmit = async (data: GiftFormData) => {
     try {
       if (gift) {
-        // Update existing gift
+        // Update existing gift - use correct router structure
         await updateGift.mutateAsync({
-          giftId: gift.id,
-          guestName: data.guestName,
-          description: data.description,
-          category: data.category,
-          estimatedValue: data.estimatedValue,
-          receivedDate: data.receivedDate,
-          deliveryStatus: data.deliveryStatus,
-          thankYouStatus: data.thankYouStatus,
-          notes: data.notes,
+          id: gift.id,
+          data: {
+            giftName: data.giftName,
+            fromName: data.fromName || undefined,
+            fromEmail: data.fromEmail || undefined,
+            deliveryDate: data.deliveryDate || undefined,
+            deliveryStatus: data.deliveryStatus,
+            thankYouSent: data.thankYouSent,
+            thankYouSentDate: data.thankYouSentDate || undefined,
+            notes: data.notes || undefined,
+          },
         });
         toast({
           title: 'Success',
@@ -166,15 +139,13 @@ export function GiftDialog({
       } else {
         // Create new gift
         await createGift.mutateAsync({
-          wedding_id: weddingId,
-          guestName: data.guestName,
-          description: data.description,
-          category: data.category,
-          estimatedValue: data.estimatedValue,
-          receivedDate: data.receivedDate,
+          clientId,
+          giftName: data.giftName,
+          fromName: data.fromName || undefined,
+          fromEmail: data.fromEmail || undefined,
+          deliveryDate: data.deliveryDate || undefined,
           deliveryStatus: data.deliveryStatus,
-          thankYouStatus: data.thankYouStatus,
-          notes: data.notes,
+          notes: data.notes || undefined,
         });
         toast({
           title: 'Success',
@@ -194,7 +165,7 @@ export function GiftDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{gift ? 'Edit Gift' : 'Add New Gift'}</DialogTitle>
           <DialogDescription>
@@ -206,58 +177,12 @@ export function GiftDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="guestName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Guest Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="John Doe" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="home_decor">Home Decor</SelectItem>
-                        <SelectItem value="kitchen">Kitchen</SelectItem>
-                        <SelectItem value="bedding">Bedding</SelectItem>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="gift_card">Gift Card</SelectItem>
-                        <SelectItem value="experience">Experience</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
             <FormField
               control={form.control}
-              name="description"
+              name="giftName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description *</FormLabel>
+                  <FormLabel>Gift Name *</FormLabel>
                   <FormControl>
                     <Input placeholder="Crystal vase set" {...field} />
                   </FormControl>
@@ -269,18 +194,12 @@ export function GiftDialog({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="estimatedValue"
+                name="fromName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Estimated Value ($)</FormLabel>
+                    <FormLabel>From (Name)</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="0"
-                        min="0"
-                        step="0.01"
-                        {...field}
-                      />
+                      <Input placeholder="John Doe" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -289,12 +208,12 @@ export function GiftDialog({
 
               <FormField
                 control={form.control}
-                name="receivedDate"
+                name="fromEmail"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Received Date *</FormLabel>
+                    <FormLabel>From (Email)</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input type="email" placeholder="john@example.com" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -305,13 +224,27 @@ export function GiftDialog({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
+                name="deliveryDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Delivery Date</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="deliveryStatus"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Delivery Status</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      defaultValue={field.value}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -320,8 +253,7 @@ export function GiftDialog({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="in_transit">In Transit</SelectItem>
-                        <SelectItem value="delivered">Delivered</SelectItem>
+                        <SelectItem value="received">Received</SelectItem>
                         <SelectItem value="returned">Returned</SelectItem>
                       </SelectContent>
                     </Select>
@@ -329,33 +261,41 @@ export function GiftDialog({
                   </FormItem>
                 )}
               />
-
-              <FormField
-                control={form.control}
-                name="thankYouStatus"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Thank You Status</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="not_sent">Not Sent</SelectItem>
-                        <SelectItem value="draft">Draft</SelectItem>
-                        <SelectItem value="sent">Sent</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             </div>
+
+            {gift && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                <FormField
+                  control={form.control}
+                  name="thankYouSent"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center space-x-2">
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="!mt-0">Thank You Sent</FormLabel>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="thankYouSentDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Thank You Sent Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
 
             <FormField
               control={form.control}
@@ -366,7 +306,7 @@ export function GiftDialog({
                   <FormControl>
                     <Textarea
                       placeholder="Additional notes about the gift..."
-                      className="min-h-[100px]"
+                      className="min-h-[80px]"
                       {...field}
                     />
                   </FormControl>
@@ -387,8 +327,8 @@ export function GiftDialog({
                 {form.formState.isSubmitting
                   ? 'Saving...'
                   : gift
-                  ? 'Update Gift'
-                  : 'Add Gift'}
+                    ? 'Update Gift'
+                    : 'Add Gift'}
               </Button>
             </DialogFooter>
           </form>

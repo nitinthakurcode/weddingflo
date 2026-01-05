@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe/stripe-client';
 import { STRIPE_CONFIG } from '@/lib/stripe/config';
 import { getPlanByPriceId } from '@/lib/stripe/plans';
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { db, sql, eq } from '@/lib/db';
+import { companies } from '@/lib/db/schema';
 import Stripe from 'stripe';
 
 export async function POST(req: NextRequest) {
@@ -91,32 +92,31 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Update company subscription
-  const supabase = createServerSupabaseAdminClient();
-  await supabase
-    .from('companies')
-    .update({
-      stripe_customer_id: subscription.customer as string,
-      stripe_subscription_id: subscription.id,
-      subscription_tier: plan.id,
-      subscription_status: subscription.status === 'active' ? 'active' : subscription.status,
-      subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString(),
+  // Update company subscription using Drizzle
+  await db
+    .update(companies)
+    .set({
+      stripeCustomerId: subscription.customer as string,
+      stripeSubscriptionId: subscription.id,
+      subscriptionTier: plan.id as any,
+      subscriptionStatus: subscription.status === 'active' ? 'active' : subscription.status as any,
+      subscriptionEndsAt: new Date((subscription as any).current_period_end * 1000),
+      updatedAt: new Date(),
     })
-    .eq('id', companyId);
+    .where(eq(companies.id, companyId));
 
   console.log(`Subscription created for company ${companyId}`);
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  const supabase = createServerSupabaseAdminClient();
+  // Find company by customer ID using Drizzle
+  const companyResult = await db
+    .select()
+    .from(companies)
+    .where(eq(companies.stripeCustomerId, subscription.customer as string))
+    .limit(1);
 
-  // Try to find company by customer ID
-  // @ts-ignore - TODO: Regenerate Supabase types from database schema
-  const { data: company } = await supabase
-    .from('companies')
-    .select('*')
-    .eq('stripe_customer_id', subscription.customer as string)
-    .single();
+  const company = companyResult[0];
 
   if (!company) {
     console.error('No company found for subscription');
@@ -131,65 +131,67 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
 
-  // Update company subscription
-  await supabase
-    .from('companies')
-    .update({
-      stripe_customer_id: subscription.customer as string,
-      stripe_subscription_id: subscription.id,
-      subscription_tier: plan.id,
-      subscription_status: subscription.status === 'active' ? 'active' : subscription.status,
-      subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString(),
+  // Update company subscription using Drizzle
+  await db
+    .update(companies)
+    .set({
+      stripeCustomerId: subscription.customer as string,
+      stripeSubscriptionId: subscription.id,
+      subscriptionTier: plan.id as any,
+      subscriptionStatus: subscription.status === 'active' ? 'active' : subscription.status as any,
+      subscriptionEndsAt: new Date((subscription as any).current_period_end * 1000),
+      updatedAt: new Date(),
     })
-    .eq('id', (company as any).id);
+    .where(eq(companies.id, company.id));
 
-  console.log(`Subscription updated for company ${(company as any).id}`);
+  console.log(`Subscription updated for company ${company.id}`);
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  const supabase = createServerSupabaseAdminClient();
+  // Find company by customer ID using Drizzle
+  const companyResult = await db
+    .select()
+    .from(companies)
+    .where(eq(companies.stripeCustomerId, subscription.customer as string))
+    .limit(1);
 
-  // @ts-ignore - TODO: Regenerate Supabase types from database schema
-  const { data: company } = await supabase
-    .from('companies')
-    .select('*')
-    .eq('stripe_customer_id', subscription.customer as string)
-    .single();
+  const company = companyResult[0];
 
   if (!company) {
     console.error('Company not found');
     return;
   }
 
-  // Update subscription status to canceled
-  await supabase
-    .from('companies')
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
-    .update({
-      subscription_status: 'canceled',
+  // Update subscription status to canceled using Drizzle
+  await db
+    .update(companies)
+    .set({
+      subscriptionStatus: 'canceled',
+      updatedAt: new Date(),
     })
-    .eq('id', (company as any).id);
+    .where(eq(companies.id, company.id));
 
-  console.log(`Subscription canceled for company ${(company as any).id}`);
+  console.log(`Subscription canceled for company ${company.id}`);
 }
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
-  const supabase = createServerSupabaseAdminClient();
 
-  // @ts-ignore - TODO: Regenerate Supabase types from database schema
-  const { data: company } = await supabase
-    .from('companies')
-    .select('*')
-    .eq('stripe_customer_id', customerId)
-    .single();
+  // Find company using Drizzle
+  const companyResult = await db
+    .select()
+    .from(companies)
+    .where(eq(companies.stripeCustomerId, customerId))
+    .limit(1);
+
+  const company = companyResult[0];
 
   if (!company) {
     console.error('Company not found for invoice payment');
     return;
   }
 
-  console.log(`Payment succeeded for company ${(company as any).id}, amount: ${invoice.amount_paid}`);
+  console.log(`Payment succeeded for company ${company.id}, amount: ${invoice.amount_paid}`);
 
   // Here you could:
   // 1. Send a receipt email
@@ -199,21 +201,22 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
-  const supabase = createServerSupabaseAdminClient();
 
-  // @ts-ignore - TODO: Regenerate Supabase types from database schema
-  const { data: company } = await supabase
-    .from('companies')
-    .select('*')
-    .eq('stripe_customer_id', customerId)
-    .single();
+  // Find company using Drizzle
+  const companyResult = await db
+    .select()
+    .from(companies)
+    .where(eq(companies.stripeCustomerId, customerId))
+    .limit(1);
+
+  const company = companyResult[0];
 
   if (!company) {
     console.error('Company not found for failed invoice');
     return;
   }
 
-  console.error(`Payment failed for company ${(company as any).id}`);
+  console.error(`Payment failed for company ${company.id}`);
 
   // Here you could:
   // 1. Send alert email to admin

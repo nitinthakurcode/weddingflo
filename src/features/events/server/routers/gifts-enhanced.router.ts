@@ -1,6 +1,6 @@
-// @ts-nocheck - Temporary workaround for Supabase TypeScript inference issues (tables not yet in generated types)
 /**
  * Enhanced Gift Tracking Router
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
  *
  * Feature: Gift registry + thank you note tracking
  * Business Domain: Events Feature Pocket
@@ -13,16 +13,14 @@
  * - Receipt storage integration
  * - Gift statistics and reporting
  *
- * Dependencies:
- * - Supabase (gifts_enhanced, gift_categories tables)
- * - Clerk (authentication via session claims)
- *
  * @see SESSION_51: Gift Tracking & Management
  */
 
 import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { eq, and, desc, ilike, lt, isNull, sql } from 'drizzle-orm'
+import { giftsEnhanced, giftCategories, thankYouNoteTemplates, guests } from '@/lib/db/schema'
 
 const giftTypeEnum = z.enum(['physical', 'cash', 'gift_card', 'experience'])
 const deliveryStatusEnum = z.enum(['ordered', 'shipped', 'delivered', 'returned'])
@@ -53,37 +51,49 @@ export const giftsEnhancedRouter = router({
         })
       }
 
-      let query = ctx.supabase
-        .from('gifts_enhanced')
-        .select(`
-          *,
-          guests(first_name, last_name, email),
-          gift_categories(name, icon, color)
-        `)
-        .eq('client_id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .order('created_at', { ascending: false })
+      const conditions = [
+        eq(giftsEnhanced.clientId, input.clientId),
+        eq(giftsEnhanced.companyId, ctx.companyId),
+      ]
 
       if (input.search) {
-        query = query.ilike('gift_name', `%${input.search}%`)
+        conditions.push(ilike(giftsEnhanced.giftName, `%${input.search}%`))
       }
 
       if (input.deliveryStatus) {
-        query = query.eq('delivery_status', input.deliveryStatus)
+        conditions.push(eq(giftsEnhanced.deliveryStatus, input.deliveryStatus))
       }
 
       if (input.thankYouSent !== undefined) {
-        query = query.eq('thank_you_sent', input.thankYouSent)
+        conditions.push(eq(giftsEnhanced.thankYouSent, input.thankYouSent))
       }
 
-      const { data, error } = await query
+      const data = await ctx.db
+        .select({
+          gift: giftsEnhanced,
+          guest: {
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            email: guests.email,
+          },
+          category: {
+            name: giftCategories.name,
+            icon: giftCategories.icon,
+            color: giftCategories.color,
+          },
+        })
+        .from(giftsEnhanced)
+        .leftJoin(guests, eq(giftsEnhanced.guestId, guests.id))
+        .leftJoin(giftCategories, eq(giftsEnhanced.categoryId, giftCategories.id))
+        .where(and(...conditions))
+        .orderBy(desc(giftsEnhanced.createdAt))
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
-
-      return data || []
+      // Flatten the results to match the expected format
+      return data.map(row => ({
+        ...row.gift,
+        guests: row.guest?.firstName ? row.guest : null,
+        gift_categories: row.category?.name ? row.category : null,
+      }))
     }),
 
   /**
@@ -97,24 +107,33 @@ export const giftsEnhancedRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .select('*, guests(*), gift_categories(*)')
-        .eq('id', input.id)
-        .eq('company_id', ctx.companyId)
-        .maybeSingle()
+      const [result] = await ctx.db
+        .select({
+          gift: giftsEnhanced,
+          guest: guests,
+          category: giftCategories,
+        })
+        .from(giftsEnhanced)
+        .leftJoin(guests, eq(giftsEnhanced.guestId, guests.id))
+        .leftJoin(giftCategories, eq(giftsEnhanced.categoryId, giftCategories.id))
+        .where(and(
+          eq(giftsEnhanced.id, input.id),
+          eq(giftsEnhanced.companyId, ctx.companyId!)
+        ))
+        .limit(1)
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      if (!result) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Gift not found',
+        })
+      }
 
-      if (!data) throw new TRPCError({
-        code: 'NOT_FOUND',
-        message: 'Gift not found',
-      })
-
-      return data
+      return {
+        ...result.gift,
+        guests: result.guest,
+        gift_categories: result.category,
+      }
     }),
 
   /**
@@ -152,32 +171,26 @@ export const giftsEnhancedRouter = router({
         })
       }
 
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .insert({
-          client_id: input.clientId,
-          company_id: ctx.companyId,
-          guest_id: input.guestId,
-          gift_name: input.giftName,
+      const [data] = await ctx.db
+        .insert(giftsEnhanced)
+        .values({
+          clientId: input.clientId,
+          companyId: ctx.companyId,
+          guestId: input.guestId,
+          giftName: input.giftName,
           description: input.description,
-          category_id: input.categoryId,
-          gift_type: input.giftType,
-          monetary_value: input.monetaryValue,
+          categoryId: input.categoryId,
+          giftType: input.giftType,
+          monetaryValue: input.monetaryValue?.toString(),
           currency: input.currency,
-          registry_name: input.registryName,
-          registry_url: input.registryUrl,
-          is_group_gift: input.isGroupGift,
-          group_gift_organizer: input.groupGiftOrganizer,
-          group_gift_contributors: input.groupGiftContributors,
+          registryName: input.registryName,
+          registryUrl: input.registryUrl,
+          isGroupGift: input.isGroupGift,
+          groupGiftOrganizer: input.groupGiftOrganizer,
+          groupGiftContributors: input.groupGiftContributors,
           tags: input.tags,
         })
-        .select()
-        .single()
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+        .returning()
 
       return data
     }),
@@ -206,29 +219,26 @@ export const giftsEnhancedRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .update({
-          gift_name: updates.giftName,
+      const [data] = await ctx.db
+        .update(giftsEnhanced)
+        .set({
+          giftName: updates.giftName,
           description: updates.description,
-          category_id: updates.categoryId,
-          monetary_value: updates.monetaryValue,
-          delivery_status: updates.deliveryStatus,
-          ordered_date: updates.orderedDate,
-          shipped_date: updates.shippedDate,
-          received_date: updates.receivedDate,
-          tracking_number: updates.trackingNumber,
-          internal_notes: updates.internalNotes,
+          categoryId: updates.categoryId,
+          monetaryValue: updates.monetaryValue?.toString(),
+          deliveryStatus: updates.deliveryStatus,
+          orderedDate: updates.orderedDate,
+          shippedDate: updates.shippedDate,
+          receivedDate: updates.receivedDate,
+          trackingNumber: updates.trackingNumber,
+          internalNotes: updates.internalNotes,
+          updatedAt: new Date(),
         })
-        .eq('id', id)
-        .eq('company_id', ctx.companyId)
-        .select()
-        .single()
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+        .where(and(
+          eq(giftsEnhanced.id, id),
+          eq(giftsEnhanced.companyId, ctx.companyId!)
+        ))
+        .returning()
 
       return data
     }),
@@ -247,22 +257,21 @@ export const giftsEnhancedRouter = router({
       thankYouNote: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .update({
-          thank_you_sent: true,
-          thank_you_sent_date: new Date().toISOString(),
-          thank_you_note: input.thankYouNote,
-        })
-        .eq('id', input.id)
-        .eq('company_id', ctx.companyId)
-        .select()
-        .single()
+      const today = new Date().toISOString().split('T')[0]
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      const [data] = await ctx.db
+        .update(giftsEnhanced)
+        .set({
+          thankYouSent: true,
+          thankYouSentDate: today,
+          thankYouNote: input.thankYouNote,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(giftsEnhanced.id, input.id),
+          eq(giftsEnhanced.companyId, ctx.companyId!)
+        ))
+        .returning()
 
       return data
     }),
@@ -279,18 +288,32 @@ export const giftsEnhancedRouter = router({
       daysAhead: z.number().int().min(1).max(90).default(7),
     }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .rpc('get_thank_you_notes_due', {
-          p_company_id: ctx.companyId,
-          p_days_ahead: input.daysAhead,
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + input.daysAhead)
+      const futureDateStr = futureDate.toISOString().split('T')[0]
+
+      const data = await ctx.db
+        .select({
+          gift: giftsEnhanced,
+          guest: {
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            email: guests.email,
+          },
         })
+        .from(giftsEnhanced)
+        .leftJoin(guests, eq(giftsEnhanced.guestId, guests.id))
+        .where(and(
+          eq(giftsEnhanced.companyId, ctx.companyId!),
+          eq(giftsEnhanced.thankYouSent, false),
+          lt(giftsEnhanced.thankYouDueDate, futureDateStr)
+        ))
+        .orderBy(giftsEnhanced.thankYouDueDate)
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
-
-      return data || []
+      return data.map(row => ({
+        ...row.gift,
+        guests: row.guest,
+      }))
     }),
 
   /**
@@ -303,17 +326,27 @@ export const giftsEnhancedRouter = router({
   getStats: protectedProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .rpc('get_gift_stats', {
-          p_client_id: input.clientId,
-        })
+      const allGifts = await ctx.db
+        .select()
+        .from(giftsEnhanced)
+        .where(eq(giftsEnhanced.clientId, input.clientId))
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      const totalGifts = allGifts.length
+      const totalValue = allGifts.reduce((sum, g) => {
+        const value = g.giftType === 'cash'
+          ? Number(g.monetaryValue || 0)
+          : Number(g.estimatedValue || g.monetaryValue || 0)
+        return sum + value
+      }, 0)
+      const thankYousSent = allGifts.filter(g => g.thankYouSent).length
+      const thankYousPending = totalGifts - thankYousSent
 
-      return data?.[0] || null
+      return {
+        totalGifts,
+        totalValue,
+        thankYousSent,
+        thankYousPending,
+      }
     }),
 
   /**
@@ -326,16 +359,12 @@ export const giftsEnhancedRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .delete()
-        .eq('id', input.id)
-        .eq('company_id', ctx.companyId)
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      await ctx.db
+        .delete(giftsEnhanced)
+        .where(and(
+          eq(giftsEnhanced.id, input.id),
+          eq(giftsEnhanced.companyId, ctx.companyId!)
+        ))
 
       return { success: true }
     }),
@@ -350,18 +379,13 @@ export const giftsEnhancedRouter = router({
    */
   listCategories: protectedProcedure
     .query(async ({ ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from('gift_categories')
-        .select('*')
-        .eq('company_id', ctx.companyId)
-        .order('name')
+      const data = await ctx.db
+        .select()
+        .from(giftCategories)
+        .where(eq(giftCategories.companyId, ctx.companyId!))
+        .orderBy(giftCategories.name)
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
-
-      return data || []
+      return data
     }),
 
   /**
@@ -380,21 +404,15 @@ export const giftsEnhancedRouter = router({
       color: z.string().regex(/^#[0-9A-F]{6}$/i).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('gift_categories')
-        .insert({
-          company_id: ctx.companyId,
+      const [data] = await ctx.db
+        .insert(giftCategories)
+        .values({
+          companyId: ctx.companyId!,
           name: input.name,
           icon: input.icon,
           color: input.color,
         })
-        .select()
-        .single()
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+        .returning()
 
       return data
     }),
@@ -409,19 +427,13 @@ export const giftsEnhancedRouter = router({
    */
   listTemplates: protectedProcedure
     .query(async ({ ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from('thank_you_note_templates')
-        .select('*')
-        .eq('company_id', ctx.companyId)
-        .order('is_default', { ascending: false })
-        .order('name')
+      const data = await ctx.db
+        .select()
+        .from(thankYouNoteTemplates)
+        .where(eq(thankYouNoteTemplates.companyId, ctx.companyId!))
+        .orderBy(desc(thankYouNoteTemplates.isDefault), thankYouNoteTemplates.name)
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
-
-      return data || []
+      return data
     }),
 
   /**
@@ -440,21 +452,15 @@ export const giftsEnhancedRouter = router({
       isDefault: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('thank_you_note_templates')
-        .insert({
-          company_id: ctx.companyId,
+      const [data] = await ctx.db
+        .insert(thankYouNoteTemplates)
+        .values({
+          companyId: ctx.companyId!,
           name: input.name,
-          template_text: input.templateText,
-          is_default: input.isDefault,
+          templateText: input.templateText,
+          isDefault: input.isDefault,
         })
-        .select()
-        .single()
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+        .returning()
 
       return data
     }),
@@ -476,22 +482,19 @@ export const giftsEnhancedRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input
 
-      const { data, error } = await ctx.supabase
-        .from('thank_you_note_templates')
-        .update({
+      const [data] = await ctx.db
+        .update(thankYouNoteTemplates)
+        .set({
           name: updates.name,
-          template_text: updates.templateText,
-          is_default: updates.isDefault,
+          templateText: updates.templateText,
+          isDefault: updates.isDefault,
+          updatedAt: new Date(),
         })
-        .eq('id', id)
-        .eq('company_id', ctx.companyId)
-        .select()
-        .single()
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+        .where(and(
+          eq(thankYouNoteTemplates.id, id),
+          eq(thankYouNoteTemplates.companyId, ctx.companyId!)
+        ))
+        .returning()
 
       return data
     }),
@@ -506,16 +509,12 @@ export const giftsEnhancedRouter = router({
   deleteTemplate: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { error } = await ctx.supabase
-        .from('thank_you_note_templates')
-        .delete()
-        .eq('id', input.id)
-        .eq('company_id', ctx.companyId)
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      await ctx.db
+        .delete(thankYouNoteTemplates)
+        .where(and(
+          eq(thankYouNoteTemplates.id, input.id),
+          eq(thankYouNoteTemplates.companyId, ctx.companyId!)
+        ))
 
       return { success: true }
     }),
@@ -534,24 +533,31 @@ export const giftsEnhancedRouter = router({
       clientId: z.string().uuid(),
     }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .select(`
-          *,
-          guests(first_name, last_name, email)
-        `)
-        .eq('client_id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .eq('thank_you_sent', false)
-        .lt('thank_you_due_date', new Date().toISOString())
-        .order('thank_you_due_date')
+      const today = new Date().toISOString().split('T')[0]
 
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      const data = await ctx.db
+        .select({
+          gift: giftsEnhanced,
+          guest: {
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            email: guests.email,
+          },
+        })
+        .from(giftsEnhanced)
+        .leftJoin(guests, eq(giftsEnhanced.guestId, guests.id))
+        .where(and(
+          eq(giftsEnhanced.clientId, input.clientId),
+          eq(giftsEnhanced.companyId, ctx.companyId!),
+          eq(giftsEnhanced.thankYouSent, false),
+          lt(giftsEnhanced.thankYouDueDate, today)
+        ))
+        .orderBy(giftsEnhanced.thankYouDueDate)
 
-      return data || []
+      return data.map(row => ({
+        ...row.gift,
+        guests: row.guest,
+      }))
     }),
 
   /**
@@ -566,23 +572,24 @@ export const giftsEnhancedRouter = router({
       clientId: z.string().uuid(),
     }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .select('monetary_value, estimated_value, gift_type')
-        .eq('client_id', input.clientId)
-        .eq('company_id', ctx.companyId)
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      const data = await ctx.db
+        .select({
+          monetaryValue: giftsEnhanced.monetaryValue,
+          estimatedValue: giftsEnhanced.estimatedValue,
+          giftType: giftsEnhanced.giftType,
+        })
+        .from(giftsEnhanced)
+        .where(and(
+          eq(giftsEnhanced.clientId, input.clientId),
+          eq(giftsEnhanced.companyId, ctx.companyId!)
+        ))
 
       // Calculate total value client-side
-      const total = (data || []).reduce((sum, gift) => {
-        if (gift.gift_type === 'cash' && gift.monetary_value) {
-          return sum + Number(gift.monetary_value)
+      const total = data.reduce((sum, gift) => {
+        if (gift.giftType === 'cash' && gift.monetaryValue) {
+          return sum + Number(gift.monetaryValue)
         }
-        return sum + Number(gift.estimated_value || gift.monetary_value || 0)
+        return sum + Number(gift.estimatedValue || gift.monetaryValue || 0)
       }, 0)
 
       return total
@@ -602,42 +609,48 @@ export const giftsEnhancedRouter = router({
       limit: z.number().int().min(1).max(50).default(10),
     }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
-        .from('gifts_enhanced')
-        .select(`
-          guest_id,
-          monetary_value,
-          estimated_value,
-          gift_type,
-          guests(id, first_name, last_name)
-        `)
-        .eq('client_id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .not('guest_id', 'is', null)
-
-      if (error) throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error.message,
-      })
+      const data = await ctx.db
+        .select({
+          guestId: giftsEnhanced.guestId,
+          monetaryValue: giftsEnhanced.monetaryValue,
+          estimatedValue: giftsEnhanced.estimatedValue,
+          giftType: giftsEnhanced.giftType,
+          guest: {
+            id: guests.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+          },
+        })
+        .from(giftsEnhanced)
+        .leftJoin(guests, eq(giftsEnhanced.guestId, guests.id))
+        .where(and(
+          eq(giftsEnhanced.clientId, input.clientId),
+          eq(giftsEnhanced.companyId, ctx.companyId!)
+        ))
 
       // Group by guest and calculate totals
-      const guestMap = new Map<string, any>()
+      const guestMap = new Map<string, {
+        guest_id: string
+        guest_name: string
+        total_value: number
+        gift_count: number
+      }>()
 
-      for (const gift of data || []) {
-        if (!gift.guest_id || !gift.guests) continue
+      for (const gift of data) {
+        if (!gift.guestId || !gift.guest?.id) continue
 
-        const value = gift.gift_type === 'cash'
-          ? Number(gift.monetary_value || 0)
-          : Number(gift.estimated_value || gift.monetary_value || 0)
+        const value = gift.giftType === 'cash'
+          ? Number(gift.monetaryValue || 0)
+          : Number(gift.estimatedValue || gift.monetaryValue || 0)
 
-        const existing = guestMap.get(gift.guest_id)
+        const existing = guestMap.get(gift.guestId)
         if (existing) {
           existing.total_value += value
           existing.gift_count += 1
         } else {
-          guestMap.set(gift.guest_id, {
-            guest_id: gift.guest_id,
-            guest_name: `${gift.guests.first_name} ${gift.guests.last_name}`,
+          guestMap.set(gift.guestId, {
+            guest_id: gift.guestId,
+            guest_name: `${gift.guest.firstName} ${gift.guest.lastName}`,
             total_value: value,
             gift_count: 1,
           })

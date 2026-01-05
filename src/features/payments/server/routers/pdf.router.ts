@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { protectedProcedure, router } from '@/server/trpc/trpc';
 import { generateInvoicePDF, generateInvoiceFilename } from '@/lib/pdf/generator';
+import { eq, and } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 
 // Invoice item schema
 const invoiceItemSchema = z.object({
@@ -21,7 +23,7 @@ export const pdfRouter = router({
   generateInvoicePDF: protectedProcedure
     .input(generateInvoicePDFSchema)
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
 
       if (!companyId) {
         throw new TRPCError({
@@ -32,35 +34,29 @@ export const pdfRouter = router({
 
       try {
         // Fetch payment data with related info
-        // Note: Some columns (address, phone, email) don't exist in the schema yet
-        const { data: payment, error: paymentError } = await supabase
-          .from('payments')
-          .select(`
-            *,
-            client:clients (
-              id,
-              partner1_first_name,
-              partner1_last_name,
-              partner1_email,
-              partner2_first_name,
-              partner2_last_name,
-              partner2_email
-            ),
-            company:companies (
-              id,
-              name
-            )
-          `)
-          .eq('id', input.paymentId)
-          .eq('company_id', companyId)
-          .single();
+        const [result] = await db
+          .select({
+            payment: schema.payments,
+            client: schema.clients,
+            company: schema.companies,
+          })
+          .from(schema.payments)
+          .leftJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
+          .leftJoin(schema.companies, eq(schema.payments.companyId, schema.companies.id))
+          .where(and(
+            eq(schema.payments.id, input.paymentId),
+            eq(schema.payments.companyId, companyId)
+          ))
+          .limit(1);
 
-        if (paymentError || !payment) {
+        if (!result) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Payment not found',
           });
         }
+
+        const { payment, client, company } = result;
 
         // Fetch invoice items (if you have a separate items table)
         // For now, we'll create a single item from payment
@@ -68,44 +64,43 @@ export const pdfRouter = router({
           {
             description: payment.description || 'Wedding Planning Services',
             quantity: 1,
-            unit_price: payment.amount,
-            total: payment.amount,
+            unit_price: parseFloat(payment.amount || '0'),
+            total: parseFloat(payment.amount || '0'),
           },
         ];
 
         // Prepare invoice data
-        // TODO: Add address/phone fields to companies and clients tables for complete invoice data
-        if (!payment.created_at) {
+        if (!payment.createdAt) {
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
             message: 'Payment missing creation date',
           });
         }
 
-        const clientName = payment.client
-          ? `${payment.client.partner1_first_name || ''} ${payment.client.partner1_last_name || ''}` +
-            (payment.client.partner2_first_name ? ` & ${payment.client.partner2_first_name} ${payment.client.partner2_last_name || ''}` : '')
+        const clientName = client
+          ? `${client.partner1FirstName || ''} ${client.partner1LastName || ''}` +
+            (client.partner2FirstName ? ` & ${client.partner2FirstName} ${client.partner2LastName || ''}` : '')
           : 'Client';
 
         const invoiceData = {
-          invoiceNumber: payment.stripe_payment_intent_id?.slice(-8).toUpperCase() ||
+          invoiceNumber: payment.stripePaymentIntentId?.slice(-8).toUpperCase() ||
                          payment.id.slice(-8).toUpperCase(),
-          invoiceDate: payment.created_at,
-          dueDate: payment.created_at, // Same as created for immediate payment
+          invoiceDate: payment.createdAt.toISOString(),
+          dueDate: payment.createdAt.toISOString(), // Same as created for immediate payment
           status: payment.status as 'paid' | 'pending' | 'overdue',
-          companyName: payment.company?.name || 'Wedding Planning Company',
-          companyAddress: undefined, // TODO: Add address field to companies table
-          companyEmail: undefined, // TODO: Add email field to companies table
-          companyPhone: undefined, // TODO: Add phone field to companies table
+          companyName: company?.name || 'Wedding Planning Company',
+          companyAddress: undefined,
+          companyEmail: undefined,
+          companyPhone: undefined,
           clientName: clientName.trim() || 'Client',
-          clientEmail: payment.client?.partner1_email,
-          clientPhone: undefined, // TODO: Add phone field to clients table
-          clientAddress: undefined, // TODO: Add address field to clients table
+          clientEmail: client?.partner1Email,
+          clientPhone: undefined,
+          clientAddress: undefined,
           items,
-          subtotal: payment.amount,
+          subtotal: parseFloat(payment.amount || '0'),
           tax: 0,
           discount: 0,
-          total: payment.amount,
+          total: parseFloat(payment.amount || '0'),
           currency: payment.currency || 'USD',
           notes: 'Thank you for choosing our wedding planning services!',
           paymentTerms: 'Payment due upon receipt. All payments are processed securely through Stripe.',
@@ -151,7 +146,7 @@ export const pdfRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
 
       if (!companyId) {
         throw new TRPCError({
@@ -162,14 +157,16 @@ export const pdfRouter = router({
 
       try {
         // Fetch client data
-        const { data: client, error: clientError } = await supabase
-          .from('clients')
-          .select('*')
-          .eq('id', input.clientId)
-          .eq('company_id', companyId)
-          .single();
+        const [client] = await db
+          .select()
+          .from(schema.clients)
+          .where(and(
+            eq(schema.clients.id, input.clientId),
+            eq(schema.clients.companyId, companyId)
+          ))
+          .limit(1);
 
-        if (clientError || !client) {
+        if (!client) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Client not found',
@@ -177,13 +174,13 @@ export const pdfRouter = router({
         }
 
         // Fetch company data
-        const { data: company, error: companyError } = await supabase
-          .from('companies')
-          .select('*')
-          .eq('id', companyId)
-          .single();
+        const [company] = await db
+          .select()
+          .from(schema.companies)
+          .where(eq(schema.companies.id, companyId))
+          .limit(1);
 
-        if (companyError || !company) {
+        if (!company) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Company not found',
@@ -204,10 +201,9 @@ export const pdfRouter = router({
           dueDate < now ? 'overdue' : 'pending';
 
         // Prepare invoice data
-        // TODO: Add address/phone/email fields to companies and clients tables for complete invoice data
         const clientName = client
-          ? `${client.partner1_first_name || ''} ${client.partner1_last_name || ''}` +
-            (client.partner2_first_name ? ` & ${client.partner2_first_name} ${client.partner2_last_name || ''}` : '')
+          ? `${client.partner1FirstName || ''} ${client.partner1LastName || ''}` +
+            (client.partner2FirstName ? ` & ${client.partner2FirstName} ${client.partner2LastName || ''}` : '')
           : 'Client';
 
         const invoiceData = {
@@ -216,13 +212,13 @@ export const pdfRouter = router({
           dueDate: input.dueDate,
           status,
           companyName: company.name || 'Wedding Planning Company',
-          companyAddress: undefined, // TODO: Add address field to companies table
-          companyEmail: undefined, // TODO: Add email field to companies table
-          companyPhone: undefined, // TODO: Add phone field to companies table
+          companyAddress: undefined,
+          companyEmail: undefined,
+          companyPhone: undefined,
           clientName: clientName.trim() || 'Client',
-          clientEmail: client.partner1_email,
-          clientPhone: undefined, // TODO: Add phone field to clients table
-          clientAddress: undefined, // TODO: Add address field to clients table
+          clientEmail: client.partner1Email,
+          clientPhone: undefined,
+          clientAddress: undefined,
           items: input.items,
           subtotal,
           tax,

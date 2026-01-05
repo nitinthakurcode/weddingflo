@@ -1,7 +1,15 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { eq, and, isNull, asc } from 'drizzle-orm'
+import { timeline, clients, users, clientUsers } from '@/lib/db/schema'
 
+/**
+ * Timeline tRPC Router - Drizzle ORM Version
+ *
+ * Provides CRUD operations for wedding timeline items with multi-tenant security.
+ * Migrated from Supabase to Drizzle - December 2025
+ */
 export const timelineRouter = router({
   getAll: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
@@ -10,34 +18,31 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Fetch timeline items
-      const { data: timelineItems, error } = await ctx.supabase
-        .from('timeline')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('sort_order', { ascending: true })
-        .order('start_time', { ascending: true })
+      const timelineItems = await ctx.db
+        .select()
+        .from(timeline)
+        .where(eq(timeline.clientId, input.clientId))
+        .orderBy(asc(timeline.sortOrder), asc(timeline.startTime))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
-
-      return timelineItems || []
+      return timelineItems
     }),
 
   getById: adminProcedure
@@ -47,13 +52,13 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: timelineItem, error } = await ctx.supabase
-        .from('timeline')
-        .select('*')
-        .eq('id', input.id)
-        .single()
+      const [timelineItem] = await ctx.db
+        .select()
+        .from(timeline)
+        .where(eq(timeline.id, input.id))
+        .limit(1)
 
-      if (error || !timelineItem) {
+      if (!timelineItem) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
@@ -78,40 +83,44 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Create timeline item
-      const { data: timelineItem, error } = await ctx.supabase
-        .from('timeline')
-        .insert({
-          client_id: input.clientId,
+      const [timelineItem] = await ctx.db
+        .insert(timeline)
+        .values({
+          clientId: input.clientId,
           title: input.title,
-          description: input.description,
-          start_time: input.startTime,
-          end_time: input.endTime,
-          duration_minutes: input.durationMinutes,
-          location: input.location,
-          responsible_person: input.responsiblePerson,
-          sort_order: input.sortOrder,
-          notes: input.notes,
+          description: input.description || null,
+          startTime: new Date(input.startTime),
+          endTime: input.endTime ? new Date(input.endTime) : null,
+          durationMinutes: input.durationMinutes || null,
+          location: input.location || null,
+          responsiblePerson: input.responsiblePerson || null,
+          sortOrder: input.sortOrder,
+          notes: input.notes || null,
         })
-        .select()
-        .single()
+        .returning()
 
-      if (error) {
+      if (!timelineItem) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          message: 'Failed to create timeline item'
         })
       }
 
@@ -140,33 +149,32 @@ export const timelineRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
-        updated_at: new Date().toISOString(),
+      const updateData: Record<string, any> = {
+        updatedAt: new Date(),
       }
 
       if (input.data.title !== undefined) updateData.title = input.data.title
       if (input.data.description !== undefined) updateData.description = input.data.description
-      if (input.data.startTime !== undefined) updateData.start_time = input.data.startTime
-      if (input.data.endTime !== undefined) updateData.end_time = input.data.endTime
-      if (input.data.durationMinutes !== undefined) updateData.duration_minutes = input.data.durationMinutes
+      if (input.data.startTime !== undefined) updateData.startTime = new Date(input.data.startTime)
+      if (input.data.endTime !== undefined) updateData.endTime = input.data.endTime ? new Date(input.data.endTime) : null
+      if (input.data.durationMinutes !== undefined) updateData.durationMinutes = input.data.durationMinutes
       if (input.data.location !== undefined) updateData.location = input.data.location
-      if (input.data.responsiblePerson !== undefined) updateData.responsible_person = input.data.responsiblePerson
-      if (input.data.sortOrder !== undefined) updateData.sort_order = input.data.sortOrder
+      if (input.data.responsiblePerson !== undefined) updateData.responsiblePerson = input.data.responsiblePerson
+      if (input.data.sortOrder !== undefined) updateData.sortOrder = input.data.sortOrder
       if (input.data.completed !== undefined) updateData.completed = input.data.completed
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
       // Update timeline item
-      const { data: timelineItem, error } = await ctx.supabase
-        .from('timeline')
-        .update(updateData)
-        .eq('id', input.id)
-        .select()
-        .single()
+      const [timelineItem] = await ctx.db
+        .update(timeline)
+        .set(updateData)
+        .where(eq(timeline.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!timelineItem) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Timeline item not found'
         })
       }
 
@@ -180,17 +188,9 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { error } = await ctx.supabase
-        .from('timeline')
-        .delete()
-        .eq('id', input.id)
-
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
+      await ctx.db
+        .delete(timeline)
+        .where(eq(timeline.id, input.id))
 
       return { success: true }
     }),
@@ -205,13 +205,18 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
@@ -219,10 +224,10 @@ export const timelineRouter = router({
 
       // Update sort_order for each item
       const updates = input.itemIds.map((id, index) =>
-        ctx.supabase
-          .from('timeline')
-          .update({ sort_order: index })
-          .eq('id', id)
+        ctx.db
+          .update(timeline)
+          .set({ sortOrder: index })
+          .where(eq(timeline.id, id))
       )
 
       // Execute all updates
@@ -241,20 +246,19 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: timelineItem, error } = await ctx.supabase
-        .from('timeline')
-        .update({
+      const [timelineItem] = await ctx.db
+        .update(timeline)
+        .set({
           completed: input.completed,
-          updated_at: new Date().toISOString(),
+          updatedAt: new Date(),
         })
-        .eq('id', input.id)
-        .select()
-        .single()
+        .where(eq(timeline.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!timelineItem) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Timeline item not found'
         })
       }
 
@@ -268,56 +272,67 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get all timeline items with times
-      const { data: items } = await ctx.supabase
-        .from('timeline')
-        .select('id, title, start_time, end_time, duration_minutes')
-        .eq('client_id', input.clientId)
-        .order('start_time', { ascending: true })
+      const items = await ctx.db
+        .select({
+          id: timeline.id,
+          title: timeline.title,
+          startTime: timeline.startTime,
+          endTime: timeline.endTime,
+          durationMinutes: timeline.durationMinutes,
+        })
+        .from(timeline)
+        .where(eq(timeline.clientId, input.clientId))
+        .orderBy(asc(timeline.startTime))
 
       if (!items || items.length === 0) {
         return []
       }
 
-      // Helper function to convert time to minutes
-      const timeToMinutes = (time: string) => {
-        const [hours, minutes] = time.split(':').map(Number)
-        return hours * 60 + minutes
-      }
-
-      // Helper function to calculate end time
-      const getEndTime = (item: any) => {
-        if (item.end_time) {
-          return timeToMinutes(item.end_time)
-        } else if (item.duration_minutes) {
-          return timeToMinutes(item.start_time) + item.duration_minutes
+      // Helper function to get end time as Date
+      const getEndTime = (item: any): Date => {
+        if (item.endTime) {
+          return new Date(item.endTime)
+        } else if (item.durationMinutes && item.startTime) {
+          const end = new Date(item.startTime)
+          end.setMinutes(end.getMinutes() + item.durationMinutes)
+          return end
         }
-        return timeToMinutes(item.start_time) + 60 // default 1 hour
+        // default 1 hour
+        const end = new Date(item.startTime)
+        end.setHours(end.getHours() + 1)
+        return end
       }
 
       // Detect conflicts
       const conflicts = []
       for (let i = 0; i < items.length - 1; i++) {
         const currentEnd = getEndTime(items[i])
-        const nextStart = timeToMinutes(items[i + 1].start_time)
+        const nextStart = new Date(items[i + 1].startTime)
 
         if (currentEnd > nextStart) {
+          const overlapMs = currentEnd.getTime() - nextStart.getTime()
           conflicts.push({
             item1: items[i],
             item2: items[i + 1],
-            overlapMinutes: currentEnd - nextStart,
+            overlapMinutes: Math.round(overlapMs / (1000 * 60)),
           })
         }
       }
@@ -332,35 +347,85 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get timeline items
-      const { data: items } = await ctx.supabase
-        .from('timeline')
-        .select('completed, duration_minutes')
-        .eq('client_id', input.clientId)
+      const items = await ctx.db
+        .select({
+          completed: timeline.completed,
+          durationMinutes: timeline.durationMinutes,
+        })
+        .from(timeline)
+        .where(eq(timeline.clientId, input.clientId))
 
-      const totalDuration = items?.reduce((sum, item) => sum + (item.duration_minutes || 0), 0) || 0
+      const totalDuration = items.reduce((sum, item) => sum + (item.durationMinutes || 0), 0)
 
       const stats = {
-        total: items?.length || 0,
-        completed: items?.filter(item => item.completed).length || 0,
-        pending: items?.filter(item => !item.completed).length || 0,
-        totalDuration, // in minutes
+        total: items.length,
+        completed: items.filter(item => item.completed).length,
+        pending: items.filter(item => !item.completed).length,
+        totalDuration,
         totalDurationHours: Math.floor(totalDuration / 60),
         totalDurationMinutes: totalDuration % 60,
       }
 
       return stats
+    }),
+
+  /**
+   * Portal Timeline - For client users (couples) to view their wedding timeline
+   * Uses protectedProcedure and looks up clientId from client_users table
+   */
+  getPortalTimeline: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (!ctx.userId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' })
+      }
+
+      // Get user record
+      const [user] = await ctx.db
+        .select({ id: users.id, role: users.role })
+        .from(users)
+        .where(eq(users.authId, ctx.userId))
+        .limit(1)
+
+      if (!user) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' })
+      }
+
+      // Get client_user link to find the client
+      const [clientUser] = await ctx.db
+        .select({ clientId: clientUsers.clientId })
+        .from(clientUsers)
+        .where(eq(clientUsers.userId, user.id))
+        .limit(1)
+
+      if (!clientUser) {
+        return []
+      }
+
+      // Fetch timeline items for this client
+      const timelineItems = await ctx.db
+        .select()
+        .from(timeline)
+        .where(eq(timeline.clientId, clientUser.clientId))
+        .orderBy(asc(timeline.sortOrder), asc(timeline.startTime))
+
+      return timelineItems
     }),
 })

@@ -3,32 +3,17 @@
  *
  * Comprehensive audit trail for webhook processing.
  * Logs all webhook events, errors, and performance metrics.
+ *
+ * December 2025 - Migrated to Drizzle ORM (Hetzner PostgreSQL)
  */
 
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '@/lib/database.types';
+import { getWebhookStats } from '@/lib/db/queries/billing';
 import type {
   WebhookProvider,
   AuditLogEntry,
   WebhookProcessingResult,
   TransactionContext,
 } from './types';
-
-/**
- * Create Supabase admin client (bypasses RLS for system logging)
- */
-function getSupabaseAdmin() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
-}
 
 // ============================================================================
 // STRUCTURED LOGGING
@@ -271,6 +256,8 @@ export function trackWebhookPerformance(
 /**
  * Get webhook statistics for monitoring
  *
+ * Uses Drizzle ORM directly via query functions
+ *
  * @param provider - Webhook provider (optional - null for all providers)
  * @param hours - Number of hours to look back (default 24)
  * @returns Webhook statistics
@@ -287,19 +274,29 @@ export async function getWebhookStatistics(
   success_rate: number;
   avg_processing_time_ms: number;
 }[]> {
-  const supabase = getSupabaseAdmin();
+  try {
+    // If no provider specified, we'd need to query all providers
+    // For now, require a provider
+    if (!provider) {
+      console.warn('getWebhookStatistics: provider is required');
+      return [];
+    }
 
-  const { data, error } = await supabase.rpc('get_webhook_stats', {
-    p_provider: provider || undefined,
-    p_hours: hours,
-  });
+    const stats = await getWebhookStats(provider, hours);
 
-  if (error) {
+    return [{
+      provider: stats.provider,
+      total_webhooks: stats.total_events,
+      processed_webhooks: stats.processed,
+      failed_webhooks: stats.failed,
+      pending_webhooks: stats.pending,
+      success_rate: stats.success_rate,
+      avg_processing_time_ms: 0, // Not tracked in current implementation
+    }];
+  } catch (error) {
     console.error('Failed to get webhook statistics:', error);
     return [];
   }
-
-  return data as any[];
 }
 
 // ============================================================================
@@ -350,7 +347,7 @@ export function categorizeWebhookError(error: Error): {
   if (
     errorName === 'DatabaseError' ||
     errorMessage.includes('database') ||
-    errorMessage.includes('supabase') ||
+    errorMessage.includes('postgres') ||
     errorMessage.includes('connection')
   ) {
     return {

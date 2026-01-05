@@ -13,6 +13,24 @@ import { formatDistanceToNow } from 'date-fns';
 import { formatStripeAmount } from '@/lib/payments/stripe';
 import { DownloadInvoiceButton } from '@/components/pdf/download-invoice-button';
 
+interface Payment {
+  id: string;
+  description: string | null;
+  stripe_payment_intent_id: string | null;
+  status: string;
+  amount: number;
+  currency: string;
+  created_at: string;
+  payment_method: string | null;
+  invoice: {
+    invoice_number: string;
+  } | null;
+  client: {
+    partner1_first_name: string | null;
+    partner1_last_name: string | null;
+  } | null;
+}
+
 export function PaymentsTable() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -63,7 +81,8 @@ export function PaymentsTable() {
     }
   };
 
-  const filteredPayments = data?.payments.filter((payment) => {
+  const typedPayments = data?.payments as Payment[] | undefined;
+  const filteredPayments = typedPayments?.filter((payment: Payment) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (

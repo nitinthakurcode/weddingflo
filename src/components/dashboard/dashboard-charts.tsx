@@ -11,16 +11,41 @@ interface DashboardChartsProps {
   totalBudget: number;
 }
 
+/**
+ * Theme-aligned chart colors (2026 Design System)
+ * These reference CSS variables from src/styles/tokens/colors.css
+ * Note: Recharts requires hex values - we use CSS custom property fallbacks
+ * When theme changes, these will automatically update via CSS variables
+ */
+const THEME_COLORS = {
+  teal500: 'var(--teal-500, #14B8A6)',
+  rose400: 'var(--rose-400, #FB7185)',
+  gold400: 'var(--gold-400, #FACC15)',
+  cobalt400: 'var(--cobalt-400, #60A5FA)',
+  sage500: 'var(--sage-500, #7BAF6B)',
+  mocha400: 'var(--mocha-400, #B8A089)',
+  rose600: 'var(--rose-600, #BE123C)',
+  mocha300: 'var(--mocha-300, #D4C4B7)',
+} as const;
+
+// Recharts color arrays - these will use the theme variables with fallbacks
 const COLORS = {
-  primary: ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'],
+  primary: [
+    THEME_COLORS.teal500,
+    THEME_COLORS.rose400,
+    THEME_COLORS.gold400,
+    THEME_COLORS.cobalt400,
+    THEME_COLORS.sage500,
+    THEME_COLORS.mocha400,
+  ],
   status: {
-    booked: '#10b981',
-    confirmed: '#3b82f6',
-    quoted: '#f59e0b',
-    contacted: '#8b5cf6',
-    prospect: '#6b7280',
-    completed: '#10b981',
-    cancelled: '#ef4444',
+    booked: THEME_COLORS.sage500,
+    confirmed: THEME_COLORS.teal500,
+    quoted: THEME_COLORS.gold400,
+    contacted: THEME_COLORS.cobalt400,
+    prospect: THEME_COLORS.mocha400,
+    completed: THEME_COLORS.sage500,
+    cancelled: THEME_COLORS.rose600,
   },
 };
 
@@ -79,7 +104,7 @@ export function DashboardCharts({
                 {guestConfirmationData.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
-                    fill={index === 0 ? '#10b981' : '#e5e7eb'}
+                    fill={index === 0 ? THEME_COLORS.sage500 : THEME_COLORS.mocha300}
                   />
                 ))}
               </Pie>
@@ -122,7 +147,8 @@ export function DashboardCharts({
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: string | number | (string | number)[]) => {
+                  formatter={(value: string | number | (string | number)[] | undefined) => {
+                    if (value === undefined) return '';
                     if (Array.isArray(value)) return value.join(', ');
                     return typeof value === 'number' ? `$${value.toLocaleString()}` : value;
                   }}
@@ -146,14 +172,14 @@ export function DashboardCharts({
                 ${budgetSpent.toLocaleString()} / ${totalBudget.toLocaleString()}
               </span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-6 overflow-hidden">
+            <div className="w-full bg-mocha-200 rounded-full h-6 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${
                   budgetProgress > 90
-                    ? 'bg-red-500'
+                    ? 'bg-rose-500'
                     : budgetProgress > 75
-                    ? 'bg-yellow-500'
-                    : 'bg-green-500'
+                    ? 'bg-gold-500'
+                    : 'bg-sage-500'
                 }`}
                 style={{ width: `${Math.min(budgetProgress, 100)}%` }}
               >
@@ -164,15 +190,15 @@ export function DashboardCharts({
             </div>
             <p className="text-xs text-muted-foreground">
               {budgetProgress > 90 ? (
-                <span className="text-red-600 font-medium">
+                <span className="text-rose-600 font-medium">
                   Warning: Over 90% of budget used
                 </span>
               ) : budgetProgress > 75 ? (
-                <span className="text-yellow-600 font-medium">
+                <span className="text-gold-600 font-medium">
                   Approaching budget limit
                 </span>
               ) : (
-                <span className="text-green-600 font-medium">
+                <span className="text-sage-600 font-medium">
                   Budget on track
                 </span>
               )}
@@ -197,7 +223,7 @@ export function DashboardCharts({
                 <XAxis dataKey="status" tick={{ fontSize: 12 }} />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill={THEME_COLORS.teal500} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}

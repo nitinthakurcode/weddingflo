@@ -31,7 +31,7 @@ export function CompletionStep({ onComplete, clientCreated }: CompletionStepProp
             </div>
             <CardTitle className="text-3xl">You&apos;re All Set! 🎉</CardTitle>
             <CardDescription className="text-lg mt-2">
-              Welcome to WeddingFlow Pro - Let&apos;s create amazing weddings together
+              Welcome to WeddingFlo - Let&apos;s create amazing weddings together
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">

@@ -1,39 +1,32 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { getServerSession } from '@/lib/auth/server';
 
 /**
  * GET /api/user/current
  *
- * Fetches the current user from Supabase using Clerk authentication.
- * Uses admin client to bypass RLS since Clerk JWT is not compatible with Supabase auth.jwt()
+ * Returns the current user from BetterAuth session.
  */
 export async function GET() {
   try {
-    const { userId } = await auth();
+    const { userId, user } = await getServerSession();
 
-    if (!userId) {
+    if (!userId || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = createServerSupabaseAdminClient();
+    // Return user data directly from session
+    const userData = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      first_name: user.firstName,
+      last_name: user.lastName,
+      avatar_url: user.image,
+      role: user.role,
+      company_id: user.companyId,
+    };
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('clerk_id', userId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('[API /user/current] Error fetching user:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    return NextResponse.json(user);
+    return NextResponse.json(userData);
   } catch (error) {
     console.error('[API /user/current] Unexpected error:', error);
     return NextResponse.json(

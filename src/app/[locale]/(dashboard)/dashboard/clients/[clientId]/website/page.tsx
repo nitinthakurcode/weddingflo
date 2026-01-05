@@ -14,19 +14,31 @@ import { DomainManager } from '@/components/websites/domain-manager';
 import { WebsiteAnalytics } from '@/components/websites/website-analytics';
 import { WebsiteSettings } from '@/components/websites/website-settings';
 import { toast } from 'sonner';
+import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader';
 
 /**
- * Website Management Dashboard
- * Session 49: Complete wedding website builder
+ * Website Management Dashboard - Drizzle Schema
  *
- * Features:
- * - Template selection
- * - Content editing
- * - Domain management
- * - Publishing
- * - Analytics
- * - Settings
+ * Schema uses camelCase fields:
+ * - isPublished (not is_published)
+ * - isPasswordProtected (not is_password_protected)
+ * - customDomain (not custom_domain)
+ * - theme (not template_id)
+ * - settings JSONB: { customDomainVerified, viewCount, ... }
+ * - content JSONB: { heroSection, ourStorySection, ... }
  */
+
+// Type for settings JSONB
+interface WebsiteSettings {
+  customDomainVerified?: boolean;
+  viewCount?: number;
+  uniqueVisitors?: number;
+  themeColors?: Record<string, unknown>;
+  fonts?: Record<string, unknown>;
+  metaTitle?: string;
+  metaDescription?: string;
+}
+
 export default function WebsitePage() {
   const params = useParams();
   const clientId = params.clientId as string;
@@ -54,7 +66,7 @@ export default function WebsitePage() {
 
   const togglePublish = trpc.websites.togglePublish.useMutation({
     onSuccess: (data) => {
-      toast.success(data.is_published ? 'Website published!' : 'Website unpublished');
+      toast.success(data.isPublished ? 'Website published!' : 'Website unpublished');
       refetch();
     },
     onError: (error) => {
@@ -73,7 +85,7 @@ export default function WebsitePage() {
     if (!website) return;
     togglePublish.mutate({
       websiteId: website.id,
-      isPublished: !website.is_published,
+      isPublished: !website.isPublished,
     });
   };
 
@@ -90,7 +102,11 @@ export default function WebsitePage() {
   // No website exists - show creation screen
   if (!website) {
     return (
-      <div className="container py-8">
+      <div className="container py-8 space-y-6">
+        <ClientModuleHeader
+          title="Wedding Website"
+          description="Create a beautiful website for your clients"
+        />
         <Card className="max-w-2xl mx-auto">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -156,72 +172,63 @@ export default function WebsitePage() {
     );
   }
 
+  // Extract settings from JSONB
+  const settings = (website.settings as WebsiteSettings) || {};
+  const customDomainVerified = settings.customDomainVerified || false;
+  const viewCount = settings.viewCount || 0;
+
   // Website exists - show full builder
-  const websiteUrl = website.custom_domain_verified && website.custom_domain
-    ? `https://${website.custom_domain}`
+  const websiteUrl = customDomainVerified && website.customDomain
+    ? `https://${website.customDomain}`
     : `https://${website.subdomain}.weddingflow.com`;
 
   return (
-    <div className="container py-8">
+    <div className="container py-8 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Wedding Website</h1>
-          <p className="text-muted-foreground mt-1">
-            {website.subdomain}.weddingflow.com
-            {website.custom_domain && (
-              <span className="ml-2">
-                • {website.custom_domain}
-                {website.custom_domain_verified && (
-                  <Badge variant="default" className="ml-2">Verified</Badge>
-                )}
-              </span>
-            )}
-          </p>
-        </div>
+      <ClientModuleHeader
+        title="Wedding Website"
+        description={`${website.subdomain}.weddingflow.com${website.customDomain ? ` • ${website.customDomain}${customDomainVerified ? ' (Verified)' : ''}` : ''}`}
+      >
+        <Button
+          variant="outline"
+          onClick={() => window.open(websiteUrl, '_blank')}
+          disabled={!website.isPublished}
+        >
+          <Eye className="h-4 w-4 mr-2" />
+          Preview
+        </Button>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => window.open(websiteUrl, '_blank')}
-            disabled={!website.is_published}
-          >
-            <Eye className="h-4 w-4 mr-2" />
-            Preview
-          </Button>
-
-          <Button
-            onClick={handleTogglePublish}
-            disabled={togglePublish.isPending}
-            variant={website.is_published ? 'outline' : 'default'}
-          >
-            {website.is_published ? (
-              <>
-                <EyeOff className="h-4 w-4 mr-2" />
-                Unpublish
-              </>
-            ) : (
-              <>
-                <Eye className="h-4 w-4 mr-2" />
-                Publish
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+        <Button
+          onClick={handleTogglePublish}
+          disabled={togglePublish.isPending}
+          variant={website.isPublished ? 'outline' : 'default'}
+        >
+          {website.isPublished ? (
+            <>
+              <EyeOff className="h-4 w-4 mr-2" />
+              Unpublish
+            </>
+          ) : (
+            <>
+              <Eye className="h-4 w-4 mr-2" />
+              Publish
+            </>
+          )}
+        </Button>
+      </ClientModuleHeader>
 
       {/* Status Badges */}
       <div className="flex items-center gap-2 mb-6">
-        <Badge variant={website.is_published ? 'default' : 'secondary'}>
-          {website.is_published ? 'Published' : 'Draft'}
+        <Badge variant={website.isPublished ? 'default' : 'secondary'}>
+          {website.isPublished ? 'Published' : 'Draft'}
         </Badge>
-        {website.is_password_protected && (
+        {website.isPasswordProtected && (
           <Badge variant="outline">
             <Lock className="h-3 w-3 mr-1" />
             Password Protected
           </Badge>
         )}
-        <Badge variant="outline">{website.view_count} views</Badge>
+        <Badge variant="outline">{viewCount} views</Badge>
       </div>
 
       {/* Main Content */}
@@ -249,7 +256,7 @@ export default function WebsitePage() {
           <div className="space-y-6">
             <TemplateSelector
               websiteId={website.id}
-              currentTemplateId={website.template_id}
+              currentTemplateId={website.theme || 'classic'}
               onTemplateChange={refetch}
             />
             <WebsiteBuilder

@@ -12,6 +12,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Loader2, Search, Filter, Mail, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
+interface EmailLog {
+  id: string;
+  recipient_email: string;
+  recipient_name: string | null;
+  subject: string;
+  email_type: string;
+  status: string;
+  locale: string;
+  sent_at: string | null;
+}
+
 export function EmailLogsTable() {
   const t = useTranslations('emailLogs');
   const [search, setSearch] = useState('');
@@ -24,7 +35,7 @@ export function EmailLogsTable() {
     limit: pageSize,
     offset: page * pageSize,
     status: statusFilter === 'all' ? undefined : (statusFilter as any),
-    emailType: typeFilter === 'all' ? undefined : (typeFilter as any),
+    templateType: typeFilter === 'all' ? undefined : (typeFilter as any),
   });
 
   const getStatusBadge = (status: string) => {
@@ -68,7 +79,8 @@ export function EmailLogsTable() {
       .join(' ');
   };
 
-  const filteredLogs = data?.logs.filter((log) => {
+  const typedLogs = data?.logs as EmailLog[] | undefined;
+  const filteredLogs = typedLogs?.filter((log: EmailLog) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (

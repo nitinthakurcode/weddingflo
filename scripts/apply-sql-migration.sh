@@ -7,7 +7,7 @@ MIGRATION_FILE="supabase/migrations/20251118070157_fix_function_search_path_secu
 PROJECT_REF="gkrcaeymhgjepncbceag"
 SUPABASE_ACCESS_TOKEN="sbp_8f2c87204b1bf14dd7b8bfe6e0b80c3288ad938e"
 
-echo "🔧 WeddingFlow Pro - SQL Migration Applicator"
+echo "🔧 WeddingFlo - SQL Migration Applicator"
 echo "═══════════════════════════════════════════════"
 echo ""
 

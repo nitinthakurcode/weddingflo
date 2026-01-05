@@ -18,7 +18,7 @@ export async function* chatWithAssistant(
   context: AssistantContext
 ): AsyncGenerator<string> {
   // Build system prompt with context
-  const systemPrompt = `You are a helpful wedding planning assistant for WeddingFlow Pro. You help users manage their wedding planning with insights, recommendations, and actionable advice.
+  const systemPrompt = `You are a helpful wedding planning assistant for WeddingFlo. You help users manage their wedding planning with insights, recommendations, and actionable advice.
 
 CONTEXT ABOUT THIS WEDDING:
 ${context.clientName ? `- Client: ${context.clientName}` : ''}

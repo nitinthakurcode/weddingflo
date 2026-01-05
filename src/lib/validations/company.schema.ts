@@ -10,41 +10,44 @@ export const brandingSchema = z.object({
   primary_color: z
     .string()
     .regex(/^#[0-9A-F]{6}$/i, 'Invalid color format (use #RRGGBB)')
+    .optional()
     .default('#3b82f6'),
   secondary_color: z
     .string()
     .regex(/^#[0-9A-F]{6}$/i, 'Invalid color format (use #RRGGBB)')
+    .optional()
     .default('#8b5cf6'),
   accent_color: z
     .string()
     .regex(/^#[0-9A-F]{6}$/i, 'Invalid color format (use #RRGGBB)')
+    .optional()
     .default('#ec4899'),
-  font_family: z.string().default('Inter'),
+  font_family: z.string().optional().default('Inter'),
   custom_css: z.string().optional(),
 });
 
 export const aiConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  seating_ai_enabled: z.boolean().default(true),
-  budget_predictions_enabled: z.boolean().default(true),
-  auto_timeline_enabled: z.boolean().default(true),
-  email_assistant_enabled: z.boolean().default(true),
-  voice_assistant_enabled: z.boolean().default(false),
+  enabled: z.boolean().optional().default(true),
+  seating_ai_enabled: z.boolean().optional().default(true),
+  budget_predictions_enabled: z.boolean().optional().default(true),
+  auto_timeline_enabled: z.boolean().optional().default(true),
+  email_assistant_enabled: z.boolean().optional().default(true),
+  voice_assistant_enabled: z.boolean().optional().default(false),
 });
 
 export const subscriptionSchema = z.object({
-  tier: subscriptionTierSchema.default('starter'),
-  status: subscriptionStatusSchema.default('trial'),
+  tier: subscriptionTierSchema.optional().default('starter'),
+  status: subscriptionStatusSchema.optional().default('trial'),
   trial_ends_at: z.number().optional(),
-  billing_cycle: z.string().default('monthly'),
+  billing_cycle: z.string().optional().default('monthly'),
 });
 
 export const usageStatsSchema = z.object({
-  total_weddings: z.number().min(0).default(0),
-  active_weddings: z.number().min(0).default(0),
-  total_guests: z.number().min(0).default(0),
-  storage_used_mb: z.number().min(0).default(0),
-  ai_queries_this_month: z.number().min(0).default(0),
+  total_weddings: z.number().min(0).optional().default(0),
+  active_weddings: z.number().min(0).optional().default(0),
+  total_guests: z.number().min(0).optional().default(0),
+  storage_used_mb: z.number().min(0).optional().default(0),
+  ai_queries_this_month: z.number().min(0).optional().default(0),
 });
 
 export const companySchema = z.object({
@@ -55,10 +58,10 @@ export const companySchema = z.object({
     .max(63)
     .regex(/^[a-z0-9-]+$/, 'Subdomain can only contain lowercase letters, numbers, and hyphens'),
   custom_domain: z.string().optional(),
-  branding: brandingSchema.default({}),
-  ai_config: aiConfigSchema.default({}),
-  subscription: subscriptionSchema.default({}),
-  usage_stats: usageStatsSchema.default({}),
+  branding: brandingSchema.optional(),
+  ai_config: aiConfigSchema.optional(),
+  subscription: subscriptionSchema.optional(),
+  usage_stats: usageStatsSchema.optional(),
 });
 
 export const updateCompanySchema = companySchema.partial();
@@ -71,11 +74,11 @@ export const updateSubscriptionSchema = subscriptionSchema.partial();
 
 export type SubscriptionTier = z.infer<typeof subscriptionTierSchema>;
 export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
-export type Branding = z.infer<typeof brandingSchema>;
-export type AiConfig = z.infer<typeof aiConfigSchema>;
-export type Subscription = z.infer<typeof subscriptionSchema>;
-export type UsageStats = z.infer<typeof usageStatsSchema>;
-export type CompanyFormData = z.infer<typeof companySchema>;
+export type Branding = z.input<typeof brandingSchema>;
+export type AiConfig = z.input<typeof aiConfigSchema>;
+export type Subscription = z.input<typeof subscriptionSchema>;
+export type UsageStats = z.input<typeof usageStatsSchema>;
+export type CompanyFormData = z.input<typeof companySchema>;
 export type UpdateCompanyData = z.infer<typeof updateCompanySchema>;
 export type UpdateBrandingData = z.infer<typeof updateBrandingSchema>;
 export type UpdateAiConfigData = z.infer<typeof updateAiConfigSchema>;

@@ -135,7 +135,7 @@ export const createMockHotel = (overrides?: Partial<any>) => ({
 
 export const createMockUser = (overrides?: Partial<any>) => ({
   id: faker.string.uuid(),
-  clerk_id: `user_${faker.string.alphanumeric(24)}`,
+  auth_id: `user_${faker.string.alphanumeric(24)}`,
   email: faker.internet.email(),
   first_name: faker.person.firstName(),
   last_name: faker.person.lastName(),

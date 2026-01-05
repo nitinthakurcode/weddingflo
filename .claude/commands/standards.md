@@ -1,5 +1,5 @@
 ---
-description: Load WeddingFlow Pro permanent standards and architecture patterns
+description: Load WeddingFlo permanent standards and architecture patterns
 ---
 
 **LOADING WEDDINGFLOW PRO PERMANENT STANDARDS...**

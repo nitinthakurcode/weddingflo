@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# WeddingFlow Pro - Local Testing Script
+# WeddingFlo - Local Testing Script
 # Tests all critical endpoints and functionality
 
-echo "🧪 WeddingFlow Pro - Local Testing Suite"
+echo "🧪 WeddingFlo - Local Testing Suite"
 echo "========================================"
 echo ""
 

@@ -1,4 +1,5 @@
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { db, eq, sql } from '@/lib/db';
+import { weddingWebsites } from '@/lib/db/schema';
 import dns from 'dns/promises';
 
 /**
@@ -6,7 +7,7 @@ import dns from 'dns/promises';
  * Session 49: Custom domain ownership verification
  *
  * Verifies custom domain ownership via DNS TXT records
- * Following October 2025 standards
+ * Following December 2025 Drizzle standards
  */
 
 export interface DNSVerificationResult {
@@ -48,23 +49,27 @@ export async function verifyCustomDomain(
   websiteId: string,
   domain: string
 ): Promise<DNSVerificationResult> {
-  const supabase = createServerSupabaseAdminClient();
-
   try {
-    // Get verification token
-    const { data: website } = await supabase
-      .from('wedding_websites')
-      .select('dns_verification_token')
-      .eq('id', websiteId)
-      .single();
+    // Get verification token using raw SQL (column may not be in Drizzle schema)
+    const websiteResult = await db.execute(sql`
+      SELECT dns_verification_token, settings
+      FROM wedding_websites
+      WHERE id = ${websiteId}
+      LIMIT 1
+    `);
 
-    if (!website?.dns_verification_token) {
+    const website = websiteResult.rows[0] as { dns_verification_token?: string; settings?: Record<string, any> } | undefined;
+
+    // Try to get token from column or settings JSONB
+    const verificationToken = website?.dns_verification_token || website?.settings?.dnsVerificationToken;
+
+    if (!verificationToken) {
       throw new Error('Verification token not found');
     }
 
     // Check DNS TXT record
     const txtRecordName = `_weddingflow.${domain}`;
-    const expectedValue = website.dns_verification_token;
+    const expectedValue = verificationToken;
 
     try {
       const records = await dns.resolveTxt(txtRecordName);
@@ -72,24 +77,19 @@ export async function verifyCustomDomain(
 
       // Check if verification token exists
       if (flatRecords.includes(expectedValue)) {
-        // Verification successful!
-        await supabase
-          .from('wedding_websites')
-          .update({
-            custom_domain_verified: true,
-            custom_domain: domain,
-          })
-          .eq('id', websiteId);
+        // Verification successful! - Update using raw SQL
+        await db.execute(sql`
+          UPDATE wedding_websites
+          SET custom_domain_verified = true, custom_domain = ${domain}, updated_at = NOW()
+          WHERE id = ${websiteId}
+        `);
 
-        // Update DNS record status
-        await supabase
-          .from('domain_dns_records')
-          .update({
-            verified: true,
-            verified_at: new Date().toISOString(),
-          })
-          .eq('website_id', websiteId)
-          .eq('record_type', 'TXT');
+        // Update DNS record status using raw SQL
+        await db.execute(sql`
+          UPDATE domain_dns_records
+          SET verified = true, verified_at = NOW()
+          WHERE website_id = ${websiteId} AND record_type = 'TXT'
+        `);
 
         return { success: true, verified: true };
       } else {
@@ -156,20 +156,15 @@ export async function checkDomainAvailability(domain: string): Promise<{
   available: boolean;
   domain: string;
 }> {
-  const supabase = createServerSupabaseAdminClient();
-
-  const { data, error } = await supabase
-    .from('wedding_websites')
-    .select('id')
-    .eq('custom_domain', domain)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
+  // Use raw SQL since customDomain may not be in Drizzle schema
+  const result = await db.execute(sql`
+    SELECT id FROM wedding_websites
+    WHERE custom_domain = ${domain}
+    LIMIT 1
+  `);
 
   return {
-    available: !data,
+    available: result.rows.length === 0,
     domain,
   };
 }

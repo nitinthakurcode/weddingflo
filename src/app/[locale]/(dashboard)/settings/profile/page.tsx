@@ -1,38 +1,22 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
-import { useQuery } from '@tanstack/react-query';
-import { useSupabaseClient } from '@/lib/supabase/client';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ProfileForm } from '@/components/settings/profile-form';
 import { AvatarUpload } from '@/components/settings/avatar-upload';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ProfileSettingsPage() {
-  const { user: clerkUser } = useUser();
-  const supabase = useSupabaseClient();
+  const { data: session } = useSession();
 
-  // Fetch current user from Supabase
-  const { data: user, isLoading } = useQuery<any>({
-    queryKey: ['current-user', clerkUser?.id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!clerkUser?.id) return null;
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', clerkUser.id)
-        .maybeSingle();
+  // Fetch current user using tRPC
+  const { data: user, isLoading } = trpc.users.getCurrent.useQuery(
+    undefined,
+    { enabled: !!session?.user }
+  );
 
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!clerkUser && !!supabase,
-  });
-
-  if (!clerkUser || isLoading) {
+  if (!session?.user || isLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -71,42 +55,59 @@ export default function ProfileSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Profile Settings</h1>
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+          Profile Settings
+        </h1>
         <p className="text-muted-foreground">
           Manage your personal information and account settings
         </p>
       </div>
 
       {/* Avatar Section */}
-      <Card>
+      <Card
+        variant="glass"
+        className="border border-rose-200/50 dark:border-rose-800/30 shadow-lg shadow-rose-500/10 bg-gradient-to-br from-white via-rose-50/20 to-white dark:from-mocha-900 dark:via-rose-950/10 dark:to-mocha-900"
+      >
         <CardHeader>
-          <CardTitle>Profile Picture</CardTitle>
+          <CardTitle className="bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
+            Profile Picture
+          </CardTitle>
           <CardDescription>
             Update your profile picture. This will be visible to your team.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <AvatarUpload userId={user.id} currentAvatarUrl={user.avatar_url} />
+          <AvatarUpload userId={user.id} currentAvatarUrl={user.avatar_url ?? undefined} />
         </CardContent>
       </Card>
 
       {/* Personal Information */}
-      <Card>
+      <Card
+        variant="glass"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+      >
         <CardHeader>
-          <CardTitle>Personal Information</CardTitle>
+          <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-400 bg-clip-text text-transparent">
+            Personal Information
+          </CardTitle>
           <CardDescription>
             Update your name and email address
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ProfileForm user={user} clerkUser={clerkUser} />
+          <ProfileForm user={user} />
         </CardContent>
       </Card>
 
       {/* Account Information */}
-      <Card>
+      <Card
+        variant="glass"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+      >
         <CardHeader>
-          <CardTitle>Account Information</CardTitle>
+          <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-400 bg-clip-text text-transparent">
+            Account Information
+          </CardTitle>
           <CardDescription>
             View your account details
           </CardDescription>
@@ -125,13 +126,13 @@ export default function ProfileSettingsPage() {
           <div>
             <label className="text-sm font-medium">Member Since</label>
             <p className="text-sm text-muted-foreground">
-              {new Date(user.created_at).toLocaleDateString()}
+              {new Date(user.createdAt).toLocaleDateString()}
             </p>
           </div>
           <div>
-            <label className="text-sm font-medium">Last Active</label>
+            <label className="text-sm font-medium">Last Updated</label>
             <p className="text-sm text-muted-foreground">
-              {user.last_active_at ? new Date(user.last_active_at).toLocaleString() : 'N/A'}
+              {user.updatedAt ? new Date(user.updatedAt).toLocaleString() : 'N/A'}
             </p>
           </div>
         </CardContent>

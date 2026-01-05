@@ -8,6 +8,9 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+/.playwright-mcp/
 
 # next.js
 /.next/
@@ -35,12 +38,17 @@ yarn-error.log*
 *_CLEANUP_*.md
 *_STATUS_*.md
 
-# vercel
-.vercel
+# Cloudflare credentials (NEVER commit)
+cloudflared/credentials.json
+cloudflared/*.json
+!cloudflared/config.yml
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Supabase CLI temp files
+supabase/.temp/
 
 # macOS
 .DS_Store

@@ -1,6 +1,9 @@
 /**
  * Push Notification Sender Service
  *
+ * December 2025 - Drizzle ORM Implementation
+ * No Supabase dependencies
+ *
  * High-level service for sending push notifications with:
  * - Preference checking (respects user settings)
  * - Multi-device support (sends to all user devices)
@@ -8,12 +11,11 @@
  * - Comprehensive logging (tracks all sends)
  * - Bulk operations (send to multiple users)
  *
- * SECURITY: Server-side only - uses service role key for database access
- *
- * @see https://firebase.google.com/docs/cloud-messaging
+ * SECURITY: Server-side only
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { db, sql, eq, and } from '@/lib/db';
+import { users, pushSubscriptions } from '@/lib/db/schema';
 import { FirebaseAdminPushService } from './admin';
 import type {
   NotificationType,
@@ -21,38 +23,6 @@ import type {
   PushSubscription,
   PushNotificationPreferences,
 } from '@/types/push-notifications';
-
-/**
- * Validate Supabase configuration
- */
-function validateSupabaseConfig() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SECRET_KEY;
-
-  if (!url || !serviceKey) {
-    throw new Error(
-      'Missing Supabase configuration. ' +
-      'Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY are set.'
-    );
-  }
-
-  return { url, serviceKey };
-}
-
-/**
- * Create Supabase client with service role (bypasses RLS)
- * Used for logging and subscription management
- */
-function createServiceClient() {
-  const { url, serviceKey } = validateSupabaseConfig();
-
-  return createClient(url, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
 
 /**
  * Push notification payload for sending
@@ -83,8 +53,6 @@ export interface SendResult {
  * Push Notification Sender Service
  */
 export class PushNotificationSender {
-  private static supabase = createServiceClient();
-
   /**
    * Send push notification to all user's devices
    *
@@ -246,13 +214,13 @@ export class PushNotificationSender {
     payload: Omit<PushNotificationPayload, 'userId'>
   ): Promise<SendResult> {
     try {
-      // Get all users in company
-      const { data: users, error } = await this.supabase
-        .from('users')
-        .select('clerk_id')
-        .eq('company_id', companyId);
+      // Get all users in company using Drizzle
+      const companyUsers = await db
+        .select({ authId: users.authId })
+        .from(users)
+        .where(eq(users.companyId, companyId));
 
-      if (error || !users || users.length === 0) {
+      if (companyUsers.length === 0) {
         console.log(`No users found for company: ${companyId}`);
         return {
           success: false,
@@ -264,9 +232,9 @@ export class PushNotificationSender {
       }
 
       // Create payloads for each user
-      const payloads: PushNotificationPayload[] = users.map((user) => ({
+      const payloads: PushNotificationPayload[] = companyUsers.map((user) => ({
         ...payload,
-        userId: user.clerk_id,
+        userId: user.authId,
         companyId,
       }));
 
@@ -298,17 +266,13 @@ export class PushNotificationSender {
     notificationType: NotificationType
   ): Promise<{ allowed: boolean; reason: string }> {
     try {
-      const { data: prefs, error } = await this.supabase
-        .from('push_notification_preferences')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+      const result = await db.execute(sql`
+        SELECT * FROM push_notification_preferences
+        WHERE user_id = ${userId}
+        LIMIT 1
+      `);
 
-      if (error) {
-        console.error('Error fetching preferences:', error);
-        // Allow notification if preferences fetch fails (fail open)
-        return { allowed: true, reason: 'Preferences check failed, allowing' };
-      }
+      const prefs = result.rows[0] as unknown as PushNotificationPreferences | undefined;
 
       // If no preferences, allow by default
       if (!prefs) {
@@ -370,18 +334,15 @@ export class PushNotificationSender {
     userId: string
   ): Promise<PushSubscription[]> {
     try {
-      const { data, error } = await this.supabase
-        .from('push_subscriptions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_active', true);
+      const result = await db
+        .select()
+        .from(pushSubscriptions)
+        .where(and(
+          eq(pushSubscriptions.userId, userId),
+          eq(pushSubscriptions.isActive, true)
+        ));
 
-      if (error) {
-        console.error('Error fetching subscriptions:', error);
-        return [];
-      }
-
-      return (data || []) as PushSubscription[];
+      return result as unknown as PushSubscription[];
     } catch (error) {
       console.error('Unexpected error in getActiveSubscriptions:', error);
       return [];
@@ -445,18 +406,24 @@ export class PushNotificationSender {
     errorMessage: string | null
   ): Promise<void> {
     try {
-      await this.supabase.from('push_notification_logs').insert({
-        company_id: payload.companyId,
-        user_id: payload.userId,
-        subscription_id: subscription.id,
-        notification_type: payload.notificationType,
-        title: payload.title,
-        body: payload.body,
-        data: payload.data || null,
-        status,
-        sent_at: status === 'sent' ? new Date().toISOString() : null,
-        error_message: errorMessage,
-      });
+      await db.execute(sql`
+        INSERT INTO push_notification_logs (
+          company_id, user_id, subscription_id, notification_type,
+          title, body, data, status, sent_at, error_message
+        )
+        VALUES (
+          ${payload.companyId},
+          ${payload.userId},
+          ${subscription.id},
+          ${payload.notificationType},
+          ${payload.title},
+          ${payload.body},
+          ${payload.data ? JSON.stringify(payload.data) : null}::jsonb,
+          ${status},
+          ${status === 'sent' ? new Date().toISOString() : null},
+          ${errorMessage}
+        )
+      `);
     } catch (error) {
       console.error('Error logging notification:', error);
       // Don't throw - logging failure shouldn't fail the notification
@@ -477,13 +444,13 @@ export class PushNotificationSender {
     reason: string
   ): Promise<void> {
     try {
-      await this.supabase
-        .from('push_subscriptions')
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString(),
+      await db
+        .update(pushSubscriptions)
+        .set({
+          isActive: false,
+          updatedAt: new Date(),
         })
-        .eq('id', subscriptionId);
+        .where(eq(pushSubscriptions.id, subscriptionId));
 
       console.log(`Deactivated subscription ${subscriptionId}: ${reason}`);
     } catch (error) {
@@ -546,22 +513,25 @@ export class PushNotificationSender {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      const { data: logs, error } = await this.supabase
-        .from('push_notification_logs')
-        .select('status')
-        .eq('user_id', userId)
-        .gte('created_at', startDate.toISOString());
+      const result = await db.execute(sql`
+        SELECT
+          COUNT(*)::integer as total,
+          COUNT(*) FILTER (WHERE status IN ('sent', 'delivered'))::integer as sent,
+          COUNT(*) FILTER (WHERE status = 'failed')::integer as failed
+        FROM push_notification_logs
+        WHERE user_id = ${userId}
+          AND created_at >= ${startDate.toISOString()}
+      `);
 
-      if (error || !logs) {
-        return { total: 0, sent: 0, failed: 0, deliveryRate: 0 };
-      }
+      const stats = result.rows[0] as {
+        total: number;
+        sent: number;
+        failed: number;
+      } || { total: 0, sent: 0, failed: 0 };
 
-      const total = logs.length;
-      const sent = logs.filter((l) => l.status === 'sent' || l.status === 'delivered').length;
-      const failed = logs.filter((l) => l.status === 'failed').length;
-      const deliveryRate = total > 0 ? Math.round((sent / total) * 100 * 10) / 10 : 0;
+      const deliveryRate = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100 * 10) / 10 : 0;
 
-      return { total, sent, failed, deliveryRate };
+      return { ...stats, deliveryRate };
     } catch (error) {
       console.error('Error in getUserStats:', error);
       return { total: 0, sent: 0, failed: 0, deliveryRate: 0 };

@@ -1,10 +1,10 @@
 'use client';
 
-import type { Database } from '@/lib/database.types';
+import type { WeddingWebsite } from '@/lib/db/types';
 import type { WeddingTemplate } from '@/lib/templates/wedding-templates';
 import { Heart, Calendar, TreePine } from 'lucide-react';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+type Website = WeddingWebsite;
 
 interface RusticTemplateProps {
   website: Website;
@@ -22,8 +22,9 @@ interface RusticTemplateProps {
  * - Vintage RSVP
  */
 export function RusticTemplate({ website, template }: RusticTemplateProps) {
-  const heroSection = website.hero_section as any;
-  const ourStorySection = website.our_story_section as any;
+  const content = website.content as Record<string, any> || {};
+  const heroSection = content.hero_section as any;
+  const ourStorySection = content.our_story_section as any;
 
   return (
     <div className="rustic-template min-h-screen" style={{ fontFamily: template.fonts.body }}>
@@ -52,7 +53,7 @@ export function RusticTemplate({ website, template }: RusticTemplateProps) {
         <div className="relative z-10 text-center px-4 text-white">
           <div
             className="inline-block px-8 py-12 border-4 border-white/30"
-            style={{ backgroundColor: 'rgba(139, 69, 19, 0.3)' }}
+            style={{ backgroundColor: 'color-mix(in srgb, var(--mocha-600, #6B5D4F) 30%, transparent)' }}
           >
             <h1
               className="text-6xl md:text-8xl mb-4"
@@ -109,7 +110,7 @@ export function RusticTemplate({ website, template }: RusticTemplateProps) {
               <div
                 className="p-8 shadow-lg border-4"
                 style={{
-                  backgroundColor: '#FFF8E7',
+                  backgroundColor: 'var(--cream-50, #FFF8E7)',
                   borderColor: template.theme_colors.primary,
                   borderStyle: 'double',
                 }}

@@ -136,26 +136,25 @@ export const handlers = [
     })
   }),
 
-  // Mock Clerk API
-  http.get('https://api.clerk.com/v1/users/:userId', () => {
+  // Mock BetterAuth session endpoint
+  http.get('/api/auth/session', () => {
     return HttpResponse.json({
-      id: 'user_123',
-      email_addresses: [
-        {
-          email_address: 'test@example.com',
-          verified: true,
-        },
-      ],
-      first_name: 'Test',
-      last_name: 'User',
-      public_metadata: {
-        company_id: 'test-company-id',
+      session: {
+        id: 'session-123',
+        userId: 'user_123',
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      },
+      user: {
+        id: 'user_123',
+        email: 'test@example.com',
+        name: 'Test User',
         role: 'company_admin',
+        companyId: 'test-company-id',
       },
     })
   }),
 
-  // Mock Supabase Storage
+  // Mock R2/Cloudflare Storage
   http.post(/.*\/storage\/v1\/object\/.*/, () => {
     return HttpResponse.json({
       Key: 'test-file.pdf',

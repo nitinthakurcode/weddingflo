@@ -1,16 +1,33 @@
 {
   "mcpServers": {
-    "supabase": {
+    "sentry": {
       "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
-        "@supabase/mcp-server-supabase@latest"
+        "@sentry/mcp-server"
       ],
       "env": {
-        "SUPABASE_ACCESS_TOKEN": "sbp_96691910fda7ef3dd596176c3f57fdb9eef45e38",
-        "SUPABASE_PROJECT_REF": "gkrcaeymhgjepncbceag"
+        "SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}"
       }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp",
+        "--cdp-endpoint=http://localhost:9222"
+      ]
+    },
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp",
+        "--browser-url=http://127.0.0.1:9222"
+      ]
     }
   }
 }

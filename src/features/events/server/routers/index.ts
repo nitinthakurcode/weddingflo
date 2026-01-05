@@ -9,11 +9,14 @@
  * - calendar: Google Calendar & iCal sync
  * - gifts: Gift registry management
  * - giftsEnhanced: Enhanced gift tracking with thank you notes
+ * - guestGifts: Gifts to be given to guests (party favors, welcome bags)
+ * - guestTransport: Guest travel/transport logistics
  * - vendors: Vendor management
  * - floorPlans: Interactive floor plans with drag-and-drop seating
+ * - eventFlow: Event flow/schedule tracking
  *
  * Dependencies:
- * - Supabase (events, timeline, hotels, gifts, gifts_enhanced, vendors, floor_plans tables)
+ * - Drizzle ORM (December 2025 migration)
  * - Google Calendar API
  * - Clients feature (relationship)
  */
@@ -24,5 +27,9 @@ export { hotelsRouter } from './hotels.router';
 export { calendarRouter } from './calendar.router';
 export { giftsRouter } from './gifts.router';
 export { giftsEnhancedRouter } from './gifts-enhanced.router';
+export { guestGiftsRouter } from './guest-gifts.router';
+export { guestTransportRouter } from './guest-transport.router';
+export { giftTypesRouter } from './gift-types.router';
 export { vendorsRouter } from './vendors.router';
 export { floorPlansRouter } from './floor-plans.router';
+export { eventFlowRouter } from './event-flow.router';

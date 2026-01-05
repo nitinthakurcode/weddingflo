@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, Suspense } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useSession } from '@/lib/auth-client';
 import { usePathname, useSearchParams } from 'next/navigation';
 // TODO: PostHog temporarily disabled due to posthog-js compatibility issue
 // import { initPostHog, posthog } from '@/lib/analytics/posthog-client';
-import { setUserContext } from '@/lib/errors/sentry.client';
+import * as Sentry from '@sentry/nextjs';
 
 // TODO: PostHog tracking temporarily disabled
 // Separate component for page view tracking that uses searchParams
@@ -27,7 +27,7 @@ function PageViewTracker() {
 }
 
 function AnalyticsProviderInner({ children }: { children: React.ReactNode }) {
-  const { user } = useUser();
+  const { data: session } = useSession();
 
   // Initialize PostHog
   useEffect(() => {
@@ -36,25 +36,26 @@ function AnalyticsProviderInner({ children }: { children: React.ReactNode }) {
 
   // Track user identification
   useEffect(() => {
-    if (!user) {
+    if (!session?.user) {
       // posthog.reset(); // Temporarily disabled
       return;
     }
 
+    const user = session.user;
+
     // Identify user in PostHog (temporarily disabled)
     // posthog.identify(user.id, {
-    //   email: user.emailAddresses[0]?.emailAddress,
-    //   name: user.fullName || user.firstName,
-    //   createdAt: user.createdAt,
+    //   email: user.email,
+    //   name: user.name,
     // });
 
     // Set user context in Sentry
-    setUserContext({
+    Sentry.setUser({
       id: user.id,
-      email: user.emailAddresses[0]?.emailAddress,
-      name: user.fullName || user.firstName || undefined,
+      email: user.email,
+      username: user.name || undefined,
     });
-  }, [user]);
+  }, [session?.user]);
 
   return (
     <>

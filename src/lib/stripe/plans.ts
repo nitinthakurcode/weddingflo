@@ -7,7 +7,7 @@ import { SUBSCRIPTION_TIERS, getPrice, type SubscriptionTier } from './config';
  * multi-currency dynamic pricing system. For new code, use config.ts directly.
  */
 
-export type PlanTier = 'starter' | 'professional' | 'enterprise';
+export type PlanTier = 'free' | 'starter' | 'professional' | 'enterprise';
 
 export interface PlanLimits {
   maxGuests: number;
@@ -29,6 +29,20 @@ export interface SubscriptionPlan {
 
 // Map new SUBSCRIPTION_TIERS structure to old SUBSCRIPTION_PLANS structure
 export const SUBSCRIPTION_PLANS: Record<PlanTier, SubscriptionPlan> = {
+  free: {
+    id: 'free',
+    name: 'Free',
+    description: 'Get started with basic features',
+    price: 0,
+    priceId: '',
+    interval: 'month',
+    limits: {
+      maxGuests: 50,
+      maxEvents: 1,
+      maxUsers: 1,
+      features: ['1 active wedding', 'Up to 50 guests', 'Basic features'],
+    },
+  },
   starter: {
     id: 'starter',
     name: SUBSCRIPTION_TIERS.starter.name,

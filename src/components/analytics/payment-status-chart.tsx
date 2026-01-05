@@ -14,12 +14,13 @@ interface PaymentStatusChartProps {
   isLoading?: boolean;
 }
 
+// Theme-aware chart colors using CSS variables
 const COLORS = {
-  succeeded: '#10b981',
-  pending: '#f59e0b',
-  processing: '#3b82f6',
-  failed: '#ef4444',
-  refunded: '#6366f1',
+  succeeded: 'var(--sage-500, #5A9A49)',
+  pending: 'var(--gold-500, #D4A853)',
+  processing: 'var(--cobalt-500, #2563EB)',
+  failed: 'var(--rose-500, #E11D48)',
+  refunded: 'var(--teal-500, #14B8A6)',
 };
 
 export function PaymentStatusChart({ data, isLoading }: PaymentStatusChartProps) {
@@ -57,7 +58,7 @@ export function PaymentStatusChart({ data, isLoading }: PaymentStatusChartProps)
               cx="50%"
               cy="50%"
               labelLine={false}
-              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+              label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
               outerRadius={80}
               fill="#8884d8"
               dataKey="value"
@@ -65,7 +66,7 @@ export function PaymentStatusChart({ data, isLoading }: PaymentStatusChartProps)
               {chartData.map((entry, index) => (
                 <Cell
                   key={`cell-${index}`}
-                  fill={COLORS[entry.name.toLowerCase() as keyof typeof COLORS] || '#6366f1'}
+                  fill={COLORS[entry.name.toLowerCase() as keyof typeof COLORS] || 'var(--teal-500, #14B8A6)'}
                 />
               ))}
             </Pie>

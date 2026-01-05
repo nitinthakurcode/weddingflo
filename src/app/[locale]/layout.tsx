@@ -1,23 +1,22 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Plus_Jakarta_Sans, Playfair_Display } from 'next/font/google'
 import { NextIntlClientProvider } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import { notFound } from 'next/navigation'
 import { locales, type Locale } from '@/i18n/config'
 import type { ReactNode } from 'react'
-import dynamic from 'next/dynamic'
+import dynamicImport from 'next/dynamic'
 import { AuthProvider } from '../AuthProvider'
-import { SupabaseProvider } from '@/providers/supabase-provider'
+import { AuthLoadedBoundary } from '../AuthLoadedBoundary'
 import { Toaster } from '@/components/ui/toaster'
 import { PWAProvider } from '@/components/pwa/pwa-provider'
 import { AnalyticsProvider } from '../providers/analytics-provider'
 import { ThemeInjector } from '../providers/theme-injector'
 import { TRPCProvider } from '@/lib/trpc/Provider'
-import { Analytics } from '@vercel/analytics/react'
-import { SpeedInsights } from '@vercel/speed-insights/next'
 // import { PHProvider, PostHogIdentifier } from '@/lib/analytics/posthog-provider' // Temporarily disabled
 import { OfflineIndicator } from '@/components/offline/offline-indicator'
 import { OfflineInit } from '@/components/offline/offline-init'
+import { FeedbackProvider } from '../providers/feedback-provider'
 import '../globals.css'
 
 // TODO: PostHogPageView temporarily disabled due to posthog-js Node module compatibility issue
@@ -28,48 +27,58 @@ import '../globals.css'
 //   { loading: () => null }
 // )
 
-const inter = Inter({
+// Primary sans-serif font - elegant and readable
+const plusJakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-sans',
   display: 'swap',
+  weight: ['300', '400', '500', '600', '700'],
+})
+
+// Display font - elegant serif for headings
+const playfair = Playfair_Display({
+  subsets: ['latin'],
+  variable: '--font-display',
+  display: 'swap',
+  weight: ['400', '500', '600', '700'],
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://weddingflow-pro.vercel.app'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://weddingflo.vercel.app'),
   title: {
-    default: 'WeddingFlow Pro - AI-Powered Wedding Management Platform',
-    template: '%s | WeddingFlow Pro'
+    default: 'WeddingFlo - AI-Powered Wedding Management Platform',
+    template: '%s | WeddingFlo'
   },
   description: 'All-in-one wedding planning solution with AI assistance. Manage guests, vendors, budgets, timelines, and more. Built for wedding planners and couples.',
   keywords: ['wedding planning', 'wedding management', 'event planning', 'guest management', 'wedding budget', 'vendor management', 'AI wedding planner'],
-  authors: [{ name: 'WeddingFlow Pro Team' }],
-  creator: 'WeddingFlow Pro',
-  publisher: 'WeddingFlow Pro',
+  authors: [{ name: 'WeddingFlo Team' }],
+  creator: 'WeddingFlo',
+  publisher: 'WeddingFlo',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'WeddingFlow Pro',
+    title: 'WeddingFlo',
   },
   openGraph: {
     type: 'website',
     locale: 'en_US',
     url: '/',
-    siteName: 'WeddingFlow Pro',
-    title: 'WeddingFlow Pro - AI-Powered Wedding Management Platform',
+    siteName: 'WeddingFlo',
+    title: 'WeddingFlo - AI-Powered Wedding Management Platform',
     description: 'All-in-one wedding planning solution with AI assistance. Manage guests, vendors, budgets, timelines, and more.',
     images: [
       {
         url: '/og-image.png',
         width: 1200,
         height: 630,
-        alt: 'WeddingFlow Pro - Wedding Management Platform',
+        alt: 'WeddingFlo - Wedding Management Platform',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'WeddingFlow Pro - AI-Powered Wedding Management',
+    title: 'WeddingFlo - AI-Powered Wedding Management',
     description: 'All-in-one wedding planning solution with AI assistance.',
     images: ['/og-image.png'],
     creator: '@weddingflowpro',
@@ -88,7 +97,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport = {
-  themeColor: '#7c3aed',
+  themeColor: '#1a3a2f', // Deep Forest Green - primary color
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -96,9 +105,13 @@ export const viewport = {
   viewportFit: 'cover',
 }
 
-export function generateStaticParams() {
-  return locales.map((locale) => ({ locale }))
-}
+// Disable static generation for locale pages due to client-side auth requirements
+// export function generateStaticParams() {
+//   return locales.map((locale) => ({ locale }))
+// }
+
+// Force dynamic rendering to prevent webpack errors during static generation
+export const dynamic = 'force-dynamic'
 
 interface LocaleLayoutProps {
   children: ReactNode
@@ -123,16 +136,16 @@ export default async function LocaleLayout({
     <html lang={locale} suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#7c3aed" />
+        <meta name="theme-color" content="#1a3a2f" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="WeddingFlow" />
       </head>
-      <body className={`${inter.variable} font-sans`}>
+      <body className={`${plusJakarta.variable} ${playfair.variable} font-sans antialiased`}>
         <AuthProvider>
-          <SupabaseProvider>
+          <AuthLoadedBoundary>
             <TRPCProvider>
               <NextIntlClientProvider locale={locale} messages={messages}>
                 <ThemeInjector />
@@ -141,19 +154,19 @@ export default async function LocaleLayout({
                     {/* <PostHogPageView /> - Temporarily disabled, see TODO above */}
                     {/* <PostHogIdentifier /> - Temporarily disabled */}
                     <PWAProvider>
-                      {children}
-                      <Toaster />
+                      <FeedbackProvider>
+                        {children}
+                        <Toaster />
+                      </FeedbackProvider>
                     </PWAProvider>
                   {/* </PHProvider> */}
                 </AnalyticsProvider>
               </NextIntlClientProvider>
             </TRPCProvider>
-          </SupabaseProvider>
+          </AuthLoadedBoundary>
         </AuthProvider>
         <OfflineInit />
         <OfflineIndicator />
-        <Analytics />
-        <SpeedInsights />
       </body>
     </html>
   )

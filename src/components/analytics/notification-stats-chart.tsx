@@ -4,13 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface NotificationStatsData {
-  notification_type: string;
-  total_sent: number;
+  type: string;
+  sent: number;
   delivered: number;
   failed: number;
   opened: number;
-  clicked: number;
-  delivery_rate: number;
+  // Legacy fields for backward compatibility
+  notification_type?: string;
+  total_sent?: number;
+  clicked?: number;
+  delivery_rate?: number;
 }
 
 interface NotificationStatsChartProps {
@@ -33,14 +36,20 @@ export function NotificationStatsChart({ data, isLoading }: NotificationStatsCha
     );
   }
 
-  const chartData = data.map((item) => ({
-    type: item.notification_type.toUpperCase(),
-    sent: Number(item.total_sent),
-    delivered: Number(item.delivered),
-    failed: Number(item.failed),
-    opened: Number(item.opened),
-    deliveryRate: Number(item.delivery_rate),
-  }));
+  const chartData = data.map((item) => {
+    const notificationType = item.type || item.notification_type || 'unknown';
+    const totalSent = item.sent ?? item.total_sent ?? 0;
+    const deliveryRate = item.delivery_rate ?? (totalSent > 0 ? (item.delivered / totalSent) * 100 : 0);
+
+    return {
+      type: notificationType.toUpperCase(),
+      sent: Number(totalSent),
+      delivered: Number(item.delivered),
+      failed: Number(item.failed),
+      opened: Number(item.opened),
+      deliveryRate: Number(deliveryRate),
+    };
+  });
 
   return (
     <Card>

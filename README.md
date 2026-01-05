@@ -1,8 +1,8 @@
-# WeddingFlow Pro 💍
+# WeddingFlo 💍
 
 > AI-Powered Wedding Management Platform for Modern Wedding Planners
 
-A comprehensive, production-ready wedding management platform built with Next.js 15, Convex, Clerk, and integrated AI capabilities.
+A comprehensive, production-ready wedding management platform built with Next.js 15, Drizzle ORM, BetterAuth, and integrated AI capabilities.
 
 ## ✨ Features
 
@@ -30,20 +30,19 @@ A comprehensive, production-ready wedding management platform built with Next.js
 - **Usage Analytics** - Track per-company usage and metrics
 
 ### Security & Performance
-- **Authentication** - Secure authentication with Clerk
+- **Authentication** - Self-hosted authentication with BetterAuth
 - **Security Headers** - HSTS, CSP, X-Frame-Options, and more
 - **Code Splitting** - Dynamic imports for optimal bundle sizes
 - **Image Optimization** - Next.js Image component with automatic optimization
 - **PWA Support** - Progressive Web App with offline capabilities
 - **Error Tracking** - Integrated Sentry error monitoring
-- **Analytics** - PostHog analytics and Vercel Analytics
+- **Analytics** - PostHog analytics
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js 18+ and npm
-- Convex account ([convex.dev](https://convex.dev))
-- Clerk account ([clerk.dev](https://clerk.dev))
+- PostgreSQL database (Hetzner recommended)
 - Stripe account (for billing features)
 - OpenAI API key (for AI features)
 
@@ -51,8 +50,8 @@ A comprehensive, production-ready wedding management platform built with Next.js
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/weddingflow-pro.git
-   cd weddingflow-pro
+   git clone https://github.com/yourusername/weddingflo.git
+   cd weddingflo
    ```
 
 2. **Install dependencies**
@@ -64,25 +63,22 @@ A comprehensive, production-ready wedding management platform built with Next.js
 
    Create a `.env.local` file in the root directory:
    ```env
-   # Convex
-   NEXT_PUBLIC_CONVEX_URL=your_convex_deployment_url
-   CONVEX_DEPLOYMENT=your_convex_deployment_name
+   # Database (Hetzner PostgreSQL)
+   DATABASE_URL=postgresql://user:password@host:5432/weddingflo
 
-   # Clerk Authentication
-   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
-   CLERK_SECRET_KEY=your_clerk_secret_key
-   NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-   NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+   # BetterAuth
+   BETTER_AUTH_SECRET=your_32_character_secret
+   BETTER_AUTH_URL=http://localhost:3000
+   NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+   # Google OAuth (optional)
+   GOOGLE_CLIENT_ID=your_google_client_id
+   GOOGLE_CLIENT_SECRET=your_google_client_secret
 
    # Stripe (for billing)
    STRIPE_SECRET_KEY=your_stripe_secret_key
    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
    STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
-
-   # Stripe Price IDs
-   NEXT_PUBLIC_STRIPE_PRICE_STARTER=price_xxx
-   NEXT_PUBLIC_STRIPE_PRICE_PROFESSIONAL=price_xxx
-   NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE=price_xxx
 
    # OpenAI (for AI features)
    OPENAI_API_KEY=your_openai_api_key
@@ -95,47 +91,30 @@ A comprehensive, production-ready wedding management platform built with Next.js
    # PostHog (for analytics)
    NEXT_PUBLIC_POSTHOG_KEY=your_posthog_key
    NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com
-
-   # Application
-   NEXT_PUBLIC_APP_URL=http://localhost:3000
-   ENCRYPTION_KEY=your_32_character_encryption_key
    ```
 
-4. **Set up Convex**
+4. **Set up the database**
    ```bash
-   npx convex dev
+   npx drizzle-kit push
    ```
 
-5. **Configure Clerk**
-   - Create a Clerk application
-   - Add JWT template named "convex" with your Convex deployment URL as the issuer
-   - Enable email/password and social providers as needed
-
-6. **Set up Stripe Products**
-   ```bash
-   npm run setup-stripe
-   ```
-
-7. **Run the development server**
+5. **Run the development server**
    ```bash
    npm run dev
    ```
 
-8. **Open [http://localhost:3000](http://localhost:3000)**
+6. **Open [http://localhost:3000](http://localhost:3000)**
 
 ## 📁 Project Structure
 
 ```
-weddingflow-pro/
+weddingflo/
 ├── src/
 │   ├── app/                    # Next.js 15 App Router
-│   │   ├── (auth)/            # Authentication routes
-│   │   ├── (dashboard)/       # Protected dashboard routes
+│   │   ├── [locale]/(auth)/   # Authentication routes
+│   │   ├── [locale]/(dashboard)/ # Protected dashboard routes
 │   │   ├── api/               # API routes
-│   │   ├── providers/         # React context providers
-│   │   ├── layout.tsx         # Root layout
-│   │   ├── robots.ts          # SEO robots configuration
-│   │   └── sitemap.ts         # SEO sitemap generation
+│   │   └── layout.tsx         # Root layout
 │   ├── components/            # React components
 │   │   ├── budget/           # Budget management components
 │   │   ├── dashboard/        # Dashboard components
@@ -143,24 +122,21 @@ weddingflow-pro/
 │   │   ├── timeline/         # Timeline components
 │   │   ├── ui/               # Reusable UI components (shadcn/ui)
 │   │   └── ...
-│   ├── lib/                   # Utility functions and helpers
-│   │   ├── analytics/        # Analytics integrations
-│   │   ├── errors/           # Error handling and Sentry
-│   │   ├── permissions/      # RBAC permissions
-│   │   ├── stripe/           # Stripe integration
+│   ├── features/             # Feature modules with tRPC routers
+│   ├── lib/                  # Utility functions and helpers
+│   │   ├── auth.ts          # BetterAuth server config
+│   │   ├── auth-client.ts   # BetterAuth client hooks
+│   │   ├── db/              # Drizzle ORM setup and schema
+│   │   ├── permissions/     # RBAC permissions
+│   │   ├── stripe/          # Stripe integration
 │   │   └── ...
-│   └── types/                 # TypeScript type definitions
-├── convex/                    # Convex backend
-│   ├── schema.ts             # Database schema
-│   ├── users.ts              # User queries and mutations
-│   ├── guests.ts             # Guest management functions
-│   ├── budget.ts             # Budget functions
-│   └── ...
-├── public/                    # Static assets
-├── docs/                      # Documentation
-├── next.config.ts            # Next.js configuration
-├── tailwind.config.ts        # Tailwind CSS configuration
-└── package.json              # Dependencies and scripts
+│   ├── server/              # tRPC server setup
+│   └── types/               # TypeScript type definitions
+├── drizzle/                 # Database migrations
+├── messages/                # i18n translation files
+├── public/                  # Static assets
+├── next.config.ts          # Next.js configuration
+└── package.json            # Dependencies and scripts
 ```
 
 ## 🛠️ Tech Stack
@@ -168,24 +144,23 @@ weddingflow-pro/
 ### Frontend
 - **Framework:** Next.js 15 (App Router)
 - **Language:** TypeScript
-- **Styling:** Tailwind CSS
+- **Styling:** Tailwind CSS 4
 - **UI Components:** shadcn/ui + Radix UI
 - **Forms:** React Hook Form + Zod validation
 - **Charts:** Recharts
-- **State Management:** Convex (reactive)
+- **State Management:** TanStack React Query + tRPC
 
 ### Backend & Database
-- **Backend:** Convex (serverless)
-- **Database:** Convex (NoSQL)
-- **Authentication:** Clerk
-- **File Storage:** Convex Storage
-- **Realtime:** Convex (WebSocket-based)
+- **Database:** PostgreSQL (Hetzner)
+- **ORM:** Drizzle ORM
+- **Authentication:** BetterAuth (self-hosted)
+- **API Layer:** tRPC v11
+- **File Storage:** S3-compatible (Hetzner Object Storage)
 
 ### AI & Analytics
 - **AI:** OpenAI GPT-4
-- **Analytics:** PostHog + Vercel Analytics
+- **Analytics:** PostHog
 - **Error Tracking:** Sentry
-- **Monitoring:** Sentry Performance Monitoring
 
 ### Payment & Billing
 - **Payment Processing:** Stripe
@@ -209,8 +184,19 @@ weddingflow-pro/
 - **Image Optimization:** Next.js Image component with automatic optimization
 - **Bundle Size:** Optimized to <300KB first load JS for most pages
 - **Lazy Loading:** Below-the-fold content lazy loaded
-- **Caching:** Strategic caching with SWR patterns
+- **Caching:** Strategic caching with React Query
 - **PWA:** Service worker for offline functionality
+
+## 🌍 Internationalization
+
+Supports 7 languages out of the box:
+- English (en)
+- Spanish (es)
+- French (fr)
+- German (de)
+- Japanese (ja)
+- Chinese (zh)
+- Hindi (hi)
 
 ## 🎨 Customization
 
@@ -231,35 +217,34 @@ Enable/disable features per company:
 
 ## 📈 Deployment
 
-### Vercel (Recommended)
+### Docker (Recommended)
 ```bash
-# Install Vercel CLI
-npm i -g vercel
+docker-compose up -d
+```
 
-# Deploy
-vercel
+### Manual Deployment
+```bash
+npm run build
+npm start
 ```
 
 ### Environment Variables
 Ensure all environment variables are set in your deployment platform:
-- Convex deployment URL
-- Clerk API keys
+- Database URL
+- BetterAuth secret
 - Stripe keys
 - OpenAI API key
 - Sentry credentials
 - PostHog key
-
-### Post-Deployment
-1. Set up Stripe webhooks pointing to your production URL
-2. Update Clerk JWT template with production Convex URL
-3. Configure custom domain (if using)
-4. Test all critical flows (auth, payments, QR scanning)
 
 ## 🧪 Testing
 
 ```bash
 # Run unit tests
 npm test
+
+# Run E2E tests
+npm run test:e2e
 
 # Run type checking
 npm run type-check
@@ -278,7 +263,7 @@ npm run build
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
 - `npm run type-check` - Run TypeScript compiler check
-- `npm run setup-stripe` - Set up Stripe products
+- `npm run seed:admin` - Seed super admin user
 
 ## 🤝 Contributing
 
@@ -290,13 +275,13 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🆘 Support
 
-For support, email support@weddingflowpro.com or join our Discord community.
+For support, email support@weddingflo.com or join our Discord community.
 
 ## 🙏 Acknowledgments
 
 - Built with [Next.js](https://nextjs.org/)
-- Backend powered by [Convex](https://convex.dev/)
-- Authentication by [Clerk](https://clerk.dev/)
+- Database powered by [Drizzle ORM](https://orm.drizzle.team/)
+- Authentication by [BetterAuth](https://www.better-auth.com/)
 - UI components from [shadcn/ui](https://ui.shadcn.com/)
 - Icons from [Lucide](https://lucide.dev/)
 

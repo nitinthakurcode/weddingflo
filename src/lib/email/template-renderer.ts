@@ -36,7 +36,7 @@ export interface BaseEmailProps {
  */
 export function getEmailBranding(companyData?: any): BaseEmailProps {
   return {
-    companyName: companyData?.company_name || 'WeddingFlow Pro',
+    companyName: companyData?.company_name || 'WeddingFlo',
     companyLogo: companyData?.branding?.logo_url || undefined,
     primaryColor: companyData?.branding?.primary_color || '#3b82f6',
     secondaryColor: companyData?.branding?.secondary_color || '#8b5cf6',
@@ -99,6 +99,6 @@ export const EMAIL_TEMPLATES: Record<
   welcome: {
     name: 'Welcome Email',
     description: 'Welcome new users',
-    defaultSubject: 'Welcome to WeddingFlow Pro! 🎉',
+    defaultSubject: 'Welcome to WeddingFlo! 🎉',
   },
 };

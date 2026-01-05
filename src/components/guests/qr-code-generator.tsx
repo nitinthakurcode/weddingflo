@@ -1,13 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { QrCode } from 'lucide-react';
 import { Guest } from '@/types/guest';
 import { useToast } from '@/hooks/use-toast';
-import { v4 as uuidv4 } from 'uuid';
+import { trpc } from '@/lib/trpc/client';
 
 interface QRCodeGeneratorProps {
   guest: Guest;
@@ -17,32 +15,18 @@ interface QRCodeGeneratorProps {
 export function QRCodeGenerator({ guest, onGenerated }: QRCodeGeneratorProps) {
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  const generateQR = useMutation({
-    mutationFn: async (guestId: string) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const qrToken = uuidv4();
-      const { data, error } = await supabase
-        .from('guests')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ qr_token: qrToken })
-        .eq('id', guestId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+  const generateQR = trpc.qr.generateForGuest.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['guests'] });
+      utils.guests.getAll.invalidate();
     },
   });
 
   const handleGenerate = async () => {
     try {
       setIsGenerating(true);
-      await generateQR.mutateAsync(guest.id);
+      await generateQR.mutateAsync({ guestId: guest.id });
       toast({
         title: 'Success',
         description: 'QR code generated successfully',

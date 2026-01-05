@@ -4,7 +4,7 @@ import { Event } from '@/types/event';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, MapPin, Users, Clock, MoreVertical } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, MoreVertical, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   DropdownMenu,
@@ -12,38 +12,98 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useSwipeToConfirm } from '@/hooks/use-swipe';
+import { cn } from '@/lib/utils';
 
 interface EventCardProps {
   event: Event;
   onEdit?: (event: Event) => void;
   onDelete?: (eventId: string) => void;
   onView?: (event: Event) => void;
+  onConfirm?: (eventId: string) => void;
 }
 
+// Theme-aligned event type colors (2026 Design System)
 const eventTypeColors: Record<string, string> = {
-  ceremony: 'bg-gradient-to-r from-primary to-pink-600 text-white shadow-lg',
-  reception: 'bg-gradient-to-r from-pink-500 to-pink-700 text-white shadow-lg',
-  sangeet: 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg',
-  mehendi: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg',
-  haldi: 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white shadow-lg',
-  engagement: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-lg',
-  cocktail: 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg',
-  rehearsal: 'bg-gradient-to-r from-gray-500 to-gray-700 text-white shadow-lg',
-  other: 'bg-gradient-to-r from-gray-400 to-gray-600 text-white shadow-lg',
+  ceremony: 'bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-lg',
+  reception: 'bg-gradient-to-r from-rose-500 to-rose-600 text-white shadow-lg',
+  sangeet: 'bg-gradient-to-r from-gold-500 to-gold-600 text-white shadow-lg',
+  mehendi: 'bg-gradient-to-r from-sage-500 to-sage-600 text-white shadow-lg',
+  haldi: 'bg-gradient-to-r from-gold-400 to-gold-500 text-white shadow-lg',
+  engagement: 'bg-gradient-to-r from-cobalt-500 to-cobalt-600 text-white shadow-lg',
+  cocktail: 'bg-gradient-to-r from-teal-600 to-rose-500 text-white shadow-lg',
+  rehearsal: 'bg-gradient-to-r from-mocha-500 to-mocha-600 text-white shadow-lg',
+  other: 'bg-gradient-to-r from-mocha-400 to-mocha-500 text-white shadow-lg',
 };
 
+// Theme-aligned status colors (2026 Design System)
 const statusColors: Record<string, string> = {
-  draft: 'bg-gradient-to-r from-gray-400 to-gray-600 text-white shadow-md',
-  confirmed: 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md',
-  completed: 'bg-gradient-to-r from-blue-500 to-blue-700 text-white shadow-md',
-  cancelled: 'bg-gradient-to-r from-red-500 to-red-700 text-white shadow-md',
+  draft: 'bg-gradient-to-r from-mocha-400 to-mocha-500 text-white shadow-md',
+  confirmed: 'bg-gradient-to-r from-sage-500 to-sage-600 text-white shadow-md',
+  completed: 'bg-gradient-to-r from-cobalt-500 to-cobalt-600 text-white shadow-md',
+  cancelled: 'bg-gradient-to-r from-rose-500 to-rose-600 text-white shadow-md',
 };
 
-export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
+export function EventCard({ event, onEdit, onDelete, onView, onConfirm }: EventCardProps) {
   const eventDate = new Date(event.event_date);
 
+  // Enable swipe-to-confirm only for draft events
+  const canConfirm = event.event_status === 'draft';
+
+  const {
+    handlers,
+    swipeOffset,
+    progress,
+    canConfirm: readyToConfirm,
+    isConfirming,
+  } = useSwipeToConfirm(
+    () => onConfirm?.(event.id),
+    { enabled: canConfirm && !!onConfirm, threshold: 100 }
+  );
+
   return (
-    <Card className="border-2 border-primary/20 hover:border-primary/40 hover:shadow-2xl transition-all hover:scale-[1.02] bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+    <div className="relative overflow-hidden rounded-xl">
+      {/* Swipe-to-confirm background */}
+      {canConfirm && onConfirm && (
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-start pl-6 transition-colors duration-200",
+            readyToConfirm
+              ? "bg-gradient-to-r from-sage-500 to-sage-600"
+              : "bg-gradient-to-r from-sage-400/80 to-sage-500/80"
+          )}
+        >
+          <div
+            className="flex items-center gap-2 text-white font-semibold"
+            style={{ opacity: Math.min(progress * 2, 1) }}
+          >
+            <CheckCircle2
+              className={cn(
+                "h-6 w-6 transition-transform duration-200",
+                readyToConfirm && "scale-125"
+              )}
+            />
+            <span className={cn(
+              "transition-all duration-200",
+              readyToConfirm ? "text-lg" : "text-sm"
+            )}>
+              {readyToConfirm ? "Release to Confirm!" : "Swipe to Confirm"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <Card
+        className={cn(
+          "border-2 border-primary/20 hover:border-primary/40 hover:shadow-2xl transition-all bg-gradient-to-br from-primary/5 via-transparent to-transparent relative",
+          !canConfirm && "hover:scale-[1.02]",
+          isConfirming && "scale-95 opacity-50"
+        )}
+        style={{
+          transform: `translateX(${swipeOffset.x}px)`,
+          transition: swipeOffset.x === 0 ? 'transform 0.3s ease-out' : 'none',
+        }}
+        {...handlers}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex-1">
@@ -79,7 +139,7 @@ export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
               {onDelete && (
                 <DropdownMenuItem
                   onClick={() => onDelete(event.id)}
-                  className="text-red-600"
+                  className="text-rose-600 dark:text-rose-400"
                 >
                   Delete
                 </DropdownMenuItem>
@@ -151,5 +211,6 @@ export function EventCard({ event, onEdit, onDelete, onView }: EventCardProps) {
         </CardFooter>
       )}
     </Card>
+    </div>
   );
 }

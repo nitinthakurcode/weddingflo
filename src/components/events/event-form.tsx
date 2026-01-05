@@ -70,7 +70,7 @@ export function EventForm({ defaultValues, onSubmit, isLoading }: EventFormProps
   });
 
   const handleAddTag = () => {
-    const currentTags = form.getValues('tags');
+    const currentTags = form.getValues('tags') || [];
     if (tagInput.trim() && !currentTags.includes(tagInput.trim())) {
       form.setValue('tags', [...currentTags, tagInput.trim()]);
       setTagInput('');
@@ -78,7 +78,7 @@ export function EventForm({ defaultValues, onSubmit, isLoading }: EventFormProps
   };
 
   const handleRemoveTag = (tag: string) => {
-    const currentTags = form.getValues('tags');
+    const currentTags = form.getValues('tags') || [];
     form.setValue(
       'tags',
       currentTags.filter((t) => t !== tag)
@@ -527,7 +527,7 @@ export function EventForm({ defaultValues, onSubmit, isLoading }: EventFormProps
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {form.watch('tags').map((tag) => (
+                  {(form.watch('tags') || []).map((tag) => (
                     <Badge key={tag} variant="secondary">
                       {tag}
                       <button

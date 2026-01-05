@@ -1,23 +1,26 @@
 import { router, protectedProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { eq, and, or, lt, desc, asc, isNull, inArray, sql } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 
 /**
- * Messages Router
+ * Messages Router - Drizzle ORM
  *
- * Uses session claims for authorization (NO database queries for auth checks)
- * - ctx.companyId - from sessionClaims.metadata.company_id
- * - ctx.userId - from Clerk user ID
+ * Uses BetterAuth session for authorization
+ * - ctx.companyId - from session
+ * - ctx.userId - from BetterAuth user
  *
- * Schema: Uses existing messages table structure
- * - body (not message_text)
- * - is_read (not read)
- * - recipient_id, subject, parent_message_id, metadata
+ * Schema fields:
+ * - content (not body)
+ * - receiverId (not recipient_id)
+ * - isRead, readAt
+ * - parentId (not parent_message_id)
+ * - metadata for extra fields (senderName, senderType, channelType)
  */
 export const messagesRouter = router({
   /**
    * Get paginated messages for a client
-   * Verifies client belongs to company via session claims
    */
   getMessages: protectedProcedure
     .input(z.object({
@@ -26,21 +29,21 @@ export const messagesRouter = router({
       cursor: z.string().uuid().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      // Verify company ID from session claims
-      if (!ctx.companyId) {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session'
         });
       }
 
-      // Verify client belongs to company (session claims)
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      // Verify client belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(eq(schema.clients.id, input.clientId), eq(schema.clients.companyId, companyId)))
+        .limit(1);
 
       if (!client) {
         throw new TRPCError({
@@ -49,65 +52,55 @@ export const messagesRouter = router({
         });
       }
 
+      // Get cursor message if provided
+      let cursorDate: Date | null = null;
+      if (input.cursor) {
+        const [cursorMsg] = await db
+          .select({ createdAt: schema.messages.createdAt })
+          .from(schema.messages)
+          .where(eq(schema.messages.id, input.cursor))
+          .limit(1);
+        cursorDate = cursorMsg?.createdAt || null;
+      }
+
       // Build query
-      let query = ctx.supabase
-        .from('messages')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('created_at', { ascending: false })
+      const conditions = [eq(schema.messages.clientId, input.clientId)];
+      if (cursorDate) {
+        conditions.push(lt(schema.messages.createdAt, cursorDate));
+      }
+
+      const messages = await db
+        .select()
+        .from(schema.messages)
+        .where(and(...conditions))
+        .orderBy(desc(schema.messages.createdAt))
         .limit(input.limit);
 
-      // Add cursor for pagination
-      if (input.cursor) {
-        const { data: cursorMessage } = await ctx.supabase
-          .from('messages')
-          .select('created_at')
-          .eq('id', input.cursor)
-          .maybeSingle() as { data: { created_at: string } | null; error: any };
-
-        if (cursorMessage && 'created_at' in cursorMessage) {
-          query = query.lt('created_at', cursorMessage.created_at);
-        }
-      }
-
-      const { data: messages, error } = await query as {
-        data: any[] | null;
-        error: any
-      };
-
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        });
-      }
-
-      // Get next cursor
-      const nextCursor = messages && messages.length === input.limit
+      const nextCursor = messages.length === input.limit
         ? messages[messages.length - 1].id
         : undefined;
 
       return {
-        messages: messages || [],
+        messages,
         nextCursor,
       };
     }),
 
   /**
    * Send a new message
-   * Verifies client belongs to company via session claims
    */
   sendMessage: protectedProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       recipientId: z.string().uuid(),
       subject: z.string().optional(),
-      body: z.string().min(1).max(5000),
+      content: z.string().min(1).max(5000),
       parentMessageId: z.string().uuid().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify company ID from session claims
-      if (!ctx.companyId) {
+      const { db, companyId, userId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session'
@@ -115,12 +108,11 @@ export const messagesRouter = router({
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(eq(schema.clients.id, input.clientId), eq(schema.clients.companyId, companyId)))
+        .limit(1);
 
       if (!client) {
         throw new TRPCError({
@@ -129,101 +121,106 @@ export const messagesRouter = router({
         });
       }
 
-      // Get user info for sender
-      const { data: user } = await ctx.supabase
-        .from('users')
-        .select('id')
-        .eq('clerk_id', ctx.userId)
-        .single() as { data: { id: string } | null; error: any };
-
-      if (!user) {
+      // Get user ID
+      if (!userId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'User not found'
         });
       }
 
-      // Insert message
-      const { data: newMessage, error } = await ctx.supabase
-        .from('messages')
-        .insert({
-          client_id: input.clientId,
-          sender_id: user.id,
-          recipient_id: input.recipientId,
-          subject: input.subject || null,
-          body: input.body,
-          parent_message_id: input.parentMessageId || null,
-          is_read: false,
-        } as any)
-        .select()
-        .single() as { data: any; error: any };
+      // Look up user's database UUID from BetterAuth ID
+      const [dbUser] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.authId, userId))
+        .limit(1);
 
-      if (error) {
+      if (!dbUser) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'User not found in database'
         });
       }
+
+      // Insert message
+      const [newMessage] = await db
+        .insert(schema.messages)
+        .values({
+          companyId,
+          clientId: input.clientId,
+          senderId: dbUser.id,
+          receiverId: input.recipientId,
+          subject: input.subject,
+          content: input.content,
+          parentId: input.parentMessageId,
+          isRead: false,
+        })
+        .returning();
 
       return newMessage;
     }),
 
   /**
    * Mark messages as read
-   * Only marks messages where current user is recipient
    */
   markAsRead: protectedProcedure
     .input(z.object({
       messageIds: z.array(z.string().uuid()),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Get current user ID
-      const { data: user } = await ctx.supabase
-        .from('users')
-        .select('id')
-        .eq('clerk_id', ctx.userId)
-        .single() as { data: { id: string } | null; error: any };
+      const { db, userId } = ctx;
 
-      if (!user) {
+      if (!userId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'User not found'
         });
       }
 
-      // Mark messages as read (only where current user is recipient)
-      const result = await (ctx.supabase as any)
-        .from('messages')
-        .update({
-          is_read: true,
-          read_at: new Date().toISOString(),
-        })
-        .in('id', input.messageIds)
-        .eq('recipient_id', user.id);
+      // Look up user's database UUID from BetterAuth ID
+      const [dbUser] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.authId, userId))
+        .limit(1);
 
-      const { error } = result as { error: any };
-
-      if (error) {
+      if (!dbUser) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'User not found in database'
         });
       }
+
+      // Mark messages as read (only where current user is receiver)
+      await db
+        .update(schema.messages)
+        .set({
+          isRead: true,
+          readAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            inArray(schema.messages.id, input.messageIds),
+            eq(schema.messages.receiverId, dbUser.id)
+          )
+        );
 
       return { success: true };
     }),
 
   /**
    * Get unread message count for a client
-   * Only counts messages where current user is recipient
    */
   getUnreadCount: protectedProcedure
     .input(z.object({
       clientId: z.string().uuid(),
     }))
     .query(async ({ ctx, input }) => {
-      // Verify company ID from session claims
-      if (!ctx.companyId) {
+      const { db, companyId, userId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session'
@@ -231,12 +228,11 @@ export const messagesRouter = router({
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(eq(schema.clients.id, input.clientId), eq(schema.clients.companyId, companyId)))
+        .limit(1);
 
       if (!client) {
         throw new TRPCError({
@@ -245,41 +241,43 @@ export const messagesRouter = router({
         });
       }
 
-      // Get current user ID
-      const { data: user } = await ctx.supabase
-        .from('users')
-        .select('id')
-        .eq('clerk_id', ctx.userId)
-        .single() as { data: { id: string } | null; error: any };
-
-      if (!user) {
+      if (!userId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'User not found'
         });
       }
 
-      // Count unread messages where current user is recipient
-      const { count, error } = await ctx.supabase
-        .from('messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('client_id', input.clientId)
-        .eq('recipient_id', user.id)
-        .eq('is_read', false) as { count: number | null; error: any };
+      // Look up user's database UUID from BetterAuth ID
+      // The users table stores authId (BetterAuth ID) separately from id (UUID)
+      const [dbUser] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.authId, userId))
+        .limit(1);
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        });
+      // If user not found in legacy users table, return 0 count
+      if (!dbUser) {
+        return { count: 0 };
       }
 
-      return { count: count || 0 };
+      // Count unread messages where current user is receiver
+      const [result] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.clientId, input.clientId),
+            eq(schema.messages.receiverId, dbUser.id),
+            eq(schema.messages.isRead, false)
+          )
+        );
+
+      return { count: result?.count || 0 };
     }),
 
   /**
    * Get conversation between current user and another user
-   * Returns all messages between the two users for a specific client
    */
   getConversation: protectedProcedure
     .input(z.object({
@@ -287,8 +285,9 @@ export const messagesRouter = router({
       otherUserId: z.string().uuid(),
     }))
     .query(async ({ ctx, input }) => {
-      // Verify company ID from session claims
-      if (!ctx.companyId) {
+      const { db, companyId, userId } = ctx;
+
+      if (!companyId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session'
@@ -296,12 +295,11 @@ export const messagesRouter = router({
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single();
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(eq(schema.clients.id, input.clientId), eq(schema.clients.companyId, companyId)))
+        .limit(1);
 
       if (!client) {
         throw new TRPCError({
@@ -310,35 +308,322 @@ export const messagesRouter = router({
         });
       }
 
-      // Get current user ID
-      const { data: user } = await ctx.supabase
-        .from('users')
-        .select('id')
-        .eq('clerk_id', ctx.userId)
-        .single() as { data: { id: string } | null; error: any };
-
-      if (!user) {
+      if (!userId) {
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'User not found'
         });
       }
 
-      // Get conversation (messages between current user and other user)
-      const { data: messages, error } = await ctx.supabase
-        .from('messages')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .or(`and(sender_id.eq.${user.id},recipient_id.eq.${input.otherUserId}),and(sender_id.eq.${input.otherUserId},recipient_id.eq.${user.id})`)
-        .order('created_at', { ascending: true }) as { data: any[] | null; error: any };
+      // Look up user's database UUID from BetterAuth ID
+      const [dbUser] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.authId, userId))
+        .limit(1);
 
-      if (error) {
+      if (!dbUser) {
+        return [];
+      }
+
+      // Get conversation (messages between current user and other user)
+      const messages = await db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.clientId, input.clientId),
+            or(
+              and(eq(schema.messages.senderId, dbUser.id), eq(schema.messages.receiverId, input.otherUserId)),
+              and(eq(schema.messages.senderId, input.otherUserId), eq(schema.messages.receiverId, dbUser.id))
+            )
+          )
+        )
+        .orderBy(asc(schema.messages.createdAt));
+
+      return messages;
+    }),
+
+  // ============================================================================
+  // TEAM CHAT CHANNELS (November 2025 - Team Management)
+  // ============================================================================
+
+  /**
+   * Get team chat channels available to the user
+   */
+  getTeamChannels: protectedProcedure
+    .query(async ({ ctx }) => {
+      const { db, companyId, userId } = ctx;
+
+      if (!companyId || !userId) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required'
         });
       }
 
-      return messages || [];
+      // Get clients the user is assigned to
+      const assignments = await db
+        .select({
+          clientId: schema.teamClientAssignments.clientId,
+          role: schema.teamClientAssignments.role,
+          client: {
+            id: schema.clients.id,
+            partner1FirstName: schema.clients.partner1FirstName,
+            partner1LastName: schema.clients.partner1LastName,
+            partner2FirstName: schema.clients.partner2FirstName,
+            partner2LastName: schema.clients.partner2LastName,
+          },
+        })
+        .from(schema.teamClientAssignments)
+        .leftJoin(schema.clients, eq(schema.teamClientAssignments.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.teamClientAssignments.userId, userId),
+            eq(schema.teamClientAssignments.companyId, companyId)
+          )
+        );
+
+      // Build channel list
+      const channels: Array<{
+        id: string;
+        type: 'team_global' | 'team_client';
+        name: string;
+        clientId: string | null;
+      }> = [
+        {
+          id: 'team_global',
+          type: 'team_global',
+          name: 'Team Chat',
+          clientId: null,
+        }
+      ];
+
+      // Add client-specific channels
+      assignments.forEach(a => {
+        if (a.clientId && a.client) {
+          const clientName = a.client.partner2FirstName
+            ? `${a.client.partner1FirstName} & ${a.client.partner2FirstName}`
+            : `${a.client.partner1FirstName} ${a.client.partner1LastName}`;
+
+          channels.push({
+            id: `team_client_${a.client.id}`,
+            type: 'team_client' as const,
+            name: `Team: ${clientName}`,
+            clientId: a.client.id,
+          });
+        }
+      });
+
+      // For global role, get all clients
+      const hasGlobal = assignments.some(a => a.role === 'global');
+      if (hasGlobal) {
+        const allClients = await db
+          .select({
+            id: schema.clients.id,
+            partner1FirstName: schema.clients.partner1FirstName,
+            partner1LastName: schema.clients.partner1LastName,
+            partner2FirstName: schema.clients.partner2FirstName,
+            partner2LastName: schema.clients.partner2LastName,
+          })
+          .from(schema.clients)
+          .where(
+            and(
+              eq(schema.clients.companyId, companyId),
+              isNull(schema.clients.deletedAt)
+            )
+          );
+
+        allClients.forEach(client => {
+          const existing = channels.find(c => c.clientId === client.id);
+          if (!existing) {
+            const clientName = client.partner2FirstName
+              ? `${client.partner1FirstName} & ${client.partner2FirstName}`
+              : `${client.partner1FirstName} ${client.partner1LastName}`;
+
+            channels.push({
+              id: `team_client_${client.id}`,
+              type: 'team_client' as const,
+              name: `Team: ${clientName}`,
+              clientId: client.id,
+            });
+          }
+        });
+      }
+
+      return channels;
+    }),
+
+  /**
+   * Get messages from a team channel
+   */
+  getTeamMessages: protectedProcedure
+    .input(z.object({
+      channelType: z.enum(['team_global', 'team_client']),
+      clientId: z.string().uuid().optional(),
+      limit: z.number().min(1).max(100).default(50),
+      cursor: z.string().uuid().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const { db, companyId } = ctx;
+
+      if (!companyId) {
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'Company ID not found in session'
+        });
+      }
+
+      if (input.channelType === 'team_client' && !input.clientId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Client ID required for team_client channel'
+        });
+      }
+
+      // Get cursor date if provided
+      let cursorDate: Date | null = null;
+      if (input.cursor) {
+        const [cursorMsg] = await db
+          .select({ createdAt: schema.messages.createdAt })
+          .from(schema.messages)
+          .where(eq(schema.messages.id, input.cursor))
+          .limit(1);
+        cursorDate = cursorMsg?.createdAt || null;
+      }
+
+      // Build conditions
+      const conditions = [
+        eq(schema.messages.companyId, companyId),
+        sql`${schema.messages.metadata}->>'channelType' = ${input.channelType}`,
+      ];
+
+      if (input.channelType === 'team_client' && input.clientId) {
+        conditions.push(eq(schema.messages.clientId, input.clientId));
+      }
+
+      if (cursorDate) {
+        conditions.push(lt(schema.messages.createdAt, cursorDate));
+      }
+
+      const messages = await db
+        .select()
+        .from(schema.messages)
+        .where(and(...conditions))
+        .orderBy(desc(schema.messages.createdAt))
+        .limit(input.limit);
+
+      // Get sender info
+      const senderIds = [...new Set(messages.map(m => m.senderId).filter(Boolean))];
+
+      let senderMap = new Map<string, { id: string; firstName: string | null; lastName: string | null; avatarUrl: string | null }>();
+      if (senderIds.length > 0) {
+        const users = await db
+          .select({
+            id: schema.users.id,
+            firstName: schema.users.firstName,
+            lastName: schema.users.lastName,
+            avatarUrl: schema.users.avatarUrl,
+          })
+          .from(schema.users)
+          .where(inArray(schema.users.id, senderIds));
+
+        senderMap = new Map(users.map(u => [u.id, u]));
+      }
+
+      const nextCursor = messages.length === input.limit
+        ? messages[messages.length - 1].id
+        : undefined;
+
+      return {
+        messages: messages.map(m => ({
+          ...m,
+          sender: senderMap.get(m.senderId) || null,
+        })),
+        nextCursor,
+      };
+    }),
+
+  /**
+   * Send a message to a team channel
+   */
+  sendTeamMessage: protectedProcedure
+    .input(z.object({
+      channelType: z.enum(['team_global', 'team_client']),
+      clientId: z.string().uuid().optional(),
+      content: z.string().min(1).max(5000),
+      parentMessageId: z.string().uuid().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { db, companyId, userId, user } = ctx;
+
+      if (!companyId || !userId) {
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required'
+        });
+      }
+
+      if (input.channelType === 'team_client' && !input.clientId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Client ID required for team_client channel'
+        });
+      }
+
+      // For team_client, verify client access
+      if (input.channelType === 'team_client' && input.clientId) {
+        const [client] = await db
+          .select({ id: schema.clients.id })
+          .from(schema.clients)
+          .where(
+            and(
+              eq(schema.clients.id, input.clientId),
+              eq(schema.clients.companyId, companyId)
+            )
+          )
+          .limit(1);
+
+        if (!client) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Client not found or access denied'
+          });
+        }
+      }
+
+      // Look up user's database UUID from BetterAuth ID
+      const [dbUser] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.authId, userId))
+        .limit(1);
+
+      if (!dbUser) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'User not found in database'
+        });
+      }
+
+      // Insert message
+      const [newMessage] = await db
+        .insert(schema.messages)
+        .values({
+          companyId,
+          clientId: input.clientId,
+          senderId: dbUser.id,
+          content: input.content,
+          parentId: input.parentMessageId,
+          isRead: false,
+          metadata: {
+            channelType: input.channelType,
+            senderName: user?.name || 'Unknown',
+            senderType: 'staff',
+          },
+        })
+        .returning();
+
+      return newMessage;
     }),
 });

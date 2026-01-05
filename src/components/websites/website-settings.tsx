@@ -10,9 +10,34 @@ import { trpc } from '@/lib/trpc/client';
 import { toast } from 'sonner';
 import { Lock, Trash2, Shield, Eye } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { Database } from '@/lib/database.types';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+/**
+ * Website type from Drizzle schema
+ * Uses camelCase fields with settings JSONB column
+ */
+interface Website {
+  id: string;
+  clientId: string;
+  subdomain: string | null;
+  customDomain: string | null;
+  theme: string | null;
+  isPublished: boolean | null;
+  password: string | null;
+  isPasswordProtected: boolean | null;
+  settings: unknown;
+  content: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}
+
+interface WebsiteSettings {
+  metaTitle?: string;
+  metaDescription?: string;
+  ogImageUrl?: string;
+  customDomainVerified?: boolean;
+  viewCount?: number;
+}
 
 interface WebsiteSettingsProps {
   website: Website;
@@ -20,12 +45,21 @@ interface WebsiteSettingsProps {
 }
 
 /**
- * Website Settings Component
- * Session 49: Password protection, deletion, etc.
+ * Website Settings Component - Drizzle Schema
+ *
+ * Settings stored in `settings` JSONB:
+ * - metaTitle
+ * - metaDescription
+ * - ogImageUrl
  */
 export function WebsiteSettings({ website, onUpdate }: WebsiteSettingsProps) {
+  // Extract settings from JSONB
+  const settings = (website.settings as WebsiteSettings) || {};
+
   const [password, setPassword] = useState('');
-  const [enablePassword, setEnablePassword] = useState(website.is_password_protected);
+  const [enablePassword, setEnablePassword] = useState(website.isPasswordProtected || false);
+  const [metaTitle, setMetaTitle] = useState(settings.metaTitle || '');
+  const [metaDescription, setMetaDescription] = useState(settings.metaDescription || '');
 
   const updateSettings = trpc.websites.update.useMutation({
     onSuccess: () => {
@@ -68,6 +102,16 @@ export function WebsiteSettings({ website, onUpdate }: WebsiteSettingsProps) {
 
     // Use the setPassword mutation from the websites router
     toast.info('Password protection will be available in next update');
+  };
+
+  const handleSaveSEO = () => {
+    updateSettings.mutate({
+      websiteId: website.id,
+      data: {
+        metaTitle,
+        metaDescription,
+      },
+    });
   };
 
   const handleDeleteWebsite = () => {
@@ -149,7 +193,8 @@ export function WebsiteSettings({ website, onUpdate }: WebsiteSettingsProps) {
             <Label htmlFor="meta-title">Page Title</Label>
             <Input
               id="meta-title"
-              defaultValue={website.meta_title || ''}
+              value={metaTitle}
+              onChange={(e) => setMetaTitle(e.target.value)}
               placeholder="John & Jane's Wedding"
             />
           </div>
@@ -158,13 +203,18 @@ export function WebsiteSettings({ website, onUpdate }: WebsiteSettingsProps) {
             <Label htmlFor="meta-description">Description</Label>
             <Input
               id="meta-description"
-              defaultValue={website.meta_description || ''}
+              value={metaDescription}
+              onChange={(e) => setMetaDescription(e.target.value)}
               placeholder="Join us as we celebrate our special day!"
             />
           </div>
 
-          <Button variant="outline" disabled>
-            Save SEO Settings
+          <Button
+            variant="outline"
+            onClick={handleSaveSEO}
+            disabled={updateSettings.isPending}
+          >
+            {updateSettings.isPending ? 'Saving...' : 'Save SEO Settings'}
           </Button>
 
           <Alert>

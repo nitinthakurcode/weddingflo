@@ -16,20 +16,24 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
+import { trpc } from '@/lib/trpc/client';
 
+/**
+ * Conversation interface - uses camelCase fields (December 2025)
+ */
 interface Conversation {
   client: {
     id: string;
-    client_name: string;
-    email: string;
-    wedding_date: string;
+    partner1FirstName: string;
+    partner1LastName?: string | null;
+    partner2FirstName?: string | null;
+    partner1Email: string;
+    weddingDate?: string | null;
   };
   lastMessage?: {
-    sender_name: string;
-    message: string;
-    created_at: string;
+    senderName: string;
+    content: string;
+    createdAt: string;
   };
   unreadCount: number;
 }
@@ -38,47 +42,38 @@ interface ConversationListProps {
   conversations: Conversation[];
   selectedClientId?: string;
   onSelectConversation: (clientId: string) => void;
-  companyId?: string;
 }
 
 export function ConversationList({
   conversations,
   selectedClientId,
   onSelectConversation,
-  companyId,
 }: ConversationListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [newMessageOpen, setNewMessageOpen] = useState(false);
-  const supabase = useSupabase();
 
-  // Get all clients for the company
-  const { data: allClients } = useQuery<any[]>({
-    queryKey: ['clients', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!companyId) return [];
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('company_id', companyId);
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!companyId && !!supabase,
-  });
+  // Get all clients (companyId comes from session context)
+  const { data: allClients } = trpc.clients.list.useQuery(
+    { search: searchQuery || undefined }
+  );
+
+  // Helper to get client display name
+  const getClientDisplayName = (client: { partner1FirstName: string; partner1LastName?: string | null; partner2FirstName?: string | null }) => {
+    return client.partner2FirstName
+      ? `${client.partner1FirstName} & ${client.partner2FirstName}`
+      : `${client.partner1FirstName} ${client.partner1LastName || ''}`.trim();
+  };
 
   // Filter conversations based on search
   const filteredConversations = conversations.filter((conv) =>
-    conv.client.client_name.toLowerCase().includes(searchQuery.toLowerCase())
+    getClientDisplayName(conv.client).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Get client IDs that already have conversations
   const conversationClientIds = new Set(conversations.map((c) => c.client.id));
 
-  // Filter clients for new message dialog
-  const availableClients = allClients?.filter(
-    (client) => client.client_name.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  // Clients returned from the list query match the search already
+  const availableClients = allClients || [];
 
   const handleSelectNewClient = (clientId: string) => {
     setNewMessageOpen(false);
@@ -87,7 +82,7 @@ export function ConversationList({
   };
 
   return (
-    <div className="flex flex-col h-full border-r bg-gray-50">
+    <div className="flex flex-col h-full border-r bg-mocha-50 dark:bg-mocha-900">
       {/* Header */}
       <div className="p-4 border-b bg-white">
         <div className="flex items-center justify-between mb-3">
@@ -128,10 +123,10 @@ export function ConversationList({
                         <button
                           key={client.id}
                           onClick={() => handleSelectNewClient(client.id)}
-                          className="w-full px-3 py-2 text-left hover:bg-gray-100 rounded-md transition-colors"
+                          className="w-full px-3 py-2 text-left hover:bg-mocha-100 dark:hover:bg-mocha-800 rounded-md transition-colors"
                         >
-                          <div className="font-medium text-sm">{client.client_name}</div>
-                          <div className="text-xs text-muted-foreground">{client.email}</div>
+                          <div className="font-medium text-sm">{getClientDisplayName(client)}</div>
+                          <div className="text-xs text-muted-foreground">{client.partner1Email}</div>
                         </button>
                       ))
                     )}
@@ -170,7 +165,7 @@ export function ConversationList({
                 onClick={() => onSelectConversation(conversation.client.id)}
                 className={cn(
                   'w-full px-4 py-3 text-left hover:bg-white transition-colors',
-                  selectedClientId === conversation.client.id && 'bg-white border-l-4 border-blue-600'
+                  selectedClientId === conversation.client.id && 'bg-white dark:bg-mocha-800 border-l-4 border-teal-600'
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -180,10 +175,10 @@ export function ConversationList({
                       <h3
                         className={cn(
                           'font-semibold text-sm truncate',
-                          conversation.unreadCount > 0 && 'text-blue-600'
+                          conversation.unreadCount > 0 && 'text-teal-600 dark:text-teal-400'
                         )}
                       >
-                        {conversation.client.client_name}
+                        {getClientDisplayName(conversation.client)}
                       </h3>
                       {conversation.unreadCount > 0 && (
                         <Badge variant="default" className="ml-auto flex-shrink-0">
@@ -196,11 +191,11 @@ export function ConversationList({
                     {conversation.lastMessage ? (
                       <div className="space-y-1">
                         <p className="text-xs text-muted-foreground truncate">
-                          {conversation.lastMessage.sender_name}:{' '}
-                          {conversation.lastMessage.message}
+                          {conversation.lastMessage.senderName}:{' '}
+                          {conversation.lastMessage.content}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(conversation.lastMessage.created_at), {
+                          {formatDistanceToNow(new Date(conversation.lastMessage.createdAt), {
                             addSuffix: true,
                           })}
                         </p>

@@ -27,8 +27,8 @@ export default function DashboardError({
     <div className="flex min-h-[400px] items-center justify-center">
       <div className="w-full max-w-md space-y-4 text-center">
         <div className="flex justify-center">
-          <div className="rounded-full bg-yellow-100 p-3">
-            <AlertTriangle className="h-10 w-10 text-yellow-600" />
+          <div className="rounded-full bg-gold-100 dark:bg-gold-900/50 p-3">
+            <AlertTriangle className="h-10 w-10 text-gold-600 dark:text-gold-400" />
           </div>
         </div>
 
@@ -42,12 +42,12 @@ export default function DashboardError({
         </div>
 
         {error.message && (
-          <div className="rounded-md bg-yellow-50 p-3 text-left">
-            <p className="text-xs font-medium text-yellow-800">
+          <div className="rounded-md bg-gold-50 dark:bg-gold-900/30 p-3 text-left">
+            <p className="text-xs font-medium text-gold-800 dark:text-gold-200">
               {error.message}
             </p>
             {error.digest && (
-              <p className="mt-1 text-xs text-yellow-700">
+              <p className="mt-1 text-xs text-gold-700 dark:text-gold-300">
                 Error ID: {error.digest}
               </p>
             )}

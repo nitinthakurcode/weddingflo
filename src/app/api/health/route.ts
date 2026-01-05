@@ -1,9 +1,9 @@
 /**
- * Health Check Endpoint for Fly.io
+ * Health Check Endpoint
  *
  * Used by:
  * - Dockerfile HEALTHCHECK
- * - Fly.io health checks
+ * - Hetzner/Docker health checks
  * - Monitoring systems
  *
  * Returns 200 OK if application is healthy
@@ -22,7 +22,6 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       environment: process.env.NODE_ENV,
-      region: process.env.FLY_REGION || 'local',
     };
 
     return NextResponse.json(health, { status: 200 });

@@ -21,7 +21,7 @@ const clientSchema = z.object({
   wedding_date: z.date(),
 })
 
-type ClientFormData = z.infer<typeof clientSchema>
+type ClientFormData = z.input<typeof clientSchema>
 
 interface FirstClientStepProps {
   onNext: (data: ClientFormData | null) => void

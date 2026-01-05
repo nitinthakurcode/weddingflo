@@ -86,7 +86,7 @@ export function GiftList({ clientId, onCreateGift, onEditGift }: GiftListProps) 
           return <span className="text-muted-foreground">Unknown</span>
         }
 
-        return `${row.guests.first_name} ${row.guests.last_name}`
+        return `${row.guests.firstName} ${row.guests.lastName}`
       },
     },
     {

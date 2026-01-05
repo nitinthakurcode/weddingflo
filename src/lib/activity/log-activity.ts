@@ -1,11 +1,10 @@
 /**
  * Activity Logging System
+ * December 2025 - tRPC Implementation (no Supabase)
  * Logs user actions for audit trail
  */
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
-import { useUser } from '@clerk/nextjs';
+import { trpc } from '@/lib/trpc/client';
 
 export type EntityType =
   | 'user'
@@ -44,42 +43,38 @@ export interface ActivityLogData {
 }
 
 /**
- * Hook to log activity
+ * Hook to log activity via tRPC
  */
 export function useLogActivity() {
-  const supabase = useSupabase();
-  const { user } = useUser();
-  const queryClient = useQueryClient();
-
-  const logActivity = useMutation({
-    mutationFn: async (data: ActivityLogData) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      // Get browser info
-      const userAgent = typeof window !== 'undefined' ? navigator.userAgent : undefined;
-      const deviceType = getDeviceType(userAgent);
-
-      const { data: result, error } = await supabase
-        .from('activity_logs')
-        .insert({
-          ...data,
-          user_id: user?.id,
-          user_agent: userAgent,
-          device_type: deviceType,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return result;
-    },
+  const utils = trpc.useUtils();
+  const recordActivity = trpc.activity.recordActivity.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['activity_log'] });
+      utils.activity.getFeed.invalidate();
     },
   });
 
   return async (data: ActivityLogData) => {
     try {
-      await logActivity.mutateAsync(data);
+      // Get browser info
+      const userAgent = typeof window !== 'undefined' ? navigator.userAgent : undefined;
+      const deviceType = getDeviceType(userAgent);
+
+      await recordActivity.mutateAsync({
+        clientId: data.clientId,
+        activityType: `${data.entityType}_${data.action}`,
+        title: `${data.action.charAt(0).toUpperCase() + data.action.slice(1)} ${data.entityType}`,
+        description: data.changes ? JSON.stringify(data.changes) : undefined,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        metadata: {
+          action: data.action,
+          previousValue: data.previousValue,
+          newValue: data.newValue,
+          changes: data.changes,
+          userAgent,
+          deviceType,
+        },
+      });
     } catch (error) {
       console.error('[Activity Log] Failed to log activity:', error);
     }

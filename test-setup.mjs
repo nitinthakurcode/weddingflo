@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * WeddingFlow Pro - Setup Test Script
+ * WeddingFlo - Setup Test Script
  * Tests November 2025 Native Integration
  * Free Tier Verification
  */
@@ -17,7 +17,7 @@ const __dirname = dirname(__filename);
 // Load environment variables
 dotenv.config({ path: join(__dirname, '.env.local') });
 
-console.log('🔍 WeddingFlow Pro - November 2025 Setup Test\n');
+console.log('🔍 WeddingFlo - November 2025 Setup Test\n');
 console.log('═'.repeat(60));
 
 // Test 1: Check package versions
@@ -99,12 +99,12 @@ if (supabaseUrl && supabaseServiceKey) {
 // Test 4: Check key files exist
 console.log('\n📁 KEY FILES:');
 const files = [
-  'src/middleware.ts',
+  'src/proxy.ts', // Next.js 16 proxy (renamed from middleware.ts)
   'i18n/routing.ts',
   'i18n/request.ts',
-  'src/lib/database.types.ts',
+  'src/lib/db/index.ts', // Drizzle database
   'src/features/core/server/routers/users.router.ts',
-  'src/app/api/webhooks/clerk/route.ts',
+  'src/lib/auth.ts', // BetterAuth
 ];
 
 for (const file of files) {

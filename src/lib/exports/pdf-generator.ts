@@ -2,6 +2,21 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 
+/**
+ * PDF colors using WeddingFlo design tokens
+ * Note: PDF doesn't support CSS variables - use static hex values
+ */
+const PDF_COLORS = {
+  primary: '#14B8A6',         // teal-500
+  text: '#3D3027',            // mocha-900
+  textSecondary: '#6B5D4F',   // mocha-700
+  textMuted: '#8B7355',       // mocha-500
+  textLight: '#B8A089',       // mocha-400
+  border: '#D4C4B5',          // mocha-200
+  background: '#F5F0EB',      // mocha-100
+  white: '#ffffff',
+} as const;
+
 interface PDFOptions {
   title: string;
   subtitle?: string;
@@ -35,7 +50,7 @@ export class PDFGenerator {
    * Add header with logo and title
    */
   private addHeader() {
-    const { title, subtitle, companyLogo, primaryColor = '#4F46E5' } = this.options;
+    const { title, subtitle, companyLogo, primaryColor = PDF_COLORS.primary } = this.options;
 
     // Add logo if provided
     if (companyLogo) {
@@ -53,14 +68,14 @@ export class PDFGenerator {
     // Subtitle
     if (subtitle) {
       this.doc.setFontSize(12);
-      this.doc.setTextColor('#6B7280');
+      this.doc.setTextColor(PDF_COLORS.textSecondary);
       this.doc.text(subtitle, 15, this.yPosition);
       this.yPosition += 8;
     }
 
     // Date
     this.doc.setFontSize(10);
-    this.doc.setTextColor('#9CA3AF');
+    this.doc.setTextColor(PDF_COLORS.textLight);
     this.doc.text(`Generated: ${format(new Date(), 'PPP')}`, 15, this.yPosition);
     this.yPosition += 15;
   }
@@ -72,12 +87,12 @@ export class PDFGenerator {
     this.checkPageBreak(15);
 
     this.doc.setFontSize(16);
-    this.doc.setTextColor(this.options.primaryColor || '#4F46E5');
+    this.doc.setTextColor(this.options.primaryColor || PDF_COLORS.primary);
     this.doc.text(text, 15, this.yPosition);
     this.yPosition += 8;
 
     // Underline
-    this.doc.setDrawColor('#E5E7EB');
+    this.doc.setDrawColor(PDF_COLORS.border);
     this.doc.line(15, this.yPosition, 195, this.yPosition);
     this.yPosition += 5;
   }
@@ -89,7 +104,7 @@ export class PDFGenerator {
     this.checkPageBreak(20);
 
     this.doc.setFontSize(11);
-    this.doc.setTextColor('#374151');
+    this.doc.setTextColor(PDF_COLORS.textSecondary);
 
     const splitText = this.doc.splitTextToSize(text, 180);
     this.doc.text(splitText, 15, this.yPosition);
@@ -103,10 +118,10 @@ export class PDFGenerator {
     this.checkPageBreak(8);
 
     this.doc.setFontSize(11);
-    this.doc.setTextColor('#6B7280');
+    this.doc.setTextColor(PDF_COLORS.textMuted);
     this.doc.text(key + ':', 15, this.yPosition);
 
-    this.doc.setTextColor('#111827');
+    this.doc.setTextColor(PDF_COLORS.text);
     this.doc.text(value, 70, this.yPosition);
     this.yPosition += 6;
   }
@@ -123,17 +138,17 @@ export class PDFGenerator {
       startY: this.yPosition,
       theme: 'grid',
       headStyles: {
-        fillColor: this.hexToRgb(this.options.primaryColor || '#4F46E5'),
+        fillColor: this.hexToRgb(this.options.primaryColor || PDF_COLORS.primary),
         textColor: [255, 255, 255],
         fontSize: 10,
         fontStyle: 'bold',
       },
       bodyStyles: {
         fontSize: 9,
-        textColor: [55, 65, 81],
+        textColor: this.hexToRgb(PDF_COLORS.textSecondary),
       },
       alternateRowStyles: {
-        fillColor: [249, 250, 251],
+        fillColor: this.hexToRgb(PDF_COLORS.background),
       },
     });
 
@@ -158,7 +173,7 @@ export class PDFGenerator {
     this.checkPageBreak(items.length * 10 + 20);
 
     // Draw box
-    this.doc.setDrawColor(this.options.primaryColor || '#4F46E5');
+    this.doc.setDrawColor(this.options.primaryColor || PDF_COLORS.primary);
     this.doc.setLineWidth(0.5);
     this.doc.rect(15, this.yPosition, 180, items.length * 10 + 10);
 
@@ -167,10 +182,10 @@ export class PDFGenerator {
     // Add items
     items.forEach((item) => {
       this.doc.setFontSize(11);
-      this.doc.setTextColor('#6B7280');
+      this.doc.setTextColor(PDF_COLORS.textMuted);
       this.doc.text(item.label, 20, this.yPosition);
 
-      this.doc.setTextColor('#111827');
+      this.doc.setTextColor(PDF_COLORS.text);
       this.doc.setFont('helvetica', 'bold');
       this.doc.text(item.value, 130, this.yPosition);
       this.doc.setFont('helvetica', 'normal');
@@ -200,7 +215,7 @@ export class PDFGenerator {
     for (let i = 1; i <= pageCount; i++) {
       this.doc.setPage(i);
       this.doc.setFontSize(9);
-      this.doc.setTextColor('#9CA3AF');
+      this.doc.setTextColor(PDF_COLORS.textLight);
       this.doc.text(
         `Page ${i} of ${pageCount}`,
         this.doc.internal.pageSize.width / 2,
@@ -266,7 +281,7 @@ export async function generateClientSummaryPDF(clientData: {
   const pdf = new PDFGenerator({
     title: 'Wedding Summary Report',
     subtitle: `${clientData.client.partner1_first_name} ${clientData.client.partner1_last_name}`,
-    author: 'WeddingFlow Pro',
+    author: 'WeddingFlo',
   });
 
   // Client Overview Section
@@ -335,7 +350,7 @@ export async function generateGuestAnalyticsPDF(analyticsData: any) {
   const pdf = new PDFGenerator({
     title: 'Guest Analytics Report',
     subtitle: `Total Guests: ${analyticsData.total}`,
-    author: 'WeddingFlow Pro',
+    author: 'WeddingFlo',
   });
 
   // RSVP Summary

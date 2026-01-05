@@ -32,7 +32,7 @@ export async function GET(
       eventTime: templateProps.eventTime || '4:00 PM',
       venue: templateProps.venue || 'The Grand Ballroom',
       venueAddress: templateProps.venueAddress || '123 Main St, New York, NY 10001',
-      companyName: templateProps.companyName || 'WeddingFlow Pro',
+      companyName: templateProps.companyName || 'WeddingFlo',
       primaryColor: templateProps.primaryColor || '#3b82f6',
       ...templateProps,
     };

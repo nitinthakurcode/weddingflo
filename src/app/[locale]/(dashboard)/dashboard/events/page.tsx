@@ -1,113 +1,104 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabaseClient } from '@/lib/supabase/client';
-import { useUser } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { EventDialog } from '@/components/events/event-dialog';
-import { EventList } from '@/components/events/event-list';
 import { EventCalendar } from '@/components/events/event-calendar';
 import { EventStats } from '@/components/events/event-stats';
-import { VenueInfoSheet } from '@/components/events/venue-info-sheet';
-import { Event, EventStats as EventStatsType } from '@/types/event';
-import { Plus, Calendar, List } from 'lucide-react';
-import { EventFormValues } from '@/lib/validations/event.schema';
+import { Event, EventStats as EventStatsType, EventType, EventStatus } from '@/types/event';
+import { Calendar, List, ArrowRight } from 'lucide-react';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslations } from 'next-intl';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 export default function EventsPage() {
+  const t = useTranslations('events');
+  const tc = useTranslations('common');
   const { toast } = useToast();
-  const supabase = useSupabaseClient();
-  const { user } = useUser();
-  const queryClient = useQueryClient();
+  const router = useRouter();
+  const { data: session } = useSession();
+  const utils = trpc.useUtils();
 
-  // Get current user and their clients
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery<any>({
-    queryKey: ['currentUser'],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', user?.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user && !!supabase,
+  // Get current user via tRPC
+  const { data: currentUser, isLoading: isLoadingUser } = trpc.users.getCurrent.useQuery(
+    undefined,
+    { enabled: !!session?.user?.id }
+  );
+
+  // Get ALL clients for the company via tRPC
+  const { data: clients, isLoading: isLoadingClients } = trpc.clients.getAll.useQuery(
+    undefined,
+    { enabled: !!currentUser?.company_id }
+  );
+
+  // Fetch events for ALL clients
+  const clientIds = clients?.map(c => c.id) || [];
+
+  // Fetch events for each client
+  const eventQueries = clientIds.map(clientId =>
+    trpc.events.getAll.useQuery(
+      { clientId },
+      { enabled: !!clientId }
+    )
+  );
+
+  const isLoadingEvents = eventQueries.some(q => q.isLoading);
+
+  // Combine all events from all clients
+  const allEventsData = eventQueries.flatMap(q => q.data || []);
+
+  // Map events to Event type and include client information
+  const events: (Event & { clientName: string; clientId: string })[] = allEventsData.map((evt) => {
+    const client = clients?.find(c => c.id === evt.clientId);
+    return {
+      id: evt.id,
+      _id: evt.id as any,
+      _creationTime: new Date(evt.createdAt || new Date()).getTime(),
+      company_id: '',
+      client_id: evt.clientId,
+      clientId: evt.clientId,
+      clientName: client ? `${client.partner1FirstName} ${client.partner1LastName || ''}`.trim() : 'Unknown Client',
+      event_name: evt.title,
+      event_type: (evt.eventType || 'other') as EventType,
+      event_date: new Date(evt.eventDate).getTime(),
+      event_start_time: evt.startTime || '',
+      event_end_time: evt.endTime || '',
+      event_status: (evt.status || 'draft') as EventStatus,
+      venue_details: {
+        name: evt.venueName || '',
+        address: evt.address || '',
+        city: '',
+        state: '',
+        country: '',
+        capacity: 0,
+      },
+      estimated_guests: evt.guestCount || 0,
+      description: evt.description || undefined,
+      tags: [],
+      created_at: evt.createdAt?.toISOString() || new Date().toISOString(),
+      updated_at: evt.updatedAt?.toISOString() || new Date().toISOString(),
+    };
   });
 
-  const { data: clients, isLoading: isLoadingClients } = useQuery<any[]>({
-    queryKey: ['clients', currentUser?.company_id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('company_id', currentUser?.company_id)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!currentUser?.company_id && !!supabase,
-  });
+  // Sort events by date (upcoming first)
+  const sortedEvents = [...events].sort((a, b) => a.event_date - b.event_date);
 
-  // Use first client for now
-  const selectedClient = clients?.[0];
-  const clientId = selectedClient?.id;
-
-  // Fetch events
-  const { data: rawEvents, isLoading: isLoadingEvents } = useQuery<any[]>({
-    queryKey: ['events', clientId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!clientId && !!supabase,
-  });
-
-  // Map to Event type
-  const events: Event[] = (rawEvents || []).map((evt) => ({
-    id: evt.id,
-    _id: evt.id as any,
-    _creationTime: new Date(evt.created_at).getTime(),
-    company_id: evt.company_id,
-    client_id: evt.client_id,
-    event_name: evt.event_name,
-    event_type: evt.event_type as any,
-    event_date: new Date(evt.event_date).getTime(),
-    event_start_time: evt.event_start_time,
-    event_end_time: evt.event_end_time,
-    event_status: evt.event_status || 'confirmed' as const,
-    venue_details: evt.venue_details || {
-      name: '',
-      address: '',
-      city: '',
-      state: '',
-      country: '',
-      capacity: 0,
-    },
-    estimated_guests: evt.estimated_guests || 0,
-    description: evt.description,
-    tags: evt.tags || [],
-    created_at: evt.created_at,
-    updated_at: evt.updated_at,
-  }));
-
-  // Calculate stats
+  // Calculate aggregate stats across ALL clients
   const stats: EventStatsType = {
     total: events.length,
+    confirmed: events.filter((e) => e.event_status === 'confirmed').length,
     upcoming: events.filter((e) => e.event_date > Date.now()).length,
     completed: events.filter((e) => e.event_status === 'completed').length,
     this_month: events.filter((e) => {
@@ -119,64 +110,14 @@ export default function EventsPage() {
     total_budget: events.reduce((sum, e) => sum + (e.budget_allocated || 0), 0),
   };
 
-  const createEvent = useMutation({
-    mutationFn: async (eventData: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('events')
-        .insert(eventData)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['events'] });
-    },
-  });
-
-  const updateEvent = useMutation({
-    mutationFn: async ({ eventId, ...eventData }: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('events')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update(eventData)
-        .eq('id', eventId)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['events'] });
-    },
-  });
-
-  const deleteEventBrief = useMutation({
-    mutationFn: async (eventId: string) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { error } = await supabase.from('events').delete().eq('id', eventId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['events'] });
-    },
-  });
-
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isVenueSheetOpen, setIsVenueSheetOpen] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<Event | undefined>();
-  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
+  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('list');
   const [eventFilter, setEventFilter] = useState<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const handleFilterChange = (filter: string | null) => {
     setEventFilter(filter);
-    // Switch to list view when filtering for better visibility
     if (filter) {
       setViewMode('list');
-      // Scroll to results on mobile after a short delay to allow tab switch
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
@@ -185,123 +126,54 @@ export default function EventsPage() {
 
   // Filter events based on the active filter
   const filteredEvents = (() => {
-    if (!eventFilter) return events;
+    if (!eventFilter) return sortedEvents;
 
     switch (eventFilter) {
       case 'all':
-        return events;
+        return sortedEvents;
+      case 'confirmed':
+        return sortedEvents.filter((e) => e.event_status === 'confirmed');
       case 'upcoming':
-        return events.filter((e) => e.event_date > Date.now());
+        return sortedEvents.filter((e) => e.event_date > Date.now());
       case 'completed':
-        return events.filter((e) => e.event_status === 'completed');
+        return sortedEvents.filter((e) => e.event_status === 'completed');
       default:
-        return events;
+        return sortedEvents;
     }
   })();
 
-  const handleCreateEvent = async (data: EventFormValues) => {
-    if (!currentUser?.company_id || !clientId) {
-      toast({
-        title: 'Error',
-        description: 'Missing required information',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      await createEvent.mutateAsync({
-        company_id: currentUser.company_id,
-        client_id: clientId,
-        event_name: data.event_name,
-        event_type: data.event_type,
-        event_date: data.event_date,
-        event_start_time: data.event_start_time,
-        event_end_time: data.event_end_time,
-        event_status: 'confirmed',
-        venue_details: data.venue_details,
-        estimated_guests: data.venue_details.capacity || 0,
-        description: data.description,
-        special_instructions: data.special_instructions,
-        tags: [],
-      });
-
-      toast({
-        title: 'Success',
-        description: 'Event created successfully',
-      });
-      closeDialog();
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to create event',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleEditEvent = async (data: EventFormValues) => {
-    if (!selectedEvent) return;
-
-    try {
-      await updateEvent.mutateAsync({
-        eventId: selectedEvent.id,
-        event_name: data.event_name,
-        event_start_time: data.event_start_time,
-        event_end_time: data.event_end_time,
-        venue_details: data.venue_details,
-        description: data.description,
-        special_instructions: data.special_instructions,
-      });
-
-      toast({
-        title: 'Success',
-        description: 'Event updated successfully',
-      });
-      closeDialog();
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to update event',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeleteEvent = async (eventId: string) => {
-    try {
-      await deleteEventBrief.mutateAsync(eventId);
-
-      toast({
-        title: 'Success',
-        description: 'Event deleted successfully',
-      });
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to delete event',
-        variant: 'destructive',
-      });
-    }
-  };
-
   const handleViewEvent = (event: Event) => {
-    setSelectedEvent(event);
-    setIsVenueSheetOpen(true);
+    // Navigate to client's event detail page
+    // Our events array includes clientId, so we can safely access it
+    const eventWithClient = event as Event & { clientId: string };
+    router.push(`/dashboard/clients/${eventWithClient.clientId}/events`);
   };
 
-  const openDialog = (event?: Event) => {
-    setSelectedEvent(event);
-    setIsDialogOpen(true);
+  const getStatusBadge = (status: EventStatus) => {
+    const variants: Record<EventStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+      draft: 'outline',
+      confirmed: 'default',
+      completed: 'secondary',
+      cancelled: 'destructive',
+    };
+    return <Badge variant={variants[status] || 'outline'}>{status}</Badge>;
   };
 
-  const closeDialog = () => {
-    setSelectedEvent(undefined);
-    setIsDialogOpen(false);
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const formatTime = (time: string) => {
+    if (!time) return '-';
+    return time;
   };
 
   // Loading state
-  if (!user || isLoadingUser) {
+  if (!session?.user || isLoadingUser) {
     return <PageLoader />;
   }
 
@@ -310,9 +182,9 @@ export default function EventsPage() {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center">
-          <h2 className="text-2xl font-bold">Authentication Required</h2>
+          <h2 className="text-2xl font-bold">{t('authRequired')}</h2>
           <p className="text-muted-foreground mt-2">
-            Please sign in to manage events.
+            {t('signInToManage')}
           </p>
         </div>
       </div>
@@ -324,15 +196,31 @@ export default function EventsPage() {
     return <PageLoader />;
   }
 
-  // No client found state
-  if (!selectedClient || !clientId) {
+  // No clients found state
+  if (!clients || clients.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold">No Client Found</h2>
-          <p className="text-muted-foreground mt-2">
-            Please create a client first to manage events.
+        <div className="max-w-2xl w-full text-center space-y-6">
+          <div className="mx-auto w-24 h-24 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
+            <Calendar className="w-12 h-12 text-primary" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-3xl font-bold tracking-tight">All Events</h1>
+            <p className="text-lg text-muted-foreground">No clients found</p>
+          </div>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            Create your first client to start managing wedding events.
           </p>
+          <div className="pt-4">
+            <Button
+              size="lg"
+              onClick={() => router.push('/dashboard/clients')}
+              className="gap-2"
+            >
+              Add Client
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -345,19 +233,21 @@ export default function EventsPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
         <div className="relative space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
           <div className="min-w-0 flex-1">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white break-words">Events</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white break-words">
+              All Events
+            </h2>
             <p className="text-sm sm:text-base text-primary-800 mt-1 break-words">
-              Manage your wedding events and schedules
+              View upcoming events across all clients
             </p>
           </div>
           <div className="sm:ml-4">
             <Button
-              onClick={() => openDialog()}
+              onClick={() => router.push('/dashboard/clients')}
               size="sm"
-              className="w-full sm:w-auto bg-white hover:bg-gray-50 text-gray-900 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
+              variant="outline"
+              className="w-full sm:w-auto bg-white/10 border-white/20 text-mocha-900 dark:text-mocha-100 hover:bg-white/20"
             >
-              <Plus className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4 font-bold" />
-              <span className="text-xs sm:text-sm font-bold">Add Event</span>
+              <span className="text-xs sm:text-sm">Manage by Client</span>
             </Button>
           </div>
         </div>
@@ -407,33 +297,75 @@ export default function EventsPage() {
         </TabsContent>
 
         <TabsContent value="list" className="mt-0">
-          <EventList
-            events={filteredEvents}
-            onEdit={openDialog}
-            onDelete={handleDeleteEvent}
-            onView={handleViewEvent}
-          />
+          {filteredEvents.length === 0 ? (
+            <div className="text-center py-12 bg-muted/50 rounded-lg">
+              <Calendar className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No events found</p>
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Event</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Venue</TableHead>
+                    <TableHead>Guests</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredEvents.map((event) => (
+                    <TableRow key={event.id} className="cursor-pointer hover:bg-muted/50">
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-primary" />
+                          {event.clientName}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{event.event_name}</div>
+                          <div className="text-xs text-muted-foreground capitalize">
+                            {event.event_type}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatDate(event.event_date)}</TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          {formatTime(event.event_start_time)}
+                          {event.event_end_time && ` - ${formatTime(event.event_end_time)}`}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[200px] truncate">
+                          {event.venue_details.name || '-'}
+                        </div>
+                      </TableCell>
+                      <TableCell>{event.estimated_guests || '-'}</TableCell>
+                      <TableCell>{getStatusBadge(event.event_status)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewEvent(event)}
+                        >
+                          View
+                          <ArrowRight className="w-3 h-3 ml-1" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
-
-      {/* Dialogs and Sheets */}
-      <EventDialog
-        open={isDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) closeDialog();
-        }}
-        event={selectedEvent}
-        onSubmit={selectedEvent ? handleEditEvent : handleCreateEvent}
-      />
-
-      {selectedEvent && (
-        <VenueInfoSheet
-          open={isVenueSheetOpen}
-          onOpenChange={setIsVenueSheetOpen}
-          venue={selectedEvent.venue_details}
-          eventName={selectedEvent.event_name}
-        />
-      )}
     </div>
   );
 }

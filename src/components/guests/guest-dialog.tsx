@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +12,7 @@ import { GuestForm } from './guest-form';
 import { GuestFormValues } from '@/lib/validations/guest.schema';
 import { Guest } from '@/types/guest';
 import { useToast } from '@/hooks/use-toast';
+import { trpc } from '@/lib/trpc/client';
 
 interface GuestDialogProps {
   open: boolean;
@@ -32,41 +31,17 @@ export function GuestDialog({
 }: GuestDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  const createGuest = useMutation({
-    mutationFn: async (data: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('guests')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .insert(data)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const createGuest = trpc.guests.create.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['guests', clientId] });
+      utils.guests.getAll.invalidate({ clientId });
     },
   });
 
-  const updateGuest = useMutation({
-    mutationFn: async ({ guestId, ...data }: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('guests')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update(data)
-        .eq('id', guestId)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const updateGuest = trpc.guests.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['guests', clientId] });
+      utils.guests.getAll.invalidate({ clientId });
     },
   });
 
@@ -74,15 +49,44 @@ export function GuestDialog({
     try {
       setIsLoading(true);
 
+      // Build guest data with camelCase fields (router expects 'name' and splits it)
+      const guestData = {
+        name: data.guest_name,
+        email: data.guest_email || undefined,
+        phone: data.guest_phone || undefined,
+        partySize: data.party_size,
+        additionalGuestNames: data.additional_guest_names || [],
+        arrivalDatetime: data.arrival_datetime || undefined,
+        arrivalMode: data.arrival_mode || undefined,
+        departureDatetime: data.departure_datetime || undefined,
+        departureMode: data.departure_mode || undefined,
+        relationshipToFamily: data.relationship_to_family || undefined,
+        groupName: data.group_name || undefined,
+        guestSide: data.guest_side || 'mutual',
+        attendingEvents: data.attending_events || [],
+        rsvpStatus: data.rsvp_status || 'pending',
+        mealPreference: data.meal_preference || undefined,
+        dietaryRestrictions: data.dietary_restrictions || undefined,
+        plusOne: data.plus_one_allowed || false,
+        hotelRequired: data.hotel_required || false,
+        hotelName: data.hotel_name || undefined,
+        hotelCheckIn: data.hotel_check_in || undefined,
+        hotelCheckOut: data.hotel_check_out || undefined,
+        hotelRoomType: data.hotel_room_type || undefined,
+        transportRequired: data.transport_required || false,
+        transportType: data.transport_type || undefined,
+        transportPickupLocation: data.transport_pickup_location || undefined,
+        transportPickupTime: data.transport_pickup_time || undefined,
+        transportNotes: data.transport_notes || undefined,
+        giftToGive: data.gift_to_give || undefined,
+        notes: data.notes || undefined,
+      };
+
       if (guest) {
         // Update existing guest
-        const { dietary_restrictions, seating_preference, ...rest } = data;
-
         await updateGuest.mutateAsync({
-          guestId: guest.id,
-          ...rest,
-          dietary_restrictions: dietary_restrictions ? [dietary_restrictions] : [],
-          seating_preferences: seating_preference ? [seating_preference] : [],
+          id: guest.id,
+          data: guestData,
         });
         toast({
           title: 'Success',
@@ -91,9 +95,8 @@ export function GuestDialog({
       } else {
         // Create new guest
         await createGuest.mutateAsync({
-          company_id: companyId,
-          client_id: clientId,
-          ...data,
+          clientId,
+          ...guestData,
         });
         toast({
           title: 'Success',

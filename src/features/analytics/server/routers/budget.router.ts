@@ -1,7 +1,15 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
+import { budget, advancePayments, clients, events, clientUsers, users } from '@/lib/db/schema'
 
+/**
+ * Budget tRPC Router - Drizzle ORM Version
+ *
+ * Provides CRUD operations for wedding budget management with multi-tenant security.
+ * Migrated from Supabase to Drizzle - December 2025
+ */
 export const budgetRouter = router({
   getAll: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
@@ -10,33 +18,74 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Fetch budget items
-      const { data: budgetItems, error } = await ctx.supabase
-        .from('budget')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('category', { ascending: true })
+      const budgetItems = await ctx.db
+        .select()
+        .from(budget)
+        .where(eq(budget.clientId, input.clientId))
+        .orderBy(asc(budget.category))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
+      // Get event info for budget items with eventId
+      const eventIds = budgetItems.map(item => item.eventId).filter(Boolean) as string[]
+      let eventsMap: Record<string, { id: string; title: string }> = {}
+
+      if (eventIds.length > 0) {
+        const eventList = await ctx.db
+          .select({ id: events.id, title: events.title })
+          .from(events)
+          .where(inArray(events.id, eventIds))
+
+        eventsMap = eventList.reduce((acc, e) => {
+          acc[e.id] = e
+          return acc
+        }, {} as Record<string, { id: string; title: string }>)
       }
 
-      return budgetItems || []
+      // Fetch advance payments for all budget items
+      const budgetIds = budgetItems.map(item => item.id)
+      let advancePaymentsList: typeof advancePayments.$inferSelect[] = []
+
+      if (budgetIds.length > 0) {
+        advancePaymentsList = await ctx.db
+          .select()
+          .from(advancePayments)
+          .where(inArray(advancePayments.budgetItemId, budgetIds))
+          .orderBy(asc(advancePayments.paymentDate))
+      }
+
+      // Attach events and advances to each budget item
+      const itemsWithAdvances = budgetItems.map(item => {
+        const itemAdvances = advancePaymentsList.filter(a => a.budgetItemId === item.id)
+        const totalAdvance = itemAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const balance = Number(item.estimatedCost || 0) - totalAdvance
+
+        return {
+          ...item,
+          events: item.eventId && eventsMap[item.eventId] ? eventsMap[item.eventId] : null,
+          advancePayments: itemAdvances,
+          totalAdvance,
+          balanceRemaining: balance
+        }
+      })
+
+      return itemsWithAdvances
     }),
 
   getById: adminProcedure
@@ -46,69 +95,112 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: budgetItem, error } = await ctx.supabase
-        .from('budget')
-        .select('*')
-        .eq('id', input.id)
-        .single()
+      const [budgetItem] = await ctx.db
+        .select()
+        .from(budget)
+        .where(eq(budget.id, input.id))
+        .limit(1)
 
-      if (error || !budgetItem) {
+      if (!budgetItem) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      return budgetItem
+      // Get event info if eventId exists
+      let eventInfo = null
+      if (budgetItem.eventId) {
+        const [event] = await ctx.db
+          .select({ id: events.id, title: events.title })
+          .from(events)
+          .where(eq(events.id, budgetItem.eventId))
+          .limit(1)
+        eventInfo = event || null
+      }
+
+      // Fetch advance payments
+      const advances = await ctx.db
+        .select()
+        .from(advancePayments)
+        .where(eq(advancePayments.budgetItemId, input.id))
+        .orderBy(asc(advancePayments.paymentDate))
+
+      const totalAdvance = advances.reduce((sum, a) => sum + Number(a.amount), 0)
+      const balance = Number(budgetItem.estimatedCost || 0) - totalAdvance
+
+      return {
+        ...budgetItem,
+        events: eventInfo,
+        advancePayments: advances,
+        totalAdvance,
+        balanceRemaining: balance
+      }
     }),
 
   create: adminProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       category: z.string().min(1),
+      segment: z.enum(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']).default('vendors'),
       itemName: z.string().min(1),
+      expenseDetails: z.string().optional(),
       estimatedCost: z.number().min(0),
       actualCost: z.number().optional(),
+      eventId: z.string().uuid().optional(),
       vendorId: z.string().uuid().optional(),
+      transactionDate: z.string().optional(),
       paymentStatus: z.enum(['pending', 'paid', 'overdue']).default('pending'),
       paymentDate: z.string().optional(),
       notes: z.string().optional(),
+      clientVisible: z.boolean().default(true),
+      isLumpSum: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Create budget item
-      const { data: budgetItem, error } = await ctx.supabase
-        .from('budget')
-        .insert({
-          client_id: input.clientId,
+      const [budgetItem] = await ctx.db
+        .insert(budget)
+        .values({
+          clientId: input.clientId,
           category: input.category,
+          segment: input.segment,
           item: input.itemName,
-          estimated_cost: input.estimatedCost,
-          actual_cost: input.actualCost,
-          vendor_id: input.vendorId,
-          payment_status: input.paymentStatus,
-          payment_date: input.paymentDate,
-          notes: input.notes,
+          expenseDetails: input.expenseDetails || null,
+          estimatedCost: input.estimatedCost.toString(),
+          actualCost: input.actualCost?.toString() || null,
+          eventId: input.eventId || null,
+          vendorId: input.vendorId || null,
+          transactionDate: input.transactionDate || null,
+          paymentStatus: input.paymentStatus,
+          paymentDate: input.paymentDate ? new Date(input.paymentDate) : null,
+          notes: input.notes || null,
+          clientVisible: input.clientVisible,
+          isLumpSum: input.isLumpSum,
         })
-        .select()
-        .single()
+        .returning()
 
-      if (error) {
+      if (!budgetItem) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          message: 'Failed to create budget item'
         })
       }
 
@@ -120,13 +212,19 @@ export const budgetRouter = router({
       id: z.string().uuid(),
       data: z.object({
         category: z.string().optional(),
+        segment: z.enum(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']).optional(),
         itemName: z.string().optional(),
+        expenseDetails: z.string().optional(),
         estimatedCost: z.number().optional(),
         actualCost: z.number().optional(),
-        vendorId: z.string().uuid().optional(),
+        eventId: z.string().uuid().nullable().optional(),
+        vendorId: z.string().uuid().nullable().optional(),
+        transactionDate: z.string().nullable().optional(),
         paymentStatus: z.enum(['pending', 'paid', 'overdue']).optional(),
-        paymentDate: z.string().optional(),
+        paymentDate: z.string().nullable().optional(),
         notes: z.string().optional(),
+        clientVisible: z.boolean().optional(),
+        isLumpSum: z.boolean().optional(),
       }),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -135,31 +233,36 @@ export const budgetRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
-        updated_at: new Date().toISOString(),
+      const updateData: Record<string, any> = {
+        updatedAt: new Date(),
       }
 
       if (input.data.category !== undefined) updateData.category = input.data.category
+      if (input.data.segment !== undefined) updateData.segment = input.data.segment
       if (input.data.itemName !== undefined) updateData.item = input.data.itemName
-      if (input.data.estimatedCost !== undefined) updateData.estimated_cost = input.data.estimatedCost
-      if (input.data.actualCost !== undefined) updateData.actual_cost = input.data.actualCost
-      if (input.data.vendorId !== undefined) updateData.vendor_id = input.data.vendorId
-      if (input.data.paymentStatus !== undefined) updateData.payment_status = input.data.paymentStatus
-      if (input.data.paymentDate !== undefined) updateData.payment_date = input.data.paymentDate
+      if (input.data.expenseDetails !== undefined) updateData.expenseDetails = input.data.expenseDetails
+      if (input.data.estimatedCost !== undefined) updateData.estimatedCost = input.data.estimatedCost.toString()
+      if (input.data.actualCost !== undefined) updateData.actualCost = input.data.actualCost?.toString() || null
+      if (input.data.eventId !== undefined) updateData.eventId = input.data.eventId
+      if (input.data.vendorId !== undefined) updateData.vendorId = input.data.vendorId
+      if (input.data.transactionDate !== undefined) updateData.transactionDate = input.data.transactionDate
+      if (input.data.paymentStatus !== undefined) updateData.paymentStatus = input.data.paymentStatus
+      if (input.data.paymentDate !== undefined) updateData.paymentDate = input.data.paymentDate ? new Date(input.data.paymentDate) : null
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
+      if (input.data.clientVisible !== undefined) updateData.clientVisible = input.data.clientVisible
+      if (input.data.isLumpSum !== undefined) updateData.isLumpSum = input.data.isLumpSum
 
       // Update budget item
-      const { data: budgetItem, error } = await ctx.supabase
-        .from('budget')
-        .update(updateData)
-        .eq('id', input.id)
-        .select()
-        .single()
+      const [budgetItem] = await ctx.db
+        .update(budget)
+        .set(updateData)
+        .where(eq(budget.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!budgetItem) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Budget item not found'
         })
       }
 
@@ -173,19 +276,192 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { error } = await ctx.supabase
-        .from('budget')
-        .delete()
-        .eq('id', input.id)
+      await ctx.db
+        .delete(budget)
+        .where(eq(budget.id, input.id))
 
-      if (error) {
+      return { success: true }
+    }),
+
+  // Advance Payment Operations
+  addAdvancePayment: adminProcedure
+    .input(z.object({
+      budgetItemId: z.string().uuid(),
+      amount: z.number().min(0),
+      paymentDate: z.string(),
+      paymentMode: z.enum(['Cash', 'Bank Transfer', 'UPI', 'Check', 'Credit Card', 'Other']).optional(),
+      paidBy: z.string().min(1),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify budget item exists
+      const [budgetItem] = await ctx.db
+        .select({ id: budget.id, clientId: budget.clientId })
+        .from(budget)
+        .where(eq(budget.id, input.budgetItemId))
+        .limit(1)
+
+      if (!budgetItem) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
+      }
+
+      // Create advance payment
+      const [advance] = await ctx.db
+        .insert(advancePayments)
+        .values({
+          budgetItemId: input.budgetItemId,
+          amount: input.amount.toString(),
+          paymentDate: input.paymentDate,
+          paymentMode: input.paymentMode || null,
+          paidBy: input.paidBy,
+          notes: input.notes || null,
+        })
+        .returning()
+
+      if (!advance) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          message: 'Failed to create advance payment'
         })
       }
 
+      // Update budget's paidAmount to reflect total advances
+      const allAdvances = await ctx.db
+        .select({ amount: advancePayments.amount })
+        .from(advancePayments)
+        .where(eq(advancePayments.budgetItemId, input.budgetItemId))
+
+      const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+
+      await ctx.db
+        .update(budget)
+        .set({
+          paidAmount: totalPaid.toString(),
+          updatedAt: new Date(),
+        })
+        .where(eq(budget.id, input.budgetItemId))
+
+      return advance
+    }),
+
+  updateAdvancePayment: adminProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      data: z.object({
+        amount: z.number().min(0).optional(),
+        paymentDate: z.string().optional(),
+        paymentMode: z.enum(['Cash', 'Bank Transfer', 'UPI', 'Check', 'Credit Card', 'Other']).optional(),
+        paidBy: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      const updateData: Record<string, any> = {
+        updatedAt: new Date(),
+      }
+
+      if (input.data.amount !== undefined) updateData.amount = input.data.amount.toString()
+      if (input.data.paymentDate !== undefined) updateData.paymentDate = input.data.paymentDate
+      if (input.data.paymentMode !== undefined) updateData.paymentMode = input.data.paymentMode
+      if (input.data.paidBy !== undefined) updateData.paidBy = input.data.paidBy
+      if (input.data.notes !== undefined) updateData.notes = input.data.notes
+
+      const [advance] = await ctx.db
+        .update(advancePayments)
+        .set(updateData)
+        .where(eq(advancePayments.id, input.id))
+        .returning()
+
+      if (!advance) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Advance payment not found'
+        })
+      }
+
+      // Update budget's paidAmount to reflect total advances
+      const allAdvances = await ctx.db
+        .select({ amount: advancePayments.amount })
+        .from(advancePayments)
+        .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+
+      const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+
+      await ctx.db
+        .update(budget)
+        .set({
+          paidAmount: totalPaid.toString(),
+          updatedAt: new Date(),
+        })
+        .where(eq(budget.id, advance.budgetItemId))
+
+      return advance
+    }),
+
+  deleteAdvancePayment: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Get the advance payment first to know which budget item to update
+      const [advance] = await ctx.db
+        .select({ budgetItemId: advancePayments.budgetItemId })
+        .from(advancePayments)
+        .where(eq(advancePayments.id, input.id))
+        .limit(1)
+
+      if (!advance) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
+      }
+
+      // Delete the advance payment
+      await ctx.db
+        .delete(advancePayments)
+        .where(eq(advancePayments.id, input.id))
+
+      // Update budget's paidAmount to reflect remaining advances
+      const remainingAdvances = await ctx.db
+        .select({ amount: advancePayments.amount })
+        .from(advancePayments)
+        .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+
+      const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+
+      await ctx.db
+        .update(budget)
+        .set({
+          paidAmount: totalPaid.toString(),
+          updatedAt: new Date(),
+        })
+        .where(eq(budget.id, advance.budgetItemId))
+
       return { success: true }
+    }),
+
+  getAdvancePayments: adminProcedure
+    .input(z.object({ budgetItemId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      const advances = await ctx.db
+        .select()
+        .from(advancePayments)
+        .where(eq(advancePayments.budgetItemId, input.budgetItemId))
+        .orderBy(asc(advancePayments.paymentDate))
+
+      return advances
     }),
 
   getSummary: adminProcedure
@@ -195,38 +471,64 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get all budget items
-      const { data: budgetItems } = await ctx.supabase
-        .from('budget')
-        .select('estimated_cost, actual_cost, payment_status')
-        .eq('client_id', input.clientId)
+      const budgetItems = await ctx.db
+        .select({
+          id: budget.id,
+          estimatedCost: budget.estimatedCost,
+          actualCost: budget.actualCost,
+          paymentStatus: budget.paymentStatus,
+        })
+        .from(budget)
+        .where(eq(budget.clientId, input.clientId))
 
-      const totalEstimated = budgetItems?.reduce((sum, item) => sum + (item.estimated_cost || 0), 0) || 0
-      const totalActual = budgetItems?.reduce((sum, item) => sum + (item.actual_cost || 0), 0) || 0
+      // Get all advance payments for these items
+      const budgetIds = budgetItems.map(item => item.id)
+      let totalAdvances = 0
+
+      if (budgetIds.length > 0) {
+        const advances = await ctx.db
+          .select({ amount: advancePayments.amount })
+          .from(advancePayments)
+          .where(inArray(advancePayments.budgetItemId, budgetIds))
+
+        totalAdvances = advances.reduce((sum, a) => sum + Number(a.amount), 0)
+      }
+
+      const totalEstimated = budgetItems.reduce((sum, item) => sum + Number(item.estimatedCost || 0), 0)
+      const totalActual = budgetItems.reduce((sum, item) => sum + Number(item.actualCost || 0), 0)
       const difference = totalActual - totalEstimated
       const percentageSpent = totalEstimated > 0 ? (totalActual / totalEstimated) * 100 : 0
+      const balanceRemaining = totalEstimated - totalAdvances
 
       const summary = {
         totalEstimated,
         totalActual,
-        difference, // positive = over budget, negative = under budget
+        totalAdvances,
+        balanceRemaining,
+        difference,
         percentageSpent,
-        totalItems: budgetItems?.length || 0,
-        itemsPaid: budgetItems?.filter(item => item.payment_status === 'paid').length || 0,
-        itemsPending: budgetItems?.filter(item => item.payment_status === 'pending').length || 0,
-        itemsOverdue: budgetItems?.filter(item => item.payment_status === 'overdue').length || 0,
+        totalItems: budgetItems.length,
+        itemsPaid: budgetItems.filter(item => item.paymentStatus === 'paid').length,
+        itemsPending: budgetItems.filter(item => item.paymentStatus === 'pending').length,
+        itemsOverdue: budgetItems.filter(item => item.paymentStatus === 'overdue').length,
       }
 
       return summary
@@ -242,38 +544,40 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Fetch budget items by category
-      const { data: budgetItems, error } = await ctx.supabase
-        .from('budget')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .eq('category', input.category)
-        .order('item', { ascending: true })
+      const budgetItems = await ctx.db
+        .select()
+        .from(budget)
+        .where(
+          and(
+            eq(budget.clientId, input.clientId),
+            eq(budget.category, input.category)
+          )
+        )
+        .orderBy(asc(budget.item))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
-
-      const totalEstimated = budgetItems?.reduce((sum, item) => sum + (item.estimated_cost || 0), 0) || 0
-      const totalActual = budgetItems?.reduce((sum, item) => sum + (item.actual_cost || 0), 0) || 0
+      const totalEstimated = budgetItems.reduce((sum, item) => sum + Number(item.estimatedCost || 0), 0)
+      const totalActual = budgetItems.reduce((sum, item) => sum + Number(item.actualCost || 0), 0)
 
       return {
-        items: budgetItems || [],
+        items: budgetItems,
         totalEstimated,
         totalActual,
         difference: totalActual - totalEstimated,
@@ -287,31 +591,40 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get all budget items
-      const { data: budgetItems } = await ctx.supabase
-        .from('budget')
-        .select('category, estimated_cost, actual_cost')
-        .eq('client_id', input.clientId)
+      const budgetItems = await ctx.db
+        .select({
+          category: budget.category,
+          estimatedCost: budget.estimatedCost,
+          actualCost: budget.actualCost,
+        })
+        .from(budget)
+        .where(eq(budget.clientId, input.clientId))
 
       // Group by category
       const categoryMap = new Map<string, { estimated: number; actual: number; count: number }>()
 
-      budgetItems?.forEach(item => {
+      budgetItems.forEach(item => {
         const existing = categoryMap.get(item.category) || { estimated: 0, actual: 0, count: 0 }
-        existing.estimated += item.estimated_cost || 0
-        existing.actual += item.actual_cost || 0
+        existing.estimated += Number(item.estimatedCost || 0)
+        existing.actual += Number(item.actualCost || 0)
         existing.count += 1
         categoryMap.set(item.category, existing)
       })
@@ -323,7 +636,7 @@ export const budgetRouter = router({
         totalActual: data.actual,
         difference: data.actual - data.estimated,
         itemCount: data.count,
-        percentageOfTotal: 0, // Will calculate after we have grand total
+        percentageOfTotal: 0,
       }))
 
       // Calculate percentages
@@ -333,5 +646,326 @@ export const budgetRouter = router({
       })
 
       return categorySummary.sort((a, b) => b.totalEstimated - a.totalEstimated)
+    }),
+
+  // Segment-based summary (vendors, travel, creatives, artists, accommodation, other)
+  getSegmentSummary: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      // Get all budget items with segment info
+      const budgetItems = await ctx.db
+        .select({
+          id: budget.id,
+          segment: budget.segment,
+          category: budget.category,
+          estimatedCost: budget.estimatedCost,
+          actualCost: budget.actualCost,
+          isLumpSum: budget.isLumpSum,
+        })
+        .from(budget)
+        .where(eq(budget.clientId, input.clientId))
+
+      // Get all advance payments
+      const budgetIds = budgetItems.map(item => item.id)
+      let advancesMap: Record<string, number> = {}
+
+      if (budgetIds.length > 0) {
+        const advances = await ctx.db
+          .select({
+            budgetItemId: advancePayments.budgetItemId,
+            amount: advancePayments.amount,
+          })
+          .from(advancePayments)
+          .where(inArray(advancePayments.budgetItemId, budgetIds))
+
+        advances.forEach(a => {
+          advancesMap[a.budgetItemId] = (advancesMap[a.budgetItemId] || 0) + Number(a.amount)
+        })
+      }
+
+      // Define segment display config
+      const segmentConfig: Record<string, { label: string; icon: string; order: number }> = {
+        'vendors': { label: 'Vendors', icon: 'Users', order: 1 },
+        'travel': { label: 'Travel & Logistics', icon: 'Plane', order: 2 },
+        'creatives': { label: 'Creatives & Design', icon: 'Palette', order: 3 },
+        'artists': { label: 'Artists & Entertainment', icon: 'Music', order: 4 },
+        'accommodation': { label: 'Accommodation', icon: 'Hotel', order: 5 },
+        'other': { label: 'Other Expenses', icon: 'MoreHorizontal', order: 6 },
+      }
+
+      // Group by segment
+      const segmentMap = new Map<string, {
+        estimated: number
+        actual: number
+        paid: number
+        count: number
+        categories: Set<string>
+        lumpSumCount: number
+      }>()
+
+      budgetItems.forEach(item => {
+        const seg = item.segment || 'vendors'
+        const existing = segmentMap.get(seg) || {
+          estimated: 0,
+          actual: 0,
+          paid: 0,
+          count: 0,
+          categories: new Set<string>(),
+          lumpSumCount: 0,
+        }
+        existing.estimated += Number(item.estimatedCost || 0)
+        existing.actual += Number(item.actualCost || 0)
+        existing.paid += advancesMap[item.id] || 0
+        existing.count += 1
+        existing.categories.add(item.category)
+        if (item.isLumpSum) existing.lumpSumCount += 1
+        segmentMap.set(seg, existing)
+      })
+
+      // Convert to array with display info
+      const segmentSummary = Array.from(segmentMap.entries()).map(([segment, data]) => ({
+        segment,
+        label: segmentConfig[segment]?.label || segment,
+        icon: segmentConfig[segment]?.icon || 'Circle',
+        order: segmentConfig[segment]?.order || 99,
+        totalEstimated: data.estimated,
+        totalActual: data.actual,
+        totalPaid: data.paid,
+        balance: data.estimated - data.paid,
+        difference: data.actual - data.estimated,
+        itemCount: data.count,
+        categoryCount: data.categories.size,
+        categories: Array.from(data.categories),
+        lumpSumCount: data.lumpSumCount,
+        percentageOfTotal: 0,
+      }))
+
+      // Calculate percentages
+      const grandTotalEstimated = segmentSummary.reduce((sum, seg) => sum + seg.totalEstimated, 0)
+      segmentSummary.forEach(seg => {
+        seg.percentageOfTotal = grandTotalEstimated > 0 ? (seg.totalEstimated / grandTotalEstimated) * 100 : 0
+      })
+
+      return {
+        segments: segmentSummary.sort((a, b) => a.order - b.order),
+        grandTotal: {
+          estimated: grandTotalEstimated,
+          actual: segmentSummary.reduce((sum, seg) => sum + seg.totalActual, 0),
+          paid: segmentSummary.reduce((sum, seg) => sum + seg.totalPaid, 0),
+          balance: segmentSummary.reduce((sum, seg) => sum + seg.balance, 0),
+          itemCount: segmentSummary.reduce((sum, seg) => sum + seg.itemCount, 0),
+        },
+      }
+    }),
+
+  // Get budget items by segment
+  getBySegment: adminProcedure
+    .input(z.object({
+      clientId: z.string().uuid(),
+      segment: z.enum(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']),
+    }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      // Fetch budget items by segment
+      const budgetItems = await ctx.db
+        .select()
+        .from(budget)
+        .where(
+          and(
+            eq(budget.clientId, input.clientId),
+            eq(budget.segment, input.segment)
+          )
+        )
+        .orderBy(asc(budget.category), asc(budget.item))
+
+      // Get advance payments
+      const budgetIds = budgetItems.map(item => item.id)
+      let advancePaymentsList: typeof advancePayments.$inferSelect[] = []
+
+      if (budgetIds.length > 0) {
+        advancePaymentsList = await ctx.db
+          .select()
+          .from(advancePayments)
+          .where(inArray(advancePayments.budgetItemId, budgetIds))
+          .orderBy(asc(advancePayments.paymentDate))
+      }
+
+      // Get event info
+      const eventIds = budgetItems.map(item => item.eventId).filter(Boolean) as string[]
+      let eventsMap: Record<string, { id: string; title: string }> = {}
+
+      if (eventIds.length > 0) {
+        const eventList = await ctx.db
+          .select({ id: events.id, title: events.title })
+          .from(events)
+          .where(inArray(events.id, eventIds))
+
+        eventsMap = eventList.reduce((acc, e) => {
+          acc[e.id] = e
+          return acc
+        }, {} as Record<string, { id: string; title: string }>)
+      }
+
+      // Attach events and advances
+      const itemsWithAdvances = budgetItems.map(item => {
+        const itemAdvances = advancePaymentsList.filter(a => a.budgetItemId === item.id)
+        const totalAdvance = itemAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const balance = Number(item.estimatedCost || 0) - totalAdvance
+
+        return {
+          ...item,
+          events: item.eventId && eventsMap[item.eventId] ? eventsMap[item.eventId] : null,
+          advancePayments: itemAdvances,
+          totalAdvance,
+          balanceRemaining: balance
+        }
+      })
+
+      // Calculate totals
+      const totalEstimated = budgetItems.reduce((sum, item) => sum + Number(item.estimatedCost || 0), 0)
+      const totalActual = budgetItems.reduce((sum, item) => sum + Number(item.actualCost || 0), 0)
+      const totalPaid = itemsWithAdvances.reduce((sum, item) => sum + item.totalAdvance, 0)
+
+      return {
+        items: itemsWithAdvances,
+        summary: {
+          totalEstimated,
+          totalActual,
+          totalPaid,
+          balance: totalEstimated - totalPaid,
+          difference: totalActual - totalEstimated,
+          itemCount: budgetItems.length,
+        },
+      }
+    }),
+
+  // Portal view for clients
+  getForPortal: protectedProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // Get the internal user UUID from auth ID
+      const [user] = await ctx.db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.authId, ctx.userId))
+        .limit(1)
+
+      if (!user) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' })
+      }
+
+      // Verify user has access to this client
+      const [clientUser] = await ctx.db
+        .select({ clientId: clientUsers.clientId })
+        .from(clientUsers)
+        .where(
+          and(
+            eq(clientUsers.clientId, input.clientId),
+            eq(clientUsers.userId, user.id)
+          )
+        )
+        .limit(1)
+
+      if (!clientUser) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this client' })
+      }
+
+      // Fetch only client-visible budget items
+      const budgetItems = await ctx.db
+        .select()
+        .from(budget)
+        .where(
+          and(
+            eq(budget.clientId, input.clientId),
+            eq(budget.clientVisible, true)
+          )
+        )
+        .orderBy(asc(budget.category))
+
+      // Get event info
+      const eventIds = budgetItems.map(item => item.eventId).filter(Boolean) as string[]
+      let eventsMap: Record<string, { id: string; title: string }> = {}
+
+      if (eventIds.length > 0) {
+        const eventList = await ctx.db
+          .select({ id: events.id, title: events.title })
+          .from(events)
+          .where(inArray(events.id, eventIds))
+
+        eventsMap = eventList.reduce((acc, e) => {
+          acc[e.id] = e
+          return acc
+        }, {} as Record<string, { id: string; title: string }>)
+      }
+
+      // Fetch advance payments
+      const budgetIds = budgetItems.map(item => item.id)
+      let advancePaymentsList: typeof advancePayments.$inferSelect[] = []
+
+      if (budgetIds.length > 0) {
+        advancePaymentsList = await ctx.db
+          .select()
+          .from(advancePayments)
+          .where(inArray(advancePayments.budgetItemId, budgetIds))
+          .orderBy(asc(advancePayments.paymentDate))
+      }
+
+      // Attach events and advances
+      const itemsWithAdvances = budgetItems.map(item => {
+        const itemAdvances = advancePaymentsList.filter(a => a.budgetItemId === item.id)
+        const totalAdvance = itemAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const balance = Number(item.estimatedCost || 0) - totalAdvance
+
+        return {
+          ...item,
+          events: item.eventId && eventsMap[item.eventId] ? eventsMap[item.eventId] : null,
+          advancePayments: itemAdvances,
+          totalAdvance,
+          balanceRemaining: balance
+        }
+      })
+
+      return itemsWithAdvances
     }),
 })

@@ -112,7 +112,7 @@ export function ICalFeedManager() {
               </p>
             </div>
             <Switch
-              checked={tokenData.isActive}
+              checked={tokenData.isActive ?? false}
               onCheckedChange={handleToggleFeed}
             />
           </div>
@@ -143,7 +143,7 @@ export function ICalFeedManager() {
               <p className="text-sm text-muted-foreground">Wedding ceremonies, receptions, etc.</p>
             </div>
             <Switch
-              checked={settings?.ical_include_events ?? true}
+              checked={settings?.icalIncludeEvents ?? true}
               onCheckedChange={(checked) =>
                 updateSettingsMutation.mutate({ icalIncludeEvents: checked })
               }
@@ -156,7 +156,7 @@ export function ICalFeedManager() {
               <p className="text-sm text-muted-foreground">Day-of schedule items</p>
             </div>
             <Switch
-              checked={settings?.ical_include_timeline ?? true}
+              checked={settings?.icalIncludeTimeline ?? true}
               onCheckedChange={(checked) =>
                 updateSettingsMutation.mutate({ icalIncludeTimeline: checked })
               }
@@ -169,7 +169,7 @@ export function ICalFeedManager() {
               <p className="text-sm text-muted-foreground">Todo items with due dates</p>
             </div>
             <Switch
-              checked={settings?.ical_include_tasks ?? false}
+              checked={settings?.icalIncludeTasks ?? false}
               onCheckedChange={(checked) =>
                 updateSettingsMutation.mutate({ icalIncludeTasks: checked })
               }

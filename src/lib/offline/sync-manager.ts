@@ -144,8 +144,7 @@ export class SyncManager {
       console.log('🔄 Syncing guests from server...');
 
       // In a real app, you'd fetch from your API
-      // For now, we'll use Convex data if available
-      // This is a placeholder - integrate with your actual API
+      // This is a placeholder - integrate with your tRPC endpoints
 
       const db = await getDB();
 
@@ -193,7 +192,7 @@ export class SyncManager {
   async getCachedGuests(clientId: string): Promise<CachedGuest[]> {
     const db = await getDB();
     const guests = await db.getAllFromIndex('guests', 'by-client', clientId);
-    return guests.sort((a, b) => a.guest_name.localeCompare(b.guest_name));
+    return guests.sort((a, b) => a.first_name.localeCompare(b.first_name));
   }
 
   /**

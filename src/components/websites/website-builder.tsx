@@ -8,10 +8,44 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { trpc } from '@/lib/trpc/client';
 import { toast } from 'sonner';
-import { Save, Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
-import type { Database } from '@/lib/database.types';
+import { Save, Image as ImageIcon, Plus } from 'lucide-react';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+/**
+ * Website type from Drizzle schema
+ * Uses camelCase fields with content/settings JSONB columns
+ */
+interface Website {
+  id: string;
+  clientId: string;
+  subdomain: string | null;
+  customDomain: string | null;
+  theme: string | null;
+  isPublished: boolean | null;
+  password: string | null;
+  isPasswordProtected: boolean | null;
+  settings: unknown;
+  content: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}
+
+interface WebsiteContent {
+  heroSection?: {
+    title?: string;
+    subtitle?: string;
+    date?: string;
+    image?: string;
+  };
+  ourStorySection?: {
+    content?: string;
+  };
+  weddingPartySection?: Record<string, unknown>;
+  eventDetailsSection?: Record<string, unknown>;
+  travelSection?: Record<string, unknown>;
+  registrySection?: Record<string, unknown>;
+  photoGallery?: unknown[];
+}
 
 interface WebsiteBuilderProps {
   website: Website;
@@ -19,34 +53,36 @@ interface WebsiteBuilderProps {
 }
 
 /**
- * Website Content Builder
- * Session 49: WYSIWYG-style content editor
+ * Website Content Builder - Drizzle Schema
  *
- * Sections:
- * - Hero (title, subtitle, date, image)
- * - Our Story
- * - Wedding Party
- * - Event Details
- * - Travel Info
- * - Registry Links
- * - Photo Gallery
+ * Content is stored in the `content` JSONB column:
+ * - heroSection: { title, subtitle, date, image }
+ * - ourStorySection: { content }
+ * - weddingPartySection
+ * - eventDetailsSection
+ * - travelSection
+ * - registrySection
+ * - photoGallery
  */
 export function WebsiteBuilder({ website, onUpdate }: WebsiteBuilderProps) {
+  // Extract content from JSONB
+  const content = (website.content as WebsiteContent) || {};
+
   const [heroTitle, setHeroTitle] = useState(
-    (website.hero_section as any)?.title || ''
+    content.heroSection?.title || ''
   );
   const [heroSubtitle, setHeroSubtitle] = useState(
-    (website.hero_section as any)?.subtitle || ''
+    content.heroSection?.subtitle || ''
   );
   const [heroDate, setHeroDate] = useState(
-    (website.hero_section as any)?.date || ''
+    content.heroSection?.date || ''
   );
   const [heroImage, setHeroImage] = useState(
-    (website.hero_section as any)?.image || ''
+    content.heroSection?.image || ''
   );
 
   const [ourStory, setOurStory] = useState(
-    (website.our_story_section as any)?.content || ''
+    content.ourStorySection?.content || ''
   );
 
   const updateWebsite = trpc.websites.update.useMutation({

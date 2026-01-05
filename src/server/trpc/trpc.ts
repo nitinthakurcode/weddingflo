@@ -55,7 +55,7 @@ export const publicProcedure = t.procedure;
 /**
  * Protected procedure - requires authentication.
  *
- * Ensures the user is signed in via Clerk.
+ * Ensures the user is signed in via BetterAuth.
  * Throws UNAUTHORIZED if no userId is present.
  *
  * @example
@@ -63,12 +63,12 @@ export const publicProcedure = t.procedure;
  * export const userRouter = router({
  *   getProfile: protectedProcedure.query(async ({ ctx }) => {
  *     // ctx.userId is guaranteed to exist here
- *     const { data } = await ctx.supabase
- *       .from('users')
- *       .select('*')
- *       .eq('clerk_id', ctx.userId)
- *       .single();
- *     return data;
+ *     const [user] = await ctx.db
+ *       .select()
+ *       .from(users)
+ *       .where(eq(users.authId, ctx.userId))
+ *       .limit(1);
+ *     return user;
  *   }),
  * })
  * ```
@@ -99,11 +99,12 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
  *     .input(z.object({ theme: z.string() }))
  *     .mutation(async ({ ctx, input }) => {
  *       // User is guaranteed to be company_admin or super_admin
- *       const { data } = await ctx.supabase
- *         .from('companies')
- *         .update({ settings: input })
- *         .eq('id', ctx.companyId);
- *       return data;
+ *       const [company] = await ctx.db
+ *         .update(companies)
+ *         .set({ settings: input })
+ *         .where(eq(companies.id, ctx.companyId))
+ *         .returning();
+ *       return company;
  *     }),
  * })
  * ```
@@ -132,10 +133,10 @@ export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
  * export const platformRouter = router({
  *   getAllCompanies: superAdminProcedure.query(async ({ ctx }) => {
  *     // User is guaranteed to be super_admin
- *     const { data } = await ctx.supabase
- *       .from('companies')
- *       .select('*');
- *     return data;
+ *     const allCompanies = await ctx.db
+ *       .select()
+ *       .from(companies);
+ *     return allCompanies;
  *   }),
  * })
  * ```

@@ -3,8 +3,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
+import { trpc } from '@/lib/trpc/client';
 import {
   Dialog,
   DialogContent,
@@ -53,6 +52,7 @@ interface Vendor {
   rating?: number;
   wouldRecommend?: boolean;
   notes?: string;
+  isPreferred?: boolean;
 }
 
 interface VendorDialogProps {
@@ -69,41 +69,17 @@ export function VendorDialog({
   weddingId,
 }: VendorDialogProps) {
   const { toast } = useToast();
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  const createVendor = useMutation({
-    mutationFn: async (data: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('vendors')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .insert(data)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const createVendor = trpc.vendors.create.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['vendors', weddingId] });
+      utils.vendors.getAll.invalidate({ clientId: weddingId });
     },
   });
 
-  const updateVendor = useMutation({
-    mutationFn: async ({ vendorId, ...data }: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('vendors')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update(data)
-        .eq('id', vendorId)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const updateVendor = trpc.vendors.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['vendors', weddingId] });
+      utils.vendors.getAll.invalidate({ clientId: weddingId });
     },
   });
 
@@ -127,6 +103,7 @@ export function VendorDialog({
       payments: [],
       rating: undefined,
       wouldRecommend: false,
+      isPreferred: false,
       notes: '',
       tags: [],
     },
@@ -151,6 +128,7 @@ export function VendorDialog({
         depositPaidDate: vendor.depositPaidDate || '',
         rating: vendor.rating,
         wouldRecommend: vendor.wouldRecommend || false,
+        isPreferred: vendor.isPreferred || false,
         notes: vendor.notes || '',
       });
     } else {
@@ -170,6 +148,7 @@ export function VendorDialog({
         depositPaidDate: '',
         rating: undefined,
         wouldRecommend: false,
+        isPreferred: false,
         notes: '',
       });
     }
@@ -187,50 +166,48 @@ export function VendorDialog({
       console.log('Expected Balance:', totalCost - depositAmount);
 
       if (vendor) {
-        // Update existing vendor
+        // Update existing vendor - uses nested data structure
         await updateVendor.mutateAsync({
-          vendorId: vendor.id,
-          name: data.name,
-          category: data.category,
-          contactName: data.contactName,
-          email: data.email,
-          phone: data.phone,
-          website: data.website,
-          address: data.address,
-          status: data.status,
-          contractDate: data.contractDate,
-          serviceDate: data.serviceDate,
-          totalCost: totalCost,
-          depositAmount: depositAmount,
-          depositPaidDate: data.depositPaidDate,
-          rating: data.rating,
-          wouldRecommend: data.wouldRecommend,
-          notes: data.notes,
+          id: vendor.id,
+          data: {
+            vendorName: data.name,
+            category: data.category,
+            contactName: data.contactName || undefined,
+            email: data.email || undefined,
+            phone: data.phone || undefined,
+            website: data.website || undefined,
+            contractDate: data.contractDate || undefined,
+            serviceDate: data.serviceDate || undefined,
+            cost: totalCost,
+            depositAmount: depositAmount,
+            depositPaid: !!data.depositPaidDate,
+            paymentStatus: totalCost === depositAmount ? 'paid' : 'pending',
+            isPreferred: data.isPreferred,
+            notes: data.notes || undefined,
+          },
         });
         toast({
           title: 'Success',
           description: `Vendor updated! Balance should be $${totalCost - depositAmount}`,
         });
       } else {
-        // Create new vendor
+        // Create new vendor - uses flat structure with clientId
         await createVendor.mutateAsync({
-          wedding_id: weddingId,
-          name: data.name,
+          clientId: weddingId,
+          vendorName: data.name,
           category: data.category,
-          contactName: data.contactName,
-          email: data.email,
-          phone: data.phone,
-          website: data.website,
-          address: data.address,
-          status: data.status,
-          contractDate: data.contractDate,
-          serviceDate: data.serviceDate,
-          totalCost: totalCost,
+          contactName: data.contactName || undefined,
+          email: data.email || undefined,
+          phone: data.phone || undefined,
+          website: data.website || undefined,
+          contractDate: data.contractDate || undefined,
+          serviceDate: data.serviceDate || undefined,
+          cost: totalCost,
           depositAmount: depositAmount,
-          depositPaidDate: data.depositPaidDate,
-          rating: data.rating,
-          wouldRecommend: data.wouldRecommend,
-          notes: data.notes,
+          depositPaid: !!data.depositPaidDate,
+          paymentStatus: totalCost === depositAmount ? 'paid' : 'pending',
+          isPreferred: data.isPreferred,
+          notes: data.notes || undefined,
         });
         toast({
           title: 'Success',
@@ -567,6 +544,29 @@ export function VendorDialog({
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="isPreferred"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 bg-amber-50 dark:bg-amber-950/20">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel className="text-amber-700 dark:text-amber-400">
+                      ⭐ Company Preferred Vendor
+                    </FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Mark this vendor as a company-recommended option to suggest to clients
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

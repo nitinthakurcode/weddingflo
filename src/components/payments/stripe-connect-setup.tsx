@@ -65,7 +65,7 @@ export function StripeConnectSetup() {
   const getStatusBadge = () => {
     if (!account) return null;
 
-    if (account.charges_enabled && account.payouts_enabled) {
+    if (account.chargesEnabled && account.payoutsEnabled) {
       return (
         <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-100">
           <CheckCircle2 className="mr-1 h-3 w-3" />
@@ -74,7 +74,7 @@ export function StripeConnectSetup() {
       );
     }
 
-    if (account.details_submitted) {
+    if (account.detailsSubmitted) {
       return (
         <Badge variant="secondary">
           <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -177,11 +177,11 @@ export function StripeConnectSetup() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm font-medium text-muted-foreground">{t('businessName')}</p>
-              <p className="text-base font-semibold">{account.business_name || 'N/A'}</p>
+              <p className="text-base font-semibold">{(account.businessProfile as { businessName?: string })?.businessName || 'N/A'}</p>
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">{t('email')}</p>
-              <p className="text-base font-semibold">{account.email || 'N/A'}</p>
+              <p className="text-base font-semibold">{(account.businessProfile as { email?: string })?.email || 'N/A'}</p>
             </div>
           </div>
 
@@ -192,31 +192,31 @@ export function StripeConnectSetup() {
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">{t('currency')}</p>
-              <p className="text-base font-semibold">{account.currency?.toUpperCase() || 'N/A'}</p>
+              <p className="text-base font-semibold">{account.defaultCurrency?.toUpperCase() || 'N/A'}</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="flex items-center gap-2">
-              {account.charges_enabled ? (
+              {account.chargesEnabled ? (
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
               ) : (
                 <AlertCircle className="h-4 w-4 text-red-600" />
               )}
-              <p className="text-sm">{account.charges_enabled ? t('chargesEnabled') : t('chargesDisabled')}</p>
+              <p className="text-sm">{account.chargesEnabled ? t('chargesEnabled') : t('chargesDisabled')}</p>
             </div>
             <div className="flex items-center gap-2">
-              {account.payouts_enabled ? (
+              {account.payoutsEnabled ? (
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
               ) : (
                 <AlertCircle className="h-4 w-4 text-red-600" />
               )}
-              <p className="text-sm">{account.payouts_enabled ? t('payoutsEnabled') : t('payoutsDisabled')}</p>
+              <p className="text-sm">{account.payoutsEnabled ? t('payoutsEnabled') : t('payoutsDisabled')}</p>
             </div>
           </div>
         </div>
 
-        {!account.details_submitted && (
+        {!account.detailsSubmitted && (
           <>
             <div className="rounded-lg bg-yellow-50 p-4 dark:bg-yellow-950">
               <p className="text-sm text-yellow-900 dark:text-yellow-100">
@@ -245,7 +245,7 @@ export function StripeConnectSetup() {
           </>
         )}
 
-        {account.details_submitted && !account.charges_enabled && (
+        {account.detailsSubmitted && !account.chargesEnabled && (
           <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-950">
             <p className="text-sm text-blue-900 dark:text-blue-100">
               <strong>{t('underReview')}</strong> {t('underReviewText')}

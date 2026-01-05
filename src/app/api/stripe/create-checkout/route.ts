@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { stripe } from '@/lib/stripe/stripe-client';
 import { STRIPE_CONFIG } from '@/lib/stripe/config';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { db, eq } from '@/lib/db';
+import { companies } from '@/lib/db/schema';
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const { userId, user } = await getServerSession();
+    if (!userId || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -23,27 +24,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get company data with auth
-    const supabase = createServerSupabaseClient();
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
-    const { data: company, error } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', companyId)
-      .single();
+    // Get company data using Drizzle
+    const companyResult = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
 
-    if (error || !company) {
+    const company = companyResult[0];
+
+    if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
     // Check if customer already exists
-    let customerId = (company as any).stripe_customer_id;
+    let customerId = company.stripeCustomerId;
 
     if (!customerId) {
-      // Get user's email from Clerk
-      const client = await clerkClient();
-      const user = await client.users.getUser(userId);
-      const userEmail = user.emailAddresses[0]?.emailAddress;
+      // Get user's email from session
+      const userEmail = user.email;
 
       if (!userEmail) {
         return NextResponse.json({ error: 'User email not found' }, { status: 400 });
@@ -54,17 +53,16 @@ export async function POST(req: NextRequest) {
         email: userEmail,
         metadata: {
           companyId: companyId,
-          company_name: (company as any).name,
+          company_name: company.name,
         },
       });
       customerId = customer.id;
 
-      // Update company with customer ID
-      await supabase
-        .from('companies')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ stripe_customer_id: customerId })
-        .eq('id', companyId);
+      // Update company with customer ID using Drizzle
+      await db
+        .update(companies)
+        .set({ stripeCustomerId: customerId })
+        .where(eq(companies.id, companyId));
     }
 
     // Create checkout session

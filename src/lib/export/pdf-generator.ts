@@ -96,36 +96,46 @@ export function generatePDFWithTable(
  */
 export function exportGuestListPDF(
   guests: Array<{
-    guest_name: string;
-    number_of_packs: number;
-    phone_number?: string;
+    first_name: string;
+    last_name?: string;
+    phone?: string;
     email?: string;
-    checked_in: boolean;
-    events_attending: string[];
+    checked_in?: boolean;
+    group_name?: string;
+    dietary_restrictions?: string;
+    accessibility_needs?: string;
+    plus_one_allowed?: boolean;
+    rsvp_status?: string;
+    hotel_required?: boolean;
+    transport_required?: boolean;
   }>,
   options: PDFOptions = {}
 ): void {
   const columns: TableColumn[] = [
     { header: 'Name', dataKey: 'name' },
-    { header: 'Party Size', dataKey: 'partySize' },
+    { header: 'Group', dataKey: 'group' },
     { header: 'Phone', dataKey: 'phone' },
     { header: 'Email', dataKey: 'email' },
-    { header: 'Events', dataKey: 'events' },
+    { header: 'RSVP', dataKey: 'rsvp' },
+    { header: 'Plus One', dataKey: 'plusOne' },
     { header: 'Checked In', dataKey: 'checkedIn' },
   ];
 
   const data = guests.map((guest) => ({
-    name: guest.guest_name,
-    partySize: guest.number_of_packs.toString(),
-    phone: guest.phone_number || 'N/A',
+    name: `${guest.first_name} ${guest.last_name || ''}`.trim(),
+    group: guest.group_name || 'N/A',
+    phone: guest.phone || 'N/A',
     email: guest.email || 'N/A',
-    events: guest.events_attending.join(', ') || 'N/A',
+    rsvp: guest.rsvp_status || 'pending',
+    plusOne: guest.plus_one_allowed ? 'Yes' : 'No',
     checkedIn: guest.checked_in ? 'Yes' : 'No',
   }));
 
+  const attending = guests.filter(g => g.rsvp_status === 'accepted').length;
+
   const doc = generatePDFWithTable(columns, data, {
     title: 'Guest List',
-    subtitle: `Total Guests: ${guests.length} | Total Party Size: ${guests.reduce((sum, g) => sum + g.number_of_packs, 0)}`,
+    subtitle: `Total Guests: ${guests.length} | Attending: ${attending}`,
     ...options,
   });
 
@@ -228,35 +238,39 @@ export function exportVendorListPDF(
  * Export event timeline to PDF
  */
 export function exportTimelinePDF(
-  events: Array<{
-    activity: string;
+  items: Array<{
+    title: string;
     start_time: string;
-    end_time: string;
-    location: string;
-    manager: string;
-    event: string;
+    end_time?: string;
+    duration_minutes?: number;
+    location?: string;
+    responsible_person?: string;
+    description?: string;
+    completed?: boolean;
   }>,
   options: PDFOptions = {}
 ): void {
   const columns: TableColumn[] = [
     { header: 'Time', dataKey: 'time' },
-    { header: 'Activity', dataKey: 'activity' },
-    { header: 'Event', dataKey: 'event' },
+    { header: 'Title', dataKey: 'title' },
     { header: 'Location', dataKey: 'location' },
-    { header: 'Manager', dataKey: 'manager' },
+    { header: 'Responsible', dataKey: 'responsible' },
+    { header: 'Status', dataKey: 'status' },
   ];
 
-  const data = events.map((event) => ({
-    time: `${event.start_time} - ${event.end_time}`,
-    activity: event.activity,
-    event: event.event,
-    location: event.location,
-    manager: event.manager,
+  const data = items.map((item) => ({
+    time: item.end_time ? `${item.start_time} - ${item.end_time}` : item.start_time,
+    title: item.title,
+    location: item.location || 'N/A',
+    responsible: item.responsible_person || 'N/A',
+    status: item.completed ? 'Completed' : 'Pending',
   }));
 
+  const completed = items.filter(i => i.completed).length;
+
   const doc = generatePDFWithTable(columns, data, {
-    title: 'Event Timeline',
-    subtitle: `Total Activities: ${events.length}`,
+    title: 'Wedding Day Timeline',
+    subtitle: `Total Items: ${items.length} | Completed: ${completed}`,
     ...options,
   });
 

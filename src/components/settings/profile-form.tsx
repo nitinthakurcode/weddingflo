@@ -2,65 +2,55 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import type { UserResource } from '@clerk/types';
+import { trpc } from '@/lib/trpc/client';
 
 interface User {
   id: string;
   name: string;
   email: string;
-  [key: string]: any;
+  firstName?: string;
+  lastName?: string;
+  [key: string]: unknown;
 }
 
 interface ProfileFormProps {
   user: User;
-  clerkUser: UserResource;
 }
 
-export function ProfileForm({ user, clerkUser }: ProfileFormProps) {
-  const [name, setName] = useState(user.name);
+export function ProfileForm({ user }: ProfileFormProps) {
+  // Parse name into first/last, or use existing fields
+  const initialFirstName = user.firstName || user.name?.split(' ')[0] || '';
+  const initialLastName = user.lastName || user.name?.split(' ').slice(1).join(' ') || '';
+
+  const [firstName, setFirstName] = useState(initialFirstName);
+  const [lastName, setLastName] = useState(initialLastName);
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
   const { toast } = useToast();
   const router = useRouter();
 
-  const updateUser = useMutation({
-    mutationFn: async ({ name }: { name: string }) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('users')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ name })
-        .eq('id', user.id)
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+  const updateUser = trpc.users.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users', user.id] });
+      utils.users.getCurrent.invalidate();
     },
   });
+
+  const hasChanges = firstName !== initialFirstName || lastName !== initialLastName;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      // Update in Supabase
-      await updateUser.mutateAsync({ name });
-
-      // Update in Clerk
-      await clerkUser.update({
-        firstName: name.split(' ')[0],
-        lastName: name.split(' ').slice(1).join(' ') || undefined,
+      // User ID comes from session context - just pass profile fields
+      await updateUser.mutateAsync({
+        first_name: firstName,
+        last_name: lastName,
       });
 
       toast({
@@ -83,15 +73,27 @@ export function ProfileForm({ user, clerkUser }: ProfileFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="name">Full Name</Label>
-        <Input
-          id="name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Enter your full name"
-          required
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="firstName">First Name</Label>
+          <Input
+            id="firstName"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            placeholder="Enter your first name"
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="lastName">Last Name</Label>
+          <Input
+            id="lastName"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            placeholder="Enter your last name"
+          />
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -108,7 +110,7 @@ export function ProfileForm({ user, clerkUser }: ProfileFormProps) {
         </p>
       </div>
 
-      <Button type="submit" disabled={isLoading || name === user.name}>
+      <Button type="submit" disabled={isLoading || !hasChanges}>
         {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Save Changes
       </Button>

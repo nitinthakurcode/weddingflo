@@ -12,15 +12,37 @@ import { toast } from 'sonner';
 import {
   Globe,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   Copy,
   ExternalLink,
   Sparkles,
 } from 'lucide-react';
-import type { Database } from '@/lib/database.types';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+/**
+ * Website type from Drizzle schema
+ * Uses camelCase fields with settings JSONB column
+ */
+interface Website {
+  id: string;
+  clientId: string;
+  subdomain: string | null;
+  customDomain: string | null;
+  theme: string | null;
+  isPublished: boolean | null;
+  password: string | null;
+  isPasswordProtected: boolean | null;
+  settings: unknown;
+  content: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}
+
+interface WebsiteSettings {
+  customDomainVerified?: boolean;
+  dnsVerificationToken?: string;
+  viewCount?: number;
+}
 
 interface DomainManagerProps {
   website: Website;
@@ -28,21 +50,23 @@ interface DomainManagerProps {
 }
 
 /**
- * Domain Management Component
- * Session 49: Subdomain + Custom Domain ($19.99/year)
+ * Domain Management Component - Drizzle Schema
  *
- * Features:
- * - Free subdomain display
- * - Custom domain setup
- * - DNS verification
- * - Instructions
+ * Settings are stored in `settings` JSONB:
+ * - customDomainVerified
+ * - dnsVerificationToken
  */
 export function DomainManager({ website, onUpdate }: DomainManagerProps) {
-  const [customDomain, setCustomDomain] = useState(website.custom_domain || '');
+  // Extract settings from JSONB
+  const settings = (website.settings as WebsiteSettings) || {};
+  const customDomainVerified = settings.customDomainVerified || false;
+  const dnsVerificationToken = settings.dnsVerificationToken || '';
+
+  const [customDomain, setCustomDomain] = useState(website.customDomain || '');
   const [showDNSInstructions, setShowDNSInstructions] = useState(false);
 
   const addCustomDomain = trpc.websites.addCustomDomain.useMutation({
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success('Custom domain configured! Follow the DNS instructions below.');
       setShowDNSInstructions(true);
       onUpdate();
@@ -115,7 +139,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
               onClick={() =>
                 window.open(`https://${website.subdomain}.weddingflow.com`, '_blank')
               }
-              disabled={!website.is_published}
+              disabled={!website.isPublished}
             >
               <ExternalLink className="h-4 w-4 mr-2" />
               Visit
@@ -137,7 +161,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!website.custom_domain ? (
+          {!website.customDomain ? (
             <>
               <Alert>
                 <AlertCircle className="h-4 w-4" />
@@ -172,25 +196,25 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
                 <div className="flex items-center gap-3">
                   <div
                     className={`rounded-full p-2 ${
-                      website.custom_domain_verified
+                      customDomainVerified
                         ? 'bg-green-500/10'
                         : 'bg-yellow-500/10'
                     }`}
                   >
-                    {website.custom_domain_verified ? (
+                    {customDomainVerified ? (
                       <CheckCircle2 className="h-5 w-5 text-green-500" />
                     ) : (
                       <AlertCircle className="h-5 w-5 text-yellow-500" />
                     )}
                   </div>
                   <div>
-                    <p className="font-medium">{website.custom_domain}</p>
+                    <p className="font-medium">{website.customDomain}</p>
                     <p className="text-sm text-muted-foreground">
-                      {website.custom_domain_verified ? 'Verified ✓' : 'Pending verification'}
+                      {customDomainVerified ? 'Verified ✓' : 'Pending verification'}
                     </p>
                   </div>
                 </div>
-                {!website.custom_domain_verified && (
+                {!customDomainVerified && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -203,7 +227,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
               </div>
 
               {/* DNS Instructions */}
-              {!website.custom_domain_verified && (
+              {!customDomainVerified && (
                 <Card className="bg-blue-50 dark:bg-blue-950">
                   <CardHeader>
                     <CardTitle className="text-base">DNS Configuration Required</CardTitle>
@@ -256,14 +280,14 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
                             <Label className="text-xs text-muted-foreground">Value</Label>
                             <div className="flex items-center gap-2">
                               <code className="bg-muted px-2 py-1 rounded text-xs truncate max-w-[120px]">
-                                {website.dns_verification_token || 'wf-verify-xxxxx'}
+                                {dnsVerificationToken || 'wf-verify-xxxxx'}
                               </code>
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6"
                                 onClick={() =>
-                                  copyToClipboard(website.dns_verification_token || '')
+                                  copyToClipboard(dnsVerificationToken || '')
                                 }
                               >
                                 <Copy className="h-3 w-3" />

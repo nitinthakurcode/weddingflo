@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { stripe } from '@/lib/stripe/stripe-client';
 import { getPlanByPriceId } from '@/lib/stripe/plans';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { db, eq } from '@/lib/db';
+import { companies } from '@/lib/db/schema';
 
 /**
  * Manual sync endpoint to update subscription from Stripe
@@ -10,7 +11,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId } = await getServerSession();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -22,20 +23,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing companyId' }, { status: 400 });
     }
 
-    // Get company data
-    const supabase = createServerSupabaseClient();
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
-    const { data: company, error } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', companyId)
-      .single();
+    // Get company data using Drizzle
+    const companyResult = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
 
-    if (error || !company) {
+    const company = companyResult[0];
+
+    if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const customerId = (company as any).stripe_customer_id;
+    const customerId = company.stripeCustomerId;
     if (!customerId) {
       return NextResponse.json({ error: 'No Stripe customer ID found' }, { status: 400 });
     }
@@ -69,20 +70,17 @@ export async function POST(req: NextRequest) {
       status: subscription.status,
     });
 
-    // Update company subscription in Supabase
-    const updateData = {
-      stripe_customer_id: subscription.customer as string,
-      stripe_subscription_id: subscription.id,
-      subscription_tier: plan.id,
-      subscription_status: subscription.status === 'active' ? 'active' : subscription.status,
-      subscription_ends_at: new Date(subscription.current_period_end * 1000).toISOString(),
-    };
-
-    await supabase
-      .from('companies')
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      .update(updateData)
-      .eq('id', companyId);
+    // Update company subscription using Drizzle
+    await db
+      .update(companies)
+      .set({
+        stripeCustomerId: subscription.customer as string,
+        stripeSubscriptionId: subscription.id,
+        subscriptionTier: plan.id as any,
+        subscriptionStatus: subscription.status === 'active' ? 'active' : subscription.status as any,
+        subscriptionEndsAt: new Date((subscription as any).current_period_end * 1000),
+      })
+      .where(eq(companies.id, companyId));
 
     console.log('✅ Subscription synced successfully');
 

@@ -2,7 +2,7 @@
 
 import { EventStats as EventStatsType } from '@/types/event';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, CalendarCheck, Users, DollarSign, TrendingUp, Filter } from 'lucide-react';
+import { Calendar, CalendarCheck, CheckCircle2, DollarSign, TrendingUp, Filter } from 'lucide-react';
 
 interface EventStatsProps {
   stats: EventStatsType;
@@ -21,6 +21,17 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       iconBgStyle: { background: 'linear-gradient(to bottom right, #4f46e5, #6366f1)' }, // Indigo gradient
       borderColor: '#a5b4fc', // Indigo-300
       filter: 'all',
+    },
+    {
+      title: 'Confirmed',
+      value: stats.confirmed || 0,
+      icon: CheckCircle2,
+      description: 'Venues & dates finalized',
+      textColor: '#14532d', // Green-900
+      bgColor: '#dcfce7', // Green-100
+      iconBgStyle: { background: 'linear-gradient(to bottom right, #22c55e, #16a34a)' }, // Green gradient
+      borderColor: '#86efac', // Green-300
+      filter: 'confirmed',
     },
     {
       title: 'Upcoming',
@@ -43,17 +54,6 @@ export function EventStats({ stats, onFilterChange }: EventStatsProps) {
       iconBgStyle: { background: 'linear-gradient(to bottom right, #10b981, #059669)' }, // Emerald gradient
       borderColor: '#a7f3d0', // Emerald-200
       filter: 'completed',
-    },
-    {
-      title: 'Total Guests',
-      value: stats.total_guests.toLocaleString(),
-      icon: Users,
-      description: 'Across all events',
-      textColor: '#78350f', // Amber-900
-      bgColor: '#fef3c7', // Amber-100
-      iconBgStyle: { background: 'linear-gradient(to bottom right, #d97706, #f59e0b)' }, // Amber gradient
-      borderColor: '#fde68a', // Amber-200
-      filter: 'all',
     },
     {
       title: 'Total Budget',

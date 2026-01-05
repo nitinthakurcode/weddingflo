@@ -1,13 +1,10 @@
-name: Deploy to Fly.io
+name: Build & Deploy
 
 on:
-  # Deploy when tests pass on main
-  workflow_run:
-    workflows: ["Test Suite"]
-    types: [completed]
+  push:
     branches: [main]
-
-  # Allow manual deployment
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -19,71 +16,172 @@ on:
           - production
           - staging
 
-jobs:
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    # Only deploy if tests passed (or manual trigger)
-    if: |
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') ||
-      github.event_name == 'workflow_dispatch'
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
-    environment:
-      name: production
-      url: https://weddingflow-pro.fly.dev
+jobs:
+  # ============================================
+  # Job 1: Type Check & Lint
+  # ============================================
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Fly.io CLI
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Deploy to Fly.io
-        run: flyctl deploy --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Verify deployment
+      - name: Run TypeScript check
+        run: npx tsc --noEmit
+
+  # ============================================
+  # Job 2: Build Docker Image
+  # ============================================
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [typecheck]
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  # ============================================
+  # Job 3: Deploy to Production
+  # ============================================
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - name: Deploy via Dokploy webhook
+        if: vars.DOKPLOY_WEBHOOK_URL != ''
+        run: |
+          echo "Triggering Dokploy deployment..."
+          curl -X POST "${{ vars.DOKPLOY_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"}'
+
+      - name: Deploy via SSH (with Cloudflare Tunnel)
+        if: secrets.DEPLOY_SSH_KEY != ''
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/weddingflo
+
+            # Pull latest images
+            docker compose pull
+
+            # Deploy with Cloudflare Tunnel profile
+            docker compose --profile tunnel up -d --remove-orphans
+
+            # Cleanup old images
+            docker system prune -f
+
+            # Verify tunnel is connected
+            sleep 10
+            docker logs weddingflo-tunnel 2>&1 | tail -5
+
+      - name: Health check
         run: |
           echo "Waiting for deployment to stabilize..."
           sleep 30
-          flyctl status
-          flyctl checks list
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-      - name: Post-deployment health check
-        run: |
-          # Get the app URL
-          APP_URL=$(flyctl status --json | jq -r '.Hostname // "weddingflow-pro.fly.dev"')
-          echo "Checking health at https://$APP_URL/api/health"
+          HEALTH_URL="${{ vars.PRODUCTION_URL }}/api/health"
+          echo "Checking health at $HEALTH_URL"
 
-          # Retry health check up to 3 times
-          for i in 1 2 3; do
-            if curl -sf "https://$APP_URL/api/health" > /dev/null; then
+          for i in 1 2 3 4 5; do
+            if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
               echo "Health check passed!"
               exit 0
             fi
-            echo "Attempt $i failed, retrying in 10s..."
-            sleep 10
+            echo "Attempt $i failed, retrying in 15s..."
+            sleep 15
           done
 
-          echo "Health check failed after 3 attempts"
+          echo "Health check failed after 5 attempts"
           exit 1
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-  # Notify on failure
+      - name: Purge Cloudflare Cache
+        if: success() && secrets.CLOUDFLARE_API_TOKEN != ''
+        run: |
+          curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything":true}'
+          echo "Cloudflare cache purged!"
+
+  # ============================================
+  # Job 4: Notify on Failure
+  # ============================================
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest
-    needs: [deploy-production]
+    needs: [build, deploy]
     if: failure()
 
     steps:
       - name: Deployment failed
         run: |
-          echo "::error::Deployment to Fly.io failed!"
+          echo "::error::Deployment failed!"
           echo "Check the logs above for details."
-          echo "You can also run: fly logs -a weddingflow-pro"

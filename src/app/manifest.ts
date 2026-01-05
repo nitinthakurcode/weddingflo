@@ -2,8 +2,8 @@ import { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'WeddingFlow Pro - Complete Wedding Management',
-    short_name: 'WeddingFlow',
+    name: 'WeddingFlo - Complete Wedding Management',
+    short_name: 'WeddingFlo',
     description: 'Professional wedding planning and management app with guest management, budget tracking, vendor coordination, and timeline planning.',
     start_url: '/dashboard',
     display: 'standalone',

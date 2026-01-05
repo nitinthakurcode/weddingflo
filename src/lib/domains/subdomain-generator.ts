@@ -1,11 +1,13 @@
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { db, sql, eq } from '@/lib/db';
+import { weddingWebsites } from '@/lib/db/schema';
+import { generateUniqueSubdomain as generateFromQuery } from '@/lib/db/queries/helpers';
 
 /**
  * Subdomain Generation System
- * Session 49: Free subdomain generation for wedding websites
+ * December 2025 - Drizzle ORM Implementation
  *
- * Generates unique subdomains like: john-jane.weddingflow.com
- * Following October 2025 standards
+ * Generates unique subdomains like: john-jane.weddingflo.com
+ * No Supabase dependencies
  */
 
 /**
@@ -16,19 +18,8 @@ export async function generateUniqueSubdomain(
   firstName: string,
   lastName: string
 ): Promise<string> {
-  const supabase = createServerSupabaseAdminClient();
-
-  // Call database function
-  const { data, error } = await supabase.rpc('generate_unique_subdomain', {
-    p_partner1_first: firstName,
-    p_partner1_last: lastName,
-  });
-
-  if (error) {
-    throw error;
-  }
-
-  return data as string;
+  // Use the query helper function that uses Drizzle
+  return generateFromQuery(`${firstName}-${lastName}`);
 }
 
 /**
@@ -85,6 +76,7 @@ export function validateSubdomain(subdomain: string): {
     'superadmin',
     'system',
     'weddingflow',
+    'weddingflo',
     'blog',
     'help',
     'support',
@@ -103,26 +95,20 @@ export function validateSubdomain(subdomain: string): {
 }
 
 /**
- * Check subdomain availability
+ * Check subdomain availability using Drizzle
  */
 export async function checkSubdomainAvailability(subdomain: string): Promise<{
   available: boolean;
   subdomain: string;
 }> {
-  const supabase = createServerSupabaseAdminClient();
-
-  const { data, error } = await supabase
-    .from('wedding_websites')
-    .select('id')
-    .eq('subdomain', subdomain)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
+  const result = await db
+    .select({ id: weddingWebsites.id })
+    .from(weddingWebsites)
+    .where(eq(weddingWebsites.subdomain, subdomain))
+    .limit(1);
 
   return {
-    available: !data,
+    available: result.length === 0,
     subdomain,
   };
 }

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { openai, AI_CONFIG } from '@/lib/ai/openai-client';
 import { callAIWithTracking, getAIUsage } from '@/lib/ai/ai-helpers';
+import { eq, and, asc, inArray } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 import {
   generateBudgetPredictionPrompt,
   type BudgetPredictionInput,
@@ -252,13 +254,13 @@ export const aiRouter = router({
 
         // If clientId provided, fetch client data for context
         if (input.clientId) {
-          // Verify client belongs to company (session claims)
-          const { data: client } = await ctx.supabase
-            .from('clients')
-            .select('*, companies(name)')
-            .eq('id', input.clientId)
-            .eq('company_id', companyId)
-            .single();
+          // Verify client belongs to company
+          const client = await ctx.db.query.clients.findFirst({
+            where: and(
+              eq(schema.clients.id, input.clientId),
+              eq(schema.clients.companyId, companyId)
+            ),
+          });
 
           if (!client) {
             throw new TRPCError({
@@ -270,12 +272,12 @@ export const aiRouter = router({
           clientContext = client;
 
           // Build context-aware system prompt
-          const partner1Name = `${client.partner1_first_name} ${client.partner1_last_name}`;
-          const partner2Name = client.partner2_first_name
-            ? `${client.partner2_first_name} ${client.partner2_last_name}`
+          const partner1Name = `${client.partner1FirstName} ${client.partner1LastName}`;
+          const partner2Name = client.partner2FirstName
+            ? `${client.partner2FirstName} ${client.partner2LastName}`
             : 'their partner';
-          const weddingDate = client.wedding_date
-            ? new Date(client.wedding_date).toLocaleDateString()
+          const weddingDate = client.weddingDate
+            ? new Date(client.weddingDate).toLocaleDateString()
             : 'TBD';
 
           systemPrompt = `You are an expert wedding planning assistant helping ${partner1Name} and ${partner2Name} plan their wedding on ${weddingDate}.
@@ -284,8 +286,8 @@ Wedding Details:
 - Client: ${partner1Name} & ${partner2Name}
 - Wedding Date: ${weddingDate}
 - Venue: ${client.venue || 'Not set'}
-- Guest Count: ${client.guest_count || 'Unknown'}
-- Budget: ${client.budget ? `$${client.budget.toLocaleString()}` : 'Not set'}
+- Guest Count: ${client.guestCount || 'Unknown'}
+- Budget: ${client.budget ? `$${Number(client.budget).toLocaleString()}` : 'Not set'}
 
 Provide personalized, actionable advice based on these details. Be warm, professional, and thorough.`;
         }
@@ -381,12 +383,13 @@ Provide personalized, actionable advice based on these details. Be warm, profess
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', companyId)
-        .single();
+      const client = await ctx.db.query.clients.findFirst({
+        where: and(
+          eq(schema.clients.id, input.clientId),
+          eq(schema.clients.companyId, companyId)
+        ),
+        columns: { id: true }
+      });
 
       if (!client) {
         throw new TRPCError({
@@ -396,13 +399,14 @@ Provide personalized, actionable advice based on these details. Be warm, profess
       }
 
       // Fetch guest data
-      const { data: guests, error: guestsError } = await ctx.supabase
-        .from('guests')
-        .select('*')
-        .in('id', input.guestIds)
-        .eq('client_id', input.clientId);
+      const guests = await ctx.db.query.guests.findMany({
+        where: and(
+          inArray(schema.guests.id, input.guestIds),
+          eq(schema.guests.clientId, input.clientId)
+        ),
+      });
 
-      if (guestsError || !guests) {
+      if (!guests || guests.length === 0) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to fetch guest data',
@@ -413,7 +417,7 @@ Provide personalized, actionable advice based on these details. Be warm, profess
       const guestList = guests
         .map(
           (g, idx) =>
-            `${idx + 1}. ${g.first_name} ${g.last_name} - Group: ${g.group_name || 'None'}, Dietary: ${g.dietary_restrictions || 'None'}, Notes: ${g.notes || 'None'}`
+            `${idx + 1}. ${g.firstName} ${g.lastName} - Group: ${g.groupName || 'None'}, Dietary: ${g.dietaryRestrictions || 'None'}, Notes: ${g.notes || 'None'}`
         )
         .join('\n');
 
@@ -531,12 +535,12 @@ Respond with a JSON object:
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('*')
-        .eq('id', input.clientId)
-        .eq('company_id', companyId)
-        .single();
+      const client = await ctx.db.query.clients.findFirst({
+        where: and(
+          eq(schema.clients.id, input.clientId),
+          eq(schema.clients.companyId, companyId)
+        ),
+      });
 
       if (!client) {
         throw new TRPCError({
@@ -546,29 +550,21 @@ Respond with a JSON object:
       }
 
       // Fetch budget items
-      const { data: budgetItems, error: budgetError } = await ctx.supabase
-        .from('budget')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('category', { ascending: true });
-
-      if (budgetError) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch budget data',
-        });
-      }
+      const budgetItems = await ctx.db.query.budget.findMany({
+        where: eq(schema.budget.clientId, input.clientId),
+        orderBy: [asc(schema.budget.category)],
+      });
 
       const items = budgetItems || [];
-      const totalEstimated = items.reduce((sum, item) => sum + (item.estimated_cost || 0), 0);
-      const totalActual = items.reduce((sum, item) => sum + (item.actual_cost || 0), 0);
-      const totalBudget = client.budget || 0;
+      const totalEstimated = items.reduce((sum, item) => sum + (parseFloat(item.estimatedCost || '0')), 0);
+      const totalActual = items.reduce((sum, item) => sum + (parseFloat(item.actualCost || '0')), 0);
+      const totalBudget = parseFloat(client.budget || '0');
 
       // Build budget analysis prompt
       const budgetList = items
         .map(
           (item) =>
-            `- ${item.category}: ${item.item} (Estimated: $${item.estimated_cost}, Actual: $${item.actual_cost || 'TBD'}, Status: ${item.payment_status})`
+            `- ${item.category}: ${item.item} (Estimated: $${item.estimatedCost}, Actual: $${item.actualCost || 'TBD'}, Status: ${item.paymentStatus})`
         )
         .join('\n');
 
@@ -579,7 +575,7 @@ Wedding Budget Overview:
 - Total Estimated: $${totalEstimated.toLocaleString()}
 - Total Actual Spent: $${totalActual.toLocaleString()}
 - Remaining: $${(totalBudget - totalActual).toLocaleString()}
-- Guest Count: ${client.guest_count || 'Unknown'}
+- Guest Count: ${client.guestCount || 'Unknown'}
 
 Budget Items:
 ${budgetList || 'No budget items yet'}

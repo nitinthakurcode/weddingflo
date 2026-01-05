@@ -2,7 +2,6 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -19,25 +18,54 @@ interface PageProps {
   params: Promise<{ token: string }>;
 }
 
+/**
+ * Guest Form Schema - Fields 1-11 that guests can fill via QR/form link
+ * 1. Guest Name, 2. Phone, 3. Email, 4. Party Size, 5. Additional Guests
+ * 6. Arrival Date/Time, 7. Arrival Mode, 8. Departure Date/Time, 9. Departure Mode
+ * 10. Relationship to Family, 11. Events Attending
+ */
 const guestFormSchema = z.object({
+  // 1. Guest Name
+  name: z.string().min(1, 'Name is required'),
+  // 2. Phone Number
+  phone: z.string().optional(),
+  // 3. Email
+  email: z.string().email().optional().or(z.literal('')),
+  // 4. Party Size (Number of Packs)
+  partySize: z.number().min(1).optional().default(1),
+  // 5. Additional Guest Names
+  additionalGuestNames: z.string().optional(),
+  // 6. Arrival Date and Time
+  arrivalDatetime: z.string().optional(),
+  // 7. Mode of Arrival
+  arrivalMode: z.string().optional(),
+  // 8. Departure Date and Time
+  departureDatetime: z.string().optional(),
+  // 9. Mode of Departure
+  departureMode: z.string().optional(),
+  // 10. Relationship to Family
+  relationshipToFamily: z.string().optional(),
+  // 11. Events Attending (comma-separated or selected from list)
+  attendingEvents: z.string().optional(),
+  // Bonus: Dietary restrictions
   dietaryRestrictions: z.string().optional(),
-  specialNeeds: z.string().optional(),
-  modeOfArrival: z.string().optional(),
-  modeOfDeparture: z.string().optional(),
+  // Meal Preference
+  mealPreference: z.enum(['standard', 'vegetarian', 'vegan', 'kosher', 'halal', 'gluten_free', 'other']).optional().default('standard'),
+  // RSVP Status
+  rsvpStatus: z.enum(['pending', 'accepted', 'declined']).optional().default('accepted'),
 });
 
-type GuestFormData = z.infer<typeof guestFormSchema>;
+type GuestFormData = z.input<typeof guestFormSchema>;
 
 /**
  * QR Landing Page
  * Guest-facing page for RSVP, check-in, or viewing information
- * NOTE: This is a public page - no authentication required
+ * NOTE: This is a public page - uses public API routes
  */
 export default function QRLandingPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const { token } = resolvedParams;
   const router = useRouter();
-  const supabase = createClient();
 
   const [isValidating, setIsValidating] = useState(true);
   const [tokenData, setTokenData] = useState<any>(null);
@@ -81,20 +109,16 @@ export default function QRLandingPage({ params }: PageProps) {
       // Only record the scan for real guests, not test tokens
       if (!isTest && decryptedToken.guestId) {
         try {
-          // Record QR scan in database
-          const { error: scanError } = await supabase
-            .from('qr_scans')
-            // @ts-ignore - TODO: Regenerate Supabase types from database schema
-            .insert({
-              guest_id: decryptedToken.guestId,
-              scan_type: decryptedToken.type || 'check-in',
-              scanned_at: new Date().toISOString(),
-            });
-
-          if (scanError) {
-            console.error('Failed to record scan:', scanError);
-            // Don't show error to user, this is not critical
-          }
+          // Record QR scan via public API
+          await fetch('/api/public/guest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'record-scan',
+              guestId: decryptedToken.guestId,
+              data: { scanType: decryptedToken.type || 'check-in' },
+            }),
+          });
         } catch (scanError) {
           console.error('Failed to record scan:', scanError);
           // Don't show error to user, this is not critical
@@ -121,20 +145,35 @@ export default function QRLandingPage({ params }: PageProps) {
         return;
       }
 
-      // Update guest information in database
-      const { error: updateError } = await supabase
-        .from('guests')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({
-          dietary_restrictions: data.dietaryRestrictions,
-          special_needs: data.specialNeeds,
-          mode_of_arrival: data.modeOfArrival,
-          mode_of_departure: data.modeOfDeparture,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', tokenData.guestId);
+      // Update guest information via public API - All 11 fields
+      const response = await fetch('/api/public/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update-info',
+          guestId: tokenData.guestId,
+          data: {
+            name: data.name,
+            phone: data.phone,
+            email: data.email,
+            partySize: data.partySize,
+            additionalGuestNames: data.additionalGuestNames,
+            arrivalDatetime: data.arrivalDatetime,
+            arrivalMode: data.arrivalMode,
+            departureDatetime: data.departureDatetime,
+            departureMode: data.departureMode,
+            relationshipToFamily: data.relationshipToFamily,
+            attendingEvents: data.attendingEvents,
+            dietaryRestrictions: data.dietaryRestrictions,
+            mealPreference: data.mealPreference,
+            rsvpStatus: data.rsvpStatus,
+          },
+        }),
+      });
 
-      if (updateError) throw updateError;
+      if (!response.ok) {
+        throw new Error('Failed to submit form');
+      }
 
       setSubmitSuccess(true);
     } catch (error) {
@@ -222,7 +261,7 @@ export default function QRLandingPage({ params }: PageProps) {
               <CardDescription>
                 {tokenData?.type === 'check-in' && 'Please check in below'}
                 {tokenData?.type === 'rsvp' && 'Please confirm your attendance'}
-                {tokenData?.type === 'gift-registry' && 'View our gift registry'}
+                {tokenData?.type === 'guest-form' && 'Please fill out your details'}
               </CardDescription>
               {isTestMode && (
                 <Badge variant="outline" className="mt-2 bg-yellow-50 text-yellow-700 border-yellow-300">
@@ -261,43 +300,200 @@ export default function QRLandingPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* Guest Form */}
-            {tokenData?.type === 'rsvp' && (
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="dietaryRestrictions">Dietary Restrictions (Optional)</Label>
-                  <Input
-                    id="dietaryRestrictions"
-                    {...register('dietaryRestrictions')}
-                    placeholder="e.g., Vegetarian, Gluten-free, etc."
-                  />
+            {/* Guest Form - All 11 Fields for Guest Self-Entry */}
+            {(tokenData?.type === 'rsvp' || tokenData?.type === 'guest-form') && (
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                {/* Section 1: Basic Info */}
+                <div className="space-y-4">
+                  <h3 className="font-medium text-sm text-muted-foreground border-b pb-2">Personal Information</h3>
+
+                  {/* 1. Guest Name */}
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Your Full Name *</Label>
+                    <Input
+                      id="name"
+                      {...register('name')}
+                      placeholder="Enter your full name"
+                      className={errors.name ? 'border-destructive' : ''}
+                    />
+                    {errors.name && <span className="text-sm text-destructive">{errors.name.message}</span>}
+                  </div>
+
+                  {/* 2. Phone Number */}
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      {...register('phone')}
+                      placeholder="e.g., +1 234 567 8900"
+                      type="tel"
+                    />
+                  </div>
+
+                  {/* 3. Email */}
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email Address</Label>
+                    <Input
+                      id="email"
+                      {...register('email')}
+                      placeholder="your@email.com"
+                      type="email"
+                    />
+                  </div>
+
+                  {/* 10. Relationship to Family */}
+                  <div className="space-y-2">
+                    <Label htmlFor="relationshipToFamily">Relationship to Family</Label>
+                    <Input
+                      id="relationshipToFamily"
+                      {...register('relationshipToFamily')}
+                      placeholder="e.g., Friend of bride, Uncle, Colleague, etc."
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="specialNeeds">Special Needs (Optional)</Label>
-                  <Input
-                    id="specialNeeds"
-                    {...register('specialNeeds')}
-                    placeholder="e.g., Wheelchair access, etc."
-                  />
+                {/* Section 2: Party Info */}
+                <div className="space-y-4">
+                  <h3 className="font-medium text-sm text-muted-foreground border-b pb-2">Party Details</h3>
+
+                  {/* 4. Party Size (Number of Packs) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="partySize">Number of Guests (including yourself)</Label>
+                    <Input
+                      id="partySize"
+                      {...register('partySize', { valueAsNumber: true })}
+                      type="number"
+                      min={1}
+                      defaultValue={1}
+                    />
+                  </div>
+
+                  {/* 5. Additional Guest Names */}
+                  <div className="space-y-2">
+                    <Label htmlFor="additionalGuestNames">Additional Guest Names</Label>
+                    <Input
+                      id="additionalGuestNames"
+                      {...register('additionalGuestNames')}
+                      placeholder="Names of additional guests (comma separated)"
+                    />
+                    <span className="text-xs text-muted-foreground">e.g., John Doe, Jane Doe</span>
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="modeOfArrival">Mode of Arrival (Optional)</Label>
-                  <Input
-                    id="modeOfArrival"
-                    {...register('modeOfArrival')}
-                    placeholder="e.g., Car, Flight, etc."
-                  />
+                {/* Section 3: Travel Info */}
+                <div className="space-y-4">
+                  <h3 className="font-medium text-sm text-muted-foreground border-b pb-2">Travel Details</h3>
+
+                  {/* 6. Arrival Date and Time */}
+                  <div className="space-y-2">
+                    <Label htmlFor="arrivalDatetime">Arrival Date & Time</Label>
+                    <Input
+                      id="arrivalDatetime"
+                      {...register('arrivalDatetime')}
+                      type="datetime-local"
+                    />
+                  </div>
+
+                  {/* 7. Mode of Arrival */}
+                  <div className="space-y-2">
+                    <Label htmlFor="arrivalMode">Mode of Arrival</Label>
+                    <Input
+                      id="arrivalMode"
+                      {...register('arrivalMode')}
+                      placeholder="e.g., Flight, Car, Train, etc."
+                    />
+                  </div>
+
+                  {/* 8. Departure Date and Time */}
+                  <div className="space-y-2">
+                    <Label htmlFor="departureDatetime">Departure Date & Time</Label>
+                    <Input
+                      id="departureDatetime"
+                      {...register('departureDatetime')}
+                      type="datetime-local"
+                    />
+                  </div>
+
+                  {/* 9. Mode of Departure */}
+                  <div className="space-y-2">
+                    <Label htmlFor="departureMode">Mode of Departure</Label>
+                    <Input
+                      id="departureMode"
+                      {...register('departureMode')}
+                      placeholder="e.g., Flight, Car, Train, etc."
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="modeOfDeparture">Mode of Departure (Optional)</Label>
-                  <Input
-                    id="modeOfDeparture"
-                    {...register('modeOfDeparture')}
-                    placeholder="e.g., Car, Flight, etc."
-                  />
+                {/* Section 4: Event & Preferences */}
+                <div className="space-y-4">
+                  <h3 className="font-medium text-sm text-muted-foreground border-b pb-2">Event Preferences</h3>
+
+                  {/* 11. Events Attending */}
+                  <div className="space-y-2">
+                    <Label htmlFor="attendingEvents">Events You Will Attend</Label>
+                    <Input
+                      id="attendingEvents"
+                      {...register('attendingEvents')}
+                      placeholder="e.g., Mehendi, Sangeet, Wedding, Reception"
+                    />
+                    <span className="text-xs text-muted-foreground">Enter event names separated by commas</span>
+                  </div>
+
+                  {/* Meal Preference */}
+                  <div className="space-y-2">
+                    <Label htmlFor="mealPreference">Meal Preference</Label>
+                    <select
+                      id="mealPreference"
+                      {...register('mealPreference')}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="standard">Standard</option>
+                      <option value="vegetarian">Vegetarian</option>
+                      <option value="vegan">Vegan</option>
+                      <option value="kosher">Kosher</option>
+                      <option value="halal">Halal</option>
+                      <option value="gluten_free">Gluten Free</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  {/* Dietary Restrictions / Allergies */}
+                  <div className="space-y-2">
+                    <Label htmlFor="dietaryRestrictions">Dietary Restrictions / Allergies</Label>
+                    <Input
+                      id="dietaryRestrictions"
+                      {...register('dietaryRestrictions')}
+                      placeholder="e.g., Nut allergy, Lactose intolerant"
+                    />
+                    <span className="text-xs text-muted-foreground">Please specify any allergies or special requirements</span>
+                  </div>
+                </div>
+
+                {/* RSVP Confirmation */}
+                <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                  <Label>Confirm Your Attendance</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="accepted"
+                        {...register('rsvpStatus')}
+                        defaultChecked
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">Yes, I&apos;ll attend</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="declined"
+                        {...register('rsvpStatus')}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">Sorry, can&apos;t make it</span>
+                    </label>
+                  </div>
                 </div>
 
                 <Button type="submit" className="w-full" disabled={isSubmitting}>
@@ -323,16 +519,7 @@ export default function QRLandingPage({ params }: PageProps) {
               </Alert>
             )}
 
-            {tokenData?.type === 'gift-registry' && (
-              <div className="text-center space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Thank you for wanting to celebrate with us! Our gift registry will be available soon.
-                </p>
-                <Button variant="outline" className="w-full">
-                  View Gift Registry
-                </Button>
-              </div>
-            )}
+            {/* Guest form type is handled above with rsvp */}
           </CardContent>
         </Card>
       </div>

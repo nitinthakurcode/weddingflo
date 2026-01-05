@@ -1,64 +1,52 @@
 'use client';
 
-import { useUser, useClerk } from '@clerk/nextjs';
-import { useQuery } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
+import { useAuth } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PageLoader } from '@/components/ui/loading-spinner';
 
 export default function OnboardPage() {
-  const { user, isLoaded } = useUser();
-  const clerk = useClerk();
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = searchParams.get('role') || 'company_admin'; // Default to company_admin
-  const supabase = useSupabase();
   const [error, setError] = useState<string | null>(null);
   const [isOnboarding, setIsOnboarding] = useState(false);
   const hasAttemptedOnboarding = useRef(false);
 
-  // Check if user already exists in Supabase (uses Clerk JWT with proper RLS)
-  const { data: existingUser, isLoading: isCheckingUser } = useQuery({
-    queryKey: ['current-user', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return null;
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', user.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id && isLoaded && !!supabase,
-    retry: 1,
-  });
+  // Check if user already exists via tRPC
+  const { data: existingUser, isLoading: isCheckingUser } = trpc.users.getCurrent.useQuery(
+    undefined,
+    {
+      enabled: !!user?.id && !isAuthLoading,
+      retry: 1,
+    }
+  );
 
   useEffect(() => {
     async function handleOnboarding() {
-      if (!isLoaded) return;
+      if (isAuthLoading) return;
 
-      if (!user) {
+      if (!user || !isAuthenticated) {
         router.push('/en/sign-in');
         return;
       }
 
-      // If user already exists, check if session has role before redirecting
+      // If user already exists, check if they have a role before redirecting
       if (existingUser) {
-        const roleInSession = user.publicMetadata?.role as string | undefined;
+        const userRole = (user as any).role;
 
-        if (roleInSession) {
-          console.log('✅ User already exists with role in session:', roleInSession, '- redirecting to dashboard');
+        if (userRole) {
+          console.log('✅ User already exists with role:', userRole, '- redirecting to dashboard');
           // Force hard refresh to clear React Query cache
           window.location.href = '/en/dashboard';
           return;
         }
 
         // User exists in DB but role not in session yet
-        // Force hard refresh to reload Clerk session with updated metadata
-        console.log('⚠️ User exists in DB but role not yet in Clerk session');
+        // Force hard refresh to reload session with updated role
+        console.log('⚠️ User exists in DB but role not yet in session');
         console.log('ℹ️ Forcing hard refresh to reload session with updated role');
 
         // MUST use window.location.href (not router.push) for full page reload
@@ -85,9 +73,9 @@ export default function OnboardPage() {
       try {
         console.log('🚀 Onboarding user:', user.id);
         console.log('User details:', {
-          clerkId: user.id,
-          email: user.primaryEmailAddress?.emailAddress,
-          name: user.fullName || user.firstName,
+          userId: user.id,
+          email: user.email,
+          name: user.name,
         });
 
         const response = await fetch('/api/onboard', {
@@ -96,10 +84,10 @@ export default function OnboardPage() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            clerkId: user.id,
-            email: user.primaryEmailAddress?.emailAddress || '',
-            name: user.fullName || user.firstName || 'User',
-            avatarUrl: user.imageUrl,
+            userId: user.id,
+            email: user.email || '',
+            name: user.name || 'User',
+            avatarUrl: (user as any).image,
             role: role, // Pass the role from URL parameter
           }),
         });
@@ -112,31 +100,9 @@ export default function OnboardPage() {
 
         console.log('✅ User onboarded successfully:', result.userId);
 
-        // Wait for webhook to complete and update Clerk metadata (2-3 seconds)
-        console.log('⏳ Waiting for Clerk webhook to update metadata...');
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // Force Clerk to reload BOTH session and user to pick up the new role from metadata
-        console.log('🔄 Reloading Clerk session and user to get updated role...');
-        if (clerk.session) {
-          await clerk.session.reload();
-        }
-        await user.reload();
-
-        // Verify the role is now in the session
-        const updatedRole = user.publicMetadata?.role as string | undefined;
-        console.log('✅ Session reloaded, role:', updatedRole);
-
-        if (!updatedRole) {
-          console.warn('⚠️ Role still not in session after reload, waiting another 3 seconds...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          if (clerk.session) {
-            await clerk.session.reload();
-          }
-          await user.reload();
-          const finalRole = user.publicMetadata?.role as string | undefined;
-          console.log('✅ Final role check:', finalRole);
-        }
+        // Wait a moment for the database to update
+        console.log('⏳ Waiting for database to update...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Redirect based on role
         const redirectPath = role === 'super_admin' ? '/en/admin' : '/en/dashboard';
@@ -155,7 +121,7 @@ export default function OnboardPage() {
     }
 
     handleOnboarding();
-  }, [isLoaded, user, existingUser, isCheckingUser, router, clerk, role, supabase]);
+  }, [isAuthLoading, user, isAuthenticated, existingUser, isCheckingUser, router, role]);
 
   if (error) {
     return (

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { db, sql } from '@/lib/db';
 import crypto from 'crypto';
 
 /**
@@ -17,39 +17,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const supabase = createServerSupabaseAdminClient();
-
     // Hash IP for privacy
     const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
     const ipHash = ip
       ? crypto.createHash('sha256').update(ip).digest('hex').substring(0, 16)
       : null;
 
-    const userAgent = request.headers.get('user-agent') || undefined;
+    const userAgent = request.headers.get('user-agent') || null;
 
-    // Insert visit record
-    await supabase.from('website_visits').insert({
-      website_id: websiteId,
-      session_id: sessionId,
-      page_path: pagePath || '/',
-      referrer: referrer || undefined,
-      visitor_ip: ipHash,
-      user_agent: userAgent,
-    });
+    // Insert visit record using raw SQL
+    await db.execute(sql`
+      INSERT INTO website_visits (website_id, session_id, page_path, referrer, visitor_ip, user_agent)
+      VALUES (${websiteId}, ${sessionId}, ${pagePath || '/'}, ${referrer || null}, ${ipHash}, ${userAgent})
+    `);
 
-    // Increment view count
-    const { data: website } = await supabase
-      .from('wedding_websites')
-      .select('view_count')
-      .eq('id', websiteId)
-      .single();
-
-    if (website) {
-      await supabase
-        .from('wedding_websites')
-        .update({ view_count: website.view_count + 1 })
-        .eq('id', websiteId);
-    }
+    // Increment view count using raw SQL
+    await db.execute(sql`
+      UPDATE wedding_websites
+      SET view_count = COALESCE(view_count, 0) + 1
+      WHERE id = ${websiteId}
+    `);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

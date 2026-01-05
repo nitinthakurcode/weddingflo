@@ -13,7 +13,7 @@ import * as path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-10-28.acacia',
+  apiVersion: '2025-11-17.clover',
 });
 
 async function setupProducts() {
@@ -23,7 +23,7 @@ async function setupProducts() {
     // 1. Starter Plan
     console.log('Creating Starter Plan...');
     const starterProduct = await stripe.products.create({
-      name: 'WeddingFlow Pro - Starter',
+      name: 'WeddingFlo - Starter',
       description: 'Perfect for small weddings. Up to 100 guests, 5 events, 2 team members.',
       metadata: {
         tier: 'starter',
@@ -49,7 +49,7 @@ async function setupProducts() {
     // 2. Professional Plan
     console.log('Creating Professional Plan...');
     const professionalProduct = await stripe.products.create({
-      name: 'WeddingFlow Pro - Professional',
+      name: 'WeddingFlo - Professional',
       description: 'For medium to large weddings. Up to 1000 guests, unlimited events, 10 team members.',
       metadata: {
         tier: 'professional',
@@ -75,7 +75,7 @@ async function setupProducts() {
     // 3. Enterprise Plan
     console.log('Creating Enterprise Plan...');
     const enterpriseProduct = await stripe.products.create({
-      name: 'WeddingFlow Pro - Enterprise',
+      name: 'WeddingFlo - Enterprise',
       description: 'For wedding planners and large organizations. Unlimited everything.',
       metadata: {
         tier: 'enterprise',

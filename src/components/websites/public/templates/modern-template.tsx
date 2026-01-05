@@ -1,10 +1,10 @@
 'use client';
 
-import type { Database } from '@/lib/database.types';
+import type { WeddingWebsite } from '@/lib/db/types';
 import type { WeddingTemplate } from '@/lib/templates/wedding-templates';
 import { Heart, Calendar, ArrowDown } from 'lucide-react';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+type Website = WeddingWebsite;
 
 interface ModernTemplateProps {
   website: Website;
@@ -22,8 +22,9 @@ interface ModernTemplateProps {
  * - Video background support
  */
 export function ModernTemplate({ website, template }: ModernTemplateProps) {
-  const heroSection = website.hero_section as any;
-  const ourStorySection = website.our_story_section as any;
+  const content = website.content as Record<string, any> || {};
+  const heroSection = content.hero_section as any;
+  const ourStorySection = content.our_story_section as any;
 
   return (
     <div className="modern-template min-h-screen" style={{ fontFamily: template.fonts.body }}>
@@ -80,7 +81,7 @@ export function ModernTemplate({ website, template }: ModernTemplateProps) {
 
       {/* Our Story - Full Width */}
       {ourStorySection?.content && (
-        <section className="py-32 px-4 bg-gray-50">
+        <section className="py-32 px-4 bg-mocha-50 dark:bg-mocha-900">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-16">
               <Heart
@@ -106,7 +107,7 @@ export function ModernTemplate({ website, template }: ModernTemplateProps) {
                   {ourStorySection.content}
                 </p>
               </div>
-              <div className="aspect-square bg-gray-200 rounded-lg" />
+              <div className="aspect-square bg-mocha-200 dark:bg-mocha-700 rounded-lg" />
             </div>
           </div>
         </section>

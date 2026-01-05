@@ -143,7 +143,7 @@ export function ThankYouTracker({ clientId }: ThankYouTrackerProps) {
                     <p className="text-sm text-muted-foreground">
                       From:{' '}
                       {gift.guests
-                        ? `${gift.guests.first_name} ${gift.guests.last_name}`
+                        ? `${gift.guests.firstName} ${gift.guests.lastName}`
                         : 'Unknown'}
                     </p>
                     <p className="text-sm text-red-600">

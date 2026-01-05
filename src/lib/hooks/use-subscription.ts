@@ -1,10 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { UsageChecker } from '@/lib/limits/usage-checker';
-import { useUser } from '@clerk/nextjs';
+import { trpc } from '@/lib/trpc/client';
+import type { PlanTier } from '@/lib/stripe/plans';
 
 /**
  * Hook to get subscription data and usage checker
+ * December 2025 - tRPC Implementation (no Supabase)
  *
  * Usage:
  * const { subscription, usage, checker, canAddGuest, canAddEvent, canAddUser } = useSubscription(companyId);
@@ -14,68 +14,46 @@ import { useUser } from '@clerk/nextjs';
  *   return;
  * }
  */
+
+// Map database tier to PlanTier (treats 'free' as 'starter' for limit checking)
+function mapTierToPlanTier(tier: string): PlanTier {
+  if (tier === 'free' || tier === 'starter') return 'starter';
+  if (tier === 'professional') return 'professional';
+  if (tier === 'enterprise') return 'enterprise';
+  return 'starter'; // Default fallback
+}
+
 export function useSubscription(companyId: string | undefined) {
-  const supabase = useSupabase();
-  const { user } = useUser();
-
-  const { data: subscription } = useQuery<any>({
-    queryKey: ['subscription', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!companyId) throw new Error('Company ID not available');
-      const { data, error } = await supabase
-        .from('companies')
-        .select('id, subscription_tier, subscription_status, subscription_ends_at, stripe_customer_id, stripe_subscription_id')
-        .eq('id', companyId)
-        .single();
-      if (error) throw error;
-      // Map company subscription fields to expected format
-      return data ? {
-        tier: data.subscription_tier,
-        status: data.subscription_status,
-        ends_at: data.subscription_ends_at,
-        stripe_customer_id: data.stripe_customer_id,
-        stripe_subscription_id: data.stripe_subscription_id,
-      } : null;
-    },
-    enabled: !!companyId && !!user && !!supabase,
+  // Fetch company data via tRPC
+  const { data: company } = trpc.companies.getCurrent.useQuery(undefined, {
+    enabled: !!companyId,
   });
 
-  const { data: usage } = useQuery({
-    queryKey: ['usage', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!companyId) throw new Error('Company ID not available');
-      // Get guests count
-      const { count: guestsCount } = await supabase
-        .from('guests')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId);
-
-      // Get events count
-      const { count: eventsCount } = await supabase
-        .from('events')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId);
-
-      // Get users count
-      const { count: usersCount } = await supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId);
-
-      return {
-        guestsCount: guestsCount || 0,
-        eventsCount: eventsCount || 0,
-        usersCount: usersCount || 0,
-      };
-    },
-    enabled: !!companyId && !!user && !!supabase,
+  // Fetch dashboard stats for usage counts
+  const { data: dashboardStats } = trpc.analytics.getDashboardStats.useQuery(undefined, {
+    enabled: !!companyId,
   });
 
+  // Map company data to subscription format
+  const subscription = company ? {
+    tier: company.subscriptionTier,
+    status: company.subscriptionStatus,
+    ends_at: company.subscriptionEndsAt,
+    stripe_customer_id: company.stripeCustomerId,
+    stripe_subscription_id: company.stripeSubscriptionId,
+  } : null;
+
+  // Map dashboard stats to usage format
+  const usage = dashboardStats ? {
+    guestsCount: dashboardStats.totalGuests || 0,
+    eventsCount: dashboardStats.upcomingWeddings || 0, // Using upcomingWeddings as event count proxy
+    usersCount: dashboardStats.activeClients || 0, // Using activeClients as user count proxy
+  } : null;
+
+  // Create usage checker with mapped tier (handles 'free' -> 'starter')
   const checker =
     subscription && usage
-      ? new UsageChecker(subscription.tier, {
+      ? new UsageChecker(mapTierToPlanTier(subscription.tier), {
           guestsCount: usage.guestsCount,
           eventsCount: usage.eventsCount,
           usersCount: usage.usersCount,

@@ -14,8 +14,7 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe/config';
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '@/lib/database.types';
+import { db, sql } from '@/lib/db';
 
 // Import professional webhook helpers
 import {
@@ -37,30 +36,12 @@ import {
   validateStripeMetadata,
 } from '@/lib/webhooks/validation';
 import {
-  WebhookError,
   SignatureVerificationError,
   DuplicateWebhookError,
   ValidationError,
   DatabaseError,
   type TransactionContext,
 } from '@/lib/webhooks/types';
-
-// ============================================================================
-// SUPABASE ADMIN CLIENT
-// ============================================================================
-
-function getSupabaseAdmin() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
-}
 
 // ============================================================================
 // MAIN WEBHOOK HANDLER
@@ -304,17 +285,17 @@ async function handleCheckoutCompleted(
   const tier = session.metadata!.tier;
   const subscriptionId = session.subscription as string;
 
-  const supabase = getSupabaseAdmin();
-
-  // Use atomic database function
-  const { error } = await supabase.rpc('update_company_subscription', {
-    p_company_id: companyId,
-    p_subscription_tier: tier,
-    p_subscription_status: 'active',
-    p_stripe_subscription_id: subscriptionId,
-  });
-
-  if (error) {
+  try {
+    // Use atomic database function via raw SQL
+    await db.execute(sql`
+      SELECT update_company_subscription(
+        ${companyId},
+        ${tier},
+        'active',
+        ${subscriptionId}
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update company subscription: ${error.message}`,
       'stripe',
@@ -339,16 +320,16 @@ async function handleSubscriptionUpdate(
   const companyId = subscription.metadata!.companyId;
   const tier = subscription.metadata?.tier || 'starter';
 
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_company_subscription', {
-    p_company_id: companyId,
-    p_subscription_tier: tier,
-    p_subscription_status: subscription.status,
-    p_stripe_subscription_id: subscription.id,
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      SELECT update_company_subscription(
+        ${companyId},
+        ${tier},
+        ${subscription.status},
+        ${subscription.id}
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update subscription: ${error.message}`,
       'stripe',
@@ -372,16 +353,16 @@ async function handleSubscriptionDeleted(
 
   const companyId = subscription.metadata!.companyId;
 
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_company_subscription', {
-    p_company_id: companyId,
-    p_subscription_tier: 'starter',
-    p_subscription_status: 'canceled',
-    p_stripe_subscription_id: undefined,
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      SELECT update_company_subscription(
+        ${companyId},
+        'starter',
+        'canceled',
+        NULL
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to cancel subscription: ${error.message}`,
       'stripe',
@@ -395,7 +376,7 @@ async function handleInvoicePaid(
   invoice: Stripe.Invoice,
   context: TransactionContext
 ): Promise<void> {
-  const subscriptionId = invoice.subscription as string;
+  const subscriptionId = (invoice as any).subscription as string;
   if (!subscriptionId) return;
 
   // Log successful payment (could send receipt email here)
@@ -406,7 +387,7 @@ async function handlePaymentFailed(
   invoice: Stripe.Invoice,
   context: TransactionContext
 ): Promise<void> {
-  const subscriptionId = invoice.subscription as string;
+  const subscriptionId = (invoice as any).subscription as string;
   if (!subscriptionId) return;
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
@@ -419,16 +400,16 @@ async function handlePaymentFailed(
 
   const companyId = subscription.metadata!.companyId;
 
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_company_subscription', {
-    p_company_id: companyId,
-    p_subscription_tier: subscription.metadata?.tier || 'starter',
-    p_subscription_status: 'past_due',
-    p_stripe_subscription_id: subscription.id,
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      SELECT update_company_subscription(
+        ${companyId},
+        ${subscription.metadata?.tier || 'starter'},
+        'past_due',
+        ${subscription.id}
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to mark payment as past_due: ${error.message}`,
       'stripe',
@@ -471,18 +452,18 @@ async function handlePaymentIntentSucceeded(
 ): Promise<void> {
   validateStripePaymentIntent(paymentIntent, 'stripe', context.eventId);
 
-  const supabase = getSupabaseAdmin();
-
-  // Use atomic database function
-  const { error } = await supabase.rpc('update_payment_from_webhook', {
-    p_stripe_payment_intent_id: paymentIntent.id,
-    p_status: 'paid',
-    p_failure_reason: undefined,
-    p_last_error_code: undefined,
-    p_captured_at: new Date().toISOString(),
-  });
-
-  if (error) {
+  try {
+    // Use atomic database function via raw SQL
+    await db.execute(sql`
+      SELECT update_payment_from_webhook(
+        ${paymentIntent.id},
+        'paid',
+        NULL,
+        NULL,
+        ${new Date().toISOString()}::timestamptz
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update payment status: ${error.message}`,
       'stripe',
@@ -501,17 +482,17 @@ async function handlePaymentIntentFailed(
   const failureMessage = paymentIntent.last_payment_error?.message || 'Unknown error';
   const errorCode = paymentIntent.last_payment_error?.code || null;
 
-  const supabase = getSupabaseAdmin();
-
-  const { error } = await supabase.rpc('update_payment_from_webhook', {
-    p_stripe_payment_intent_id: paymentIntent.id,
-    p_status: 'canceled',
-    p_failure_reason: failureMessage,
-    p_last_error_code: errorCode || undefined,
-    p_captured_at: undefined,
-  });
-
-  if (error) {
+  try {
+    await db.execute(sql`
+      SELECT update_payment_from_webhook(
+        ${paymentIntent.id},
+        'canceled',
+        ${failureMessage},
+        ${errorCode},
+        NULL
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to mark payment as failed: ${error.message}`,
       'stripe',
@@ -531,16 +512,16 @@ async function handleChargeRefunded(
   const refundId = refund?.id || null;
   const refundAmount = refund?.amount || 0;
 
-  const supabase = getSupabaseAdmin();
-
-  // Use atomic transaction function
-  const { error } = await supabase.rpc('process_refund_webhook', {
-    p_stripe_charge_id: charge.id,
-    p_stripe_refund_id: refundId || '',
-    p_refund_amount: refundAmount,
-  });
-
-  if (error) {
+  try {
+    // Use atomic transaction function via raw SQL
+    await db.execute(sql`
+      SELECT process_refund_webhook(
+        ${charge.id},
+        ${refundId || ''},
+        ${refundAmount}
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to process refund: ${error.message}`,
       'stripe',
@@ -554,19 +535,23 @@ async function handleAccountUpdated(
   account: Stripe.Account,
   context: TransactionContext
 ): Promise<void> {
-  const supabase = getSupabaseAdmin();
+  try {
+    const currentlyDue = JSON.stringify(account.requirements?.currently_due || []);
+    const eventuallyDue = JSON.stringify(account.requirements?.eventually_due || []);
+    const disabledReason = account.requirements?.disabled_reason || null;
 
-  const { error } = await supabase.rpc('update_stripe_account_from_webhook', {
-    p_stripe_account_id: account.id,
-    p_charges_enabled: account.charges_enabled,
-    p_payouts_enabled: account.payouts_enabled,
-    p_details_submitted: account.details_submitted,
-    p_requirements_currently_due: (account.requirements?.currently_due || []) as any,
-    p_requirements_eventually_due: (account.requirements?.eventually_due || []) as any,
-    p_disabled_reason: account.requirements?.disabled_reason || undefined,
-  });
-
-  if (error) {
+    await db.execute(sql`
+      SELECT update_stripe_account_from_webhook(
+        ${account.id},
+        ${account.charges_enabled},
+        ${account.payouts_enabled},
+        ${account.details_submitted},
+        ${currentlyDue}::jsonb,
+        ${eventuallyDue}::jsonb,
+        ${disabledReason}
+      )
+    `);
+  } catch (error: any) {
     throw new DatabaseError(
       `Failed to update Stripe account: ${error.message}`,
       'stripe',

@@ -24,15 +24,15 @@ export const roomTypeInventorySchema = z.object({
   capacity: z.number().min(1, 'Capacity must be at least 1'),
   rate_per_night: z.number().min(0, 'Rate must be positive'),
   total_rooms: z.number().min(1, 'Total rooms must be at least 1'),
-  blocked_rooms: z.number().min(0).default(0),
-  available_rooms: z.number().min(0).default(0),
+  blocked_rooms: z.number().min(0).optional().default(0),
+  available_rooms: z.number().min(0).optional().default(0),
 });
 
 // Room type detail for hotel details table (legacy - for display purposes)
 export const roomTypeDetailSchema = z.object({
   room_type: roomTypeSchema,
   total_rooms: z.number().min(1, 'Must have at least 1 room'),
-  rooms_booked: z.number().min(0).default(0),
+  rooms_booked: z.number().min(0).optional().default(0),
   rate_per_night: z.number().min(0, 'Rate must be positive'),
 });
 
@@ -44,7 +44,7 @@ export const hotelFormSchema = z.object({
   email: z.string().email('Invalid email address').optional().or(z.literal('')),
   website: z.string().url('Invalid URL').optional().or(z.literal('')),
   rating: z.number().min(0).max(5).optional(),
-  amenities: z.array(z.string()).default([]),
+  amenities: z.array(z.string()).optional().default([]),
   room_types: z.array(roomTypeInventorySchema).min(1, 'At least one room type is required'),
 });
 
@@ -53,12 +53,12 @@ export const hotelDetailFormSchema = z.object({
   hotel_id: z.string().min(1, 'Hotel is required'),
   room_type: roomTypeSchema,
   room_number: z.string().optional(),
-  check_in_date: z.date(),
-  check_out_date: z.date(),
+  check_in_date: z.coerce.date(),
+  check_out_date: z.coerce.date(),
   rate_per_night: z.number().min(0, 'Rate must be positive'),
-  booking_status: bookingStatusSchema.default('pending'),
+  booking_status: bookingStatusSchema.optional().default('pending'),
   booking_confirmation_number: z.string().optional(),
-  payment_status: paymentStatusSchema.default('pending'),
+  payment_status: paymentStatusSchema.optional().default('pending'),
   special_requests: z.string().optional(),
   arrival_time: z.string().optional(),
   departure_time: z.string().optional(),
@@ -71,7 +71,7 @@ export const hotelDetailFormSchema = z.object({
   }
 );
 
-export type HotelFormValues = z.infer<typeof hotelFormSchema>;
-export type HotelDetailFormValues = z.infer<typeof hotelDetailFormSchema>;
-export type RoomTypeDetailValues = z.infer<typeof roomTypeDetailSchema>;
-export type RoomTypeInventoryValues = z.infer<typeof roomTypeInventorySchema>;
+export type HotelFormValues = z.input<typeof hotelFormSchema>;
+export type HotelDetailFormValues = z.input<typeof hotelDetailFormSchema>;
+export type RoomTypeDetailValues = z.input<typeof roomTypeDetailSchema>;
+export type RoomTypeInventoryValues = z.input<typeof roomTypeInventorySchema>;

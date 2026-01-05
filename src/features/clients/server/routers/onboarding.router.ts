@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '@/server/trpc/trpc'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { db, eq } from '@/lib/db'
+import { companies } from '@/lib/db/schema'
 import { TRPCError } from '@trpc/server'
-import { clerkClient } from '@clerk/nextjs/server'
 
 export const onboardingRouter = router({
   // Get current onboarding status
@@ -16,15 +16,19 @@ export const onboardingRouter = router({
       })
     }
 
-    const supabase = createServerSupabaseClient()
+    const companyResult = await db
+      .select({
+        onboardingCompleted: companies.onboardingCompleted,
+        onboardingStep: companies.onboardingStep,
+        onboardingData: companies.onboardingData,
+      })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1)
 
-    const { data: company, error } = await supabase
-      .from('companies')
-      .select('onboarding_completed, onboarding_step, onboarding_data')
-      .eq('id', companyId)
-      .single()
+    const company = companyResult[0]
 
-    if (error) {
+    if (!company) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to fetch onboarding status',
@@ -32,9 +36,9 @@ export const onboardingRouter = router({
     }
 
     return {
-      completed: company.onboarding_completed,
-      currentStep: company.onboarding_step,
-      data: company.onboarding_data || {},
+      completed: company.onboardingCompleted,
+      currentStep: company.onboardingStep,
+      data: company.onboardingData || {},
     }
   }),
 
@@ -43,7 +47,7 @@ export const onboardingRouter = router({
     .input(
       z.object({
         step: z.number().min(1).max(5),
-        data: z.record(z.any()),
+        data: z.record(z.string(), z.any()),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -56,25 +60,23 @@ export const onboardingRouter = router({
         })
       }
 
-      const supabase = createServerSupabaseClient()
+      try {
+        await db
+          .update(companies)
+          .set({
+            onboardingStep: input.step,
+            onboardingData: input.data,
+            onboardingStartedAt: new Date(),
+          })
+          .where(eq(companies.id, companyId))
 
-      const { error } = await supabase
-        .from('companies')
-        .update({
-          onboarding_step: input.step,
-          onboarding_data: input.data,
-          onboarding_started_at: new Date().toISOString(),
-        })
-        .eq('id', companyId)
-
-      if (error) {
+        return { success: true }
+      } catch (error) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to update onboarding progress',
         })
       }
-
-      return { success: true }
     }),
 
   // Mark onboarding as complete
@@ -95,40 +97,28 @@ export const onboardingRouter = router({
       })
     }
 
-    const supabase = createServerSupabaseClient()
+    try {
+      // Update database (source of truth)
+      await db
+        .update(companies)
+        .set({
+          onboardingCompleted: true,
+          onboardingStep: 5,
+          onboardingCompletedAt: new Date(),
+        })
+        .where(eq(companies.id, companyId))
 
-    // 1. Update database (source of truth)
-    const { error } = await supabase
-      .from('companies')
-      .update({
-        onboarding_completed: true,
-        onboarding_step: 5,
-        onboarding_completed_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
+      // With BetterAuth, user metadata is stored directly in the database
+      // The onboarding_completed flag is already set in the companies table above
+      console.log(`✅ Onboarding completed for user ${userId}`)
 
-    if (error) {
+      return { success: true }
+    } catch (error) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to complete onboarding',
       })
     }
-
-    // 2. ✅ CRITICAL: Update Clerk metadata (dual sync pattern)
-    try {
-      const client = await clerkClient()
-      await client.users.updateUserMetadata(userId, {
-        publicMetadata: {
-          onboarding_completed: true,
-        },
-      })
-      console.log(`✅ Updated Clerk metadata: onboarding_completed = true for user ${userId}`)
-    } catch (metadataError) {
-      console.error('⚠️  Error updating Clerk metadata:', metadataError)
-      // Don't fail the entire operation - user can still proceed, metadata will sync eventually
-    }
-
-    return { success: true }
   }),
 
   // Skip onboarding
@@ -149,38 +139,26 @@ export const onboardingRouter = router({
       })
     }
 
-    const supabase = createServerSupabaseClient()
+    try {
+      // Update database (source of truth)
+      await db
+        .update(companies)
+        .set({
+          onboardingCompleted: true,
+          onboardingStep: 0, // 0 means skipped
+        })
+        .where(eq(companies.id, companyId))
 
-    // 1. Update database (source of truth)
-    const { error } = await supabase
-      .from('companies')
-      .update({
-        onboarding_completed: true,
-        onboarding_step: 0, // 0 means skipped
-      })
-      .eq('id', companyId)
+      // With BetterAuth, user metadata is stored directly in the database
+      // The onboarding_completed flag is already set in the companies table above
+      console.log(`✅ Onboarding skipped for user ${userId}`)
 
-    if (error) {
+      return { success: true }
+    } catch (error) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to skip onboarding',
       })
     }
-
-    // 2. ✅ CRITICAL: Update Clerk metadata (dual sync pattern)
-    try {
-      const client = await clerkClient()
-      await client.users.updateUserMetadata(userId, {
-        publicMetadata: {
-          onboarding_completed: true,
-        },
-      })
-      console.log(`✅ Updated Clerk metadata: onboarding_completed = true (skipped) for user ${userId}`)
-    } catch (metadataError) {
-      console.error('⚠️  Error updating Clerk metadata:', metadataError)
-      // Don't fail the entire operation - user can still proceed, metadata will sync eventually
-    }
-
-    return { success: true }
   }),
 })

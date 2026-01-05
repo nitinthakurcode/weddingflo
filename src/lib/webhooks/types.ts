@@ -5,8 +5,6 @@
  * Includes interfaces, enums, and custom error classes.
  */
 
-import type { Database } from '@/lib/database.types';
-
 // ============================================================================
 // WEBHOOK PROVIDERS
 // ============================================================================

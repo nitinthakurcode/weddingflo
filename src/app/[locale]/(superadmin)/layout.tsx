@@ -1,21 +1,21 @@
-import { UserButton } from '@clerk/nextjs';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { LayoutDashboard, Building2, Users, Settings } from 'lucide-react';
+import { UserMenu } from '@/components/auth/user-menu';
 
 export default async function SuperAdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { userId, sessionClaims } = await auth();
+  const { userId, user } = await getServerSession();
 
-  if (!userId) {
+  if (!userId || !user) {
     redirect('/sign-in');
   }
 
-  const role = sessionClaims?.metadata?.role as string | undefined;
+  const role = (user as any).role as string | undefined;
 
   if (role !== 'super_admin') {
     redirect('/sign-in');
@@ -32,7 +32,7 @@ export default async function SuperAdminLayout({
               <span className="text-white font-bold">SA</span>
             </div>
             <div className="flex flex-col">
-              <span className="font-semibold text-white">WeddingFlow Pro</span>
+              <span className="font-semibold text-white">WeddingFlo</span>
               <span className="text-xs text-indigo-400 font-medium">Super Admin</span>
             </div>
           </Link>
@@ -72,7 +72,7 @@ export default async function SuperAdminLayout({
 
         {/* User Button */}
         <div className="p-4 border-t border-gray-800">
-          <UserButton />
+          <UserMenu afterSignOutUrl="/sign-in" />
         </div>
       </aside>
 

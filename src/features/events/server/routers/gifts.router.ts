@@ -1,7 +1,15 @@
 import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { eq, and, isNull, desc } from 'drizzle-orm'
+import { clients, gifts } from '@/lib/db/schema'
 
+/**
+ * Gifts tRPC Router - Drizzle ORM Version
+ *
+ * Provides CRUD operations for wedding gifts with multi-tenant security.
+ * Migrated from Supabase to Drizzle - December 2025
+ */
 export const giftsRouter = router({
   getAll: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
@@ -11,32 +19,44 @@ export const giftsRouter = router({
       }
 
       // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Fetch gifts
-      const { data: gifts, error } = await ctx.supabase
-        .from('gifts')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('created_at', { ascending: false })
+      const giftList = await ctx.db
+        .select()
+        .from(gifts)
+        .where(eq(gifts.clientId, input.clientId))
+        .orderBy(desc(gifts.createdAt))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
-
-      return gifts || []
+      // Return with snake_case for backward compatibility
+      return giftList.map(g => ({
+        id: g.id,
+        client_id: g.clientId,
+        gift_name: g.giftName,
+        from_name: g.fromName,
+        from_email: g.fromEmail,
+        delivery_date: g.deliveryDate,
+        delivery_status: g.deliveryStatus,
+        thank_you_sent: g.thankYouSent,
+        thank_you_sent_date: g.thankYouSentDate,
+        notes: g.notes,
+        created_at: g.createdAt?.toISOString() || undefined,
+        updated_at: g.updatedAt?.toISOString() || undefined,
+      }))
     }),
 
   getById: adminProcedure
@@ -46,13 +66,13 @@ export const giftsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: gift, error } = await ctx.supabase
-        .from('gifts')
-        .select('*')
-        .eq('id', input.id)
-        .single()
+      const [gift] = await ctx.db
+        .select()
+        .from(gifts)
+        .where(eq(gifts.id, input.id))
+        .limit(1)
 
-      if (error || !gift) {
+      if (!gift) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
@@ -64,7 +84,10 @@ export const giftsRouter = router({
       clientId: z.string().uuid(),
       giftName: z.string().min(1),
       fromName: z.string().optional(),
-      fromEmail: z.string().email().optional(),
+      fromEmail: z.preprocess(
+        (val) => (val === '' ? undefined : val),
+        z.string().email().optional()
+      ),
       deliveryDate: z.string().optional(),
       deliveryStatus: z.enum(['pending', 'received', 'returned']).default('pending'),
       notes: z.string().optional(),
@@ -75,36 +98,40 @@ export const giftsRouter = router({
       }
 
       // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Create gift
-      const { data: gift, error } = await ctx.supabase
-        .from('gifts')
-        .insert({
-          client_id: input.clientId,
-          gift_name: input.giftName,
-          from_name: input.fromName,
-          from_email: input.fromEmail,
-          delivery_date: input.deliveryDate,
-          delivery_status: input.deliveryStatus,
-          notes: input.notes,
+      const [gift] = await ctx.db
+        .insert(gifts)
+        .values({
+          clientId: input.clientId,
+          giftName: input.giftName,
+          fromName: input.fromName || null,
+          fromEmail: input.fromEmail || null,
+          deliveryDate: input.deliveryDate || null,
+          deliveryStatus: input.deliveryStatus as any,
+          notes: input.notes || null,
         })
-        .select()
-        .single()
+        .returning()
 
-      if (error) {
+      if (!gift) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          message: 'Failed to create gift'
         })
       }
 
@@ -117,7 +144,10 @@ export const giftsRouter = router({
       data: z.object({
         giftName: z.string().optional(),
         fromName: z.string().optional(),
-        fromEmail: z.string().email().optional(),
+        fromEmail: z.preprocess(
+          (val) => (val === '' ? undefined : val),
+          z.string().email().optional()
+        ),
         deliveryDate: z.string().optional(),
         deliveryStatus: z.enum(['pending', 'received', 'returned']).optional(),
         thankYouSent: z.boolean().optional(),
@@ -131,32 +161,28 @@ export const giftsRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
-        updated_at: new Date().toISOString(),
+      const updateData: Record<string, any> = {
+        updatedAt: new Date(),
       }
 
-      if (input.data.giftName !== undefined) updateData.gift_name = input.data.giftName
-      if (input.data.fromName !== undefined) updateData.from_name = input.data.fromName
-      if (input.data.fromEmail !== undefined) updateData.from_email = input.data.fromEmail
-      if (input.data.deliveryDate !== undefined) updateData.delivery_date = input.data.deliveryDate
-      if (input.data.deliveryStatus !== undefined) updateData.delivery_status = input.data.deliveryStatus
-      if (input.data.thankYouSent !== undefined) updateData.thank_you_sent = input.data.thankYouSent
-      if (input.data.thankYouSentDate !== undefined) updateData.thank_you_sent_date = input.data.thankYouSentDate
+      if (input.data.giftName !== undefined) updateData.giftName = input.data.giftName
+      if (input.data.fromName !== undefined) updateData.fromName = input.data.fromName
+      if (input.data.fromEmail !== undefined) updateData.fromEmail = input.data.fromEmail
+      if (input.data.deliveryDate !== undefined) updateData.deliveryDate = input.data.deliveryDate
+      if (input.data.deliveryStatus !== undefined) updateData.deliveryStatus = input.data.deliveryStatus
+      if (input.data.thankYouSent !== undefined) updateData.thankYouSent = input.data.thankYouSent
+      if (input.data.thankYouSentDate !== undefined) updateData.thankYouSentDate = input.data.thankYouSentDate
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
       // Update gift
-      const { data: gift, error } = await ctx.supabase
-        .from('gifts')
-        .update(updateData)
-        .eq('id', input.id)
-        .select()
-        .single()
+      const [gift] = await ctx.db
+        .update(gifts)
+        .set(updateData)
+        .where(eq(gifts.id, input.id))
+        .returning()
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
+      if (!gift) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
       return gift
@@ -169,17 +195,9 @@ export const giftsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { error } = await ctx.supabase
-        .from('gifts')
-        .delete()
-        .eq('id', input.id)
-
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
+      await ctx.db
+        .delete(gifts)
+        .where(eq(gifts.id, input.id))
 
       return { success: true }
     }),
@@ -194,22 +212,18 @@ export const giftsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: gift, error } = await ctx.supabase
-        .from('gifts')
-        .update({
-          thank_you_sent: true,
-          thank_you_sent_date: input.sentDate || new Date().toISOString().split('T')[0], // YYYY-MM-DD
-          updated_at: new Date().toISOString(),
+      const [gift] = await ctx.db
+        .update(gifts)
+        .set({
+          thankYouSent: true,
+          thankYouSentDate: input.sentDate || new Date().toISOString().split('T')[0],
+          updatedAt: new Date(),
         })
-        .eq('id', input.id)
-        .select()
-        .single()
+        .where(eq(gifts.id, input.id))
+        .returning()
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
+      if (!gift) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
       return gift
@@ -223,30 +237,38 @@ export const giftsRouter = router({
       }
 
       // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get gifts
-      const { data: gifts } = await ctx.supabase
-        .from('gifts')
-        .select('delivery_status, thank_you_sent')
-        .eq('client_id', input.clientId)
+      const giftList = await ctx.db
+        .select({
+          deliveryStatus: gifts.deliveryStatus,
+          thankYouSent: gifts.thankYouSent,
+        })
+        .from(gifts)
+        .where(eq(gifts.clientId, input.clientId))
 
       const stats = {
-        total: gifts?.length || 0,
-        received: gifts?.filter(g => g.delivery_status === 'received').length || 0,
-        pending: gifts?.filter(g => g.delivery_status === 'pending').length || 0,
-        returned: gifts?.filter(g => g.delivery_status === 'returned').length || 0,
-        thankYouSent: gifts?.filter(g => g.thank_you_sent).length || 0,
-        thankYouPending: gifts?.filter(g => g.delivery_status === 'received' && !g.thank_you_sent).length || 0,
+        total: giftList.length,
+        received: giftList.filter(g => g.deliveryStatus === 'received').length,
+        pending: giftList.filter(g => g.deliveryStatus === 'pending').length,
+        returned: giftList.filter(g => g.deliveryStatus === 'returned').length,
+        thankYouSent: giftList.filter(g => g.thankYouSent).length,
+        thankYouPending: giftList.filter(g => g.deliveryStatus === 'received' && !g.thankYouSent).length,
       }
 
       return stats

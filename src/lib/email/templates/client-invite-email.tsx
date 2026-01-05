@@ -12,8 +12,8 @@ interface ClientInviteEmailProps {
 const TRANSLATIONS = {
   en: {
     greeting: (name: string) => `Hello ${name}!`,
-    intro: (planner: string) => `${planner} has invited you to join WeddingFlow Pro to plan your upcoming wedding.`,
-    features: 'With WeddingFlow Pro, you can:',
+    intro: (planner: string) => `${planner} has invited you to join WeddingFlo to plan your upcoming wedding.`,
+    features: 'With WeddingFlo, you can:',
     feature1: '📋 Manage your guest list and RSVPs',
     feature2: '💰 Track your budget and payments',
     feature3: '📅 Plan your timeline and schedule',
@@ -23,8 +23,8 @@ const TRANSLATIONS = {
   },
   es: {
     greeting: (name: string) => `¡Hola ${name}!`,
-    intro: (planner: string) => `${planner} te ha invitado a unirte a WeddingFlow Pro para planificar tu próxima boda.`,
-    features: 'Con WeddingFlow Pro, puedes:',
+    intro: (planner: string) => `${planner} te ha invitado a unirte a WeddingFlo para planificar tu próxima boda.`,
+    features: 'Con WeddingFlo, puedes:',
     feature1: '📋 Gestionar tu lista de invitados y RSVPs',
     feature2: '💰 Hacer seguimiento de tu presupuesto y pagos',
     feature3: '📅 Planificar tu cronograma y horario',
@@ -34,8 +34,8 @@ const TRANSLATIONS = {
   },
   fr: {
     greeting: (name: string) => `Bonjour ${name}!`,
-    intro: (planner: string) => `${planner} vous a invité à rejoindre WeddingFlow Pro pour planifier votre prochain mariage.`,
-    features: 'Avec WeddingFlow Pro, vous pouvez:',
+    intro: (planner: string) => `${planner} vous a invité à rejoindre WeddingFlo pour planifier votre prochain mariage.`,
+    features: 'Avec WeddingFlo, vous pouvez:',
     feature1: "📋 Gérer votre liste d'invités et RSVPs",
     feature2: '💰 Suivre votre budget et paiements',
     feature3: '📅 Planifier votre calendrier et horaire',
@@ -45,8 +45,8 @@ const TRANSLATIONS = {
   },
   de: {
     greeting: (name: string) => `Hallo ${name}!`,
-    intro: (planner: string) => `${planner} hat Sie eingeladen, WeddingFlow Pro beizutreten, um Ihre bevorstehende Hochzeit zu planen.`,
-    features: 'Mit WeddingFlow Pro können Sie:',
+    intro: (planner: string) => `${planner} hat Sie eingeladen, WeddingFlo beizutreten, um Ihre bevorstehende Hochzeit zu planen.`,
+    features: 'Mit WeddingFlo können Sie:',
     feature1: '📋 Ihre Gästeliste und RSVPs verwalten',
     feature2: '💰 Ihr Budget und Zahlungen verfolgen',
     feature3: '📅 Ihren Zeitplan planen',
@@ -56,8 +56,8 @@ const TRANSLATIONS = {
   },
   ja: {
     greeting: (name: string) => `こんにちは、${name}さん！`,
-    intro: (planner: string) => `${planner}さんがあなたをWeddingFlow Proに招待し、今後の結婚式を計画できるようになりました。`,
-    features: 'WeddingFlow Proでできること：',
+    intro: (planner: string) => `${planner}さんがあなたをWeddingFloに招待し、今後の結婚式を計画できるようになりました。`,
+    features: 'WeddingFloでできること：',
     feature1: '📋 ゲストリストとRSVPの管理',
     feature2: '💰 予算と支払いの追跡',
     feature3: '📅 タイムラインとスケジュールの計画',
@@ -67,8 +67,8 @@ const TRANSLATIONS = {
   },
   zh: {
     greeting: (name: string) => `你好，${name}！`,
-    intro: (planner: string) => `${planner}邀请您加入WeddingFlow Pro来策划您即将举行的婚礼。`,
-    features: '使用WeddingFlow Pro，您可以：',
+    intro: (planner: string) => `${planner}邀请您加入WeddingFlo来策划您即将举行的婚礼。`,
+    features: '使用WeddingFlo，您可以：',
     feature1: '📋 管理您的宾客名单和RSVPs',
     feature2: '💰 跟踪您的预算和付款',
     feature3: '📅 规划您的时间表和日程',
@@ -78,8 +78,8 @@ const TRANSLATIONS = {
   },
   hi: {
     greeting: (name: string) => `नमस्ते ${name}!`,
-    intro: (planner: string) => `${planner} ने आपको अपनी आगामी शादी की योजना बनाने के लिए WeddingFlow Pro में शामिल होने के लिए आमंत्रित किया है।`,
-    features: 'WeddingFlow Pro के साथ, आप कर सकते हैं:',
+    intro: (planner: string) => `${planner} ने आपको अपनी आगामी शादी की योजना बनाने के लिए WeddingFlo में शामिल होने के लिए आमंत्रित किया है।`,
+    features: 'WeddingFlo के साथ, आप कर सकते हैं:',
     feature1: '📋 अपनी अतिथि सूची और RSVPs प्रबंधित करें',
     feature2: '💰 अपने बजट और भुगतान को ट्रैक करें',
     feature3: '📅 अपनी समयरेखा और कार्यक्रम की योजना बनाएं',
@@ -117,8 +117,20 @@ export function ClientInviteEmail({
   );
 }
 
+/**
+ * Email styles using WeddingFlo design token colors
+ * Note: Email clients don't support CSS variables
+ */
+const EMAIL_COLORS = {
+  text: '#3D3027',          // mocha-900
+  textSecondary: '#6B5D4F', // mocha-700
+  textMuted: '#8B7355',     // mocha-500
+  primary: '#14B8A6',       // teal-500
+  white: '#ffffff',
+} as const;
+
 const h1 = {
-  color: '#1f2937',
+  color: EMAIL_COLORS.text,
   fontSize: '24px',
   fontWeight: '600',
   lineHeight: '32px',
@@ -126,14 +138,14 @@ const h1 = {
 };
 
 const text = {
-  color: '#374151',
+  color: EMAIL_COLORS.textSecondary,
   fontSize: '16px',
   lineHeight: '24px',
   margin: '0 0 16px',
 };
 
 const featureText = {
-  color: '#374151',
+  color: EMAIL_COLORS.textSecondary,
   fontSize: '14px',
   lineHeight: '20px',
   margin: '0 0 8px',
@@ -141,9 +153,9 @@ const featureText = {
 };
 
 const button = {
-  backgroundColor: '#6366f1',
+  backgroundColor: EMAIL_COLORS.primary,
   borderRadius: '8px',
-  color: '#ffffff',
+  color: EMAIL_COLORS.white,
   display: 'inline-block',
   fontSize: '16px',
   fontWeight: '600',
@@ -155,7 +167,7 @@ const button = {
 };
 
 const footerNote = {
-  color: '#6b7280',
+  color: EMAIL_COLORS.textMuted,
   fontSize: '14px',
   lineHeight: '20px',
   margin: '16px 0 0',

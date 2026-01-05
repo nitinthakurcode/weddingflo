@@ -1,5 +1,6 @@
 /**
  * Clients Feature - tRPC Routers
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
  *
  * Business Domain: Client Relationship Management
  * Routers:
@@ -7,11 +8,12 @@
  * - onboarding: New client onboarding flow
  *
  * Dependencies:
- * - Supabase (clients table)
- * - Clerk (authentication)
+ * - Drizzle ORM (clients table on Hetzner PostgreSQL)
+ * - BetterAuth (self-hosted authentication)
  *
  * Owner: Client Management Team
  */
 
 export { clientsRouter } from './clients.router';
 export { onboardingRouter } from './onboarding.router';
+export { pipelineRouter } from './pipeline.router';

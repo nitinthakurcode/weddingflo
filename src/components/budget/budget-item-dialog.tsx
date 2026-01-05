@@ -3,8 +3,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
+import { trpc } from '@/lib/trpc/client';
 import {
   Dialog,
   DialogContent,
@@ -31,57 +30,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { BudgetItem, BUDGET_CATEGORIES, PAYMENT_STATUS_LABELS } from '@/types/budget';
+import { BUDGET_CATEGORIES } from '@/types/budget';
 import { budgetSchema, BudgetFormData } from '@/lib/validations/budget.schema';
 import { useToast } from '@/hooks/use-toast';
 
 interface BudgetItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  item?: BudgetItem;
-  weddingId: string;
+  item?: {
+    id: string;
+    category: string;
+    item?: string;
+    expenseDetails?: string | null;
+    estimatedCost?: string | null;
+    actualCost?: string | null;
+    vendorId?: string | null;
+    eventId?: string | null;
+    paymentStatus?: string | null;
+    transactionDate?: string | null;
+    paymentDate?: Date | null;
+    notes?: string | null;
+    clientVisible?: boolean;
+  };
+  clientId: string;
 }
+
+const PAYMENT_STATUS_OPTIONS = {
+  pending: 'Pending',
+  paid: 'Paid',
+  overdue: 'Overdue',
+};
 
 export function BudgetItemDialog({
   open,
   onOpenChange,
   item,
-  weddingId,
+  clientId,
 }: BudgetItemDialogProps) {
   const { toast } = useToast();
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  const createBudgetItem = useMutation({
-    mutationFn: async (data: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('budget')
-        .insert(data)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const createBudgetItem = trpc.budget.create.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['budget-items', weddingId] });
+      utils.budget.getAll.invalidate({ clientId });
     },
   });
 
-  const updateBudgetItem = useMutation({
-    mutationFn: async ({ budgetItemId, ...data }: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data: result, error } = await supabase
-        .from('budget')
-        .update(data)
-        .eq('id', budgetItemId)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
+  const updateBudgetItem = trpc.budget.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['budget-items', weddingId] });
+      utils.budget.getAll.invalidate({ clientId });
     },
   });
 
@@ -89,15 +86,15 @@ export function BudgetItemDialog({
     resolver: zodResolver(budgetSchema),
     defaultValues: {
       category: 'other',
-      item_name: '',
-      description: '',
-      budget: 0,
-      actual_cost: 0,
-      paid_amount: 0,
-      payment_status: 'unpaid',
-      due_date: '',
-      paid_date: '',
+      itemName: '',
+      expenseDetails: '',
+      estimatedCost: 0,
+      actualCost: 0,
+      paymentStatus: 'pending',
+      transactionDate: '',
+      paymentDate: '',
       notes: '',
+      clientVisible: true,
     },
   });
 
@@ -105,29 +102,31 @@ export function BudgetItemDialog({
   useEffect(() => {
     if (item) {
       form.reset({
-        category: item.category,
-        item_name: item.item_name,
-        description: item.description || '',
-        budget: item.budget,
-        actual_cost: item.actual_cost,
-        paid_amount: item.paid_amount,
-        payment_status: item.payment_status,
-        due_date: item.due_date || '',
-        paid_date: item.paid_date || '',
+        category: item.category as BudgetFormData['category'],
+        itemName: item.item || '',
+        expenseDetails: item.expenseDetails || '',
+        estimatedCost: parseFloat(item.estimatedCost || '0'),
+        actualCost: parseFloat(item.actualCost || '0'),
+        vendorId: item.vendorId || undefined,
+        eventId: item.eventId || undefined,
+        paymentStatus: (item.paymentStatus as BudgetFormData['paymentStatus']) || 'pending',
+        transactionDate: item.transactionDate || '',
+        paymentDate: item.paymentDate ? new Date(item.paymentDate).toISOString().split('T')[0] : '',
         notes: item.notes || '',
+        clientVisible: item.clientVisible ?? true,
       });
     } else {
       form.reset({
         category: 'other',
-        item_name: '',
-        description: '',
-        budget: 0,
-        actual_cost: 0,
-        paid_amount: 0,
-        payment_status: 'unpaid',
-        due_date: '',
-        paid_date: '',
+        itemName: '',
+        expenseDetails: '',
+        estimatedCost: 0,
+        actualCost: 0,
+        paymentStatus: 'pending',
+        transactionDate: '',
+        paymentDate: '',
         notes: '',
+        clientVisible: true,
       });
     }
   }, [item, open, form]);
@@ -135,22 +134,44 @@ export function BudgetItemDialog({
   const onSubmit = async (data: BudgetFormData) => {
     try {
       if (item) {
-        // Update existing item
+        // Update existing item - correctly structure for router
         await updateBudgetItem.mutateAsync({
-          budgetItemId: item.id,
-          ...data,
-          vendor_id: data.vendor_id || null,
+          id: item.id,
+          data: {
+            category: data.category,
+            itemName: data.itemName,
+            expenseDetails: data.expenseDetails,
+            estimatedCost: data.estimatedCost,
+            actualCost: data.actualCost,
+            vendorId: data.vendorId || null,
+            eventId: data.eventId || null,
+            paymentStatus: data.paymentStatus,
+            transactionDate: data.transactionDate || null,
+            paymentDate: data.paymentDate || null,
+            notes: data.notes,
+            clientVisible: data.clientVisible,
+          },
         });
         toast({
           title: 'Success',
           description: 'Budget item updated successfully',
         });
       } else {
-        // Create new item
+        // Create new item - correctly structure for router
         await createBudgetItem.mutateAsync({
-          wedding_id: weddingId,
-          ...data,
-          vendor_id: data.vendor_id || null,
+          clientId,
+          category: data.category,
+          itemName: data.itemName,
+          expenseDetails: data.expenseDetails,
+          estimatedCost: data.estimatedCost,
+          actualCost: data.actualCost,
+          vendorId: data.vendorId,
+          eventId: data.eventId,
+          paymentStatus: data.paymentStatus,
+          transactionDate: data.transactionDate,
+          paymentDate: data.paymentDate,
+          notes: data.notes,
+          clientVisible: data.clientVisible,
         });
         toast({
           title: 'Success',
@@ -216,7 +237,7 @@ export function BudgetItemDialog({
 
               <FormField
                 control={form.control}
-                name="item_name"
+                name="itemName"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Item Name</FormLabel>
@@ -231,7 +252,7 @@ export function BudgetItemDialog({
 
             <FormField
               control={form.control}
-              name="description"
+              name="expenseDetails"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Description (Optional)</FormLabel>
@@ -246,13 +267,13 @@ export function BudgetItemDialog({
               )}
             />
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}
-                name="budget"
+                name="estimatedCost"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Budget</FormLabel>
+                    <FormLabel>Estimated Cost</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -269,30 +290,10 @@ export function BudgetItemDialog({
 
               <FormField
                 control={form.control}
-                name="actual_cost"
+                name="actualCost"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Actual Cost</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="paid_amount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Paid Amount</FormLabel>
+                    <FormLabel>Actual Cost (Optional)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -308,10 +309,10 @@ export function BudgetItemDialog({
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}
-                name="payment_status"
+                name="paymentStatus"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Payment Status</FormLabel>
@@ -326,7 +327,7 @@ export function BudgetItemDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {Object.entries(PAYMENT_STATUS_LABELS).map(([value, label]) => (
+                        {Object.entries(PAYMENT_STATUS_OPTIONS).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -340,24 +341,10 @@ export function BudgetItemDialog({
 
               <FormField
                 control={form.control}
-                name="due_date"
+                name="paymentDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Due Date (Optional)</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="paid_date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Paid Date (Optional)</FormLabel>
+                    <FormLabel>Payment Date (Optional)</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>

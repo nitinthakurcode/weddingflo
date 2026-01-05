@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -25,11 +26,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { Plus, Trash2, Edit, Gift, CheckCircle, Package, Clock } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { ImportDialog } from '@/components/import/ImportDialog'
+import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
+import { ExportButton } from '@/components/export/export-button'
 
 export default function GiftsPage() {
   const params = useParams()
   const clientId = params?.clientId as string
   const { toast } = useToast()
+  const t = useTranslations('gifts')
+  const tc = useTranslations('common')
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingGift, setEditingGift] = useState<any>(null)
   const [formData, setFormData] = useState({
@@ -56,50 +61,58 @@ export default function GiftsPage() {
 
   // Mutations
   const createMutation = trpc.gifts.create.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Gift added successfully' })
-      utils.gifts.getAll.invalidate()
-      utils.gifts.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('giftAdded') })
       resetForm()
       setIsAddDialogOpen(false)
+      await Promise.all([
+        utils.gifts.getAll.invalidate({ clientId }),
+        utils.gifts.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const updateMutation = trpc.gifts.update.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Gift updated successfully' })
-      utils.gifts.getAll.invalidate()
-      utils.gifts.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('giftUpdated') })
       setEditingGift(null)
       resetForm()
+      await Promise.all([
+        utils.gifts.getAll.invalidate({ clientId }),
+        utils.gifts.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const deleteMutation = trpc.gifts.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Gift deleted successfully' })
-      utils.gifts.getAll.invalidate()
-      utils.gifts.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('giftDeleted') })
+      await Promise.all([
+        utils.gifts.getAll.invalidate({ clientId }),
+        utils.gifts.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
   const markThankYouSentMutation = trpc.gifts.markThankYouSent.useMutation({
-    onSuccess: () => {
-      toast({ title: 'Thank you marked as sent' })
-      utils.gifts.getAll.invalidate()
-      utils.gifts.getStats.invalidate()
+    onSuccess: async () => {
+      toast({ title: t('thankYouMarkedSent') })
+      await Promise.all([
+        utils.gifts.getAll.invalidate({ clientId }),
+        utils.gifts.getStats.invalidate({ clientId }),
+      ])
     },
     onError: (error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
     },
   })
 
@@ -147,7 +160,7 @@ export default function GiftsPage() {
   }
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this gift?')) {
+    if (confirm(t('confirmDelete'))) {
       deleteMutation.mutate({ id })
     }
   }
@@ -159,7 +172,7 @@ export default function GiftsPage() {
   if (!clientId) {
     return (
       <div className="p-6">
-        <p>No client selected</p>
+        <p>{tc('noClientSelected')}</p>
       </div>
     )
   }
@@ -167,7 +180,7 @@ export default function GiftsPage() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <p>Loading gifts...</p>
+        <p>{tc('loading')}</p>
       </div>
     )
   }
@@ -175,69 +188,71 @@ export default function GiftsPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Gift Registry</h1>
-          <p className="text-muted-foreground">Track gifts and thank you notes</p>
-        </div>
-        <div className="flex gap-2">
-          <ImportDialog
-            module="gifts"
-            clientId={clientId}
-            onImportComplete={() => {
-              utils.gifts.getAll.invalidate()
-              utils.gifts.getStats.invalidate()
-              toast({ title: 'Import completed successfully!' })
-            }}
-          />
-          <Button onClick={() => setIsAddDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Gift
-          </Button>
-        </div>
-      </div>
+      <ClientModuleHeader
+        title={t('giftRegistry')}
+        description={t('trackGiftsAndNotes')}
+      >
+        <ExportButton
+          data={gifts || []}
+          dataType="gifts"
+          variant="outline"
+        />
+        <ImportDialog
+          module="gifts"
+          clientId={clientId}
+          onImportComplete={() => {
+            utils.gifts.getAll.invalidate()
+            utils.gifts.getStats.invalidate()
+            toast({ title: t('importCompleted') })
+          }}
+        />
+        <Button onClick={() => setIsAddDialogOpen(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          {t('addGift')}
+        </Button>
+      </ClientModuleHeader>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <StatCard
-          title="Total Gifts"
+          title={t('totalGifts')}
           value={stats?.total || 0}
           icon={<Gift className="w-4 h-4" />}
         />
         <StatCard
-          title="Received"
+          title={t('received')}
           value={stats?.received || 0}
           icon={<Package className="w-4 h-4" />}
-          color="text-green-600"
+          color="text-sage-600"
         />
         <StatCard
-          title="Pending"
+          title={tc('pending')}
           value={stats?.pending || 0}
           icon={<Clock className="w-4 h-4" />}
-          color="text-yellow-600"
+          color="text-gold-600"
         />
         <StatCard
-          title="Thank You Sent"
+          title={t('thankYouSent')}
           value={stats?.thankYouSent || 0}
           icon={<CheckCircle className="w-4 h-4" />}
-          color="text-blue-600"
+          color="text-cobalt-600"
         />
         <StatCard
-          title="Thank You Pending"
+          title={t('thankYouPending')}
           value={stats?.thankYouPending || 0}
-          color="text-orange-600"
+          color="text-gold-600"
         />
       </div>
 
       {/* Gift List */}
       <Card>
         <CardHeader>
-          <CardTitle>All Gifts</CardTitle>
+          <CardTitle>{t('allGifts')}</CardTitle>
         </CardHeader>
         <CardContent>
           {gifts?.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No gifts yet. Add your first gift to get started!
+              {t('noGiftsYet')}
             </div>
           ) : (
             <div className="space-y-2">
@@ -250,34 +265,34 @@ export default function GiftsPage() {
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold">{gift.gift_name}</h3>
                       {gift.delivery_status === 'received' && (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
-                          Received
+                        <span className="text-xs bg-sage-100 text-sage-700 px-2 py-1 rounded">
+                          {t('received')}
                         </span>
                       )}
                       {gift.thank_you_sent && (
-                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                          Thank You Sent
+                        <span className="text-xs bg-cobalt-100 text-cobalt-700 px-2 py-1 rounded">
+                          {t('thankYouSent')}
                         </span>
                       )}
                     </div>
                     <div className="text-sm text-muted-foreground space-y-1">
-                      {gift.from_name && <p>From: {gift.from_name}</p>}
-                      {gift.from_email && <p>Email: {gift.from_email}</p>}
+                      {gift.from_name && <p>{t('from')}: {gift.from_name}</p>}
+                      {gift.from_email && <p>{tc('email')}: {gift.from_email}</p>}
                       {gift.delivery_date && (
-                        <p>Delivered: {new Date(gift.delivery_date).toLocaleDateString()}</p>
+                        <p>{t('delivered')}: {new Date(gift.delivery_date).toLocaleDateString()}</p>
                       )}
                       <p>
-                        Status:{' '}
+                        {tc('status')}:{' '}
                         <span
                           className={
                             gift.delivery_status === 'received'
-                              ? 'text-green-600'
+                              ? 'text-sage-600'
                               : gift.delivery_status === 'returned'
-                              ? 'text-red-600'
-                              : 'text-yellow-600'
+                              ? 'text-rose-600'
+                              : 'text-gold-600'
                           }
                         >
-                          {gift.delivery_status}
+                          {t(`status${(gift.delivery_status ?? 'pending').charAt(0).toUpperCase() + (gift.delivery_status ?? 'pending').slice(1)}`)}
                         </span>
                       </p>
                     </div>
@@ -290,7 +305,7 @@ export default function GiftsPage() {
                         onClick={() => handleMarkThankYouSent(gift.id)}
                       >
                         <CheckCircle className="w-4 h-4 mr-1" />
-                        Mark Sent
+                        {t('markSent')}
                       </Button>
                     )}
                     <Button
@@ -329,13 +344,13 @@ export default function GiftsPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {editingGift ? 'Edit Gift' : 'Add New Gift'}
+              {editingGift ? t('editGift') : t('addNewGift')}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="giftName">Gift Name *</Label>
+                <Label htmlFor="giftName">{t('giftName')} *</Label>
                 <Input
                   id="giftName"
                   value={formData.giftName}
@@ -346,7 +361,7 @@ export default function GiftsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="fromName">From Name</Label>
+                <Label htmlFor="fromName">{t('fromName')}</Label>
                 <Input
                   id="fromName"
                   value={formData.fromName}
@@ -356,7 +371,7 @@ export default function GiftsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="fromEmail">From Email</Label>
+                <Label htmlFor="fromEmail">{t('fromEmail')}</Label>
                 <Input
                   id="fromEmail"
                   type="email"
@@ -367,7 +382,7 @@ export default function GiftsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="deliveryDate">Delivery Date</Label>
+                <Label htmlFor="deliveryDate">{t('deliveryDate')}</Label>
                 <Input
                   id="deliveryDate"
                   type="date"
@@ -378,7 +393,7 @@ export default function GiftsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="deliveryStatus">Delivery Status</Label>
+                <Label htmlFor="deliveryStatus">{t('deliveryStatus')}</Label>
                 <Select
                   value={formData.deliveryStatus}
                   onValueChange={(value: any) =>
@@ -389,14 +404,14 @@ export default function GiftsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="received">Received</SelectItem>
-                    <SelectItem value="returned">Returned</SelectItem>
+                    <SelectItem value="pending">{t('statusPending')}</SelectItem>
+                    <SelectItem value="received">{t('statusReceived')}</SelectItem>
+                    <SelectItem value="returned">{t('statusReturned')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label htmlFor="thankYouSentDate">Thank You Sent Date</Label>
+                <Label htmlFor="thankYouSentDate">{t('thankYouSentDate')}</Label>
                 <Input
                   id="thankYouSentDate"
                   type="date"
@@ -417,10 +432,10 @@ export default function GiftsPage() {
                 }
                 className="w-4 h-4"
               />
-              <Label htmlFor="thankYouSent">Thank You Sent</Label>
+              <Label htmlFor="thankYouSent">{t('thankYouSent')}</Label>
             </div>
             <div>
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">{tc('notes')}</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}
@@ -440,10 +455,10 @@ export default function GiftsPage() {
                   resetForm()
                 }}
               >
-                Cancel
+                {tc('cancel')}
               </Button>
               <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                {editingGift ? 'Update' : 'Add'} Gift
+                {editingGift ? tc('update') : tc('add')} {t('gift')}
               </Button>
             </DialogFooter>
           </form>

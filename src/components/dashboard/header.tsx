@@ -1,107 +1,86 @@
 'use client';
 
-import { UserButton, useUser } from '@clerk/nextjs';
 import { Menu, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MobileNav } from './mobile-nav';
 import { NotificationBell } from '@/components/notifications/notification-bell';
-import { useQuery } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
+import { LanguageSwitcher } from '@/components/language-switcher';
+import { UserMenu } from '@/components/auth/user-menu';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { useTranslations } from 'next-intl';
+import { useAuth } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 
 export function Header() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const router = useRouter();
-  const { user } = useUser();
-  const supabase = useSupabase();
+  const { user } = useAuth();
+  const t = useTranslations('header');
 
-  // Get current user
-  const { data: currentUser } = useQuery<any>({
-    queryKey: ['current-user', user?.id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', user.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id && !!supabase,
+  // Get current user from BetterAuth - already has all needed fields
+  const currentUser = user ? {
+    id: user.id,
+    auth_id: user.id,
+    email: user.email,
+    role: (user as any).role || 'company_admin',
+    company_id: (user as any).companyId,
+    first_name: user.name?.split(' ')[0] || '',
+    last_name: user.name?.split(' ').slice(1).join(' ') || '',
+  } : null;
+
+  // Get unread message count via tRPC (messages router)
+  // TODO: Implement conversations in messages router
+  const { data: unreadCount } = trpc.activity.getUnreadCount.useQuery(undefined, {
+    enabled: !!user?.id,
   });
 
-  // Get total unread message count across all clients
-  // TODO: Implement conversations table
-  const { data: conversations } = useQuery<any[]>({
-    queryKey: ['conversations', currentUser?.company_id, currentUser?.clerk_id],
-    queryFn: async () => {
-      // Conversations table not yet implemented
-      return [];
-    },
-    enabled: false,
-  });
-
-  const totalUnreadMessages = conversations?.reduce((sum, conv: any) => {
-    const unreadCount = conv.user1_id === currentUser?.clerk_id
-      ? (conv.unread_count_user1 || 0)
-      : (conv.unread_count_user2 || 0);
-    return sum + unreadCount;
-  }, 0) || 0;
+  const totalUnreadMessages = unreadCount?.count || 0;
 
   return (
     <>
-      <header className="relative flex h-14 sm:h-16 items-center justify-between border-b backdrop-blur-md px-3 sm:px-4 md:px-6 shadow-sm"
-        style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          borderBottomColor: 'rgba(99, 102, 241, 0.1)',
-        }}
-      >
-        {/* Elite gradient accent line - Indigo to Pink */}
-        <div className="absolute bottom-0 left-0 right-0 h-[3px] opacity-70"
-          style={{
-            background: 'linear-gradient(to right, transparent, #6366f1, #ec4899, transparent)',
-          }}
-        />
+      <header className="relative flex h-14 sm:h-16 items-center justify-between border-b border-border/30 backdrop-blur-xl px-3 sm:px-4 md:px-6 shadow-sm bg-background/80 dark:bg-background/60">
+        {/* 2026 Design - Teal to Gold accent line */}
+        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-teal-500/70 to-transparent" />
+        {/* Subtle glow effect */}
+        <div className="absolute inset-x-0 -bottom-4 h-8 bg-gradient-to-b from-teal-500/5 to-transparent pointer-events-none" />
 
         {/* Mobile menu button */}
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden flex-shrink-0 hover:bg-primary/10 transition-colors"
+          className="lg:hidden flex-shrink-0 rounded-xl hover:scale-105 transition-all duration-200 text-teal-600 hover:text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:text-teal-300 dark:hover:bg-teal-950/30"
           onClick={() => setMobileNavOpen(true)}
         >
-          <Menu className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+          <Menu className="h-5 w-5 sm:h-6 sm:w-6" />
         </Button>
 
-        {/* Logo on mobile - Elite Design */}
+        {/* Logo on mobile - 2026 Transformative Teal + Gold Design */}
         <div className="lg:hidden flex-1 flex justify-center">
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary to-secondary shadow-lg shadow-primary/20 ring-2 ring-primary/10 ring-offset-2">
-            <span className="text-base font-bold text-primary-foreground tracking-tight">W</span>
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-t from-black/10 to-transparent" />
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 via-teal-600 to-gold-500 shadow-lg shadow-teal-500/30 ring-2 ring-teal-200/50 dark:ring-teal-800/50 hover:scale-110 hover:shadow-teal-500/50 transition-all duration-300 cursor-pointer">
+            <span className="text-lg font-black text-white tracking-tight">W</span>
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-t from-black/10 to-white/20" />
           </div>
         </div>
 
-        {/* Search bar (desktop) */}
+        {/* Search bar (desktop) - Gen-Z Glass Style */}
         <div className="hidden flex-1 lg:block">
           <div className="max-w-lg">
             <label htmlFor="search" className="sr-only">
-              Search
+              {t('search')}
             </label>
-            <div className="relative">
+            <div className="relative group">
               <input
                 id="search"
                 name="search"
-                className="block w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm placeholder-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="Search clients, events, guests..."
+                className="block w-full rounded-2xl border border-border/50 bg-background/80 backdrop-blur-sm py-2.5 pl-11 pr-4 text-sm placeholder-muted-foreground/70 focus:border-teal-300 focus:outline-none focus:ring-2 focus:ring-teal-200/50 dark:focus:border-teal-700 dark:focus:ring-teal-800/30 hover:border-border transition-all duration-200 shadow-sm hover:shadow-md"
+                placeholder={t('searchPlaceholder')}
                 type="search"
               />
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
                 <svg
-                  className="h-5 w-5 text-muted-foreground"
+                  className="h-4 w-4 text-muted-foreground/70 group-focus-within:text-teal-500 transition-colors"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -118,70 +97,34 @@ export function Header() {
           </div>
         </div>
 
-        {/* Right side actions - Elite Styling */}
+        {/* Right side actions - Gen-Z Styling */}
         <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 flex-shrink-0">
           {/* Messages Button */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => router.push('/messages')}
-            className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-xl hover:bg-primary/10 hover:text-primary transition-all duration-200 hover:scale-105"
+            className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-xl hover:scale-110 transition-all duration-300 text-teal-600 hover:text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:text-teal-300 dark:hover:bg-teal-950/30"
           >
             <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
             {totalUnreadMessages > 0 && (
               <Badge
                 variant="destructive"
-                className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] font-semibold shadow-lg animate-pulse"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 flex items-center justify-center p-0 text-[10px] font-bold shadow-lg shadow-red-500/30 animate-bounce"
+                style={{ animationDuration: '2s' }}
               >
                 {totalUnreadMessages > 9 ? '9+' : totalUnreadMessages}
               </Badge>
             )}
           </Button>
 
-          {/* Notifications Bell */}
-          {currentUser && <NotificationBell userId={currentUser.clerk_id} />}
+          {/* Language Switcher */}
+          <LanguageSwitcher />
 
-          <UserButton
-            appearance={{
-              elements: {
-                avatarBox: {
-                  width: '48px',
-                  height: '48px',
-                  minWidth: '48px',
-                  minHeight: '48px',
-                  maxWidth: '48px',
-                  maxHeight: '48px',
-                  border: '2px solid #6366f1',
-                  borderRadius: '50%',
-                  overflow: 'hidden',
-                  aspectRatio: '1',
-                },
-                avatarImage: {
-                  objectFit: 'cover',
-                  objectPosition: 'center',
-                  width: '100%',
-                  height: '100%',
-                  aspectRatio: '1',
-                  display: 'block',
-                },
-                userButtonPopoverCard: {
-                  boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)',
-                },
-                userButtonPopoverActionButton__manageAccount: {
-                  '&:hover': {
-                    backgroundColor: 'rgba(99, 102, 241, 0.05)',
-                  },
-                },
-                userButtonPopoverActionButton__signOut: {
-                  '&:hover': {
-                    backgroundColor: '#fef2f2',
-                    color: '#dc2626',
-                  },
-                },
-              },
-            }}
-            afterSignOutUrl="/sign-in"
-          />
+          {/* Notifications Bell */}
+          {currentUser && <NotificationBell userId={currentUser.auth_id} />}
+
+          <UserMenu afterSignOutUrl="/sign-in" />
         </div>
       </header>
 

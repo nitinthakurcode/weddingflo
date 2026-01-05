@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useTranslations } from 'next-intl';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,6 +38,8 @@ const whatsappFormSchema = z.object({
 type WhatsAppFormValues = z.infer<typeof whatsappFormSchema>;
 
 export function SendWhatsAppForm() {
+  const t = useTranslations('communication');
+  const tCommon = useTranslations('common');
   const [charCount, setCharCount] = useState(0);
   const { data: clients } = trpc.clients.list.useQuery({});
   const sendMessage = trpc.whatsapp.sendMessage.useMutation();
@@ -53,20 +56,20 @@ export function SendWhatsAppForm() {
   const onSubmit = async (data: WhatsAppFormValues) => {
     try {
       const result = await sendMessage.mutateAsync({
-        clientId: data.clientId || undefined,
+        clientId: data.clientId && data.clientId !== '__none__' ? data.clientId : undefined,
         toNumber: data.toNumber,
         message: data.message,
       });
 
-      toast.success('WhatsApp message sent successfully!', {
-        description: `Message ID: ${result.messageId}`,
+      toast.success(t('whatsappSent'), {
+        description: `${t('messageId')}: ${result.messageId}`,
       });
 
       form.reset();
       setCharCount(0);
     } catch (error: any) {
-      toast.error('Failed to send WhatsApp message', {
-        description: error.message || 'Please try again',
+      toast.error(t('whatsappFailed'), {
+        description: error.message || t('tryAgain'),
       });
     }
   };
@@ -74,8 +77,8 @@ export function SendWhatsAppForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Send WhatsApp Message</CardTitle>
-        <CardDescription>Send a WhatsApp message to your client or any phone number</CardDescription>
+        <CardTitle>{t('sendWhatsApp')}</CardTitle>
+        <CardDescription>{t('sendWhatsAppDescription')}</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -86,24 +89,25 @@ export function SendWhatsAppForm() {
               name="clientId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Client (Optional)</FormLabel>
+                  <FormLabel>{t('clientOptional')}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a client" />
+                        <SelectValue placeholder={t('selectClient')} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="">None (enter number manually)</SelectItem>
+                      <SelectItem value="__none__">{t('noneManual')}</SelectItem>
                       {clients?.map((client) => (
                         <SelectItem key={client.id} value={client.id}>
-                          {client.partner1_first_name} {client.partner1_last_name} & {client.partner2_first_name} {client.partner2_last_name}
+                          {client.partner1FirstName}{client.partner1LastName && ` ${client.partner1LastName}`}
+                          {client.partner2FirstName && ` & ${client.partner2FirstName}`}{client.partner2LastName && ` ${client.partner2LastName}`}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   <FormDescription>
-                    Select a client to auto-fill their phone number, or enter manually
+                    {t('clientAutoFillDescription')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -116,7 +120,7 @@ export function SendWhatsAppForm() {
               name="toNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phone Number</FormLabel>
+                  <FormLabel>{t('phoneNumber')}</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="+1234567890"
@@ -125,7 +129,7 @@ export function SendWhatsAppForm() {
                     />
                   </FormControl>
                   <FormDescription>
-                    Include country code (e.g., +1 for US, +91 for India)
+                    {t('includeCountryCode')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -138,10 +142,10 @@ export function SendWhatsAppForm() {
               name="message"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Message</FormLabel>
+                  <FormLabel>{t('message')}</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Enter your WhatsApp message..."
+                      placeholder={t('enterMessage')}
                       className="min-h-[120px]"
                       {...field}
                       onChange={(e) => {
@@ -152,9 +156,9 @@ export function SendWhatsAppForm() {
                     />
                   </FormControl>
                   <FormDescription>
-                    {charCount}/1600 characters
+                    {t('characters', { count: charCount, max: 1600 })}
                     {charCount > 1600 && (
-                      <span className="text-red-600 ml-2">Message too long!</span>
+                      <span className="text-rose-600 ml-2">{t('messageTooLong')}</span>
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -171,12 +175,12 @@ export function SendWhatsAppForm() {
               {sendMessage.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
+                  {tCommon('saving')}
                 </>
               ) : (
                 <>
                   <Send className="mr-2 h-4 w-4" />
-                  Send WhatsApp Message
+                  {t('sendWhatsApp')}
                 </>
               )}
             </Button>

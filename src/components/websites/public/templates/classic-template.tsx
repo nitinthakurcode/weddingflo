@@ -1,10 +1,10 @@
 'use client';
 
-import type { Database } from '@/lib/database.types';
+import type { WeddingWebsite } from '@/lib/db/types';
 import type { WeddingTemplate } from '@/lib/templates/wedding-templates';
 import { Heart, Calendar, MapPin } from 'lucide-react';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+type Website = WeddingWebsite;
 
 interface ClassicTemplateProps {
   website: Website;
@@ -22,9 +22,10 @@ interface ClassicTemplateProps {
  * - RSVP form
  */
 export function ClassicTemplate({ website, template }: ClassicTemplateProps) {
-  const heroSection = website.hero_section as any;
-  const ourStorySection = website.our_story_section as any;
-  const eventDetailsSection = website.event_details_section as any;
+  const content = website.content as Record<string, any> || {};
+  const heroSection = content.hero_section as any;
+  const ourStorySection = content.our_story_section as any;
+  const eventDetailsSection = content.event_details_section as any;
 
   return (
     <div className="classic-template min-h-screen bg-white">
@@ -34,7 +35,7 @@ export function ClassicTemplate({ website, template }: ClassicTemplateProps) {
         style={{
           backgroundImage: heroSection?.image
             ? `url(${heroSection.image})`
-            : 'linear-gradient(135deg, #2C3E50 0%, #C0A080 100%)',
+            : `linear-gradient(135deg, var(--mocha-800, #3D3027) 0%, var(--gold-400, #FACC15) 100%)`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         }}
@@ -107,7 +108,7 @@ export function ClassicTemplate({ website, template }: ClassicTemplateProps) {
               Event Details
             </h2>
             {/* Event details would go here */}
-            <p className="text-center text-gray-600" style={{ fontFamily: template.fonts.body }}>
+            <p className="text-center text-mocha-600 dark:text-mocha-400" style={{ fontFamily: template.fonts.body }}>
               Event details coming soon...
             </p>
           </div>
@@ -115,7 +116,7 @@ export function ClassicTemplate({ website, template }: ClassicTemplateProps) {
       )}
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12 px-4">
+      <footer className="bg-mocha-900 dark:bg-mocha-950 text-white py-12 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <p className="text-lg mb-4" style={{ fontFamily: template.fonts.heading }}>
             {heroSection?.title}

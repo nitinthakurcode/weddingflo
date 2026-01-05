@@ -1,33 +1,62 @@
-import { auth } from '@clerk/nextjs/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getServerSession } from '@/lib/auth/server';
+import { db, eq } from '@/lib/db';
+import { user as userTable } from '@/lib/db/schema/auth';
+import * as dbQueries from '@/lib/db/queries';
 import type { Roles } from '@/types/globals';
 import type { inferAsyncReturnType } from '@trpc/server';
 
 /**
  * Creates the tRPC context for each request.
  *
- * This context provides:
- * - userId: Clerk user ID (null if not authenticated)
- * - role: User role from session claims (fast, no DB query)
- * - companyId: Company ID from session claims (fast, no DB query)
- * - supabase: Supabase client configured with Clerk JWT for RLS
+ * December 2025 - Drizzle ORM Only (Supabase Removed)
  *
- * IMPORTANT: Uses session claims only (<5ms, no database queries).
- * Session claims are synced via webhook in src/app/api/webhooks/clerk/route.ts
+ * This context provides:
+ * - userId: BetterAuth user ID (null if not authenticated)
+ * - role: User role from session
+ * - companyId: Company ID from user profile
+ * - db: Drizzle database client (Hetzner PostgreSQL)
+ * - queries: Pre-built database query functions
+ *
+ * Note: Supabase has been removed. All database operations
+ * now use Drizzle ORM against Hetzner PostgreSQL.
  */
 export async function createTRPCContext() {
-  const { userId, sessionClaims } = await auth();
+  // Get session from BetterAuth
+  const { userId, user } = await getServerSession();
 
-  const role = sessionClaims?.metadata?.role as Roles | undefined;
-  const companyId = sessionClaims?.metadata?.company_id;
+  // Extract role and companyId from user
+  let role = (user?.role || null) as Roles | null;
+  let companyId = user?.companyId || null;
 
-  const supabase = createServerSupabaseClient();
+  // If session is missing role/companyId, check database directly
+  // This handles stale session cache after sync
+  if (userId && (!role || !companyId)) {
+    try {
+      const [dbUser] = await db
+        .select({ role: userTable.role, companyId: userTable.companyId })
+        .from(userTable)
+        .where(eq(userTable.id, userId))
+        .limit(1);
+
+      if (dbUser) {
+        role = (dbUser.role as Roles) || role;
+        companyId = dbUser.companyId || companyId;
+      }
+    } catch (error) {
+      console.error('[tRPC Context] DB lookup error:', error);
+    }
+  }
+
+  // Default to company_admin if still no role
+  const finalRole = (role || 'company_admin') as Roles;
 
   return {
     userId,
-    role,
+    role: finalRole,
     companyId,
-    supabase,
+    db,
+    queries: dbQueries,
+    user,
   };
 }
 

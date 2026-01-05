@@ -1,51 +1,30 @@
 /**
- * Simple in-memory rate limiter to prevent excessive API calls
- * Max 10 AI calls per minute per user
+ * AI Rate Limiter - Redis-backed for Production
+ *
+ * Max 10 AI calls per minute per user.
+ * Uses Redis for shared rate limiting across server instances.
+ * Falls back to in-memory if Redis unavailable.
  */
 
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
+import { checkAIRateLimit, RateLimitError } from '@/lib/redis/rate-limiter'
 
-const rateLimits = new Map<string, RateLimitEntry>();
-const MAX_REQUESTS_PER_MINUTE = 10;
-const WINDOW_MS = 60 * 1000; // 1 minute
+/**
+ * Check if user has exceeded AI rate limit
+ *
+ * @param userId - User ID from BetterAuth session
+ * @throws RateLimitError if limit exceeded
+ */
+export async function checkRateLimit(userId: string): Promise<void> {
+  const result = await checkAIRateLimit(userId)
 
-export class RateLimitError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'RateLimitError';
-  }
-}
-
-export function checkRateLimit(userId: string): void {
-  const now = Date.now();
-
-  // Cleanup old entries inline (instead of setInterval which doesn't work in serverless)
-  for (const [key, entry] of rateLimits.entries()) {
-    if (now > entry.resetAt) {
-      rateLimits.delete(key);
-    }
-  }
-
-  const entry = rateLimits.get(userId);
-
-  if (!entry || now > entry.resetAt) {
-    // Create new window
-    rateLimits.set(userId, {
-      count: 1,
-      resetAt: now + WINDOW_MS,
-    });
-    return;
-  }
-
-  if (entry.count >= MAX_REQUESTS_PER_MINUTE) {
-    const waitTime = Math.ceil((entry.resetAt - now) / 1000);
+  if (!result.allowed) {
     throw new RateLimitError(
-      `Rate limit exceeded. Please try again in ${waitTime} seconds.`
-    );
+      `Rate limit exceeded. Please try again in ${result.retryAfter} seconds.`,
+      result.retryAfter || 60,
+      result.resetAt
+    )
   }
-
-  entry.count++;
 }
+
+// Re-export for convenience
+export { RateLimitError }

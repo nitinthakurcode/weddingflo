@@ -69,7 +69,7 @@ export function SpendingTimelineChart({ data, isLoading }: SpendingTimelineProps
             Amount: {formatCurrency(payload[0].value)}
           </p>
           {payload[1] && (
-            <p className="text-sm text-green-600">
+            <p className="text-sm text-sage-600 dark:text-sage-400">
               Cumulative: {formatCurrency(payload[1].value)}
             </p>
           )}
@@ -99,11 +99,11 @@ export function SpendingTimelineChart({ data, isLoading }: SpendingTimelineProps
             />
             <Tooltip content={<CustomTooltip />} />
             <Legend />
-            <Bar dataKey="amount" fill="#8b5cf6" name="Daily Spending" />
+            <Bar dataKey="amount" fill="var(--teal-500, #14B8A6)" name="Daily Spending" />
             <Line
               type="monotone"
               dataKey="cumulative"
-              stroke="#10b981"
+              stroke="var(--sage-500, #5A9A49)"
               strokeWidth={2}
               name="Cumulative Total"
             />

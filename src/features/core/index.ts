@@ -1,5 +1,6 @@
 /**
  * Core Feature Pocket
+ * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
  *
  * @description Identity, authentication, and tenant management
  * @owner Platform Team
@@ -13,8 +14,8 @@
  * - Session management
  *
  * ## External Dependencies
- * - Supabase: users, companies tables
- * - Clerk: Authentication provider
+ * - Drizzle ORM: users, companies tables on Hetzner PostgreSQL
+ * - BetterAuth: Self-hosted authentication
  *
  * ## Database Tables
  * - users (primary)
@@ -22,7 +23,7 @@
  *
  * ## Usage Across Features
  * - ALL features depend on core for user/company context
- * - Session claims provide userId and companyId
+ * - Session provides userId and companyId
  * - Preferences affect UI/UX across all features
  *
  * ## Rate Limits

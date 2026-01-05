@@ -9,6 +9,9 @@ import { PaymentReminderEmail } from '@/lib/email/templates/payment-reminder-ema
 import { RsvpConfirmationEmail } from '@/lib/email/templates/rsvp-confirmation-email';
 import { PaymentReceiptEmail } from '@/lib/email/templates/payment-receipt-email';
 import { VendorCommunicationEmail } from '@/lib/email/templates/vendor-communication-email';
+import { eq, and, desc, sql, count } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 // Database email types use snake_case
 type DatabaseEmailType = 'client_invite' | 'wedding_reminder' | 'rsvp_confirmation' | 'payment_reminder' | 'payment_receipt' | 'vendor_communication' | 'general';
@@ -26,56 +29,52 @@ const emailTypeMap: Record<DatabaseEmailType, EmailType> = {
 
 // Helper function to log email to database
 async function logEmail({
-  supabase,
+  db,
   companyId,
   clientId,
-  emailType,
-  recipientEmail,
+  templateType,
+  toEmail,
   recipientName,
   subject,
-  locale,
   resendId,
   status,
   errorMessage,
   metadata,
+  locale = 'en',
 }: {
-  supabase: any;
+  db: NodePgDatabase<typeof schema>;
   companyId: string;
   clientId?: string;
-  emailType: DatabaseEmailType;
-  recipientEmail: string;
+  templateType: DatabaseEmailType;
+  toEmail: string;
   recipientName?: string;
   subject: string;
-  locale: Locale;
   resendId?: string;
   status: 'pending' | 'sent' | 'failed';
   errorMessage?: string;
   metadata?: Record<string, any>;
+  locale?: string;
 }) {
-  const { data, error } = await supabase
-    .from('email_logs')
-    .insert({
-      company_id: companyId,
-      client_id: clientId || null,
-      email_type: emailType,
-      recipient_email: recipientEmail,
-      recipient_name: recipientName,
+  try {
+    const [log] = await db.insert(schema.emailLogs).values({
+      companyId,
+      clientId: clientId || undefined,
+      emailType: templateType,
+      recipientEmail: toEmail,
+      recipientName: recipientName || undefined,
       subject,
       locale,
       status,
-      resend_id: resendId,
-      error_message: errorMessage,
+      resendId: resendId || undefined,
+      errorMessage: errorMessage || undefined,
       metadata: metadata || {},
-      sent_at: status === 'sent' ? new Date().toISOString() : null,
-    })
-    .select()
-    .single();
+    }).returning();
 
-  if (error) {
+    return log;
+  } catch (error) {
     console.error('Failed to log email:', error);
+    return null;
   }
-
-  return data;
 }
 
 export const emailRouter = router({
@@ -92,7 +91,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, clientName, clientEmail, plannerName, inviteLink, locale } = input;
 
       // Guard: Ensure companyId exists in session claims
@@ -119,7 +118,7 @@ export const emailRouter = router({
 
         // Send email via Resend
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to: clientEmail,
           subject,
           html,
@@ -128,16 +127,15 @@ export const emailRouter = router({
         if (result.error) {
           // Log failed email
           await logEmail({
-            supabase,
+            db,
             companyId,
             clientId,
-            emailType: 'client_invite',
-            recipientEmail: clientEmail,
-            recipientName: clientName,
+            templateType: 'client_invite',
+            toEmail: clientEmail,
             subject,
-            locale,
             status: 'failed',
             errorMessage: result.error.message,
+            metadata: { clientName, locale },
           });
 
           throw new Error(`Failed to send email: ${result.error.message}`);
@@ -145,17 +143,15 @@ export const emailRouter = router({
 
         // Log successful email
         await logEmail({
-          supabase,
+          db,
           companyId,
           clientId,
-          emailType: 'client_invite',
-          recipientEmail: clientEmail,
-          recipientName: clientName,
+          templateType: 'client_invite',
+          toEmail: clientEmail,
           subject,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
-          metadata: { plannerName, inviteLink },
+          metadata: { clientName, locale, plannerName, inviteLink },
         });
 
         return {
@@ -183,7 +179,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, clientName, clientEmail, weddingDate, daysUntilWedding, dashboardLink, locale } = input;
 
       if (!companyId) {
@@ -215,7 +211,7 @@ export const emailRouter = router({
 
         // Send email via Resend
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to: clientEmail,
           subject,
           html,
@@ -223,16 +219,15 @@ export const emailRouter = router({
 
         if (result.error) {
           await logEmail({
-            supabase,
+            db,
             companyId,
             clientId,
-            emailType: 'wedding_reminder',
-            recipientEmail: clientEmail,
-            recipientName: clientName,
+            templateType: 'wedding_reminder',
+            toEmail: clientEmail,
             subject,
-            locale,
             status: 'failed',
             errorMessage: result.error.message,
+            metadata: { clientName, locale },
           });
 
           throw new Error(`Failed to send email: ${result.error.message}`);
@@ -240,17 +235,15 @@ export const emailRouter = router({
 
         // Log successful email
         await logEmail({
-          supabase,
+          db,
           companyId,
           clientId,
-          emailType: 'wedding_reminder',
-          recipientEmail: clientEmail,
-          recipientName: clientName,
+          templateType: 'wedding_reminder',
+          toEmail: clientEmail,
           subject,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
-          metadata: { weddingDate, daysUntilWedding, dashboardLink },
+          metadata: { clientName, locale, weddingDate, daysUntilWedding, dashboardLink },
         });
 
         return {
@@ -279,7 +272,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, clientName, clientEmail, amount, dueDate, description, paymentLink, locale } = input;
 
       if (!companyId) {
@@ -310,7 +303,7 @@ export const emailRouter = router({
 
         // Send email via Resend
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to: clientEmail,
           subject,
           html,
@@ -318,16 +311,15 @@ export const emailRouter = router({
 
         if (result.error) {
           await logEmail({
-            supabase,
+            db,
             companyId,
             clientId,
-            emailType: 'payment_reminder',
-            recipientEmail: clientEmail,
-            recipientName: clientName,
+            templateType: 'payment_reminder',
+            toEmail: clientEmail,
             subject,
-            locale,
             status: 'failed',
             errorMessage: result.error.message,
+            metadata: { clientName, locale },
           });
 
           throw new Error(`Failed to send email: ${result.error.message}`);
@@ -335,17 +327,15 @@ export const emailRouter = router({
 
         // Log successful email
         await logEmail({
-          supabase,
+          db,
           companyId,
           clientId,
-          emailType: 'payment_reminder',
-          recipientEmail: clientEmail,
-          recipientName: clientName,
+          templateType: 'payment_reminder',
+          toEmail: clientEmail,
           subject,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
-          metadata: { amount, dueDate, description, paymentLink },
+          metadata: { clientName, locale, amount, dueDate, description, paymentLink },
         });
 
         return {
@@ -376,7 +366,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const {
         guestName,
         guestEmail,
@@ -418,7 +408,7 @@ export const emailRouter = router({
 
         // Send email via Resend
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to: guestEmail,
           subject,
           html,
@@ -426,15 +416,14 @@ export const emailRouter = router({
 
         if (result.error) {
           await logEmail({
-            supabase,
+            db,
             companyId,
-            emailType: 'rsvp_confirmation',
-            recipientEmail: guestEmail,
-            recipientName: guestName,
+            templateType: 'rsvp_confirmation',
+            toEmail: guestEmail,
             subject,
-            locale,
             status: 'failed',
             errorMessage: result.error.message,
+            metadata: { guestName, locale },
           });
 
           throw new Error(`Failed to send email: ${result.error.message}`);
@@ -442,16 +431,16 @@ export const emailRouter = router({
 
         // Log successful email
         await logEmail({
-          supabase,
+          db,
           companyId,
-          emailType: 'rsvp_confirmation',
-          recipientEmail: guestEmail,
-          recipientName: guestName,
+          templateType: 'rsvp_confirmation',
+          toEmail: guestEmail,
           subject,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
           metadata: {
+            guestName,
+            locale,
             eventName,
             eventDate,
             eventLocation,
@@ -491,7 +480,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const {
         clientId,
         clientName,
@@ -534,7 +523,7 @@ export const emailRouter = router({
 
         // Send email via Resend
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to: clientEmail,
           subject,
           html,
@@ -542,16 +531,15 @@ export const emailRouter = router({
 
         if (result.error) {
           await logEmail({
-            supabase,
+            db,
             companyId,
             clientId,
-            emailType: 'payment_receipt',
-            recipientEmail: clientEmail,
-            recipientName: clientName,
+            templateType: 'payment_receipt',
+            toEmail: clientEmail,
             subject,
-            locale,
             status: 'failed',
             errorMessage: result.error.message,
+            metadata: { clientName, locale },
           });
 
           throw new Error(`Failed to send email: ${result.error.message}`);
@@ -559,17 +547,15 @@ export const emailRouter = router({
 
         // Log successful email
         await logEmail({
-          supabase,
+          db,
           companyId,
           clientId,
-          emailType: 'payment_receipt',
-          recipientEmail: clientEmail,
-          recipientName: clientName,
+          templateType: 'payment_receipt',
+          toEmail: clientEmail,
           subject,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
-          metadata: { amount, paymentDate, paymentMethod, transactionId, description },
+          metadata: { clientName, locale, amount, paymentDate, paymentMethod, transactionId, description },
         });
 
         return {
@@ -600,7 +586,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const {
         recipientName,
         recipientEmail,
@@ -642,7 +628,7 @@ export const emailRouter = router({
 
         // Send email via Resend
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to: recipientEmail,
           subject,
           html,
@@ -650,15 +636,14 @@ export const emailRouter = router({
 
         if (result.error) {
           await logEmail({
-            supabase,
+            db,
             companyId,
-            emailType: 'vendor_communication',
-            recipientEmail,
-            recipientName,
+            templateType: 'vendor_communication',
+            toEmail: recipientEmail,
             subject,
-            locale,
             status: 'failed',
             errorMessage: result.error.message,
+            metadata: { recipientName, locale },
           });
 
           throw new Error(`Failed to send email: ${result.error.message}`);
@@ -666,16 +651,16 @@ export const emailRouter = router({
 
         // Log successful email
         await logEmail({
-          supabase,
+          db,
           companyId,
-          emailType: 'vendor_communication',
-          recipientEmail,
-          recipientName,
+          templateType: 'vendor_communication',
+          toEmail: recipientEmail,
           subject,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
           metadata: {
+            recipientName,
+            locale,
             senderName,
             senderRole,
             messageSubject,
@@ -703,7 +688,7 @@ export const emailRouter = router({
       z.object({
         limit: z.number().int().min(1).max(100).default(50),
         offset: z.number().int().min(0).default(0),
-        emailType: z
+        templateType: z
           .enum([
             'client_invite',
             'wedding_reminder',
@@ -719,8 +704,8 @@ export const emailRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
-      const { limit, offset, emailType, status, clientId } = input;
+      const { db, companyId } = ctx;
+      const { limit, offset, templateType, status, clientId } = input;
 
       if (!companyId) {
         throw new TRPCError({
@@ -729,35 +714,40 @@ export const emailRouter = router({
         });
       }
 
-      let query = supabase
-        .from('email_logs')
-        .select('*', { count: 'exact' })
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+      // Build conditions
+      const conditions = [eq(schema.emailLogs.companyId, companyId)];
 
-      if (emailType) {
-        query = query.eq('email_type', emailType);
+      if (templateType) {
+        conditions.push(eq(schema.emailLogs.emailType, templateType));
       }
 
       if (status) {
-        query = query.eq('status', status);
+        conditions.push(eq(schema.emailLogs.status, status));
       }
 
       if (clientId) {
-        query = query.eq('client_id', clientId);
+        conditions.push(eq(schema.emailLogs.clientId, clientId));
       }
 
-      const { data, error, count } = await query;
+      // Fetch logs with pagination
+      const logs = await db.query.emailLogs.findMany({
+        where: and(...conditions),
+        orderBy: [desc(schema.emailLogs.createdAt)],
+        limit,
+        offset,
+      });
 
-      if (error) {
-        throw new Error(`Failed to fetch email logs: ${error.message}`);
-      }
+      // Get total count
+      const [countResult] = await db.select({ count: count() })
+        .from(schema.emailLogs)
+        .where(and(...conditions));
+
+      const total = countResult?.count || 0;
 
       return {
-        logs: data || [],
-        total: count || 0,
-        hasMore: (count || 0) > offset + limit,
+        logs,
+        total,
+        hasMore: total > offset + limit,
       };
     }),
 
@@ -769,7 +759,7 @@ export const emailRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { days } = input;
 
       if (!companyId) {
@@ -779,123 +769,108 @@ export const emailRouter = router({
         });
       }
 
-      const { data, error } = await supabase.rpc('get_email_stats', {
-        p_company_id: companyId,
-        p_days: days,
+      // Calculate date threshold
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - days);
+
+      // Get email stats using Drizzle
+      const logs = await db.query.emailLogs.findMany({
+        where: and(
+          eq(schema.emailLogs.companyId, companyId),
+          sql`${schema.emailLogs.createdAt} >= ${daysAgo}`
+        ),
+        columns: { status: true },
       });
 
-      if (error) {
-        throw new Error(`Failed to fetch email stats: ${error.message}`);
-      }
+      const total_emails = logs.length;
+      const sent_emails = logs.filter(l => l.status === 'sent').length;
+      const delivered_emails = logs.filter(l => l.status === 'delivered').length;
+      const failed_emails = logs.filter(l => l.status === 'failed').length;
+      const bounced_emails = logs.filter(l => l.status === 'bounced').length;
+      const success_rate = total_emails > 0
+        ? ((sent_emails + delivered_emails) / total_emails) * 100
+        : 0;
 
-      return (
-        data?.[0] || {
-          total_emails: 0,
-          sent_emails: 0,
-          delivered_emails: 0,
-          failed_emails: 0,
-          bounced_emails: 0,
-          success_rate: 0,
-        }
-      );
+      return {
+        total_emails,
+        sent_emails,
+        delivered_emails,
+        failed_emails,
+        bounced_emails,
+        success_rate: Math.round(success_rate * 100) / 100,
+      };
     }),
 
   // Get user email preferences
   getEmailPreferences: protectedProcedure.query(async ({ ctx }) => {
-    const { supabase, userId, companyId } = ctx;
+    const { db, userId } = ctx;
 
-    if (!companyId) {
-      throw new TRPCError({
-        code: 'UNAUTHORIZED',
-        message: 'Company ID not found in session claims',
-      });
-    }
-
-    const { data, error } = await supabase
-      .from('email_preferences')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('company_id', companyId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(`Failed to fetch email preferences: ${error.message}`);
-    }
+    const preferences = await db.query.emailPreferences.findFirst({
+      where: eq(schema.emailPreferences.userId, userId),
+    });
 
     // Return default preferences if none exist
-    return (
-      data || {
-        receive_wedding_reminders: true,
-        receive_payment_reminders: true,
-        receive_rsvp_notifications: true,
-        receive_vendor_messages: true,
-        receive_marketing: false,
-        email_frequency: 'immediate',
-      }
-    );
+    return preferences || {
+      marketingEmails: false,
+      transactionalEmails: true,
+      reminderEmails: true,
+      weeklyDigest: false,
+      clientUpdates: true,
+      taskReminders: true,
+      eventReminders: true,
+    };
   }),
 
   // Update user email preferences
   updateEmailPreferences: protectedProcedure
     .input(
       z.object({
-        receive_wedding_reminders: z.boolean().optional(),
-        receive_payment_reminders: z.boolean().optional(),
-        receive_rsvp_notifications: z.boolean().optional(),
-        receive_vendor_messages: z.boolean().optional(),
-        receive_marketing: z.boolean().optional(),
-        email_frequency: z.enum(['immediate', 'daily', 'weekly']).optional(),
+        marketingEmails: z.boolean().optional(),
+        transactionalEmails: z.boolean().optional(),
+        reminderEmails: z.boolean().optional(),
+        weeklyDigest: z.boolean().optional(),
+        clientUpdates: z.boolean().optional(),
+        taskReminders: z.boolean().optional(),
+        eventReminders: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, userId, companyId } = ctx;
-
-      if (!companyId) {
-        throw new TRPCError({
-          code: 'UNAUTHORIZED',
-          message: 'Company ID not found in session claims',
-        });
-      }
+      const { db, userId } = ctx;
 
       // Try to update existing preferences
-      const { data: existing } = await supabase
-        .from('email_preferences')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('company_id', companyId)
-        .single();
+      const existing = await db.query.emailPreferences.findFirst({
+        where: eq(schema.emailPreferences.userId, userId),
+        columns: { id: true }
+      });
 
-      let result;
+      let preferences;
 
       if (existing) {
         // Update existing preferences
-        result = await supabase
-          .from('email_preferences')
-          .update(input)
-          .eq('user_id', userId)
-          .eq('company_id', companyId)
-          .select()
-          .single();
+        const [updated] = await db
+          .update(schema.emailPreferences)
+          .set({
+            ...input,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.emailPreferences.userId, userId))
+          .returning();
+        preferences = updated;
       } else {
         // Insert new preferences
-        result = await supabase
-          .from('email_preferences')
-          .insert({
-            user_id: userId,
-            company_id: companyId,
+        const [created] = await db
+          .insert(schema.emailPreferences)
+          .values({
+            userId,
             ...input,
           })
-          .select()
-          .single();
-      }
-
-      if (result.error) {
-        throw new Error(`Failed to update email preferences: ${result.error.message}`);
+          .returning();
+        preferences = created;
       }
 
       return {
         success: true,
-        preferences: result.data,
+        preferences,
         message: 'Email preferences updated successfully',
       };
     }),
@@ -910,7 +885,7 @@ export const emailRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { to, templateType, locale } = input;
 
       if (!companyId) {
@@ -1013,7 +988,7 @@ export const emailRouter = router({
 
         // Send test email
         const result = await resend.emails.send({
-          from: 'WeddingFlow Pro <noreply@weddingflow.com>',
+          from: 'WeddingFlo <noreply@weddingflow.com>',
           to,
           subject: `[TEST] ${subject}`,
           html,
@@ -1025,16 +1000,14 @@ export const emailRouter = router({
 
         // Log test email
         await logEmail({
-          supabase,
+          db,
           companyId,
-          emailType: templateType,
-          recipientEmail: to,
-          recipientName: 'Test User',
+          templateType,
+          toEmail: to,
           subject: `[TEST] ${subject}`,
-          locale,
           resendId: result.data?.id,
           status: 'sent',
-          metadata: { test: true },
+          metadata: { test: true, locale },
         });
 
         return {

@@ -11,9 +11,19 @@ import { NotificationStatsChart } from '@/components/analytics/notification-stat
 import { TopClientsChart } from '@/components/analytics/top-clients-chart';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BarChart3, TrendingUp, Mail, DollarSign } from 'lucide-react';
+import { BarChart3, TrendingUp, Mail, DollarSign, ListTodo, Users, Wallet, Building2, GitCompare } from 'lucide-react';
+import {
+  TaskCompletionChart,
+  GuestRsvpFunnel,
+  BudgetVarianceChart,
+  PeriodComparisonCard,
+  VendorPerformanceChart,
+} from '@/features/analytics/components';
+import { useTranslations } from 'next-intl';
 
 export default function AnalyticsPage() {
+  const t = useTranslations('analytics');
+  const tc = useTranslations('common');
   const [dateRange, setDateRange] = useState({
     from: subDays(new Date(), 30),
     to: new Date(),
@@ -49,8 +59,8 @@ export default function AnalyticsPage() {
   const totalTransactions = revenueData?.data.reduce((sum, item) => sum + Number(item.transaction_count), 0) || 0;
   const averageOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-  const emailsSent = notificationStats?.find((s) => s.notification_type === 'email')?.total_sent || 0;
-  const smsSent = notificationStats?.find((s) => s.notification_type === 'sms')?.total_sent || 0;
+  const emailsSent = notificationStats?.find((s) => s.type === 'email')?.sent || 0;
+  const smsSent = notificationStats?.find((s) => s.type === 'sms')?.sent || 0;
   const activeClients = topClients?.length || 0;
 
   return (
@@ -58,9 +68,11 @@ export default function AnalyticsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Analytics Dashboard</h2>
+          <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+            {t('title')}
+          </h2>
           <p className="text-muted-foreground">
-            Comprehensive insights into your business performance
+            {t('description')}
           </p>
         </div>
         <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
@@ -79,22 +91,42 @@ export default function AnalyticsPage() {
 
       {/* Tabs for different analytics views */}
       <Tabs defaultValue="revenue" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="revenue" className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
-            Revenue
+            {t('tabs.revenue')}
           </TabsTrigger>
           <TabsTrigger value="payments" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
-            Payments
+            {t('tabs.payments')}
           </TabsTrigger>
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Mail className="h-4 w-4" />
-            Notifications
+            {t('tabs.notifications')}
           </TabsTrigger>
           <TabsTrigger value="trends" className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
-            Trends
+            {t('tabs.trends')}
+          </TabsTrigger>
+          <TabsTrigger value="tasks" className="flex items-center gap-2">
+            <ListTodo className="h-4 w-4" />
+            {t('tabs.tasks')}
+          </TabsTrigger>
+          <TabsTrigger value="guests" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            {t('tabs.guests')}
+          </TabsTrigger>
+          <TabsTrigger value="budget" className="flex items-center gap-2">
+            <Wallet className="h-4 w-4" />
+            {t('tabs.budget')}
+          </TabsTrigger>
+          <TabsTrigger value="vendors" className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            {t('tabs.vendors')}
+          </TabsTrigger>
+          <TabsTrigger value="comparison" className="flex items-center gap-2">
+            <GitCompare className="h-4 w-4" />
+            {t('tabs.compare')}
           </TabsTrigger>
         </TabsList>
 
@@ -110,14 +142,19 @@ export default function AnalyticsPage() {
         <TabsContent value="payments" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <PaymentStatusChart data={paymentBreakdown?.data || []} isLoading={paymentLoading} />
-            <Card>
+            <Card
+              variant="glass"
+              className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+            >
               <CardHeader>
-                <CardTitle>Payment Summary</CardTitle>
-                <CardDescription>Total payments by status</CardDescription>
+                <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-600 bg-clip-text text-transparent">
+                  {t('charts.paymentSummary')}
+                </CardTitle>
+                <CardDescription>{t('charts.paymentSummaryDescription')}</CardDescription>
               </CardHeader>
               <CardContent>
                 {paymentLoading ? (
-                  <div className="text-muted-foreground">Loading payment summary...</div>
+                  <div className="text-muted-foreground">{t('loadingPaymentSummary')}</div>
                 ) : (
                   <div className="space-y-4">
                     {paymentBreakdown?.data.map((status) => (
@@ -125,7 +162,7 @@ export default function AnalyticsPage() {
                         <div>
                           <p className="text-sm font-medium capitalize">{status.status}</p>
                           <p className="text-xs text-muted-foreground">
-                            {Number(status.count)} transactions
+                            {Number(status.count)} {t('metrics.transactions')}
                           </p>
                         </div>
                         <p className="text-lg font-bold">
@@ -138,7 +175,7 @@ export default function AnalyticsPage() {
                     ))}
                     <div className="border-t pt-4">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-bold">Total</p>
+                        <p className="text-sm font-bold">{t('metrics.total')}</p>
                         <p className="text-xl font-bold text-primary">
                           ${(paymentBreakdown?.totalAmount || 0).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
@@ -160,45 +197,49 @@ export default function AnalyticsPage() {
             <NotificationStatsChart data={notificationStats || []} isLoading={notificationLoading} />
             <div className="grid gap-4 md:grid-cols-2">
               {notificationStats?.map((stat) => (
-                <Card key={stat.notification_type}>
+                <Card
+                  key={stat.type}
+                  variant="glass"
+                  className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+                >
                   <CardHeader>
-                    <CardTitle className="capitalize">{stat.notification_type} Statistics</CardTitle>
-                    <CardDescription>Delivery performance metrics</CardDescription>
+                    <CardTitle className="capitalize bg-gradient-to-r from-teal-600 to-teal-600 bg-clip-text text-transparent">
+                      {stat.type} {t('charts.notificationStatistics')}
+                    </CardTitle>
+                    <CardDescription>{t('charts.notificationDescription')}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Total Sent:</span>
-                        <span className="font-medium">{Number(stat.total_sent).toLocaleString()}</span>
+                        <span className="text-sm text-muted-foreground">{t('metrics.totalSent')}:</span>
+                        <span className="font-medium">{Number(stat.sent).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Delivered:</span>
-                        <span className="font-medium text-green-600">
+                        <span className="text-sm text-muted-foreground">{t('metrics.delivered')}:</span>
+                        <span className="font-medium text-sage-600">
                           {Number(stat.delivered).toLocaleString()}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Failed:</span>
-                        <span className="font-medium text-red-600">
+                        <span className="text-sm text-muted-foreground">{t('metrics.failed')}:</span>
+                        <span className="font-medium text-rose-600">
                           {Number(stat.failed).toLocaleString()}
                         </span>
                       </div>
-                      {stat.notification_type === 'email' && (
+                      {stat.type === 'email' && (
                         <>
                           <div className="flex justify-between">
-                            <span className="text-sm text-muted-foreground">Opened:</span>
+                            <span className="text-sm text-muted-foreground">{t('metrics.opened')}:</span>
                             <span className="font-medium">{Number(stat.opened).toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-sm text-muted-foreground">Clicked:</span>
-                            <span className="font-medium">{Number(stat.clicked).toLocaleString()}</span>
                           </div>
                         </>
                       )}
                       <div className="border-t pt-2 mt-2">
                         <div className="flex justify-between">
-                          <span className="text-sm font-medium">Delivery Rate:</span>
-                          <span className="font-bold text-primary">{Number(stat.delivery_rate)}%</span>
+                          <span className="text-sm font-medium">{t('metrics.deliveryRate')}:</span>
+                          <span className="font-bold text-primary">
+                            {stat.sent > 0 ? ((stat.delivered / stat.sent) * 100).toFixed(1) : 0}%
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -211,15 +252,20 @@ export default function AnalyticsPage() {
 
         {/* Trends Tab */}
         <TabsContent value="trends" className="space-y-4">
-          <Card>
+          <Card
+            variant="glass"
+            className="border border-sage-200/50 dark:border-sage-800/30 shadow-lg shadow-sage-500/10 bg-gradient-to-br from-white via-sage-50/20 to-white dark:from-mocha-900 dark:via-sage-950/10 dark:to-mocha-900"
+          >
             <CardHeader>
-              <CardTitle>Monthly Revenue Trend</CardTitle>
-              <CardDescription>Revenue performance over the last 12 months</CardDescription>
+              <CardTitle className="bg-gradient-to-r from-sage-600 to-teal-600 bg-clip-text text-transparent">
+                {t('charts.monthlyRevenueTrend')}
+              </CardTitle>
+              <CardDescription>{t('charts.monthlyTrendDescription')}</CardDescription>
             </CardHeader>
             <CardContent>
               {trendLoading ? (
                 <div className="h-[300px] flex items-center justify-center">
-                  <div className="text-muted-foreground">Loading trend data...</div>
+                  <div className="text-muted-foreground">{t('loadingTrendData')}</div>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -228,7 +274,7 @@ export default function AnalyticsPage() {
                       <div>
                         <p className="font-medium">{item.month}</p>
                         <p className="text-xs text-muted-foreground">
-                          {Number(item.transaction_count)} transactions
+                          {Number(item.transaction_count)} {t('metrics.transactions')}
                         </p>
                       </div>
                       <p className="text-lg font-bold">
@@ -243,6 +289,34 @@ export default function AnalyticsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Tasks Tab */}
+        <TabsContent value="tasks" className="space-y-4">
+          <TaskCompletionChart
+            startDate={dateRange.from.toISOString()}
+            endDate={dateRange.to.toISOString()}
+          />
+        </TabsContent>
+
+        {/* Guests Tab */}
+        <TabsContent value="guests" className="space-y-4">
+          <GuestRsvpFunnel />
+        </TabsContent>
+
+        {/* Budget Tab */}
+        <TabsContent value="budget" className="space-y-4">
+          <BudgetVarianceChart />
+        </TabsContent>
+
+        {/* Vendors Tab */}
+        <TabsContent value="vendors" className="space-y-4">
+          <VendorPerformanceChart />
+        </TabsContent>
+
+        {/* Comparison Tab */}
+        <TabsContent value="comparison" className="space-y-4">
+          <PeriodComparisonCard periodDays={30} />
         </TabsContent>
       </Tabs>
     </div>

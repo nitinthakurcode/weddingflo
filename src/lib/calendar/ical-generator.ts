@@ -51,7 +51,7 @@ export class ICalGenerator {
     // Calendar header
     lines.push('BEGIN:VCALENDAR');
     lines.push('VERSION:2.0');
-    lines.push('PRODID:-//WeddingFlow Pro//Calendar Feed//EN');
+    lines.push('PRODID:-//WeddingFlo//Calendar Feed//EN');
     lines.push('CALSCALE:GREGORIAN');
     lines.push('METHOD:PUBLISH');
     lines.push(`X-WR-CALNAME:${this.escapeText(calendarName)}`);

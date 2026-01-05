@@ -12,7 +12,8 @@ import {
   CreditCard,
   Plug,
   Brain,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Shield
 } from 'lucide-react';
 import { useIsSuperAdmin, useIsAdmin } from '@/lib/permissions/can';
 
@@ -30,6 +31,12 @@ const settingsNav: SettingsNavItem[] = [
     href: '/settings/profile',
     icon: User,
     description: 'Manage your personal information',
+  },
+  {
+    title: 'Security',
+    href: '/settings/security',
+    icon: Shield,
+    description: 'Passkeys, 2FA, and account security',
   },
   {
     title: 'Company',

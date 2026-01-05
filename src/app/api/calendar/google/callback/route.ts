@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleCalendarOAuth } from '@/lib/calendar/google-oauth';
 import { GoogleCalendarSync } from '@/lib/calendar/google-calendar-sync';
-import { createClient } from '@supabase/supabase-js';
+import { db, eq, sql } from '@/lib/db';
+import { users } from '@/lib/db/schema';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -16,11 +17,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Create Supabase client inside handler (not at module level)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SECRET_KEY!
-    );
     const oauth = new GoogleCalendarOAuth();
     const tokens = await oauth.getTokensFromCode(code);
 
@@ -28,14 +24,16 @@ export async function GET(request: NextRequest) {
       throw new Error('Missing tokens');
     }
 
-    // Get user's company_id
-    const { data: userData } = await supabase
-      .from('users')
-      .select('company_id')
-      .eq('clerk_id', state)
-      .single();
+    // Get user's company_id using Drizzle
+    const userResult = await db
+      .select({ companyId: users.companyId })
+      .from(users)
+      .where(eq(users.authId, state))
+      .limit(1);
 
-    if (!userData?.company_id) {
+    const userData = userResult[0];
+
+    if (!userData?.companyId) {
       throw new Error('User not found');
     }
 
@@ -46,23 +44,29 @@ export async function GET(request: NextRequest) {
       tokens.refresh_token
     );
 
-    // Store tokens in database
-    await supabase.from('google_calendar_tokens').upsert({
-      user_id: state,
-      company_id: userData.company_id,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      token_expiry: new Date(Date.now() + (tokens.expiry_date || 3600) * 1000).toISOString(),
-      scope: tokens.scope || '',
-      calendar_id: calendarId,
-    });
+    // Store tokens in database using raw SQL for upsert
+    await db.execute(sql`
+      INSERT INTO google_calendar_tokens (user_id, company_id, access_token, refresh_token, token_expiry, scope, calendar_id)
+      VALUES (${state}, ${userData.companyId}, ${tokens.access_token}, ${tokens.refresh_token},
+              ${new Date(Date.now() + (tokens.expiry_date || 3600) * 1000).toISOString()},
+              ${tokens.scope || ''}, ${calendarId})
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        access_token = EXCLUDED.access_token,
+        refresh_token = EXCLUDED.refresh_token,
+        token_expiry = EXCLUDED.token_expiry,
+        scope = EXCLUDED.scope,
+        calendar_id = EXCLUDED.calendar_id,
+        updated_at = NOW()
+    `);
 
-    // Enable Google sync in settings
-    await supabase.from('calendar_sync_settings').upsert({
-      user_id: state,
-      company_id: userData.company_id,
-      google_sync_enabled: true,
-    });
+    // Enable Google sync in settings using raw SQL for upsert
+    await db.execute(sql`
+      INSERT INTO calendar_sync_settings (user_id, company_id, google_sync_enabled)
+      VALUES (${state}, ${userData.companyId}, true)
+      ON CONFLICT (user_id)
+      DO UPDATE SET google_sync_enabled = true, updated_at = NOW()
+    `);
 
     return NextResponse.redirect(
       new URL('/dashboard/settings/calendar?success=true', request.url)

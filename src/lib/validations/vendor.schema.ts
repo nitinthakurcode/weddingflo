@@ -32,19 +32,20 @@ export const vendorSchema = z.object({
   phone: z.string().optional(),
   website: z.string().url("Invalid URL").optional().or(z.literal("")),
   address: z.string().optional(),
-  status: z.enum(["prospect", "contacted", "quoted", "booked", "confirmed", "completed", "cancelled"]).default("prospect"),
+  status: z.enum(["prospect", "contacted", "quoted", "booked", "confirmed", "completed", "cancelled"]).optional().default("prospect"),
   contractDate: z.string().optional(),
   serviceDate: z.string().optional(),
   totalCost: z.number().min(0, "Total cost must be positive"),
   depositAmount: z.number().min(0, "Deposit amount must be positive").optional(),
   depositPaidDate: z.string().optional(),
   balance: z.number().min(0, "Balance must be positive").optional(),
-  payments: z.array(vendorPaymentSchema).default([]),
+  payments: z.array(vendorPaymentSchema).optional().default([]),
   budgetItemId: z.string().optional(),
   contractStorageId: z.string().optional(),
   rating: z.number().min(1).max(5).optional(),
   performanceNotes: z.string().optional(),
   wouldRecommend: z.boolean().optional(),
+  isPreferred: z.boolean().optional(), // Company preferred/suggested vendor
   notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
 });
@@ -58,5 +59,5 @@ export const paymentSchema = z.object({
   notes: z.string().optional(),
 });
 
-export type VendorFormData = z.infer<typeof vendorSchema>;
+export type VendorFormData = z.input<typeof vendorSchema>;
 export type PaymentFormData = z.infer<typeof paymentSchema>;

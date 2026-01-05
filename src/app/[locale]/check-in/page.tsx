@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -35,11 +34,10 @@ interface CheckInResult {
 /**
  * Check-in Station Page
  * Dedicated page for scanning QR codes and checking in guests
- * NOTE: Public page - uses unauthenticated Supabase client
+ * NOTE: Public page - uses public API routes
  */
 export default function CheckInPage() {
   const router = useRouter();
-  const supabase = createClient();
   const [checkInResult, setCheckInResult] = useState<CheckInResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -80,13 +78,8 @@ export default function CheckInPage() {
             numberOfPacks: 2,
           },
         });
-        console.log('Success result set:', {
-          success: true,
-          isTestMode: true,
-        });
         playSuccessSound();
         setIsProcessing(false);
-        console.log('Processing complete - success screen should show');
         return;
       }
 
@@ -110,17 +103,12 @@ export default function CheckInPage() {
         }
       }
 
-      // Check in the guest (only for real guests)
       // First, get the guest to check if already checked in
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data: guest, error: guestError } = await supabase
-        .from('guests')
-        .select('id, name, number_of_packs, checked_in')
-        .eq('id', decryptedToken.guestId)
-        .single();
+      const guestResponse = await fetch(`/api/public/guest?guestId=${decryptedToken.guestId}`);
+      const guestResult = await guestResponse.json();
 
-      if (guestError) {
-        console.error('❌ Failed to fetch guest:', guestError);
+      if (!guestResponse.ok || !guestResult.data) {
+        console.error('❌ Failed to fetch guest:', guestResult.error);
         setCheckInResult({
           success: false,
           error: 'Guest not found',
@@ -129,35 +117,39 @@ export default function CheckInPage() {
         return;
       }
 
-      if ((guest as any).checked_in) {
+      const guest = guestResult.data;
+
+      if (guest.checkedIn) {
         console.log('⚠️ Guest already checked in');
         setCheckInResult({
           success: false,
           error: 'This guest is already checked in',
           alreadyCheckedIn: true,
           guest: {
-            id: (guest as any).id,
-            name: (guest as any).name,
-            numberOfPacks: (guest as any).number_of_packs,
+            id: guest.id,
+            name: guest.name,
+            numberOfPacks: guest.numberOfPacks,
           },
         });
         setIsProcessing(false);
         return;
       }
 
-      // Update guest to mark as checked in
-      const { error: updateError } = await supabase
-        .from('guests')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({
-          checked_in: true,
-          check_in_time: new Date().toISOString(),
-          check_in_location: location ? JSON.stringify(location) : null,
-        })
-        .eq('id', decryptedToken.guestId);
+      // Check in the guest via public API
+      const checkInResponse = await fetch('/api/public/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'check-in',
+          guestId: decryptedToken.guestId,
+          data: { location },
+        }),
+      });
 
-      if (updateError) {
-        console.error('❌ Failed to check in guest:', updateError);
+      const checkInData = await checkInResponse.json();
+
+      if (!checkInResponse.ok) {
+        console.error('❌ Failed to check in guest:', checkInData.error);
         setCheckInResult({
           success: false,
           error: 'Failed to check in guest',
@@ -170,9 +162,9 @@ export default function CheckInPage() {
       setCheckInResult({
         success: true,
         guest: {
-          id: (guest as any).id,
-          name: (guest as any).name,
-          numberOfPacks: (guest as any).number_of_packs,
+          id: checkInData.data.id,
+          name: checkInData.data.name,
+          numberOfPacks: checkInData.data.numberOfPacks,
         },
       });
 

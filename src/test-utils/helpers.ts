@@ -44,8 +44,8 @@ export const waitForLoadingToFinish = async () => {
   )
 }
 
-// Mock Clerk session
-export const mockClerkSession = (overrides?: {
+// Mock BetterAuth session (December 2025)
+export const mockAuthSession = (overrides?: {
   userId?: string
   companyId?: string
   role?: string
@@ -53,13 +53,13 @@ export const mockClerkSession = (overrides?: {
 }) => {
   return {
     userId: overrides?.userId || 'test-user-id',
-    sessionId: 'test-session-id',
-    sessionClaims: {
-      metadata: {
-        company_id: overrides?.companyId || 'test-company-id',
-        role: overrides?.role || 'company_admin',
-        subscription_tier: overrides?.subscriptionTier || 'professional',
-      },
+    user: {
+      id: overrides?.userId || 'test-user-id',
+      email: 'test@example.com',
+      name: 'Test User',
+      role: overrides?.role || 'company_admin',
+      companyId: overrides?.companyId || 'test-company-id',
+      subscriptionTier: overrides?.subscriptionTier || 'professional',
     },
   }
 }

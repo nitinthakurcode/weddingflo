@@ -7,7 +7,7 @@ MIGRATION_FILE="supabase/migrations/20251118080000_fix_rls_performance.sql"
 PROJECT_REF="gkrcaeymhgjepncbceag"
 SUPABASE_ACCESS_TOKEN="sbp_96691910fda7ef3dd596176c3f57fdb9eef45e38"
 
-echo "🔧 WeddingFlow Pro - RLS Performance Fix"
+echo "🔧 WeddingFlo - RLS Performance Fix"
 echo "═══════════════════════════════════════════════"
 echo ""
 

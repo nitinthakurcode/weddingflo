@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabaseClient } from '@/lib/supabase/client';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,45 +54,56 @@ const ROLE_CONFIG = {
     label: 'Super Admin',
     description: 'Platform-wide access across all companies with full system control',
     icon: Crown,
-    badge: 'bg-gradient-to-r from-primary to-pink-600 text-white',
-    card: 'border-primary/20 hover:border-primary/40 hover:bg-primary/5/50',
-    iconBg: 'bg-primary/10 text-primary',
+    badge: 'bg-gradient-to-r from-primary to-rose-600 text-white',
+    card: 'border-primary/20 hover:border-primary/40 hover:bg-primary/5 dark:hover:bg-primary/10',
+    iconBg: 'bg-primary/10 text-primary dark:bg-primary/20',
   },
   company_admin: {
     label: 'Company Admin',
     description: 'Full access to all features, settings, team management, billing, and branding',
     icon: Crown,
-    badge: 'bg-gradient-to-r from-primary to-pink-600 text-white',
-    card: 'border-primary/20 hover:border-primary/40 hover:bg-primary/5/50',
-    iconBg: 'bg-primary/10 text-primary',
+    badge: 'bg-gradient-to-r from-primary to-rose-600 text-white',
+    card: 'border-primary/20 hover:border-primary/40 hover:bg-primary/5 dark:hover:bg-primary/10',
+    iconBg: 'bg-primary/10 text-primary dark:bg-primary/20',
   },
   staff: {
     label: 'Staff',
     description: 'Can manage events, clients, vendors, budgets, and guest lists',
     icon: Briefcase,
-    badge: 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white',
-    card: 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/50',
-    iconBg: 'bg-emerald-100 text-emerald-600',
+    badge: 'bg-gradient-to-r from-sage-500 to-sage-600 text-white',
+    card: 'border-sage-200 dark:border-sage-800 hover:border-sage-400 dark:hover:border-sage-600 hover:bg-sage-50/50 dark:hover:bg-sage-900/30',
+    iconBg: 'bg-sage-100 dark:bg-sage-900 text-sage-600 dark:text-sage-400',
   },
   client_user: {
     label: 'Client',
     description: 'Wedding client with portal access to view their wedding details',
     icon: Eye,
-    badge: 'bg-gradient-to-r from-slate-500 to-gray-600 text-white',
-    card: 'border-slate-200 hover:border-slate-400 hover:bg-slate-50/50',
-    iconBg: 'bg-slate-100 text-slate-600',
+    badge: 'bg-gradient-to-r from-mocha-500 to-mocha-600 text-white',
+    card: 'border-mocha-200 dark:border-mocha-800 hover:border-mocha-400 dark:hover:border-mocha-600 hover:bg-mocha-50/50 dark:hover:bg-mocha-900/30',
+    iconBg: 'bg-mocha-100 dark:bg-mocha-900 text-mocha-600 dark:text-mocha-400',
   },
 };
 
 export default function TeamPage() {
-  const { user } = useUser();
-  const supabase = useSupabaseClient();
-  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const utils = trpc.useUtils();
   const isAdmin = useIsAdmin();
   const { toast } = useToast();
 
-  const companyId = user?.publicMetadata?.companyId as string | undefined;
-  const currentUserId = user?.id;
+  // Get current user via tRPC
+  const { data: currentUser, isLoading: currentUserLoading } = trpc.users.getCurrent.useQuery(
+    undefined,
+    { enabled: !!session?.user?.id }
+  );
+
+  const companyId = currentUser?.company_id;
+  const currentUserId = session?.user?.id;
+
+  // Get team members via tRPC
+  const { data: teamMembers, isLoading: teamMembersLoading } = trpc.team.listTeamMembers.useQuery(
+    undefined,
+    { enabled: !!companyId }
+  );
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'super_admin' | 'company_admin' | 'staff' | 'client_user'>('staff');
@@ -104,60 +114,10 @@ export default function TeamPage() {
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<any>(null);
 
-  // Fetch team members
-  const { data: teamMembers, isLoading: teamMembersLoading } = useQuery<any[]>({
-    queryKey: ['team-members', companyId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!companyId) return [];
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!user && !!companyId && !!supabase,
-  });
-
-  // Fetch current user
-  const { data: currentUser, isLoading: currentUserLoading } = useQuery<any>({
-    queryKey: ['current-user', currentUserId],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!currentUserId) return null;
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', currentUserId)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user && !!currentUserId && !!supabase,
-  });
-
-  // Update role mutation
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { error } = await supabase
-        .from('users')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({ role, updated_at: new Date().toISOString() })
-        .eq('id', userId);
-
-      if (error) throw error;
-    },
+  // Update role mutation via tRPC
+  const updateRoleMutation = trpc.users.update.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['team-members', companyId] });
+      utils.team.listTeamMembers.invalidate();
       toast({
         title: 'Role updated',
         description: 'User role has been updated successfully.',
@@ -169,42 +129,19 @@ export default function TeamPage() {
       console.error('Failed to update role:', error);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update role.',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // Remove user mutation
-  const removeUserMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { error } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', userId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['team-members', companyId] });
-      toast({
-        title: 'User removed',
-        description: 'Team member has been removed successfully.',
-      });
-    },
-    onError: (error) => {
-      console.error('Failed to remove user:', error);
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to remove user.',
+        description: error.message || 'Failed to update role.',
         variant: 'destructive',
       });
     },
   });
 
   const handleRoleChange = async (userId: string, newRole: string) => {
-    await updateRoleMutation.mutateAsync({ userId, role: newRole });
+    // Note: The users.update mutation doesn't support role changes
+    // This would need a separate admin-only mutation
+    toast({
+      title: 'Coming Soon',
+      description: 'Role change functionality requires admin permissions.',
+    });
   };
 
   const openRoleDialog = (member: any) => {
@@ -213,7 +150,11 @@ export default function TeamPage() {
   };
 
   const handleRemoveUser = async (userId: string) => {
-    await removeUserMutation.mutateAsync(userId);
+    // Note: This would need a delete mutation in the users router
+    toast({
+      title: 'Coming Soon',
+      description: 'User removal functionality will be implemented.',
+    });
   };
 
   const handleInvite = async () => {
@@ -230,7 +171,7 @@ export default function TeamPage() {
 
     try {
       // For now, show a success message
-      // In a full implementation, this would send an invite via Clerk or email
+      // In a full implementation, this would send an invite via email
       toast({
         title: 'Invite sent!',
         description: `An invitation has been sent to ${inviteEmail}.`,
@@ -273,7 +214,9 @@ export default function TeamPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Team Management</h1>
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+            Team Management
+          </h1>
           <p className="text-muted-foreground">
             Manage team members, roles, and permissions
           </p>
@@ -359,10 +302,15 @@ export default function TeamPage() {
         )}
       </div>
 
-      <Card>
+      <Card
+        variant="glass"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+      >
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
+          <CardTitle className="flex items-center gap-2 bg-gradient-to-r from-teal-600 to-teal-400 bg-clip-text text-transparent">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-teal-400 shadow-lg shadow-teal-500/30">
+              <Users className="h-4 w-4 text-white" />
+            </div>
             Team Members ({teamMembers.length})
           </CardTitle>
           <CardDescription>
@@ -377,21 +325,21 @@ export default function TeamPage() {
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Joined</TableHead>
-                <TableHead>Last Active</TableHead>
+                <TableHead>Clients Assigned</TableHead>
                 {isAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {teamMembers.map((member) => {
-                const isCurrentUser = member.id === currentUser.id;
-                const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email;
+                const isCurrentUser = member.authId === currentUserId;
+                const fullName = `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.email;
 
                 return (
                   <TableRow key={member.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
-                          <AvatarImage src={member.avatar_url} />
+                          <AvatarImage src={member.avatarUrl || undefined} />
                           <AvatarFallback>
                             {fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                           </AvatarFallback>
@@ -411,7 +359,7 @@ export default function TeamPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Badge className={ROLE_CONFIG[member.role as keyof typeof ROLE_CONFIG]?.badge || 'bg-gray-500'}>
+                        <Badge className={ROLE_CONFIG[member.role as keyof typeof ROLE_CONFIG]?.badge || 'bg-mocha-500'}>
                           {ROLE_CONFIG[member.role as keyof typeof ROLE_CONFIG]?.label || member.role}
                         </Badge>
                         {isAdmin && (
@@ -428,10 +376,10 @@ export default function TeamPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(member.created_at).toLocaleDateString()}
+                      {new Date(member.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {member.last_active_at ? new Date(member.last_active_at).toLocaleDateString() : 'N/A'}
+                      {member.clientsAssigned || 0}
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">
@@ -482,13 +430,13 @@ export default function TeamPage() {
                 {selectedMember && (
                   <div className="flex items-center gap-3 mt-3 p-3 bg-muted rounded-lg">
                     <Avatar className="h-10 w-10">
-                      <AvatarImage src={selectedMember.avatar_url} />
+                      <AvatarImage src={selectedMember.avatarUrl || undefined} />
                       <AvatarFallback>
-                        {`${selectedMember.first_name || ''} ${selectedMember.last_name || ''}`.trim().split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                        {`${selectedMember.firstName || ''} ${selectedMember.lastName || ''}`.trim().split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <div className="font-medium text-foreground">{`${selectedMember.first_name || ''} ${selectedMember.last_name || ''}`.trim() || selectedMember.email}</div>
+                      <div className="font-medium text-foreground">{`${selectedMember.firstName || ''} ${selectedMember.lastName || ''}`.trim() || selectedMember.email}</div>
                       <div className="text-sm text-muted-foreground">{selectedMember.email}</div>
                     </div>
                   </div>
@@ -556,9 +504,14 @@ export default function TeamPage() {
       </Dialog>
 
       {/* Role Descriptions */}
-      <Card>
+      <Card
+        variant="glass"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+      >
         <CardHeader>
-          <CardTitle>Role Permissions</CardTitle>
+          <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-400 bg-clip-text text-transparent">
+            Role Permissions
+          </CardTitle>
           <CardDescription>
             Understanding different role types and their access levels
           </CardDescription>

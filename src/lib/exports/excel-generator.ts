@@ -1,4 +1,9 @@
-import * as XLSX from 'xlsx';
+/**
+ * Excel Generator
+ * Uses ExcelJS for creating Excel exports (secure replacement for xlsx)
+ */
+
+import ExcelJS from 'exceljs';
 import { format } from 'date-fns';
 
 interface ExcelSheetData {
@@ -19,10 +24,12 @@ interface ExcelExportOptions {
  * Session 54: Excel export system with multiple sheets
  */
 export class ExcelGenerator {
-  private workbook: XLSX.WorkBook;
+  private workbook: ExcelJS.Workbook;
 
   constructor() {
-    this.workbook = XLSX.utils.book_new();
+    this.workbook = new ExcelJS.Workbook();
+    this.workbook.creator = 'WeddingFlo';
+    this.workbook.created = new Date();
   }
 
   /**
@@ -31,36 +38,53 @@ export class ExcelGenerator {
   addSheet(sheetData: ExcelSheetData) {
     const { sheetName, data, columns } = sheetData;
 
-    // Create worksheet
-    const worksheet = XLSX.utils.json_to_sheet(data, {
-      header: columns,
+    const worksheet = this.workbook.addWorksheet(sheetName);
+
+    if (data.length === 0) {
+      return;
+    }
+
+    // Determine column headers
+    const keys = columns || Object.keys(data[0] || {});
+
+    // Set columns
+    worksheet.columns = keys.map((key) => ({
+      header: key,
+      key: key,
+      width: this.calculateColumnWidth(key, data),
+    }));
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
+    };
+
+    // Add data rows
+    data.forEach((row) => {
+      const rowData: Record<string, any> = {};
+      keys.forEach((key) => {
+        rowData[key] = row[key] ?? '';
+      });
+      worksheet.addRow(rowData);
     });
-
-    // Auto-size columns
-    const colWidths = this.calculateColumnWidths(data, columns);
-    worksheet['!cols'] = colWidths;
-
-    // Add to workbook
-    XLSX.utils.book_append_sheet(this.workbook, worksheet, sheetName);
   }
 
   /**
-   * Calculate optimal column widths
+   * Calculate optimal column width
    */
-  private calculateColumnWidths(data: any[], columns?: string[]) {
-    const keys = columns || Object.keys(data[0] || {});
+  private calculateColumnWidth(key: string, data: any[]): number {
+    const maxLength = Math.max(
+      key.length,
+      ...data.map((row) => {
+        const value = row[key];
+        return value ? String(value).length : 0;
+      })
+    );
 
-    return keys.map((key) => {
-      const maxLength = Math.max(
-        key.length,
-        ...data.map((row) => {
-          const value = row[key];
-          return value ? String(value).length : 0;
-        })
-      );
-
-      return { wch: Math.min(maxLength + 2, 50) };
-    });
+    return Math.min(maxLength + 2, 50);
   }
 
   /**
@@ -81,18 +105,16 @@ export class ExcelGenerator {
   /**
    * Generate buffer for download or storage
    */
-  toBuffer(): Buffer {
-    return XLSX.write(this.workbook, {
-      type: 'buffer',
-      bookType: 'xlsx',
-    }) as Buffer;
+  async toBuffer(): Promise<Buffer> {
+    const arrayBuffer = await this.workbook.xlsx.writeBuffer();
+    return Buffer.from(arrayBuffer);
   }
 
   /**
    * Generate base64 string
    */
-  toBase64(): string {
-    const buffer = this.toBuffer();
+  async toBase64(): Promise<string> {
+    const buffer = await this.toBuffer();
     return buffer.toString('base64');
   }
 
@@ -100,11 +122,24 @@ export class ExcelGenerator {
    * Set workbook properties
    */
   setProperties(options: { author?: string; company?: string; title?: string }) {
-    this.workbook.Props = {
-      ...this.workbook.Props,
-      ...options,
-      CreatedDate: new Date(),
-    };
+    if (options.author) {
+      this.workbook.creator = options.author;
+    }
+    if (options.company) {
+      this.workbook.company = options.company;
+    }
+    if (options.title) {
+      this.workbook.title = options.title;
+    }
+    this.workbook.lastModifiedBy = options.author || 'WeddingFlo';
+    this.workbook.modified = new Date();
+  }
+
+  /**
+   * Get workbook instance
+   */
+  getWorkbook(): ExcelJS.Workbook {
+    return this.workbook;
   }
 }
 
@@ -217,8 +252,8 @@ export async function generateClientSummaryExcel(clientData: {
 
   generator.setProperties({
     title: `${clientData.client.partner1_first_name} ${clientData.client.partner1_last_name} - Wedding Summary`,
-    author: 'WeddingFlow Pro',
-    company: 'WeddingFlow',
+    author: 'WeddingFlo',
+    company: 'WeddingFlo',
   });
 
   return generator;
@@ -280,7 +315,7 @@ export async function generateGuestAnalyticsExcel(analyticsData: any) {
 
   generator.setProperties({
     title: 'Guest Analytics Report',
-    author: 'WeddingFlow Pro',
+    author: 'WeddingFlo',
   });
 
   return generator;
@@ -333,7 +368,7 @@ export async function generateBudgetReportExcel(budgetData: any) {
 
   generator.setProperties({
     title: 'Budget Report',
-    author: 'WeddingFlow Pro',
+    author: 'WeddingFlo',
   });
 
   return generator;

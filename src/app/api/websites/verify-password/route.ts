@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { db, eq } from '@/lib/db';
+import { weddingWebsites } from '@/lib/db/schema';
 import bcrypt from 'bcryptjs';
 
 /**
@@ -17,21 +18,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const supabase = createServerSupabaseAdminClient();
+    // Get website password hash using Drizzle
+    const websiteResult = await db
+      .select({ password: weddingWebsites.password })
+      .from(weddingWebsites)
+      .where(eq(weddingWebsites.id, websiteId))
+      .limit(1);
 
-    // Get website password hash
-    const { data: website } = await supabase
-      .from('wedding_websites')
-      .select('password_hash')
-      .eq('id', websiteId)
-      .single();
+    const website = websiteResult[0];
 
-    if (!website?.password_hash) {
+    if (!website?.password) {
       return NextResponse.json({ valid: false, error: 'No password set' }, { status: 400 });
     }
 
     // Verify password
-    const valid = await bcrypt.compare(password, website.password_hash);
+    const valid = await bcrypt.compare(password, website.password);
 
     return NextResponse.json({ valid });
   } catch (error: any) {

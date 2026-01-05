@@ -23,13 +23,13 @@ export const resend = new Proxy({} as Resend, {
 // Email subject lines in all 7 languages
 export const EMAIL_SUBJECTS = {
   clientInvite: {
-    en: "You've been invited to WeddingFlow Pro",
-    es: 'Has sido invitado a WeddingFlow Pro',
-    fr: "Vous avez été invité à WeddingFlow Pro",
-    de: 'Sie wurden zu WeddingFlow Pro eingeladen',
-    ja: 'WeddingFlow Proに招待されました',
-    zh: '您已被邀请加入WeddingFlow Pro',
-    hi: 'आपको WeddingFlow Pro में आमंत्रित किया गया है',
+    en: "You've been invited to WeddingFlo",
+    es: 'Has sido invitado a WeddingFlo',
+    fr: "Vous avez été invité à WeddingFlo",
+    de: 'Sie wurden zu WeddingFlo eingeladen',
+    ja: 'WeddingFloに招待されました',
+    zh: '您已被邀请加入WeddingFlo',
+    hi: 'आपको WeddingFlo में आमंत्रित किया गया है',
   },
   weddingReminder: {
     en: 'Wedding Reminder: {days} days to go',
@@ -102,7 +102,7 @@ export async function sendEmail({
   to,
   subject,
   html,
-  from = 'WeddingFlow Pro <noreply@weddingflow.com>',
+  from = 'WeddingFlo <noreply@weddingflow.com>',
 }: {
   to: string | string[];
   subject: string;

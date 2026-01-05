@@ -1,29 +1,32 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { trpc } from '@/lib/trpc/client';
-import { createClient } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send } from 'lucide-react';
+import { useState } from 'react';
 
 /**
- * Message interface matching existing messages table schema
+ * Message interface matching Drizzle schema (camelCase)
  */
 interface Message {
   id: string;
-  client_id: string;
-  sender_id: string;
-  recipient_id: string;
+  companyId: string;
+  clientId: string | null;
+  senderId: string;
+  receiverId: string | null;
   subject: string | null;
-  body: string;
-  is_read: boolean;
-  read_at: string | null;
-  parent_message_id: string | null;
-  metadata: any;
-  created_at: string;
-  updated_at: string;
+  content: string;
+  messageType: string | null;
+  isRead: boolean | null;
+  readAt: Date | null;
+  parentId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
 }
 
 interface ChatBoxProps {
@@ -35,18 +38,20 @@ interface ChatBoxProps {
 }
 
 /**
- * Real-time chat component using Supabase Realtime
+ * Real-time chat component using polling
+ *
+ * December 2025 - Migrated from Supabase Realtime to polling
  *
  * Features:
- * - Real-time message updates via Supabase Realtime
+ * - Polling-based updates (3 second interval)
  * - Auto-scroll to bottom on new messages
  * - Mark messages as read when viewed
  * - Send/receive messages with tRPC
- * - Uses existing messages table schema
+ * - Uses Drizzle schema with camelCase fields
  *
- * Session Claims: NO database queries for auth checks
- * - All auth via ctx.companyId from session claims
- * - RLS policies enforce data isolation
+ * Session: Uses BetterAuth session
+ * - All auth via ctx.companyId from session
+ * - Application-level RLS enforces data isolation
  */
 export function ChatBox({
   clientId,
@@ -55,77 +60,23 @@ export function ChatBox({
   currentUserName,
   otherUserName,
 }: ChatBoxProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(0);
 
-  // Create Supabase client for Realtime
-  // Uses @supabase/supabase-js (NOT @supabase/ssr) per preflight checklist
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  );
-
-  // Fetch conversation using tRPC
-  const { data, isLoading } = trpc.messages.getConversation.useQuery({
-    clientId,
-    otherUserId,
-  });
-
-  // Update local state when data loads
-  useEffect(() => {
-    if (data) {
-      setMessages(data);
+  // Fetch conversation using tRPC with polling for real-time updates
+  const { data: messages = [], isLoading } = trpc.messages.getConversation.useQuery(
+    {
+      clientId,
+      otherUserId,
+    },
+    {
+      // Poll every 3 seconds for new messages
+      refetchInterval: 3000,
+      // Keep polling even when window loses focus
+      refetchIntervalInBackground: true,
     }
-  }, [data]);
-
-  // Subscribe to Realtime updates
-  useEffect(() => {
-    const channel = supabase
-      .channel(`messages:${clientId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `client_id=eq.${clientId}`,
-        },
-        (payload) => {
-          const newMessage = payload.new as Message;
-
-          // Only add if it's part of this conversation
-          if (
-            (newMessage.sender_id === currentUserId &&
-              newMessage.recipient_id === otherUserId) ||
-            (newMessage.sender_id === otherUserId &&
-              newMessage.recipient_id === currentUserId)
-          ) {
-            setMessages((prev) => [...prev, newMessage]);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `client_id=eq.${clientId}`,
-        },
-        (payload) => {
-          const updatedMessage = payload.new as Message;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === updatedMessage.id ? updatedMessage : m))
-          );
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [clientId, currentUserId, otherUserId, supabase]);
+  ) as { data: Message[]; isLoading: boolean };
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -137,7 +88,7 @@ export function ChatBox({
 
   useEffect(() => {
     const unreadIds = messages
-      .filter((m) => !m.is_read && m.recipient_id === currentUserId)
+      .filter((m) => !m.isRead && m.receiverId === currentUserId)
       .map((m) => m.id);
 
     if (unreadIds.length > 0) {
@@ -159,7 +110,7 @@ export function ChatBox({
     sendMutation.mutate({
       clientId,
       recipientId: otherUserId,
-      body: input,
+      content: input,
     });
   };
 
@@ -183,7 +134,7 @@ export function ChatBox({
           )}
 
           {messages.map((message) => {
-            const isOwnMessage = message.sender_id === currentUserId;
+            const isOwnMessage = message.senderId === currentUserId;
             const senderName = isOwnMessage ? currentUserName : otherUserName;
 
             return (
@@ -207,12 +158,12 @@ export function ChatBox({
                   )}
 
                   <p className="text-sm whitespace-pre-wrap break-words">
-                    {message.body}
+                    {message.content}
                   </p>
 
                   <div className="flex items-center gap-2 mt-1">
                     <p className="text-xs opacity-70">
-                      {new Date(message.created_at).toLocaleTimeString([], {
+                      {new Date(message.createdAt).toLocaleTimeString([], {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
@@ -220,7 +171,7 @@ export function ChatBox({
 
                     {isOwnMessage && (
                       <span className="text-xs opacity-70">
-                        {message.is_read ? '✓✓' : '✓'}
+                        {message.isRead ? '✓✓' : '✓'}
                       </span>
                     )}
                   </div>

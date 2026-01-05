@@ -1,22 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
  * Sync Page
+ * December 2025 - BetterAuth
  *
  * This page handles the case where a user is authenticated but their
- * Clerk JWT doesn't have role/company_id in publicMetadata.
+ * session doesn't have role/company_id properly set.
  *
  * This can happen when:
- * 1. User just signed up and webhook hasn't fired yet
- * 2. Webhook failed
- * 3. Legacy user without metadata
+ * 1. User just signed up and data sync hasn't completed yet
+ * 2. Database sync failed
+ * 3. Legacy user without company assignment
  *
- * November 2025 Pattern: Sync from DB to JWT once, then all reads from JWT.
+ * Pattern: Sync from DB to session, then redirect to dashboard.
  */
 export default function SyncPage() {
   const params = useParams();
@@ -26,6 +27,7 @@ export default function SyncPage() {
   const [canRetry, setCanRetry] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const maxRetries = 3;
+  const syncInProgress = useRef(false);
 
   const syncMetadata = async () => {
     try {
@@ -41,8 +43,14 @@ export default function SyncPage() {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Success! Redirect to dashboard
-        // Use window.location to force full page reload with new JWT
+        // Success! Force sign out and back in to get fresh session with new companyId
+        // This ensures the session cache is cleared and new data is loaded
+        console.log('[Sync] Account setup complete, refreshing session...');
+
+        // Small delay to ensure DB write is committed
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Force full page reload to clear any cached session
         window.location.href = `/${locale}/dashboard`;
         return;
       }
@@ -72,6 +80,9 @@ export default function SyncPage() {
   };
 
   useEffect(() => {
+    // Prevent double calls from React StrictMode
+    if (syncInProgress.current) return;
+    syncInProgress.current = true;
     syncMetadata();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -2,11 +2,10 @@
  * Push Notification Preferences Component
  *
  * Provides granular control over notification types:
- * - Payment alerts
- * - RSVP updates
+ * - Task reminders
  * - Event reminders
- * - Task deadlines
- * - Vendor messages
+ * - Client updates
+ * - System alerts
  *
  * Changes are saved immediately to the database
  */
@@ -19,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { trpc } from '@/lib/trpc/client';
 import { toast } from 'sonner';
-import { Loader2, CreditCard, Users, Calendar, CheckSquare, MessageSquare, Bell } from 'lucide-react';
+import { Loader2, Users, Calendar, CheckSquare, Info, Bell } from 'lucide-react';
 
 interface PreferenceItemProps {
   icon: React.ReactNode;
@@ -138,7 +137,7 @@ export function PushNotificationPreferences() {
         <div className="rounded-lg bg-muted/50 p-4 mb-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label htmlFor="enabled" className="text-base font-semibold">
+              <Label htmlFor="push-enabled" className="text-base font-semibold">
                 Master Switch
               </Label>
               <p className="text-sm text-muted-foreground mt-1">
@@ -146,10 +145,10 @@ export function PushNotificationPreferences() {
               </p>
             </div>
             <Switch
-              id="enabled"
-              checked={preferences.enabled}
+              id="push-enabled"
+              checked={preferences.pushEnabled ?? true}
               onCheckedChange={(checked) =>
-                handleUpdatePreference('enabled', checked)
+                handleUpdatePreference('pushEnabled', checked)
               }
               disabled={updateMutation.isPending}
             />
@@ -161,27 +160,14 @@ export function PushNotificationPreferences() {
         {/* Individual Preferences */}
         <div className="space-y-1">
           <PreferenceItem
-            icon={<CreditCard className="h-5 w-5" />}
-            label="Payment Alerts"
-            description="Payment received, payment due, payment failed, and refund notifications"
-            checked={preferences.payment_alerts}
+            icon={<CheckSquare className="h-5 w-5" />}
+            label="Task Reminders"
+            description="Task due soon, overdue tasks, and task completions"
+            checked={preferences.taskReminders ?? true}
             onCheckedChange={(checked) =>
-              handleUpdatePreference('paymentAlerts', checked)
+              handleUpdatePreference('taskReminders', checked)
             }
-            disabled={!preferences.enabled || updateMutation.isPending}
-          />
-
-          <Separator />
-
-          <PreferenceItem
-            icon={<Users className="h-5 w-5" />}
-            label="RSVP Updates"
-            description="Guest confirmations, cancellations, and RSVP changes"
-            checked={preferences.rsvp_updates}
-            onCheckedChange={(checked) =>
-              handleUpdatePreference('rsvpUpdates', checked)
-            }
-            disabled={!preferences.enabled || updateMutation.isPending}
+            disabled={!preferences.pushEnabled || updateMutation.isPending}
           />
 
           <Separator />
@@ -190,44 +176,44 @@ export function PushNotificationPreferences() {
             icon={<Calendar className="h-5 w-5" />}
             label="Event Reminders"
             description="Upcoming events, event changes, and schedule updates"
-            checked={preferences.event_reminders}
+            checked={preferences.eventReminders ?? true}
             onCheckedChange={(checked) =>
               handleUpdatePreference('eventReminders', checked)
             }
-            disabled={!preferences.enabled || updateMutation.isPending}
+            disabled={!preferences.pushEnabled || updateMutation.isPending}
           />
 
           <Separator />
 
           <PreferenceItem
-            icon={<CheckSquare className="h-5 w-5" />}
-            label="Task Deadlines"
-            description="Task due soon, overdue tasks, and task completions"
-            checked={preferences.task_deadlines}
+            icon={<Users className="h-5 w-5" />}
+            label="Client Updates"
+            description="Guest confirmations, cancellations, and client activity"
+            checked={preferences.clientUpdates ?? true}
             onCheckedChange={(checked) =>
-              handleUpdatePreference('taskDeadlines', checked)
+              handleUpdatePreference('clientUpdates', checked)
             }
-            disabled={!preferences.enabled || updateMutation.isPending}
+            disabled={!preferences.pushEnabled || updateMutation.isPending}
           />
 
           <Separator />
 
           <PreferenceItem
-            icon={<MessageSquare className="h-5 w-5" />}
-            label="Vendor Messages"
-            description="New messages from vendors and vendor updates"
-            checked={preferences.vendor_messages}
+            icon={<Info className="h-5 w-5" />}
+            label="System Alerts"
+            description="Important system updates and announcements"
+            checked={preferences.systemAlerts ?? true}
             onCheckedChange={(checked) =>
-              handleUpdatePreference('vendorMessages', checked)
+              handleUpdatePreference('systemAlerts', checked)
             }
-            disabled={!preferences.enabled || updateMutation.isPending}
+            disabled={!preferences.pushEnabled || updateMutation.isPending}
           />
         </div>
 
         {/* Help Text */}
         <div className="mt-6 text-xs text-muted-foreground">
           <p>
-            Changes are saved automatically. System notifications (like account updates) cannot be
+            Changes are saved automatically. Critical security notifications cannot be
             disabled.
           </p>
         </div>

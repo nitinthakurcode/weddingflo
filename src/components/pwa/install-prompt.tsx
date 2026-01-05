@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -16,6 +17,7 @@ interface BeforeInstallPromptEvent extends Event {
  * Shows install button when PWA is installable
  */
 export function InstallPrompt() {
+  const t = useTranslations('pwa');
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -33,7 +35,7 @@ export function InstallPrompt() {
     // Listen for beforeinstallprompt event
     const handler = (e: Event) => {
       e.preventDefault();
-      console.log('📱 PWA install prompt available');
+      console.log('PWA install prompt available');
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsInstallable(true);
 
@@ -49,7 +51,7 @@ export function InstallPrompt() {
 
     // Listen for app installed event
     window.addEventListener('appinstalled', () => {
-      console.log('✅ PWA installed');
+      console.log('PWA installed');
       setIsInstalled(true);
       setShowPrompt(false);
       setIsInstallable(false);
@@ -73,11 +75,11 @@ export function InstallPrompt() {
     console.log('User choice:', choiceResult.outcome);
 
     if (choiceResult.outcome === 'accepted') {
-      console.log('✅ User accepted install');
+      console.log('User accepted install');
       setShowPrompt(false);
       saveUserAcceptedPrompt();
     } else {
-      console.log('❌ User dismissed install');
+      console.log('User dismissed install');
       setShowPrompt(false);
       saveUserDismissedPrompt();
     }
@@ -132,9 +134,9 @@ export function InstallPrompt() {
           <Smartphone className="h-5 w-5 mt-0.5" />
           <div className="flex-1 space-y-2">
             <AlertDescription>
-              <strong className="block mb-1">Install WeddingFlow Pro</strong>
+              <strong className="block mb-1">{t('installTitle')}</strong>
               <span className="text-sm opacity-90">
-                Install our app for quick access, offline support, and a better experience!
+                {t('installDescription')}
               </span>
             </AlertDescription>
             <div className="flex gap-2">
@@ -145,7 +147,7 @@ export function InstallPrompt() {
                 className="flex-1"
               >
                 <Download className="h-3 w-3 mr-1" />
-                Install
+                {t('install')}
               </Button>
               <Button
                 onClick={handleDismiss}
@@ -167,6 +169,7 @@ export function InstallPrompt() {
  * Install Button for Header/Navbar
  */
 export function InstallButton() {
+  const t = useTranslations('pwa');
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -223,7 +226,7 @@ export function InstallButton() {
   return (
     <Button onClick={handleInstall} size="sm" variant="outline">
       <Download className="h-4 w-4 mr-2" />
-      Install App
+      {t('installApp')}
     </Button>
   );
 }
@@ -232,6 +235,7 @@ export function InstallButton() {
  * Installation Status Card
  */
 export function InstallStatusCard() {
+  const t = useTranslations('pwa');
   const [isInstalled, setIsInstalled] = useState(false);
   const [installDate, setInstallDate] = useState<Date | null>(null);
 
@@ -254,9 +258,9 @@ export function InstallStatusCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>App Installation</CardTitle>
+        <CardTitle>{t('appInstallation')}</CardTitle>
         <CardDescription>
-          Progressive Web App installation status
+          {t('installationStatus')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -267,9 +271,9 @@ export function InstallStatusCard() {
                 <CheckCircle className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <div className="font-medium">Installed</div>
+                <div className="font-medium">{t('installed')}</div>
                 <div className="text-sm text-muted-foreground">
-                  App is running in standalone mode
+                  {t('runningStandalone')}
                 </div>
               </div>
             </>
@@ -279,9 +283,9 @@ export function InstallStatusCard() {
                 <Smartphone className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
-                <div className="font-medium">Not Installed</div>
+                <div className="font-medium">{t('notInstalled')}</div>
                 <div className="text-sm text-muted-foreground">
-                  Running in browser mode
+                  {t('runningBrowser')}
                 </div>
               </div>
             </>
@@ -290,28 +294,28 @@ export function InstallStatusCard() {
 
         {isInstalled && installDate && (
           <div className="text-sm text-muted-foreground">
-            Installed on {installDate.toLocaleDateString()}
+            {t('installedOn', { date: installDate.toLocaleDateString() })}
           </div>
         )}
 
         <div className="space-y-2">
-          <h4 className="text-sm font-medium">Benefits of Installing:</h4>
+          <h4 className="text-sm font-medium">{t('benefitsTitle')}</h4>
           <ul className="space-y-1 text-sm text-muted-foreground">
             <li className="flex items-center gap-2">
               <CheckCircle className="h-3 w-3 text-green-600" />
-              Quick access from home screen
+              {t('benefitHomeScreen')}
             </li>
             <li className="flex items-center gap-2">
               <CheckCircle className="h-3 w-3 text-green-600" />
-              Works offline
+              {t('benefitOffline')}
             </li>
             <li className="flex items-center gap-2">
               <CheckCircle className="h-3 w-3 text-green-600" />
-              Faster performance
+              {t('benefitPerformance')}
             </li>
             <li className="flex items-center gap-2">
               <CheckCircle className="h-3 w-3 text-green-600" />
-              Native app-like experience
+              {t('benefitNative')}
             </li>
           </ul>
         </div>

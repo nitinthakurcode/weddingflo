@@ -1,4 +1,4 @@
-# WeddingFlow Pro - Cursor AI Rules
+# WeddingFlo - Cursor AI Rules
 # Auto-loaded on every Cursor session
 # Last Updated: October 23, 2025
 
@@ -154,7 +154,7 @@ Session 19 Disaster (Oct 18, 2025):
 
 ## ✅ COMMITMENT
 
-As Claude Code working on WeddingFlow Pro:
+As Claude Code working on WeddingFlo:
 - I will ALWAYS read these rules before suggesting code
 - I will REJECT code that violates these patterns
 - I will WARN user if their request would break standards

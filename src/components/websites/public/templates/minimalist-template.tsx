@@ -1,10 +1,10 @@
 'use client';
 
-import type { Database } from '@/lib/database.types';
+import type { WeddingWebsite } from '@/lib/db/types';
 import type { WeddingTemplate } from '@/lib/templates/wedding-templates';
 import { Heart, Calendar } from 'lucide-react';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+type Website = WeddingWebsite;
 
 interface MinimalistTemplateProps {
   website: Website;
@@ -22,8 +22,9 @@ interface MinimalistTemplateProps {
  * - Smooth animations
  */
 export function MinimalistTemplate({ website, template }: MinimalistTemplateProps) {
-  const heroSection = website.hero_section as any;
-  const ourStorySection = website.our_story_section as any;
+  const content = website.content as Record<string, any> || {};
+  const heroSection = content.hero_section as any;
+  const ourStorySection = content.our_story_section as any;
 
   return (
     <div className="minimalist-template min-h-screen bg-white" style={{ fontFamily: template.fonts.body }}>
@@ -98,7 +99,7 @@ export function MinimalistTemplate({ website, template }: MinimalistTemplateProp
 
       {/* Our Story - Grid Layout */}
       {ourStorySection?.content && (
-        <section className="py-32 px-4 bg-gray-50">
+        <section className="py-32 px-4 bg-mocha-50 dark:bg-mocha-900">
           <div className="max-w-5xl mx-auto">
             <div className="grid md:grid-cols-12 gap-12">
               {/* Left Column - Header */}

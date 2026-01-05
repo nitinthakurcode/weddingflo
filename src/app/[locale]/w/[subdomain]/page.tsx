@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { db, eq, and, sql } from '@/lib/db';
+import { weddingWebsites } from '@/lib/db/schema';
 import { getTemplate, generateTemplateCSS, getTemplateFontLinks } from '@/lib/templates/wedding-templates';
 import { WebsiteRenderer } from '@/components/websites/public/website-renderer';
 import { PasswordProtection } from '@/components/websites/public/password-protection';
@@ -31,14 +32,16 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps) {
   const { subdomain } = await params;
-  const supabase = createServerSupabaseAdminClient();
 
-  const { data: website } = await supabase
-    .from('wedding_websites')
-    .select('*')
-    .eq('subdomain', subdomain)
-    .eq('is_published', true)
-    .maybeSingle();
+  // Fetch website using raw SQL to get all columns including those not in schema
+  const websiteResult = await db.execute(sql`
+    SELECT * FROM wedding_websites
+    WHERE subdomain = ${subdomain}
+      AND is_published = true
+    LIMIT 1
+  `);
+
+  const website = websiteResult.rows[0] as any;
 
   if (!website) {
     return {
@@ -49,7 +52,7 @@ export async function generateMetadata({ params }: PageProps) {
   const heroSection = website.hero_section as any;
 
   return {
-    title: website.meta_title || `${heroSection?.title || 'Wedding'} - WeddingFlow`,
+    title: website.meta_title || `${heroSection?.title || 'Wedding'} - WeddingFlo`,
     description:
       website.meta_description ||
       `${heroSection?.subtitle || "We're getting married!"} Join us to celebrate!`,
@@ -65,17 +68,17 @@ export default async function PublicWebsitePage({ params, searchParams }: PagePr
   const { subdomain } = await params;
   const { password } = await searchParams;
 
-  const supabase = createServerSupabaseAdminClient();
+  // Fetch website using raw SQL to get all columns
+  const websiteResult = await db.execute(sql`
+    SELECT * FROM wedding_websites
+    WHERE subdomain = ${subdomain}
+      AND is_published = true
+    LIMIT 1
+  `);
 
-  // Fetch website
-  const { data: website, error } = await supabase
-    .from('wedding_websites')
-    .select('*')
-    .eq('subdomain', subdomain)
-    .eq('is_published', true)
-    .maybeSingle();
+  const website = websiteResult.rows[0] as any;
 
-  if (error || !website) {
+  if (!website) {
     notFound();
   }
 

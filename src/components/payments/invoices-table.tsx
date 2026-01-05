@@ -13,6 +13,26 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { formatStripeAmount } from '@/lib/payments/stripe';
 import { PDFDownloadButton } from './pdf-download-button';
 
+interface Invoice {
+  id: string;
+  invoice_number: string;
+  description: string | null;
+  status: string;
+  amount: number;
+  total_amount: number;
+  currency: string;
+  due_date: string | null;
+  created_at: string;
+  client: {
+    partner1_first_name: string | null;
+    partner1_last_name: string | null;
+  } | null;
+  payments: Array<{
+    id: string;
+    status: string;
+  }> | null;
+}
+
 export function InvoicesTable() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -57,7 +77,8 @@ export function InvoicesTable() {
     }
   };
 
-  const filteredInvoices = data?.invoices.filter((invoice) => {
+  const typedInvoices = data?.invoices as Invoice[] | undefined;
+  const filteredInvoices = typedInvoices?.filter((invoice: Invoice) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     const clientName = `${invoice.client?.partner1_first_name || ''} ${invoice.client?.partner1_last_name || ''}`.toLowerCase();

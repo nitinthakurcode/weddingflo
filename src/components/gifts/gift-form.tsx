@@ -247,7 +247,7 @@ export function GiftForm({ clientId, giftId, open, onOpenChange }: GiftFormProps
                       <SelectContent>
                         {guests?.map((guest) => (
                           <SelectItem key={guest.id} value={guest.id}>
-                            {guest.first_name} {guest.last_name}
+                            {guest.firstName} {guest.lastName}
                           </SelectItem>
                         ))}
                       </SelectContent>

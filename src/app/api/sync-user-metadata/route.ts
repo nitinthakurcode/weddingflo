@@ -1,49 +1,34 @@
+/**
+ * API Route: Get User Metadata
+ *
+ * Returns current user metadata from BetterAuth session.
+ * With BetterAuth, no external sync is needed - data is in the database.
+ */
+
 import { NextResponse } from 'next/server';
-import { auth, clerkClient } from '@clerk/nextjs/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getServerSession } from '@/lib/auth/server';
 
 export async function POST() {
   try {
-    const { userId } = await auth();
+    const { userId, user } = await getServerSession();
 
-    if (!userId) {
+    if (!userId || !user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get Supabase user
-    const supabase = createServerSupabaseClient();
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
-    const { data: supabaseUser, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('clerk_id', userId)
-      .maybeSingle();
-
-    if (error || !supabaseUser) {
-      return NextResponse.json({ error: 'User not found in Supabase' }, { status: 404 });
-    }
-
-    if (!(supabaseUser as any).company_id) {
-      return NextResponse.json({ error: 'No company ID found in Supabase user' }, { status: 400 });
-    }
-
-    // Update Clerk user metadata
-    const client = await clerkClient();
-    await client.users.updateUserMetadata(userId, {
-      publicMetadata: {
-        companyId: (supabaseUser as any).company_id,
-      },
-    });
-
+    // Return user metadata directly from session
     return NextResponse.json({
       success: true,
-      message: 'User metadata synced successfully',
-      companyId: (supabaseUser as any).company_id,
+      message: 'User metadata retrieved successfully',
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      companyId: user.companyId,
     });
   } catch (error: any) {
-    console.error('Sync error:', error);
+    console.error('Get metadata error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to sync user metadata' },
+      { error: error.message || 'Failed to get user metadata' },
       { status: 500 }
     );
   }

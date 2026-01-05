@@ -1,4 +1,5 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { db, eq, sql } from '@/lib/db'
+import { companies } from '@/lib/db/schema'
 import { openai, calculateAICost, AI_CONFIG } from './openai-client'
 import { TRPCError } from '@trpc/server'
 import type { AIFeatureType } from './openai-client'
@@ -19,32 +20,35 @@ interface AIUsageParams {
  * Check if company has remaining AI quota
  */
 export async function checkAIQuota(companyId: string): Promise<boolean> {
-  const supabase = createServerSupabaseClient()
+  try {
+    // Call database function via raw SQL
+    const result = await db.execute(sql`
+      SELECT check_ai_quota(${companyId}) as has_quota
+    `)
 
-  const { data, error } = await supabase
-    .rpc('check_ai_quota', { p_company_id: companyId })
-
-  if (error) {
+    return (result.rows[0] as { has_quota: boolean })?.has_quota === true
+  } catch (error) {
     console.error('Error checking AI quota:', error)
     return false
   }
-
-  return data === true
 }
 
 /**
  * Get current AI usage for company
  */
 export async function getAIUsage(companyId: string) {
-  const supabase = createServerSupabaseClient()
+  const companyResult = await db
+    .select({
+      aiQueriesThisMonth: companies.aiQueriesThisMonth,
+      subscriptionTier: companies.subscriptionTier,
+    })
+    .from(companies)
+    .where(eq(companies.id, companyId))
+    .limit(1)
 
-  const { data: company, error } = await supabase
-    .from('companies')
-    .select('ai_queries_this_month, subscription_tier')
-    .eq('id', companyId)
-    .single()
+  const company = companyResult[0]
 
-  if (error) {
+  if (!company) {
     throw new TRPCError({
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Failed to fetch AI usage',
@@ -59,8 +63,8 @@ export async function getAIUsage(companyId: string) {
     enterprise: 1000,
   }
 
-  const limit = quotaLimits[company.subscription_tier] || 5
-  const used = company.ai_queries_this_month || 0
+  const limit = quotaLimits[company.subscriptionTier || 'free'] || 5
+  const used = company.aiQueriesThisMonth || 0
   const remaining = Math.max(0, limit - used)
   const percentageUsed = (used / limit) * 100
 
@@ -69,7 +73,7 @@ export async function getAIUsage(companyId: string) {
     limit,
     remaining,
     percentageUsed: Math.round(percentageUsed),
-    tier: company.subscription_tier,
+    tier: company.subscriptionTier,
   }
 }
 
@@ -77,39 +81,37 @@ export async function getAIUsage(companyId: string) {
  * Log AI usage to database
  */
 export async function logAIUsage(params: AIUsageParams): Promise<void> {
-  const supabase = createServerSupabaseClient()
-
   const cost = calculateAICost(
     params.promptTokens,
     params.completionTokens,
     params.model
   )
 
-  // Insert usage log
-  const { error: logError } = await supabase
-    .from('ai_usage_logs')
-    .insert({
-      company_id: params.companyId,
-      user_id: params.userId,
-      feature_type: params.featureType,
-      prompt_tokens: params.promptTokens,
-      completion_tokens: params.completionTokens,
-      total_tokens: params.totalTokens,
-      cost_usd: cost,
-      model: params.model,
-      request_data: params.requestData || {},
-      response_data: params.responseData || {},
-    })
-
-  if (logError) {
+  try {
+    // Insert usage log using raw SQL
+    await db.execute(sql`
+      INSERT INTO ai_usage_logs (
+        company_id, user_id, feature_type, prompt_tokens, completion_tokens,
+        total_tokens, cost_usd, model, request_data, response_data
+      )
+      VALUES (
+        ${params.companyId}, ${params.userId}, ${params.featureType},
+        ${params.promptTokens}, ${params.completionTokens}, ${params.totalTokens},
+        ${cost}, ${params.model},
+        ${JSON.stringify(params.requestData || {})}::jsonb,
+        ${JSON.stringify(params.responseData || {})}::jsonb
+      )
+    `)
+  } catch (logError) {
     console.error('Error logging AI usage:', logError)
   }
 
   // Increment usage counter
-  const { error: incrementError } = await supabase
-    .rpc('increment_ai_usage', { p_company_id: params.companyId })
-
-  if (incrementError) {
+  try {
+    await db.execute(sql`
+      SELECT increment_ai_usage(${params.companyId})
+    `)
+  } catch (incrementError) {
     console.error('Error incrementing AI usage:', incrementError)
   }
 }

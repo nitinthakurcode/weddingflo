@@ -1,10 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@clerk/nextjs';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabaseClient } from '@/lib/supabase/client';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/lib/trpc/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -36,81 +35,60 @@ const LANGUAGES = [
   { value: 'es', label: 'Español' },
   { value: 'fr', label: 'Français' },
   { value: 'de', label: 'Deutsch' },
-  { value: 'it', label: 'Italiano' },
-  { value: 'pt', label: 'Português' },
+  { value: 'hi', label: 'हिन्दी' },
   { value: 'zh', label: '中文' },
   { value: 'ja', label: '日本語' },
-  { value: 'ko', label: '한국어' },
+];
+
+const CURRENCIES = [
+  { value: 'USD', label: 'US Dollar ($)' },
+  { value: 'EUR', label: 'Euro (€)' },
+  { value: 'GBP', label: 'British Pound (£)' },
+  { value: 'INR', label: 'Indian Rupee (₹)' },
+  { value: 'JPY', label: 'Japanese Yen (¥)' },
+  { value: 'AUD', label: 'Australian Dollar (A$)' },
+  { value: 'CAD', label: 'Canadian Dollar (C$)' },
 ];
 
 export default function PreferencesPage() {
-  const { user: clerkUser } = useUser();
-  const supabase = useSupabaseClient();
-  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const sessionUser = session?.user;
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const utils = trpc.useUtils();
 
-  // Fetch current user
-  const { data: user, isLoading: userLoading } = useQuery<any>({
-    queryKey: ['current-user', clerkUser?.id],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      if (!clerkUser?.id) return null;
-      // @ts-ignore - TODO: Regenerate Supabase types from database schema
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('clerk_id', clerkUser.id)
-        .maybeSingle();
+  // Fetch current user preferences using tRPC
+  const { data: preferences, isLoading: preferencesLoading } = trpc.users.getPreferences.useQuery(
+    undefined,
+    { enabled: !!sessionUser }
+  );
 
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!clerkUser && !!supabase,
+  // Local form state
+  const [formData, setFormData] = useState({
+    language: 'en',
+    timezone: 'UTC',
+    currency: 'USD',
+    autoDetectLocale: true,
   });
 
-  const userSettings = user?.settings as any || {};
+  // Sync form state with loaded preferences
+  useEffect(() => {
+    if (preferences) {
+      setFormData({
+        language: preferences.preferred_language || 'en',
+        timezone: preferences.timezone || 'UTC',
+        currency: preferences.preferred_currency || 'USD',
+        autoDetectLocale: preferences.auto_detect_locale ?? true,
+      });
+    }
+  }, [preferences]);
 
-  const [preferences, setPreferences] = useState({
-    theme: userSettings.theme || 'light',
-    notifications_enabled: userSettings.notifications_enabled ?? true,
-    email_digest: userSettings.email_digest || 'daily',
-    language: userSettings.language || 'en',
-    timezone: userSettings.timezone || 'UTC',
-  });
-
-  // Update local state when user data loads
-  if (user && userSettings.theme && preferences.theme !== userSettings.theme) {
-    setPreferences({
-      theme: userSettings.theme,
-      notifications_enabled: userSettings.notifications_enabled,
-      email_digest: userSettings.email_digest,
-      language: userSettings.language,
-      timezone: userSettings.timezone,
-    });
-  }
-
-  // Update preferences mutation
-  const updatePreferencesMutation = useMutation({
-    mutationFn: async (newPreferences: typeof preferences) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('No user ID');
-
-      const { error } = await supabase
-        .from('users')
-        // @ts-ignore - TODO: Regenerate Supabase types from database schema
-        .update({
-          settings: newPreferences,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-    },
+  // Update preferences mutation using tRPC
+  const updatePreferencesMutation = trpc.users.updatePreferences.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['current-user', clerkUser?.id] });
+      utils.users.getPreferences.invalidate();
+      utils.users.getCurrent.invalidate();
       toast({
         title: 'Preferences saved',
         description: 'Your preferences have been successfully updated.',
@@ -131,15 +109,25 @@ export default function PreferencesPage() {
     setIsLoading(true);
 
     try {
-      await updatePreferencesMutation.mutateAsync(preferences);
+      await updatePreferencesMutation.mutateAsync({
+        preferred_language: formData.language,
+        timezone: formData.timezone,
+        preferred_currency: formData.currency,
+        auto_detect_locale: formData.autoDetectLocale,
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const hasChanges = JSON.stringify(preferences) !== JSON.stringify(userSettings);
+  const hasChanges = preferences && (
+    formData.language !== (preferences.preferred_language || 'en') ||
+    formData.timezone !== (preferences.timezone || 'UTC') ||
+    formData.currency !== (preferences.preferred_currency || 'USD') ||
+    formData.autoDetectLocale !== (preferences.auto_detect_locale ?? true)
+  );
 
-  if (!clerkUser || userLoading) {
+  if (!sessionUser || preferencesLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -159,110 +147,53 @@ export default function PreferencesPage() {
     );
   }
 
-  if (!user) {
-    return <div>User not found</div>;
-  }
-
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Preferences</h1>
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
+          Preferences
+        </h1>
         <p className="text-muted-foreground">
           Customize your experience
         </p>
       </div>
 
-      {/* Appearance */}
-      <Card>
+      {/* Localization */}
+      <Card
+        variant="glass"
+        className="border border-indigo-200/50 dark:border-indigo-800/30 shadow-lg shadow-indigo-500/10 bg-gradient-to-br from-white via-indigo-50/20 to-white dark:from-gray-900 dark:via-indigo-950/10 dark:to-gray-900"
+      >
         <CardHeader>
-          <CardTitle>Appearance</CardTitle>
+          <CardTitle className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+            Localization
+          </CardTitle>
           <CardDescription>
-            Customize how the app looks for you
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="theme">Theme</Label>
-            <Select
-              value={preferences.theme}
-              onValueChange={(value: any) =>
-                setPreferences({ ...preferences, theme: value })
-              }
-            >
-              <SelectTrigger id="theme">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="light">Light</SelectItem>
-                <SelectItem value="dark">Dark</SelectItem>
-                <SelectItem value="auto">Auto (System)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Notifications */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Notifications</CardTitle>
-          <CardDescription>
-            Manage how you receive notifications
+            Language, timezone, and currency settings
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label htmlFor="notifications">Enable Notifications</Label>
+              <Label htmlFor="auto-detect">Auto-detect locale</Label>
               <p className="text-sm text-muted-foreground">
-                Receive notifications about important updates
+                Automatically detect your language and timezone
               </p>
             </div>
             <Switch
-              id="notifications"
-              checked={preferences.notifications_enabled}
+              id="auto-detect"
+              checked={formData.autoDetectLocale}
               onCheckedChange={(checked) =>
-                setPreferences({ ...preferences, notifications_enabled: checked })
+                setFormData({ ...formData, autoDetectLocale: checked })
               }
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email-digest">Email Digest</Label>
-            <Select
-              value={preferences.email_digest}
-              onValueChange={(value: any) =>
-                setPreferences({ ...preferences, email_digest: value })
-              }
-            >
-              <SelectTrigger id="email-digest">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="daily">Daily Summary</SelectItem>
-                <SelectItem value="weekly">Weekly Summary</SelectItem>
-                <SelectItem value="never">Never</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Localization */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Localization</CardTitle>
-          <CardDescription>
-            Language and timezone settings
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
             <Label htmlFor="language">Language</Label>
             <Select
-              value={preferences.language}
+              value={formData.language}
               onValueChange={(value) =>
-                setPreferences({ ...preferences, language: value })
+                setFormData({ ...formData, language: value })
               }
             >
               <SelectTrigger id="language">
@@ -281,9 +212,9 @@ export default function PreferencesPage() {
           <div className="space-y-2">
             <Label htmlFor="timezone">Timezone</Label>
             <Select
-              value={preferences.timezone}
+              value={formData.timezone}
               onValueChange={(value) =>
-                setPreferences({ ...preferences, timezone: value })
+                setFormData({ ...formData, timezone: value })
               }
             >
               <SelectTrigger id="timezone">
@@ -293,6 +224,27 @@ export default function PreferencesPage() {
                 {TIMEZONES.map((tz) => (
                   <SelectItem key={tz.value} value={tz.value}>
                     {tz.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="currency">Currency</Label>
+            <Select
+              value={formData.currency}
+              onValueChange={(value) =>
+                setFormData({ ...formData, currency: value })
+              }
+            >
+              <SelectTrigger id="currency">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((curr) => (
+                  <SelectItem key={curr.value} value={curr.value}>
+                    {curr.label}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -65,22 +65,22 @@ export function GuestDetailsSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{guest.guest_name}</SheetTitle>
+          <SheetTitle>{`${guest.firstName} ${guest.lastName || ''}`.trim()}</SheetTitle>
           <SheetDescription>Guest details and information</SheetDescription>
         </SheetHeader>
 
         <div className="mt-6 space-y-6">
           {/* Status Badges */}
           <div className="flex flex-wrap gap-2">
-            {guest.guest_category && (
+            {guest.groupName && (
               <Badge variant="outline">
-                {categoryLabels[guest.guest_category] || guest.guest_category}
+                {guest.groupName}
               </Badge>
             )}
-            {guest.form_submitted && (
+            {guest.rsvpStatus === 'accepted' && (
               <Badge className="bg-green-600">RSVP Confirmed</Badge>
             )}
-            {guest.checked_in && (
+            {guest.checkedIn && (
               <Badge className="bg-green-600">
                 <CheckCircle className="mr-1 h-3 w-3" />
                 Checked In
@@ -99,26 +99,26 @@ export function GuestDetailsSheet({
                 <span>{guest.email}</span>
               </div>
             )}
-            {guest.phone_number && (
+            {guest.phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{guest.phone_number}</span>
+                <span>{guest.phone}</span>
               </div>
             )}
           </div>
 
           <Separator />
 
-          {/* Additional Guests */}
-          {guest.number_of_packs > 1 && (
+          {/* Party Information */}
+          {guest.partySize > 1 && (
             <>
               <div className="space-y-3">
-                <h3 className="font-semibold">Additional Guests ({guest.number_of_packs - 1})</h3>
+                <h3 className="font-semibold">Party ({guest.partySize} guests)</h3>
                 <div className="flex items-center gap-2 text-sm">
                   <Users className="h-4 w-4 text-muted-foreground" />
                   <span>
-                    {guest.additional_guest_names.length > 0
-                      ? guest.additional_guest_names.join(', ')
+                    {guest.additionalGuestNames && guest.additionalGuestNames.length > 0
+                      ? guest.additionalGuestNames.join(', ')
                       : 'Names not provided'}
                   </span>
                 </div>
@@ -128,68 +128,17 @@ export function GuestDetailsSheet({
           )}
 
           {/* Preferences */}
-          {(guest.dietary_restrictions.length > 0 || guest.seating_preferences.length > 0) && (
+          {guest.dietaryRestrictions && (
             <>
               <div className="space-y-3">
                 <h3 className="font-semibold">Preferences</h3>
-                {guest.dietary_restrictions.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Utensils className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">Dietary:</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground ml-6">
-                      {guest.dietary_restrictions.join(', ')}
-                    </p>
-                  </div>
-                )}
-                {guest.seating_preferences.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">Seating Preferences:</p>
-                    <p className="text-sm text-muted-foreground">
-                      {guest.seating_preferences.join(', ')}
-                    </p>
-                  </div>
-                )}
-              </div>
-              <Separator />
-            </>
-          )}
-
-          <Separator />
-
-          {/* Check-in Information */}
-          {guest.checked_in && guest.checked_in_at && (
-            <>
-              <div className="space-y-3">
-                <h3 className="font-semibold">Check-in Information</h3>
-                <div className="flex items-center gap-2 text-sm">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>{format(guest.checked_in_at, 'PPpp')}</span>
-                </div>
-                {guest.checked_in_location && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      {guest.checked_in_location.lat.toFixed(6)},{' '}
-                      {guest.checked_in_location.lng.toFixed(6)}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <Separator />
-            </>
-          )}
-
-          {/* Additional Information */}
-          {guest.special_needs && (
-            <>
-              <div className="space-y-3">
-                <h3 className="font-semibold">Additional Information</h3>
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">Special Needs:</p>
-                  <p className="text-sm text-muted-foreground">
-                    {guest.special_needs}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Utensils className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">Dietary:</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground ml-6">
+                    {guest.dietaryRestrictions}
                   </p>
                 </div>
               </div>
@@ -197,15 +146,42 @@ export function GuestDetailsSheet({
             </>
           )}
 
+          {/* Check-in Information */}
+          {guest.checkedIn && guest.checkedInAt && (
+            <>
+              <div className="space-y-3">
+                <h3 className="font-semibold">Check-in Information</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span>{format(new Date(guest.checkedInAt), 'PPpp')}</span>
+                </div>
+              </div>
+              <Separator />
+            </>
+          )}
+
+          {/* Notes */}
+          {guest.notes && (
+            <>
+              <div className="space-y-3">
+                <h3 className="font-semibold">Notes</h3>
+                <p className="text-sm text-muted-foreground">
+                  {guest.notes}
+                </p>
+              </div>
+              <Separator />
+            </>
+          )}
+
           {/* Timestamps */}
           <div className="space-y-2 text-xs text-muted-foreground">
-            <p>Created: {format(guest.created_at, 'PPp')}</p>
-            <p>Last updated: {format(guest.updated_at, 'PPp')}</p>
+            <p>Created: {format(new Date(guest.createdAt), 'PPp')}</p>
+            <p>Last updated: {format(new Date(guest.updatedAt), 'PPp')}</p>
           </div>
 
           {/* Actions */}
           <div className="pt-4 space-y-2">
-            {(guest.email || guest.phone_number) && (
+            {(guest.email || guest.phone) && (
               <Button
                 onClick={() => setShowCommunicationDialog(true)}
                 variant="outline"
@@ -227,9 +203,9 @@ export function GuestDetailsSheet({
         <SendCommunicationDialog
           open={showCommunicationDialog}
           onOpenChange={setShowCommunicationDialog}
-          guestName={guest.guest_name}
-          guestEmail={guest.email}
-          guestPhone={guest.phone_number}
+          guestName={`${guest.firstName} ${guest.lastName || ''}`.trim()}
+          guestEmail={guest.email ?? undefined}
+          guestPhone={guest.phone ?? undefined}
         />
       </SheetContent>
     </Sheet>

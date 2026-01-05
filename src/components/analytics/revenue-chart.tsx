@@ -3,12 +3,13 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
+import { useTranslations } from 'next-intl';
 
 interface RevenueData {
   date: string;
   revenue: number;
   transaction_count: number;
-  currency: string;
+  currency?: string;
 }
 
 interface RevenueChartProps {
@@ -17,15 +18,18 @@ interface RevenueChartProps {
 }
 
 export function RevenueChart({ data, isLoading }: RevenueChartProps) {
+  const t = useTranslations('analytics');
+  const tc = useTranslations('common');
+
   if (isLoading) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Revenue Over Time</CardTitle>
-          <CardDescription>Loading...</CardDescription>
+          <CardTitle>{t('charts.revenueOverTime')}</CardTitle>
+          <CardDescription>{tc('loading')}</CardDescription>
         </CardHeader>
         <CardContent className="h-[300px] flex items-center justify-center">
-          <div className="text-muted-foreground">Loading chart data...</div>
+          <div className="text-muted-foreground">{t('loadingChartData')}</div>
         </CardContent>
       </Card>
     );
@@ -40,8 +44,8 @@ export function RevenueChart({ data, isLoading }: RevenueChartProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Revenue Over Time</CardTitle>
-        <CardDescription>Daily revenue and transaction count</CardDescription>
+        <CardTitle>{t('charts.revenueOverTime')}</CardTitle>
+        <CardDescription>{t('charts.revenueDescription')}</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -56,16 +60,16 @@ export function RevenueChart({ data, isLoading }: RevenueChartProps) {
               yAxisId="left"
               type="monotone"
               dataKey="revenue"
-              stroke="#8884d8"
+              stroke="var(--teal-500, #14B8A6)"
               activeDot={{ r: 8 }}
-              name="Revenue"
+              name={t('metrics.revenue')}
             />
             <Line
               yAxisId="right"
               type="monotone"
               dataKey="transactions"
-              stroke="#82ca9d"
-              name="Transactions"
+              stroke="var(--sage-500, #5A9A49)"
+              name={t('metrics.transactions')}
             />
           </LineChart>
         </ResponsiveContainer>

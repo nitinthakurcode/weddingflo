@@ -1,7 +1,15 @@
 import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { eq, and, isNull, asc, gte, lte, inArray } from 'drizzle-orm'
+import { events, clients } from '@/lib/db/schema'
 
+/**
+ * Events tRPC Router - Drizzle ORM Version
+ *
+ * Provides CRUD operations for wedding events with multi-tenant security.
+ * Migrated from Supabase to Drizzle - December 2025
+ */
 export const eventsRouter = router({
   getAll: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
@@ -10,33 +18,31 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client belongs to company
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Fetch events
-      const { data: events, error } = await ctx.supabase
-        .from('events')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .order('event_date', { ascending: true })
+      const eventList = await ctx.db
+        .select()
+        .from(events)
+        .where(eq(events.clientId, input.clientId))
+        .orderBy(asc(events.eventDate))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
-
-      return events || []
+      return eventList
     }),
 
   getById: adminProcedure
@@ -46,13 +52,13 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: event, error } = await ctx.supabase
-        .from('events')
-        .select('*')
-        .eq('id', input.id)
-        .single()
+      const [event] = await ctx.db
+        .select()
+        .from(events)
+        .where(eq(events.id, input.id))
+        .limit(1)
 
-      if (error || !event) {
+      if (!event) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
@@ -73,48 +79,57 @@ export const eventsRouter = router({
       address: z.string().optional(),
       guestCount: z.number().int().optional(),
       notes: z.string().optional(),
+      status: z.enum(['draft', 'planned', 'confirmed', 'completed', 'cancelled']).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Create event
-      const { data: event, error } = await ctx.supabase
-        .from('events')
-        .insert({
-          client_id: input.clientId,
-          title: input.title,
-          description: input.description,
-          event_type: input.eventType,
-          event_date: input.eventDate,
-          start_time: input.startTime,
-          end_time: input.endTime,
-          location: input.location,
-          venue_name: input.venueName,
-          address: input.address,
-          guest_count: input.guestCount,
-          notes: input.notes,
-        })
-        .select()
-        .single()
+      // Default status is 'planned' unless explicitly provided (synced with pipeline)
+      const eventStatus = input.status || 'planned'
 
-      if (error) {
+      // Create event
+      const [event] = await ctx.db
+        .insert(events)
+        .values({
+          clientId: input.clientId,
+          title: input.title,
+          description: input.description || null,
+          eventType: input.eventType || null,
+          eventDate: input.eventDate,
+          startTime: input.startTime || null,
+          endTime: input.endTime || null,
+          location: input.location || null,
+          venueName: input.venueName || null,
+          address: input.address || null,
+          guestCount: input.guestCount || null,
+          notes: input.notes || null,
+          status: eventStatus,
+        })
+        .returning()
+
+      if (!event) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          message: 'Failed to create event'
         })
       }
 
@@ -134,7 +149,7 @@ export const eventsRouter = router({
         location: z.string().optional(),
         venueName: z.string().optional(),
         address: z.string().optional(),
-        status: z.enum(['planned', 'confirmed', 'completed', 'cancelled']).optional(),
+        status: z.enum(['draft', 'planned', 'confirmed', 'completed', 'cancelled']).optional(),
         guestCount: z.number().int().optional(),
         notes: z.string().optional(),
       }),
@@ -145,35 +160,34 @@ export const eventsRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
-        updated_at: new Date().toISOString(),
+      const updateData: Record<string, any> = {
+        updatedAt: new Date(),
       }
 
       if (input.data.title !== undefined) updateData.title = input.data.title
       if (input.data.description !== undefined) updateData.description = input.data.description
-      if (input.data.eventType !== undefined) updateData.event_type = input.data.eventType
-      if (input.data.eventDate !== undefined) updateData.event_date = input.data.eventDate
-      if (input.data.startTime !== undefined) updateData.start_time = input.data.startTime
-      if (input.data.endTime !== undefined) updateData.end_time = input.data.endTime
+      if (input.data.eventType !== undefined) updateData.eventType = input.data.eventType
+      if (input.data.eventDate !== undefined) updateData.eventDate = input.data.eventDate
+      if (input.data.startTime !== undefined) updateData.startTime = input.data.startTime
+      if (input.data.endTime !== undefined) updateData.endTime = input.data.endTime
       if (input.data.location !== undefined) updateData.location = input.data.location
-      if (input.data.venueName !== undefined) updateData.venue_name = input.data.venueName
+      if (input.data.venueName !== undefined) updateData.venueName = input.data.venueName
       if (input.data.address !== undefined) updateData.address = input.data.address
       if (input.data.status !== undefined) updateData.status = input.data.status
-      if (input.data.guestCount !== undefined) updateData.guest_count = input.data.guestCount
+      if (input.data.guestCount !== undefined) updateData.guestCount = input.data.guestCount
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
       // Update event
-      const { data: event, error } = await ctx.supabase
-        .from('events')
-        .update(updateData)
-        .eq('id', input.id)
-        .select()
-        .single()
+      const [event] = await ctx.db
+        .update(events)
+        .set(updateData)
+        .where(eq(events.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!event) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Event not found'
         })
       }
 
@@ -187,17 +201,9 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { error } = await ctx.supabase
-        .from('events')
-        .delete()
-        .eq('id', input.id)
-
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
+      await ctx.db
+        .delete(events)
+        .where(eq(events.id, input.id))
 
       return { success: true }
     }),
@@ -212,20 +218,19 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const { data: event, error } = await ctx.supabase
-        .from('events')
-        .update({
+      const [event] = await ctx.db
+        .update(events)
+        .set({
           status: input.status,
-          updated_at: new Date().toISOString(),
+          updatedAt: new Date(),
         })
-        .eq('id', input.id)
-        .select()
-        .single()
+        .where(eq(events.id, input.id))
+        .returning()
 
-      if (error) {
+      if (!event) {
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
+          code: 'NOT_FOUND',
+          message: 'Event not found'
         })
       }
 
@@ -239,13 +244,18 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
@@ -255,21 +265,18 @@ export const eventsRouter = router({
       const today = new Date().toISOString().split('T')[0]
 
       // Fetch upcoming events
-      const { data: events, error } = await ctx.supabase
-        .from('events')
-        .select('*')
-        .eq('client_id', input.clientId)
-        .gte('event_date', today)
-        .order('event_date', { ascending: true })
+      const eventList = await ctx.db
+        .select()
+        .from(events)
+        .where(
+          and(
+            eq(events.clientId, input.clientId),
+            gte(events.eventDate, today)
+          )
+        )
+        .orderBy(asc(events.eventDate))
 
-      if (error) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error.message
-        })
-      }
-
-      return events || []
+      return eventList
     }),
 
   getStats: adminProcedure
@@ -279,32 +286,96 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify client
-      const { data: client } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .eq('id', input.clientId)
-        .eq('company_id', ctx.companyId)
-        .single()
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
 
       if (!client) {
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
       // Get events
-      const { data: events } = await ctx.supabase
-        .from('events')
-        .select('status')
-        .eq('client_id', input.clientId)
+      const eventList = await ctx.db
+        .select({ status: events.status })
+        .from(events)
+        .where(eq(events.clientId, input.clientId))
 
       const stats = {
-        total: events?.length || 0,
-        planned: events?.filter(e => e.status === 'planned').length || 0,
-        confirmed: events?.filter(e => e.status === 'confirmed').length || 0,
-        completed: events?.filter(e => e.status === 'completed').length || 0,
-        cancelled: events?.filter(e => e.status === 'cancelled').length || 0,
+        total: eventList.length,
+        planned: eventList.filter(e => e.status === 'planned').length,
+        confirmed: eventList.filter(e => e.status === 'confirmed').length,
+        completed: eventList.filter(e => e.status === 'completed').length,
+        cancelled: eventList.filter(e => e.status === 'cancelled').length,
       }
 
       return stats
+    }),
+
+  /**
+   * Get all events for the current month across all clients in the company.
+   * Used for dashboard stats like "Active This Month".
+   */
+  getEventsThisMonth: adminProcedure
+    .query(async ({ ctx }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Get first and last day of current month (using UTC to avoid timezone issues)
+      const now = new Date()
+      const year = now.getFullYear()
+      const month = now.getMonth()
+
+      // Format as YYYY-MM-DD strings directly to avoid timezone conversion
+      const firstDayStr = `${year}-${String(month + 1).padStart(2, '0')}-01`
+      // Get last day of month (day 0 of next month = last day of current month)
+      const lastDayOfMonth = new Date(year, month + 1, 0).getDate()
+      const lastDayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
+
+      // Get all client IDs for this company
+      const companyClients = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+
+      if (companyClients.length === 0) {
+        return []
+      }
+
+      const clientIds = companyClients.map(c => c.id)
+
+      // Get events for these clients in current month
+      const eventList = await ctx.db
+        .select({
+          id: events.id,
+          clientId: events.clientId,
+          title: events.title,
+          eventDate: events.eventDate,
+        })
+        .from(events)
+        .where(
+          and(
+            inArray(events.clientId, clientIds),
+            gte(events.eventDate, firstDayStr),
+            lte(events.eventDate, lastDayStr)
+          )
+        )
+        .orderBy(asc(events.eventDate))
+
+      return eventList
     }),
 })

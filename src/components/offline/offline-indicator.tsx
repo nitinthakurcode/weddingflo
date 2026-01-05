@@ -54,9 +54,9 @@ export function OfflineIndicator() {
       )}
 
       {queueSize > 0 && (
-        <Alert className="bg-yellow-50 border-yellow-200">
-          <Clock className="h-4 w-4 text-yellow-600" />
-          <AlertDescription className="text-yellow-800">
+        <Alert className="bg-gold-50 border-gold-200 dark:bg-gold-950/30 dark:border-gold-800">
+          <Clock className="h-4 w-4 text-gold-600 dark:text-gold-400" />
+          <AlertDescription className="text-gold-800 dark:text-gold-300">
             {queueSize} pending {queueSize === 1 ? 'change' : 'changes'} waiting to sync
             {isOnline && ' - syncing now...'}
           </AlertDescription>

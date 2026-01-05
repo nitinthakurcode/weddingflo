@@ -1,32 +1,31 @@
 // @ts-nocheck
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
-import { TablesInsert, TablesUpdate, SubscriptionTier, SubscriptionStatus, UserRole } from '@/lib/database.types';
+import { db, eq, sql } from '@/lib/db';
+import { companies, users } from '@/lib/db/schema';
 
-const CLERK_USER_ID = 'user_YOUR_CLERK_USER_ID'; // Replace with your actual Clerk user ID
+const AUTH_USER_ID = 'user_YOUR_AUTH_USER_ID'; // Replace with your actual BetterAuth user ID
 const YOUR_EMAIL = 'your-email@example.com'; // Replace with your email
 
 async function seedSuperAdmin() {
   try {
-    if (CLERK_USER_ID.includes('YOUR_CLERK_USER_ID')) {
+    if (AUTH_USER_ID.includes('YOUR_AUTH_USER_ID')) {
       console.error('\n❌ ERROR: Please configure this script first!\n');
       console.log('   Steps:');
       console.log('   1. Sign up at your app');
-      console.log('   2. Check Clerk dashboard for your user ID');
-      console.log('   3. Get your email from Clerk');
+      console.log('   2. Check the database for your auth user ID');
+      console.log('   3. Get your email from the users table');
       console.log('   4. Update YOUR_EMAIL in this script');
-      console.log('   5. Update CLERK_USER_ID in this script\n');
+      console.log('   5. Update AUTH_USER_ID in this script\n');
       process.exit(1);
     }
 
-    const supabase = createServerSupabaseAdminClient();
-
     console.log('🏢 Checking for platform company...');
-    const { data: existingCompany } = await supabase
-      .from('companies')
-      .select('id, name')
-      .eq('subdomain', 'platform')
-      .maybeSingle() as any;
+    const existingCompanyResult = await db
+      .select({ id: companies.id, name: companies.name })
+      .from(companies)
+      .where(eq(companies.subdomain, 'platform'))
+      .limit(1);
 
+    const existingCompany = existingCompanyResult[0];
     let companyId: string;
 
     if (existingCompany) {
@@ -34,28 +33,20 @@ async function seedSuperAdmin() {
       companyId = existingCompany.id;
     } else {
       console.log('📝 Creating platform company...');
-      const companyInsert: TablesInsert<'companies'> = {
-        name: 'WeddingFlow Platform',
-        subscription_tier: SubscriptionTier.ENTERPRISE,
-        subscription_status: SubscriptionStatus.ACTIVE,
-        subdomain: null,
-        logo_url: null,
-        branding: null,
-        settings: null,
-        stripe_customer_id: null,
-        stripe_subscription_id: null,
-        trial_ends_at: null,
-        subscription_ends_at: null,
-      };
+      const newCompanyResult = await db
+        .insert(companies)
+        .values({
+          name: 'WeddingFlo Platform',
+          subscriptionTier: 'enterprise',
+          subscriptionStatus: 'active',
+          subdomain: 'platform',
+        })
+        .returning({ id: companies.id });
 
-      const { data: newCompany, error: companyError } = (await supabase
-        .from('companies')
-        .insert(companyInsert as any)
-        .select()
-        .maybeSingle()) as any;
+      const newCompany = newCompanyResult[0];
 
-      if (companyError) {
-        console.error('❌ Error creating platform company:', companyError);
+      if (!newCompany) {
+        console.error('❌ Error creating platform company');
         process.exit(1);
       }
 
@@ -64,55 +55,46 @@ async function seedSuperAdmin() {
     }
 
     console.log('👤 Checking for super admin user...');
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id, email, role')
-      .eq('clerk_id', CLERK_USER_ID)
-      .maybeSingle() as any;
+    const existingUserResult = await db
+      .select({ id: users.id, email: users.email, role: users.role })
+      .from(users)
+      .where(eq(users.authId, AUTH_USER_ID))
+      .limit(1);
+
+    const existingUser = existingUserResult[0];
 
     if (existingUser) {
       console.log(`✅ User already exists: ${existingUser.email} (${existingUser.id})`);
 
-      if (existingUser.role !== UserRole.SUPER_ADMIN) {
+      if (existingUser.role !== 'super_admin') {
         console.log('🔄 Updating user role to super_admin...');
-        const userUpdate: TablesUpdate<'users'> = {
-          role: UserRole.SUPER_ADMIN,
-        };
-
-        const { error: updateError } = await supabase
-          .from('users')
-          .update(userUpdate as any)
-          .eq('id', existingUser.id);
-
-        if (updateError) {
-          console.error('❌ Error updating user role:', updateError);
-          process.exit(1);
-        }
+        await db
+          .update(users)
+          .set({ role: 'super_admin' })
+          .where(eq(users.id, existingUser.id));
         console.log('✅ User role updated to super_admin\n');
       } else {
         console.log('✅ User already has super_admin role\n');
       }
     } else {
       console.log('📝 Creating super admin user...');
-      const userInsert: TablesInsert<'users'> = {
-        clerk_id: CLERK_USER_ID,
-        email: YOUR_EMAIL,
-        first_name: 'Super',
-        last_name: 'Admin',
-        avatar_url: null,
-        role: UserRole.SUPER_ADMIN,
-        company_id: companyId,
-        is_active: true,
-      };
+      const newUserResult = await db
+        .insert(users)
+        .values({
+          authId: AUTH_USER_ID,
+          email: YOUR_EMAIL,
+          firstName: 'Super',
+          lastName: 'Admin',
+          role: 'super_admin',
+          companyId: companyId,
+          isActive: true,
+        })
+        .returning({ id: users.id });
 
-      const { data: newUser, error: userError } = (await supabase
-        .from('users')
-        .insert(userInsert as any)
-        .select()
-        .maybeSingle()) as any;
+      const newUser = newUserResult[0];
 
-      if (userError) {
-        console.error('❌ Error creating super admin user:', userError);
+      if (!newUser) {
+        console.error('❌ Error creating super admin user');
         process.exit(1);
       }
 

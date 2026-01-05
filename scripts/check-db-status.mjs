@@ -22,7 +22,7 @@ async function querySupabase(sql) {
 }
 
 async function checkDatabase() {
-  console.log('=== WeddingFlow Pro Database Status ===\n');
+  console.log('=== WeddingFlo Database Status ===\n');
 
   try {
     // List all tables

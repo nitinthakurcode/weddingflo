@@ -6,11 +6,11 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
 // Database name and version
-const DB_NAME = 'WeddingFlowDB';
+const DB_NAME = 'WeddingFloDB';
 const DB_VERSION = 1;
 
 // Define database schema
-interface WeddingFlowDB extends DBSchema {
+interface WeddingFloDB extends DBSchema {
   // Offline action queue
   offlineQueue: {
     key: number;
@@ -76,15 +76,14 @@ export interface OfflineAction {
 export interface CachedGuest {
   _id: string;
   clientId: string;
-  guest_name: string;
-  guest_email?: string;
-  guest_phone?: string;
-  guest_category: string;
-  guest_side: string;
-  invite_status: string;
-  form_submitted: boolean;
+  first_name: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  group_name?: string;
+  party_size: number;
+  rsvp_status: string;
   checked_in: boolean;
-  qr_code_token?: string;
   updatedAt: number;
 }
 
@@ -121,19 +120,68 @@ export interface AppMetadata {
 }
 
 // Database instance
-let dbInstance: IDBPDatabase<WeddingFlowDB> | null = null;
+let dbInstance: IDBPDatabase<WeddingFloDB> | null = null;
+let isConnecting = false;
+
+/**
+ * Check if the database connection is valid and open
+ */
+function isConnectionValid(db: IDBPDatabase<WeddingFloDB> | null): boolean {
+  if (!db) return false;
+  try {
+    // Check if we can access objectStoreNames - this will throw if connection is closed
+    return db.objectStoreNames.length >= 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Close the database connection safely
+ */
+export function closeDB(): void {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch {
+      // Ignore close errors
+    }
+    dbInstance = null;
+  }
+}
 
 /**
  * Initialize IndexedDB
  */
-export async function initializeDB(): Promise<IDBPDatabase<WeddingFlowDB>> {
-  if (dbInstance) {
-    return dbInstance;
+export async function initializeDB(): Promise<IDBPDatabase<WeddingFloDB>> {
+  // Return existing valid connection
+  if (isConnectionValid(dbInstance)) {
+    return dbInstance!;
   }
 
+  // Wait if another initialization is in progress
+  if (isConnecting) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    if (isConnectionValid(dbInstance)) {
+      return dbInstance!;
+    }
+  }
+
+  // Clean up stale connection
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch {
+      // Ignore
+    }
+    dbInstance = null;
+  }
+
+  isConnecting = true;
+
   try {
-    dbInstance = await openDB<WeddingFlowDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion, newVersion, transaction) {
+    dbInstance = await openDB<WeddingFloDB>(DB_NAME, DB_VERSION, {
+      upgrade(db, oldVersion, newVersion) {
         console.log(`🔄 Upgrading DB from v${oldVersion} to v${newVersion}`);
 
         // Create offline queue store
@@ -180,6 +228,8 @@ export async function initializeDB(): Promise<IDBPDatabase<WeddingFlowDB>> {
       },
       blocking() {
         console.warn('⚠️ This tab is blocking a database upgrade');
+        // Close connection to unblock other tabs
+        closeDB();
       },
       terminated() {
         console.error('❌ Database connection terminated unexpectedly');
@@ -191,37 +241,78 @@ export async function initializeDB(): Promise<IDBPDatabase<WeddingFlowDB>> {
     return dbInstance;
   } catch (error) {
     console.error('❌ Failed to initialize IndexedDB:', error);
+    dbInstance = null;
     throw error;
+  } finally {
+    isConnecting = false;
   }
 }
 
 /**
- * Get database instance
+ * Get database instance (with auto-reconnect)
  */
-export async function getDB(): Promise<IDBPDatabase<WeddingFlowDB>> {
-  if (!dbInstance) {
+export async function getDB(): Promise<IDBPDatabase<WeddingFloDB>> {
+  // Always verify connection is valid before returning
+  if (!isConnectionValid(dbInstance)) {
     return await initializeDB();
   }
-  return dbInstance;
+  return dbInstance!;
+}
+
+/**
+ * Safe transaction wrapper - handles closed connection errors
+ */
+export async function withTransaction<T>(
+  storeNames: (keyof WeddingFloDB)[],
+  mode: IDBTransactionMode,
+  operation: (db: IDBPDatabase<WeddingFloDB>) => Promise<T>
+): Promise<T> {
+  let retries = 2;
+
+  while (retries > 0) {
+    try {
+      const db = await getDB();
+      return await operation(db);
+    } catch (error) {
+      const isConnectionError =
+        error instanceof DOMException &&
+        (error.name === 'InvalidStateError' || error.message.includes('connection is closing'));
+
+      if (isConnectionError && retries > 1) {
+        console.warn('⚠️ Database connection error, reconnecting...');
+        closeDB();
+        retries--;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error('Failed to execute transaction after retries');
 }
 
 /**
  * Clear all data from database
  */
 export async function clearAllData(): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction(['offlineQueue', 'guests', 'budgets', 'vendors', 'metadata'], 'readwrite');
+  await withTransaction(
+    ['offlineQueue', 'guests', 'budgets', 'vendors', 'metadata'],
+    'readwrite',
+    async (db) => {
+      const tx = db.transaction(['offlineQueue', 'guests', 'budgets', 'vendors', 'metadata'], 'readwrite');
 
-  await Promise.all([
-    tx.objectStore('offlineQueue').clear(),
-    tx.objectStore('guests').clear(),
-    tx.objectStore('budgets').clear(),
-    tx.objectStore('vendors').clear(),
-    tx.objectStore('metadata').clear(),
-  ]);
+      await Promise.all([
+        tx.objectStore('offlineQueue').clear(),
+        tx.objectStore('guests').clear(),
+        tx.objectStore('budgets').clear(),
+        tx.objectStore('vendors').clear(),
+        tx.objectStore('metadata').clear(),
+      ]);
 
-  await tx.done;
-  console.log('🗑️ All data cleared from IndexedDB');
+      await tx.done;
+      console.log('🗑️ All data cleared from IndexedDB');
+    }
+  );
 }
 
 /**

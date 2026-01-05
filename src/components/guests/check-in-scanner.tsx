@@ -2,61 +2,35 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { CheckCircle, Camera, XCircle } from 'lucide-react';
+import { CheckCircle, Camera, Loader2 } from 'lucide-react';
+import { trpc } from '@/lib/trpc/client';
 
 interface CheckInScannerProps {
   clientId: string;
   userId: string;
 }
 
+interface CheckInResult {
+  success: boolean;
+  guestName: string;
+  message: string;
+}
+
 export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
   const { toast } = useToast();
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [lastScanned, setLastScanned] = useState<string | null>(null);
-  const supabase = useSupabase();
-  const queryClient = useQueryClient();
+  const [lastCheckedIn, setLastCheckedIn] = useState<CheckInResult | null>(null);
+  const utils = trpc.useUtils();
 
-  const { data: getGuestByQR } = useQuery<any>({
-    queryKey: ['guest-qr', lastScanned],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!lastScanned) throw new Error('No QR code scanned');
-      const { data, error } = await supabase
-        .from('guests')
-        .select('*')
-        .eq('qr_token', lastScanned)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!lastScanned && !!supabase,
-  });
-
-  const checkIn = useMutation({
-    mutationFn: async ({ guestId, checked_in_by }: any) => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      const { data, error } = await supabase
-        .from('guests')
-        .update({
-          checked_in: true,
-          checked_in_at: new Date().toISOString(),
-          checked_in_by,
-        })
-        .eq('id', guestId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['guests'] });
-      queryClient.invalidateQueries({ queryKey: ['guest-qr'] });
+  // Use the verifyCheckin mutation which does both verification and check-in
+  const verifyCheckin = trpc.qr.verifyCheckin.useMutation({
+    onSuccess: (data) => {
+      setLastCheckedIn(data);
+      utils.guests.getAll.invalidate({ clientId });
     },
   });
 
@@ -76,16 +50,13 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
     );
 
     const onScanSuccess = async (decodedText: string) => {
-      setLastScanned(decodedText);
-
       try {
         // Stop scanning temporarily
         await scannerRef.current?.pause(true);
 
-        // Check in the guest
-        await checkIn.mutateAsync({
-          guestId: decodedText,
-          checked_in_by: userId,
+        // Verify and check in the guest using the QR data
+        await verifyCheckin.mutateAsync({
+          qrData: decodedText,
         });
 
         toast({
@@ -118,7 +89,7 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
     return () => {
       scannerRef.current?.clear().catch(console.error);
     };
-  }, [isScanning, checkIn, userId, toast]);
+  }, [isScanning, verifyCheckin, clientId, toast]);
 
   const handleStartScanning = () => {
     setIsScanning(true);
@@ -159,52 +130,31 @@ export function CheckInScanner({ clientId, userId }: CheckInScannerProps) {
               </Button>
             </>
           )}
+
+          {verifyCheckin.isPending && (
+            <div className="flex items-center justify-center gap-2 py-4">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Checking in guest...</span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {lastScanned && getGuestByQR && (
-        <Card>
+      {lastCheckedIn && (
+        <Card className="border-sage-200 bg-sage-50 dark:border-sage-800 dark:bg-sage-950/30">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {getGuestByQR.checked_in ? (
-                <>
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                  Checked In
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-5 w-5 text-yellow-600" />
-                  Pending
-                </>
-              )}
+            <CardTitle className="flex items-center gap-2 text-sage-700 dark:text-sage-300">
+              <CheckCircle className="h-5 w-5" />
+              Check-in Complete
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               <div>
                 <p className="text-sm text-muted-foreground">Guest Name</p>
-                <p className="font-medium">{getGuestByQR.guest_name}</p>
+                <p className="font-medium text-lg">{lastCheckedIn.guestName}</p>
               </div>
-              {getGuestByQR.number_of_packs > 1 && getGuestByQR.additional_guest_names.length > 0 && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Additional Guests</p>
-                  <p className="font-medium">{getGuestByQR.additional_guest_names.join(', ')}</p>
-                </div>
-              )}
-              {getGuestByQR.dietary_restrictions.length > 0 && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Dietary Restrictions</p>
-                  <p className="font-medium">{getGuestByQR.dietary_restrictions.join(', ')}</p>
-                </div>
-              )}
-              {getGuestByQR.checked_in_at && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Checked In At</p>
-                  <p className="font-medium">
-                    {new Date(getGuestByQR.checked_in_at).toLocaleString()}
-                  </p>
-                </div>
-              )}
+              <p className="text-sm text-sage-600 dark:text-sage-400">{lastCheckedIn.message}</p>
             </div>
           </CardContent>
         </Card>

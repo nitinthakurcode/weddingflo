@@ -110,6 +110,6 @@ async function applyMigration() {
   }
 }
 
-console.log('🔧 WeddingFlow Pro - RLS Performance Optimizer');
+console.log('🔧 WeddingFlo - RLS Performance Optimizer');
 console.log('─'.repeat(60));
 applyMigration();

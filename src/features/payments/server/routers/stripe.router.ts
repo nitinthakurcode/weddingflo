@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { stripe, SUBSCRIPTION_TIERS, getPrice, type SubscriptionTier } from '@/lib/stripe/config';
 import { TRPCError } from '@trpc/server';
+import { eq } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
 
 export const stripeRouter = router({
   // Create checkout session for subscription
@@ -19,17 +21,21 @@ export const stripeRouter = router({
       }
 
       // Get company
-      const { data: company, error } = await ctx.supabase
-        .from('companies')
-        .select('id, name, stripe_customer_id')
-        .eq('id', ctx.companyId)
-        .single();
+      const [company] = await ctx.db
+        .select({
+          id: schema.companies.id,
+          name: schema.companies.name,
+          stripeCustomerId: schema.companies.stripeCustomerId
+        })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, ctx.companyId))
+        .limit(1);
 
-      if (error || !company) {
+      if (!company) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Company not found' });
       }
 
-      let customerId = company.stripe_customer_id;
+      let customerId = company.stripeCustomerId;
 
       // Create customer if doesn't exist
       if (!customerId) {
@@ -43,10 +49,10 @@ export const stripeRouter = router({
         customerId = customer.id;
 
         // Update company with customer ID
-        await ctx.supabase
-          .from('companies')
-          .update({ stripe_customer_id: customerId })
-          .eq('id', company.id);
+        await ctx.db
+          .update(schema.companies)
+          .set({ stripeCustomerId: customerId })
+          .where(eq(schema.companies.id, company.id));
       }
 
       // Get price for this tier and currency
@@ -98,27 +104,32 @@ export const stripeRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      const { data: company } = await ctx.supabase
-        .from('companies')
-        .select('stripe_customer_id, stripe_subscription_id, subscription_tier, subscription_status')
-        .eq('id', ctx.companyId)
-        .single();
+      const [company] = await ctx.db
+        .select({
+          stripeCustomerId: schema.companies.stripeCustomerId,
+          stripeSubscriptionId: schema.companies.stripeSubscriptionId,
+          subscriptionTier: schema.companies.subscriptionTier,
+          subscriptionStatus: schema.companies.subscriptionStatus,
+        })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, ctx.companyId))
+        .limit(1);
 
-      if (!company?.stripe_subscription_id) {
+      if (!company?.stripeSubscriptionId) {
         return null;
       }
 
       try {
         const subscription = await stripe.subscriptions.retrieve(
-          company.stripe_subscription_id
+          company.stripeSubscriptionId
         );
 
         return {
           id: subscription.id,
           status: subscription.status,
-          currentPeriodEnd: subscription.current_period_end,
+          currentPeriodEnd: (subscription as any).current_period_end,
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
-          plan: company.subscription_tier,
+          plan: company.subscriptionTier,
           currency: subscription.currency.toUpperCase(),
           interval: subscription.items.data[0]?.plan?.interval || 'month',
         };
@@ -138,13 +149,13 @@ export const stripeRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      const { data: company } = await ctx.supabase
-        .from('companies')
-        .select('stripe_customer_id')
-        .eq('id', ctx.companyId)
-        .single();
+      const [company] = await ctx.db
+        .select({ stripeCustomerId: schema.companies.stripeCustomerId })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, ctx.companyId))
+        .limit(1);
 
-      if (!company?.stripe_customer_id) {
+      if (!company?.stripeCustomerId) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'No active subscription'
@@ -152,7 +163,7 @@ export const stripeRouter = router({
       }
 
       const session = await stripe.billingPortal.sessions.create({
-        customer: company.stripe_customer_id,
+        customer: company.stripeCustomerId,
         return_url: input.returnUrl,
       });
 
@@ -168,13 +179,13 @@ export const stripeRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      const { data: company } = await ctx.supabase
-        .from('companies')
-        .select('stripe_subscription_id')
-        .eq('id', ctx.companyId)
-        .single();
+      const [company] = await ctx.db
+        .select({ stripeSubscriptionId: schema.companies.stripeSubscriptionId })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, ctx.companyId))
+        .limit(1);
 
-      if (!company?.stripe_subscription_id) {
+      if (!company?.stripeSubscriptionId) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'No active subscription'
@@ -183,7 +194,7 @@ export const stripeRouter = router({
 
       // Cancel at period end (don't cancel immediately)
       const subscription = await stripe.subscriptions.update(
-        company.stripe_subscription_id,
+        company.stripeSubscriptionId,
         {
           cancel_at_period_end: true,
         }
@@ -202,13 +213,13 @@ export const stripeRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      const { data: company } = await ctx.supabase
-        .from('companies')
-        .select('stripe_subscription_id')
-        .eq('id', ctx.companyId)
-        .single();
+      const [company] = await ctx.db
+        .select({ stripeSubscriptionId: schema.companies.stripeSubscriptionId })
+        .from(schema.companies)
+        .where(eq(schema.companies.id, ctx.companyId))
+        .limit(1);
 
-      if (!company?.stripe_subscription_id) {
+      if (!company?.stripeSubscriptionId) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'No active subscription'
@@ -216,7 +227,7 @@ export const stripeRouter = router({
       }
 
       const subscription = await stripe.subscriptions.update(
-        company.stripe_subscription_id,
+        company.stripeSubscriptionId,
         {
           cancel_at_period_end: false,
         }
@@ -271,7 +282,7 @@ async function getOrCreateStripePrice(
   interval: 'monthly' | 'yearly',
   amount: number
 ): Promise<string> {
-  const productName = `WeddingFlow Pro - ${SUBSCRIPTION_TIERS[tier].name}`;
+  const productName = `WeddingFlo - ${SUBSCRIPTION_TIERS[tier].name}`;
   const intervalValue = interval === 'monthly' ? 'month' : 'year';
 
   try {

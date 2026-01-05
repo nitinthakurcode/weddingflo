@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { checkRateLimit } from '@/lib/ai/rate-limiter';
 import { handleAIError } from '@/lib/ai/error-handler';
 import { optimizeSeating, Guest, Table } from '@/lib/ai/seating-optimizer';
@@ -7,7 +7,7 @@ import { optimizeSeating, Guest, Table } from '@/lib/ai/seating-optimizer';
 export async function POST(req: NextRequest) {
   try {
     // Authenticate user
-    const { userId } = await auth();
+    const { userId } = await getServerSession();
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Rate limiting
-    checkRateLimit(userId);
+    // Rate limiting (Redis-backed)
+    await checkRateLimit(userId);
 
     // Parse request body
     const body = await req.json();

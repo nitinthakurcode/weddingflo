@@ -3,7 +3,7 @@
  * Handles QR code data generation and URL creation
  */
 
-import { generateGuestQRToken, type EncryptedQRData } from './qr-encryptor';
+import { generateGuestQRToken, type EncryptedQRData, type QRCodeType } from './qr-encryptor';
 
 export interface QRCodeData {
   url: string;
@@ -11,7 +11,7 @@ export interface QRCodeData {
   expiresAt: number;
   guestId: string;
   weddingId: string;
-  type: 'check-in' | 'rsvp' | 'gift-registry';
+  type: QRCodeType;
 }
 
 /**
@@ -21,7 +21,7 @@ export function generateGuestQRCode(
   guestId: string,
   weddingId: string,
   baseUrl: string = typeof window !== 'undefined' ? window.location.origin : 'https://yourapp.com',
-  type: 'check-in' | 'rsvp' | 'gift-registry' = 'check-in',
+  type: QRCodeType = 'check-in',
   expiryHours: number = 24 * 365
 ): QRCodeData {
   const encryptedData = generateGuestQRToken(guestId, weddingId, type, expiryHours);
@@ -43,7 +43,7 @@ export function generateBulkGuestQRCodes(
   guests: Array<{ id: string; name: string }>,
   weddingId: string,
   baseUrl?: string,
-  type: 'check-in' | 'rsvp' | 'gift-registry' = 'check-in',
+  type: QRCodeType = 'check-in',
   expiryHours: number = 24 * 365
 ): Array<QRCodeData & { guestName: string }> {
   return guests.map(guest => ({
@@ -113,7 +113,7 @@ export function generateCustomQRCode(
   weddingId: string,
   metadata: Record<string, any>,
   baseUrl?: string,
-  type: 'check-in' | 'rsvp' | 'gift-registry' = 'check-in',
+  type: QRCodeType = 'check-in',
   expiryHours: number = 24 * 365
 ): QRCodeData {
   return generateGuestQRCode(guestId, weddingId, baseUrl, type, expiryHours);

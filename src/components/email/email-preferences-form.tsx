@@ -8,9 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Loader2, Mail, Bell, DollarSign, Users, MessageSquare } from 'lucide-react';
+import { Loader2, Mail, Bell, Calendar, Users, CheckSquare, Newspaper } from 'lucide-react';
 
 export function EmailPreferencesForm() {
   const router = useRouter();
@@ -21,24 +20,26 @@ export function EmailPreferencesForm() {
   const { data: preferences, isLoading, refetch } = trpc.email.getEmailPreferences.useQuery();
 
   const [localPreferences, setLocalPreferences] = useState({
-    receive_wedding_reminders: true,
-    receive_payment_reminders: true,
-    receive_rsvp_notifications: true,
-    receive_vendor_messages: true,
-    receive_marketing: false,
-    email_frequency: 'immediate' as 'immediate' | 'daily' | 'weekly',
+    marketingEmails: false,
+    transactionalEmails: true,
+    reminderEmails: true,
+    weeklyDigest: false,
+    clientUpdates: true,
+    taskReminders: true,
+    eventReminders: true,
   });
 
   // Update local state when preferences load
   useEffect(() => {
     if (preferences) {
       setLocalPreferences({
-        receive_wedding_reminders: preferences.receive_wedding_reminders ?? false,
-        receive_payment_reminders: preferences.receive_payment_reminders ?? false,
-        receive_rsvp_notifications: preferences.receive_rsvp_notifications ?? false,
-        receive_vendor_messages: preferences.receive_vendor_messages ?? false,
-        receive_marketing: preferences.receive_marketing ?? false,
-        email_frequency: (preferences.email_frequency as 'immediate' | 'daily' | 'weekly') || 'daily',
+        marketingEmails: (preferences as any).marketingEmails ?? false,
+        transactionalEmails: (preferences as any).transactionalEmails ?? true,
+        reminderEmails: (preferences as any).reminderEmails ?? true,
+        weeklyDigest: (preferences as any).weeklyDigest ?? false,
+        clientUpdates: (preferences as any).clientUpdates ?? true,
+        taskReminders: (preferences as any).taskReminders ?? true,
+        eventReminders: (preferences as any).eventReminders ?? true,
       });
     }
   }, [preferences]);
@@ -50,7 +51,7 @@ export function EmailPreferencesForm() {
       refetch();
       setIsSaving(false);
     },
-    onError: (error) => {
+    onError: () => {
       toast.error(t('errorMessage'));
       setIsSaving(false);
     },
@@ -84,12 +85,12 @@ export function EmailPreferencesForm() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Wedding Reminders */}
+          {/* Reminder Emails */}
           <div className="flex items-center justify-between space-x-2">
             <div className="flex items-center space-x-3">
               <Bell className="h-5 w-5 text-muted-foreground" />
               <div className="space-y-0.5">
-                <Label htmlFor="wedding-reminders" className="text-base">
+                <Label htmlFor="reminder-emails" className="text-base">
                   {t('weddingReminders.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -98,20 +99,20 @@ export function EmailPreferencesForm() {
               </div>
             </div>
             <Switch
-              id="wedding-reminders"
-              checked={localPreferences.receive_wedding_reminders}
+              id="reminder-emails"
+              checked={localPreferences.reminderEmails}
               onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_wedding_reminders: checked })
+                setLocalPreferences({ ...localPreferences, reminderEmails: checked })
               }
             />
           </div>
 
-          {/* Guest Updates */}
+          {/* Client Updates */}
           <div className="flex items-center justify-between space-x-2">
             <div className="flex items-center space-x-3">
               <Users className="h-5 w-5 text-muted-foreground" />
               <div className="space-y-0.5">
-                <Label htmlFor="guest-updates" className="text-base">
+                <Label htmlFor="client-updates" className="text-base">
                   {t('guestUpdates.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -120,20 +121,20 @@ export function EmailPreferencesForm() {
               </div>
             </div>
             <Switch
-              id="guest-updates"
-              checked={localPreferences.receive_rsvp_notifications}
+              id="client-updates"
+              checked={localPreferences.clientUpdates}
               onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_rsvp_notifications: checked })
+                setLocalPreferences({ ...localPreferences, clientUpdates: checked })
               }
             />
           </div>
 
-          {/* Budget Alerts */}
+          {/* Event Reminders */}
           <div className="flex items-center justify-between space-x-2">
             <div className="flex items-center space-x-3">
-              <DollarSign className="h-5 w-5 text-muted-foreground" />
+              <Calendar className="h-5 w-5 text-muted-foreground" />
               <div className="space-y-0.5">
-                <Label htmlFor="budget-alerts" className="text-base">
+                <Label htmlFor="event-reminders" className="text-base">
                   {t('budgetAlerts.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -142,20 +143,20 @@ export function EmailPreferencesForm() {
               </div>
             </div>
             <Switch
-              id="budget-alerts"
-              checked={localPreferences.receive_payment_reminders}
+              id="event-reminders"
+              checked={localPreferences.eventReminders}
               onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_payment_reminders: checked })
+                setLocalPreferences({ ...localPreferences, eventReminders: checked })
               }
             />
           </div>
 
-          {/* Vendor Messages */}
+          {/* Task Reminders */}
           <div className="flex items-center justify-between space-x-2">
             <div className="flex items-center space-x-3">
-              <MessageSquare className="h-5 w-5 text-muted-foreground" />
+              <CheckSquare className="h-5 w-5 text-muted-foreground" />
               <div className="space-y-0.5">
-                <Label htmlFor="vendor-messages" className="text-base">
+                <Label htmlFor="task-reminders" className="text-base">
                   {t('vendorMessages.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -164,20 +165,20 @@ export function EmailPreferencesForm() {
               </div>
             </div>
             <Switch
-              id="vendor-messages"
-              checked={localPreferences.receive_vendor_messages}
+              id="task-reminders"
+              checked={localPreferences.taskReminders}
               onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_vendor_messages: checked })
+                setLocalPreferences({ ...localPreferences, taskReminders: checked })
               }
             />
           </div>
 
-          {/* System Notifications */}
+          {/* Transactional Emails */}
           <div className="flex items-center justify-between space-x-2">
             <div className="flex items-center space-x-3">
               <Mail className="h-5 w-5 text-muted-foreground" />
               <div className="space-y-0.5">
-                <Label htmlFor="system-notifications" className="text-base">
+                <Label htmlFor="transactional-emails" className="text-base">
                   {t('systemNotifications.label')}
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -186,42 +187,56 @@ export function EmailPreferencesForm() {
               </div>
             </div>
             <Switch
-              id="system-notifications"
-              checked={localPreferences.receive_marketing}
+              id="transactional-emails"
+              checked={localPreferences.transactionalEmails}
               onCheckedChange={(checked) =>
-                setLocalPreferences({ ...localPreferences, receive_marketing: checked })
+                setLocalPreferences({ ...localPreferences, transactionalEmails: checked })
               }
             />
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Email Frequency */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('frequency.title')}</CardTitle>
-          <CardDescription>
-            {t('frequency.description')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label htmlFor="frequency">{t('frequency.title')}</Label>
-            <Select
-              value={localPreferences.email_frequency}
-              onValueChange={(value: 'immediate' | 'daily' | 'weekly') =>
-                setLocalPreferences({ ...localPreferences, email_frequency: value })
+          {/* Weekly Digest */}
+          <div className="flex items-center justify-between space-x-2">
+            <div className="flex items-center space-x-3">
+              <Newspaper className="h-5 w-5 text-muted-foreground" />
+              <div className="space-y-0.5">
+                <Label htmlFor="weekly-digest" className="text-base">
+                  Weekly Digest
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Receive a weekly summary of your activity
+                </p>
+              </div>
+            </div>
+            <Switch
+              id="weekly-digest"
+              checked={localPreferences.weeklyDigest}
+              onCheckedChange={(checked) =>
+                setLocalPreferences({ ...localPreferences, weeklyDigest: checked })
               }
-            >
-              <SelectTrigger id="frequency">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="immediate">{t('frequency.realtime')}</SelectItem>
-                <SelectItem value="daily">{t('frequency.daily')}</SelectItem>
-                <SelectItem value="weekly">{t('frequency.weekly')}</SelectItem>
-              </SelectContent>
-            </Select>
+            />
+          </div>
+
+          {/* Marketing Emails */}
+          <div className="flex items-center justify-between space-x-2">
+            <div className="flex items-center space-x-3">
+              <Mail className="h-5 w-5 text-muted-foreground" />
+              <div className="space-y-0.5">
+                <Label htmlFor="marketing-emails" className="text-base">
+                  Marketing Emails
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Receive promotional offers and product updates
+                </p>
+              </div>
+            </div>
+            <Switch
+              id="marketing-emails"
+              checked={localPreferences.marketingEmails}
+              onCheckedChange={(checked) =>
+                setLocalPreferences({ ...localPreferences, marketingEmails: checked })
+              }
+            />
           </div>
         </CardContent>
       </Card>
@@ -235,7 +250,7 @@ export function EmailPreferencesForm() {
           {isSaving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('cancelButton')}...
+              Saving...
             </>
           ) : (
             t('saveButton')

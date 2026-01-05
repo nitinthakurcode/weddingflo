@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Bell } from 'lucide-react';
 import { NotificationDropdown } from './notification-dropdown';
@@ -14,18 +12,10 @@ interface NotificationBellProps {
 
 export function NotificationBell({ userId }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const supabase = useSupabase();
 
-  // Get unread notification count
-  // TODO: Implement notifications table
-  const { data: unreadCount } = useQuery({
-    queryKey: ['notifications-unread-count', userId],
-    queryFn: async () => {
-      // Notifications table not yet implemented
-      return 0;
-    },
-    enabled: false,
-  });
+  // TODO: Implement notifications via tRPC
+  // For now, notifications are disabled
+  const unreadCount = 0;
 
   return (
     <div className="relative">

@@ -147,7 +147,7 @@ export function SyncStatus() {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-yellow-600" />
+              <Clock className="h-4 w-4 text-gold-600 dark:text-gold-400" />
               <span className="text-sm font-medium">Pending</span>
             </div>
             <div className="text-2xl font-bold">{stats.pending}</div>
@@ -155,7 +155,7 @@ export function SyncStatus() {
 
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <X className="h-4 w-4 text-red-600" />
+              <X className="h-4 w-4 text-rose-600 dark:text-rose-400" />
               <span className="text-sm font-medium">Failed</span>
             </div>
             <div className="text-2xl font-bold">{stats.failed}</div>
@@ -191,9 +191,9 @@ export function SyncStatus() {
 
         {/* Offline Warning */}
         {!navigator.onLine && (
-          <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-            <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5" />
-            <div className="text-sm text-yellow-800">
+          <div className="flex items-start gap-2 p-3 bg-gold-50 border border-gold-200 dark:bg-gold-950/30 dark:border-gold-800 rounded-md">
+            <AlertCircle className="h-4 w-4 text-gold-600 dark:text-gold-400 mt-0.5" />
+            <div className="text-sm text-gold-800 dark:text-gold-300">
               <strong>You are offline.</strong> Changes will sync automatically when you reconnect.
             </div>
           </div>
@@ -240,9 +240,9 @@ function ActionsList() {
           >
             <div className="flex items-center gap-2">
               {action.status === 'pending' ? (
-                <Clock className="h-3 w-3 text-yellow-600" />
+                <Clock className="h-3 w-3 text-gold-600 dark:text-gold-400" />
               ) : (
-                <X className="h-3 w-3 text-red-600" />
+                <X className="h-3 w-3 text-rose-600 dark:text-rose-400" />
               )}
               <span className="font-medium capitalize">{action.type.replace('-', ' ')}</span>
               {action.retryCount > 0 && (

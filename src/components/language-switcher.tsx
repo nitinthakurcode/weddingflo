@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { useLocale } from 'next-intl'
-import { useRouter, usePathname } from 'next/navigation'
-import { Check, Languages } from 'lucide-react'
+import { useTransition } from 'react'
+import { useLocale, useTranslations } from 'next-intl'
+import { useRouter, usePathname } from '@/lib/navigation'
+import { Check, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -20,14 +20,15 @@ export function LanguageSwitcher() {
   const router = useRouter()
   const pathname = usePathname()
   const { toast } = useToast()
-  const [isChanging, setIsChanging] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const t = useTranslations('common')
 
   // Update user preferences mutation
   const updatePreferences = trpc.users.updatePreferences.useMutation({
     onSuccess: () => {
       toast({
-        title: 'Language updated',
-        description: 'Your language preference has been saved.',
+        title: t('languageUpdated'),
+        description: t('languagePreferenceSaved'),
       })
     },
     onError: (error) => {
@@ -36,34 +37,23 @@ export function LanguageSwitcher() {
     },
   })
 
-  const handleLanguageChange = async (newLocale: Locale) => {
-    if (newLocale === locale || isChanging) return
+  const handleLanguageChange = (newLocale: Locale) => {
+    if (newLocale === locale || isPending) return
 
-    setIsChanging(true)
+    // Update user preference in database (fire and forget)
+    updatePreferences.mutate({ preferred_language: newLocale })
 
-    try {
-      // Update user preference in database (fire and forget)
-      updatePreferences.mutate({ preferred_language: newLocale })
-
-      // Navigate to new locale
-      // Remove current locale from pathname and add new locale
-      const pathWithoutLocale = pathname.replace(`/${locale}`, '')
-      const newPath = `/${newLocale}${pathWithoutLocale || ''}`
-
-      router.push(newPath)
-      router.refresh()
-    } catch (error) {
-      console.error('Error changing language:', error)
-    } finally {
-      setIsChanging(false)
-    }
+    // Use next-intl's router which handles locale switching properly
+    startTransition(() => {
+      router.replace(pathname, { locale: newLocale })
+    })
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="gap-2">
-          <Languages className="h-4 w-4" />
+          <Globe className="h-4 w-4" />
           <span className="hidden sm:inline-block">
             {localeFlags[locale]} {localeNames[locale]}
           </span>
@@ -75,7 +65,7 @@ export function LanguageSwitcher() {
           <DropdownMenuItem
             key={loc}
             onClick={() => handleLanguageChange(loc)}
-            disabled={isChanging}
+            disabled={isPending}
             className="cursor-pointer"
           >
             <span className="mr-2 text-lg">{localeFlags[loc]}</span>

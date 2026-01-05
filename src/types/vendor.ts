@@ -1,4 +1,4 @@
-// Supabase types - no Convex dependencies
+// Drizzle ORM types
 export type VendorCategory =
   | "venue"
   | "catering"
@@ -55,6 +55,9 @@ export interface Vendor {
   wouldRecommend?: boolean;
   notes?: string;
   tags?: string[];
+  // Advance payment tracking (synced from budget)
+  totalAdvances?: number;
+  balanceRemaining?: number;
 }
 
 export interface CreateVendorInput {

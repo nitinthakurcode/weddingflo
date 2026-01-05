@@ -110,6 +110,6 @@ async function applyMigration() {
   }
 }
 
-console.log('🔧 WeddingFlow Pro - Security Migration Tool');
+console.log('🔧 WeddingFlo - Security Migration Tool');
 console.log('─'.repeat(60));
 applyMigration();

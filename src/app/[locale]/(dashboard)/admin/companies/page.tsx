@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSupabase } from '@/lib/supabase/client';
-import { useUser } from '@clerk/nextjs';
+import { trpc } from '@/lib/trpc/client';
+import { useSession } from '@/lib/auth-client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,29 +34,35 @@ export default function CompaniesPage() {
   const isSuperAdmin = useIsSuperAdmin();
   const router = useRouter();
   const { toast } = useToast();
-  const supabase = useSupabase();
-  const { user } = useUser();
-  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const utils = trpc.useUtils();
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
 
-  // Get all companies (super admin only)
-  const { data: companies, isLoading } = useQuery({
-    queryKey: ['admin-companies'],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not ready');
-      if (!user?.id) throw new Error('User ID not available');
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .order('created_at', { ascending: false });
+  // Get all companies via tRPC (super admin only)
+  const { data: companies, isLoading } = trpc.companies.getAll.useQuery(undefined, {
+    enabled: !!session?.user && isSuperAdmin === true,
+  });
 
-      if (error) throw error;
-      return data || [];
+  // Create company mutation
+  const createMutation = trpc.companies.create.useMutation({
+    onSuccess: () => {
+      utils.companies.getAll.invalidate();
+      toast({
+        title: 'Company created!',
+        description: `${newCompanyName} has been created successfully.`,
+      });
+      setNewCompanyName('');
+      setIsCreateDialogOpen(false);
     },
-    enabled: !!user && isSuperAdmin === true && !!supabase,
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create company. Please try again.',
+        variant: 'destructive',
+      });
+    },
   });
 
   // Redirect if not super admin
@@ -76,25 +81,7 @@ export default function CompaniesPage() {
       return;
     }
 
-    setIsCreating(true);
-    try {
-      // For now, show success
-      toast({
-        title: 'Company created!',
-        description: `${newCompanyName} has been created successfully.`,
-      });
-
-      setNewCompanyName('');
-      setIsCreateDialogOpen(false);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to create company. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsCreating(false);
-    }
+    await createMutation.mutateAsync({ name: newCompanyName.trim() });
   };
 
   return (
@@ -138,12 +125,12 @@ export default function CompaniesPage() {
               <Button
                 variant="outline"
                 onClick={() => setIsCreateDialogOpen(false)}
-                disabled={isCreating}
+                disabled={createMutation.isPending}
               >
                 Cancel
               </Button>
-              <Button onClick={handleCreateCompany} disabled={isCreating}>
-                {isCreating ? 'Creating...' : 'Create Company'}
+              <Button onClick={handleCreateCompany} disabled={createMutation.isPending}>
+                {createMutation.isPending ? 'Creating...' : 'Create Company'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -263,7 +250,7 @@ export default function CompaniesPage() {
                       {company.usage_stats?.storage_used_mb || 0} MB
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(company.created_at).toLocaleDateString()}
+                      {new Date(company.createdAt).toLocaleDateString()}
                     </TableCell>
                   </TableRow>
                 ))

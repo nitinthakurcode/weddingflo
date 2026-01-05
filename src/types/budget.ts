@@ -1,4 +1,4 @@
-// Supabase types - no Convex dependencies
+// Drizzle ORM types
 
 export type BudgetCategory =
   | 'venue'

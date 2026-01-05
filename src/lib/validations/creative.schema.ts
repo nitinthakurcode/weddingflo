@@ -19,8 +19,9 @@ export const creativeSchema = z.object({
   description: z.string().optional(),
   status: z
     .enum(['pending', 'in_progress', 'review', 'approved', 'completed', 'cancelled'])
+    .optional()
     .default('pending'),
-  priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional().default('medium'),
   assigned_to: z.string().optional(),
   vendor_id: z.string().optional(),
   due_date: z.string().optional(),
@@ -30,4 +31,4 @@ export const creativeSchema = z.object({
   notes: z.string().optional(),
 });
 
-export type CreativeFormData = z.infer<typeof creativeSchema>;
+export type CreativeFormData = z.input<typeof creativeSchema>;

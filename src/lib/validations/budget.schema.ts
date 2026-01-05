@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+/**
+ * Budget Form Schema - December 2025 Standard (camelCase)
+ *
+ * Aligned with Drizzle ORM field naming conventions
+ */
 export const budgetSchema = z.object({
   category: z.enum([
     'venue',
@@ -18,16 +23,17 @@ export const budgetSchema = z.object({
     'gifts',
     'other',
   ]),
-  item_name: z.string().min(1, 'Item name is required'),
-  description: z.string().optional(),
-  budget: z.number().min(0, 'Budget must be positive'),
-  actual_cost: z.number().min(0, 'Actual cost must be positive').default(0),
-  paid_amount: z.number().min(0, 'Paid amount must be positive').default(0),
-  vendor_id: z.string().optional(),
-  payment_status: z.enum(['unpaid', 'partial', 'paid', 'overdue']).default('unpaid'),
-  due_date: z.string().optional(),
-  paid_date: z.string().optional(),
+  itemName: z.string().min(1, 'Item name is required'),
+  expenseDetails: z.string().optional(),
+  estimatedCost: z.number().min(0, 'Budget must be positive'),
+  actualCost: z.number().min(0, 'Actual cost must be positive').optional(),
+  vendorId: z.string().uuid().optional(),
+  eventId: z.string().uuid().optional(),
+  paymentStatus: z.enum(['pending', 'paid', 'overdue']).optional().default('pending'),
+  transactionDate: z.string().optional(),
+  paymentDate: z.string().optional(),
   notes: z.string().optional(),
+  clientVisible: z.boolean().optional().default(true),
 });
 
-export type BudgetFormData = z.infer<typeof budgetSchema>;
+export type BudgetFormData = z.input<typeof budgetSchema>;

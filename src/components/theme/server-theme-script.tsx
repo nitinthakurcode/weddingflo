@@ -1,5 +1,6 @@
-import { auth } from '@clerk/nextjs/server';
-import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
+import { getServerSession } from '@/lib/auth/server';
+import { db, eq } from '@/lib/db';
+import { companies } from '@/lib/db/schema';
 
 /**
  * ServerThemeScript - Server Component that injects theme colors directly into HTML
@@ -7,38 +8,35 @@ import { createServerSupabaseAdminClient } from '@/lib/supabase/server';
  */
 export async function ServerThemeScript() {
   try {
-    // Get Clerk user ID (not from Supabase auth - accessToken config doesn't support supabase.auth methods)
-    const { userId } = await auth();
+    // Get BetterAuth session
+    const { userId, user } = await getServerSession();
 
-    if (!userId) {
+    if (!userId || !user) {
       return null;
     }
 
-    const supabase = createServerSupabaseAdminClient();
+    // Get companyId from BetterAuth user object
+    const companyId = (user as any).companyId;
 
-    // Fetch user from Supabase using Clerk user ID
-    const { data: currentUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('clerk_id', userId)
-      .maybeSingle();
-
-    if (!(currentUser as any)?.company_id) {
+    if (!companyId) {
       return null;
     }
 
-    // Fetch company
-    const { data: company } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', (currentUser as any).company_id)
-      .maybeSingle();
+    // Fetch company using Drizzle
+    const companyResult = await db
+      .select({ branding: companies.branding })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
 
-    if (!(company as any)?.branding) {
+    const company = companyResult[0];
+
+    if (!company?.branding) {
       return null;
     }
 
-    const { primary_color, secondary_color, accent_color } = (company as any).branding;
+    const branding = company.branding as { primary_color?: string; secondary_color?: string; accent_color?: string };
+    const { primary_color, secondary_color, accent_color } = branding;
 
     // Generate CSS with color palettes
     const hexToHSL = (hex: string): { h: number; s: number; l: number } | null => {

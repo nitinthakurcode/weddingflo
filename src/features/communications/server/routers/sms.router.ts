@@ -1,73 +1,56 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
+import { eq, and, desc, gte, count, sql } from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   sendSms,
   getSmsMessage,
   formatPhoneNumber,
   isValidPhoneNumber,
-  type SmsTemplateType,
   type Locale,
 } from '@/lib/sms/twilio';
 
 // Helper function to log SMS to database
 async function logSms({
-  supabase,
+  db,
   companyId,
   clientId,
-  smsType,
-  recipientPhone,
-  recipientName,
-  messageBody,
-  locale,
+  toPhone,
+  content,
   twilioSid,
-  segments,
   status,
-  errorCode,
   errorMessage,
   metadata,
 }: {
-  supabase: any;
+  db: NodePgDatabase<typeof schema>;
   companyId: string;
   clientId?: string;
-  smsType: string;
-  recipientPhone: string;
-  recipientName?: string;
-  messageBody: string;
-  locale: Locale;
+  toPhone: string;
+  content: string;
   twilioSid?: string;
-  segments?: number;
   status: 'pending' | 'queued' | 'sending' | 'sent' | 'failed';
-  errorCode?: string;
   errorMessage?: string;
   metadata?: Record<string, any>;
 }) {
-  const { data, error } = await supabase
-    .from('sms_logs')
-    .insert({
-      company_id: companyId,
-      client_id: clientId || null,
-      sms_type: smsType,
-      recipient_phone: recipientPhone,
-      recipient_name: recipientName,
-      message_body: messageBody,
-      locale,
+  try {
+    const [log] = await db.insert(schema.smsLogs).values({
+      companyId,
+      clientId: clientId || undefined,
+      toPhone,
+      content,
       status,
-      twilio_sid: twilioSid,
-      segments: segments || 1,
-      error_code: errorCode,
-      error_message: errorMessage,
+      twilioSid: twilioSid || undefined,
+      errorMessage: errorMessage || undefined,
       metadata: metadata || {},
-      sent_at: status === 'sent' || status === 'queued' ? new Date().toISOString() : null,
-    })
-    .select()
-    .single();
+    }).returning();
 
-  if (error) {
+    return log;
+  } catch (error) {
     console.error('Failed to log SMS:', error);
+    return null;
   }
-
-  return data;
 }
 
 export const smsRouter = router({
@@ -84,7 +67,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, recipientName, recipientPhone, eventName, daysUntilWedding, locale } = input;
 
       if (!companyId) {
@@ -100,35 +83,6 @@ export const smsRouter = router({
           throw new Error('Invalid phone number format');
         }
 
-        // TODO: Implement SMS preference checking when user_id columns are added to clients table
-        // Currently clients table doesn't have partner1_user_id/partner2_user_id columns
-
-        // Check if user wants to receive wedding reminders
-        // const { data: client } = await supabase
-        //   .from('clients')
-        //   .select('partner1_user_id, partner2_user_id')
-        //   .eq('id', clientId)
-        //   .single();
-
-        // if (client) {
-        //   const recipientUserId = client.partner1_user_id || client.partner2_user_id;
-
-        //   if (recipientUserId) {
-        //     const { data: shouldSend } = await supabase
-        //       .rpc('should_send_sms', {
-        //         p_user_id: recipientUserId,
-        //         p_sms_type: 'wedding_reminder',
-        //       });
-
-        //     if (shouldSend === false) {
-        //       return {
-        //         success: false,
-        //         message: 'User has disabled wedding reminder SMS',
-        //       };
-        //     }
-        //   }
-        // }
-
         // Get SMS message from template
         const message = getSmsMessage('weddingReminder', locale, daysUntilWedding, eventName);
 
@@ -141,16 +95,14 @@ export const smsRouter = router({
         if (!result.success) {
           // Log failed SMS
           await logSms({
-            supabase,
+            db,
             companyId,
             clientId,
-            smsType: 'wedding_reminder',
-            recipientPhone: formatPhoneNumber(recipientPhone),
-            recipientName,
-            messageBody: message,
-            locale,
+            toPhone: formatPhoneNumber(recipientPhone),
+            content: message,
             status: 'failed',
             errorMessage: result.error,
+            metadata: { smsType: 'wedding_reminder', recipientName, eventName, daysUntilWedding, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -158,18 +110,14 @@ export const smsRouter = router({
 
         // Log successful SMS
         await logSms({
-          supabase,
+          db,
           companyId,
           clientId,
-          smsType: 'wedding_reminder',
-          recipientPhone: formatPhoneNumber(recipientPhone),
-          recipientName,
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(recipientPhone),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { eventName, daysUntilWedding },
+          metadata: { smsType: 'wedding_reminder', recipientName, eventName, daysUntilWedding, locale, segments: result.segments },
         });
 
         return {
@@ -196,7 +144,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, guestName, guestPhone, eventName, locale } = input;
 
       if (!companyId) {
@@ -220,34 +168,28 @@ export const smsRouter = router({
 
         if (!result.success) {
           await logSms({
-            supabase,
+            db,
             companyId,
             clientId,
-            smsType: 'rsvp_confirmation',
-            recipientPhone: formatPhoneNumber(guestPhone),
-            recipientName: guestName,
-            messageBody: message,
-            locale,
+            toPhone: formatPhoneNumber(guestPhone),
+            content: message,
             status: 'failed',
             errorMessage: result.error,
+            metadata: { smsType: 'rsvp_confirmation', recipientName: guestName, eventName, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
         }
 
         await logSms({
-          supabase,
+          db,
           companyId,
           clientId,
-          smsType: 'rsvp_confirmation',
-          recipientPhone: formatPhoneNumber(guestPhone),
-          recipientName: guestName,
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(guestPhone),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { eventName },
+          metadata: { smsType: 'rsvp_confirmation', recipientName: guestName, eventName, locale, segments: result.segments },
         });
 
         return {
@@ -275,7 +217,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, recipientName, recipientPhone, amount, dueDate, locale } = input;
 
       if (!companyId) {
@@ -290,35 +232,6 @@ export const smsRouter = router({
           throw new Error('Invalid phone number format');
         }
 
-        // TODO: Implement SMS preference checking when user_id columns are added to clients table
-        // Currently clients table doesn't have partner1_user_id/partner2_user_id columns
-
-        // Check user preferences
-        // const { data: client } = await supabase
-        //   .from('clients')
-        //   .select('partner1_user_id, partner2_user_id')
-        //   .eq('id', clientId)
-        //   .single();
-
-        // if (client) {
-        //   const recipientUserId = client.partner1_user_id || client.partner2_user_id;
-
-        //   if (recipientUserId) {
-        //     const { data: shouldSend } = await supabase
-        //       .rpc('should_send_sms', {
-        //         p_user_id: recipientUserId,
-        //         p_sms_type: 'payment_reminder',
-        //       });
-
-        //     if (shouldSend === false) {
-        //       return {
-        //         success: false,
-        //         message: 'User has disabled payment reminder SMS',
-        //       };
-        //     }
-        //   }
-        // }
-
         const message = getSmsMessage('paymentReminder', locale, amount, dueDate);
 
         const result = await sendSms({
@@ -328,34 +241,28 @@ export const smsRouter = router({
 
         if (!result.success) {
           await logSms({
-            supabase,
+            db,
             companyId,
             clientId,
-            smsType: 'payment_reminder',
-            recipientPhone: formatPhoneNumber(recipientPhone),
-            recipientName,
-            messageBody: message,
-            locale,
+            toPhone: formatPhoneNumber(recipientPhone),
+            content: message,
             status: 'failed',
             errorMessage: result.error,
+            metadata: { smsType: 'payment_reminder', recipientName, amount, dueDate, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
         }
 
         await logSms({
-          supabase,
+          db,
           companyId,
           clientId,
-          smsType: 'payment_reminder',
-          recipientPhone: formatPhoneNumber(recipientPhone),
-          recipientName,
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(recipientPhone),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { amount, dueDate },
+          metadata: { smsType: 'payment_reminder', recipientName, amount, dueDate, locale, segments: result.segments },
         });
 
         return {
@@ -382,7 +289,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, recipientName, recipientPhone, amount, locale } = input;
 
       if (!companyId) {
@@ -406,34 +313,28 @@ export const smsRouter = router({
 
         if (!result.success) {
           await logSms({
-            supabase,
+            db,
             companyId,
             clientId,
-            smsType: 'payment_received',
-            recipientPhone: formatPhoneNumber(recipientPhone),
-            recipientName,
-            messageBody: message,
-            locale,
+            toPhone: formatPhoneNumber(recipientPhone),
+            content: message,
             status: 'failed',
             errorMessage: result.error,
+            metadata: { smsType: 'payment_received', recipientName, amount, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
         }
 
         await logSms({
-          supabase,
+          db,
           companyId,
           clientId,
-          smsType: 'payment_received',
-          recipientPhone: formatPhoneNumber(recipientPhone),
-          recipientName,
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(recipientPhone),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { amount },
+          metadata: { smsType: 'payment_received', recipientName, amount, locale, segments: result.segments },
         });
 
         return {
@@ -460,7 +361,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, recipientName, recipientPhone, message: customMessage, locale } = input;
 
       if (!companyId) {
@@ -484,34 +385,28 @@ export const smsRouter = router({
 
         if (!result.success) {
           await logSms({
-            supabase,
+            db,
             companyId,
             clientId,
-            smsType: 'vendor_notification',
-            recipientPhone: formatPhoneNumber(recipientPhone),
-            recipientName,
-            messageBody: message,
-            locale,
+            toPhone: formatPhoneNumber(recipientPhone),
+            content: message,
             status: 'failed',
             errorMessage: result.error,
+            metadata: { smsType: 'vendor_notification', recipientName, customMessage, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
         }
 
         await logSms({
-          supabase,
+          db,
           companyId,
           clientId,
-          smsType: 'vendor_notification',
-          recipientPhone: formatPhoneNumber(recipientPhone),
-          recipientName,
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(recipientPhone),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { customMessage },
+          metadata: { smsType: 'vendor_notification', recipientName, customMessage, locale, segments: result.segments },
         });
 
         return {
@@ -539,7 +434,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { clientId, recipientName, recipientPhone, eventName, updateMessage, locale } = input;
 
       if (!companyId) {
@@ -563,34 +458,28 @@ export const smsRouter = router({
 
         if (!result.success) {
           await logSms({
-            supabase,
+            db,
             companyId,
             clientId,
-            smsType: 'event_update',
-            recipientPhone: formatPhoneNumber(recipientPhone),
-            recipientName,
-            messageBody: message,
-            locale,
+            toPhone: formatPhoneNumber(recipientPhone),
+            content: message,
             status: 'failed',
             errorMessage: result.error,
+            metadata: { smsType: 'event_update', recipientName, eventName, updateMessage, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
         }
 
         await logSms({
-          supabase,
+          db,
           companyId,
           clientId,
-          smsType: 'event_update',
-          recipientPhone: formatPhoneNumber(recipientPhone),
-          recipientName,
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(recipientPhone),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { eventName, updateMessage },
+          metadata: { smsType: 'event_update', recipientName, eventName, updateMessage, locale, segments: result.segments },
         });
 
         return {
@@ -617,7 +506,7 @@ export const smsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { limit, offset, smsType, status, clientId } = input;
 
       if (!companyId) {
@@ -627,35 +516,46 @@ export const smsRouter = router({
         });
       }
 
-      let query = supabase
-        .from('sms_logs')
-        .select('*', { count: 'exact' })
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      if (smsType) {
-        query = query.eq('sms_type', smsType);
-      }
+      // Build where conditions
+      const conditions = [eq(schema.smsLogs.companyId, companyId)];
 
       if (status) {
-        query = query.eq('status', status);
+        conditions.push(eq(schema.smsLogs.status, status));
       }
 
       if (clientId) {
-        query = query.eq('client_id', clientId);
+        conditions.push(eq(schema.smsLogs.clientId, clientId));
       }
 
-      const { data, error, count } = await query;
+      // Get logs with filtering
+      // Note: smsType filtering via metadata requires raw SQL or post-filtering
+      const logs = await db.query.smsLogs.findMany({
+        where: and(...conditions),
+        orderBy: [desc(schema.smsLogs.createdAt)],
+        limit,
+        offset,
+      });
 
-      if (error) {
-        throw new Error(`Failed to fetch SMS logs: ${error.message}`);
-      }
+      // Filter by smsType in metadata if provided
+      const filteredLogs = smsType
+        ? logs.filter((log) => {
+            const metadata = log.metadata as Record<string, any> | null;
+            return metadata?.smsType === smsType;
+          })
+        : logs;
+
+      // Get total count
+      const [countResult] = await db
+        .select({ count: count() })
+        .from(schema.smsLogs)
+        .where(and(...conditions));
+
+      const total = countResult?.count || 0;
 
       return {
-        logs: data || [],
-        total: count || 0,
-        hasMore: (count || 0) > offset + limit,
+        logs: filteredLogs,
+        total,
+        hasMore: total > offset + limit,
       };
     }),
 
@@ -667,7 +567,7 @@ export const smsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { days } = input;
 
       if (!companyId) {
@@ -677,57 +577,73 @@ export const smsRouter = router({
         });
       }
 
-      const { data, error } = await supabase
-        .rpc('get_sms_stats', {
-          p_company_id: companyId,
-          p_days: days,
-        });
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
 
-      if (error) {
-        throw new Error(`Failed to fetch SMS stats: ${error.message}`);
+      // Get counts by status
+      const statsResult = await db
+        .select({
+          status: schema.smsLogs.status,
+          count: count(),
+        })
+        .from(schema.smsLogs)
+        .where(
+          and(
+            eq(schema.smsLogs.companyId, companyId),
+            gte(schema.smsLogs.createdAt, startDate)
+          )
+        )
+        .groupBy(schema.smsLogs.status);
+
+      // Calculate totals
+      let totalSms = 0;
+      let sentSms = 0;
+      let deliveredSms = 0;
+      let failedSms = 0;
+
+      for (const row of statsResult) {
+        totalSms += row.count;
+        if (row.status === 'sent' || row.status === 'queued') {
+          sentSms += row.count;
+        }
+        if (row.status === 'delivered') {
+          deliveredSms += row.count;
+        }
+        if (row.status === 'failed') {
+          failedSms += row.count;
+        }
       }
 
-      return data?.[0] || {
-        total_sms: 0,
-        sent_sms: 0,
-        delivered_sms: 0,
-        failed_sms: 0,
-        total_segments: 0,
-        success_rate: 0,
+      const successRate = totalSms > 0 ? ((sentSms + deliveredSms) / totalSms) * 100 : 0;
+
+      return {
+        total_sms: totalSms,
+        sent_sms: sentSms,
+        delivered_sms: deliveredSms,
+        failed_sms: failedSms,
+        total_segments: 0, // Would need to sum from metadata
+        success_rate: Math.round(successRate * 100) / 100,
       };
     }),
 
   // Get user SMS preferences
   getSmsPreferences: protectedProcedure
     .query(async ({ ctx }) => {
-      const { supabase, userId, companyId } = ctx;
+      const { db, userId } = ctx;
 
-      if (!companyId) {
-        throw new TRPCError({
-          code: 'UNAUTHORIZED',
-          message: 'Company ID not found in session claims',
-        });
-      }
-
-      const { data, error } = await supabase
-        .from('sms_preferences')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('company_id', companyId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        throw new Error(`Failed to fetch SMS preferences: ${error.message}`);
-      }
+      const preferences = await db.query.smsPreferences.findFirst({
+        where: eq(schema.smsPreferences.userId, userId),
+      });
 
       // Return default preferences if none exist
-      return data || {
-        receive_wedding_reminders: true,
-        receive_payment_reminders: true,
-        receive_rsvp_notifications: true,
-        receive_vendor_messages: true,
-        receive_event_updates: true,
-        sms_frequency: 'immediate',
+      return preferences || {
+        smsEnabled: true,
+        marketingSms: false,
+        transactionalSms: true,
+        reminderSms: true,
+        phoneNumber: null,
+        verifiedAt: null,
+        preferences: {},
       };
     }),
 
@@ -735,63 +651,53 @@ export const smsRouter = router({
   updateSmsPreferences: protectedProcedure
     .input(
       z.object({
-        receive_wedding_reminders: z.boolean().optional(),
-        receive_payment_reminders: z.boolean().optional(),
-        receive_rsvp_notifications: z.boolean().optional(),
-        receive_vendor_messages: z.boolean().optional(),
-        receive_event_updates: z.boolean().optional(),
-        sms_frequency: z.enum(['immediate', 'daily', 'off']).optional(),
+        smsEnabled: z.boolean().optional(),
+        marketingSms: z.boolean().optional(),
+        transactionalSms: z.boolean().optional(),
+        reminderSms: z.boolean().optional(),
+        phoneNumber: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, userId, companyId } = ctx;
+      const { db, userId } = ctx;
 
-      if (!companyId) {
-        throw new TRPCError({
-          code: 'UNAUTHORIZED',
-          message: 'Company ID not found in session claims',
-        });
-      }
-
-      // Try to update existing preferences
-      const { data: existing } = await supabase
-        .from('sms_preferences')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('company_id', companyId)
-        .single();
+      // Check if preferences exist
+      const existing = await db.query.smsPreferences.findFirst({
+        where: eq(schema.smsPreferences.userId, userId),
+      });
 
       let result;
 
       if (existing) {
         // Update existing preferences
-        result = await supabase
-          .from('sms_preferences')
-          .update(input)
-          .eq('user_id', userId)
-          .eq('company_id', companyId)
-          .select()
-          .single();
+        const [updated] = await db
+          .update(schema.smsPreferences)
+          .set({
+            ...input,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.smsPreferences.userId, userId))
+          .returning();
+        result = updated;
       } else {
         // Insert new preferences
-        result = await supabase
-          .from('sms_preferences')
-          .insert({
-            user_id: userId,
-            company_id: companyId,
-            ...input,
+        const [inserted] = await db
+          .insert(schema.smsPreferences)
+          .values({
+            userId,
+            smsEnabled: input.smsEnabled ?? true,
+            marketingSms: input.marketingSms ?? false,
+            transactionalSms: input.transactionalSms ?? true,
+            reminderSms: input.reminderSms ?? true,
+            phoneNumber: input.phoneNumber || undefined,
           })
-          .select()
-          .single();
-      }
-
-      if (result.error) {
-        throw new Error(`Failed to update SMS preferences: ${result.error.message}`);
+          .returning();
+        result = inserted;
       }
 
       return {
         success: true,
-        preferences: result.data,
+        preferences: result,
         message: 'SMS preferences updated successfully',
       };
     }),
@@ -806,7 +712,7 @@ export const smsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { supabase, companyId } = ctx;
+      const { db, companyId } = ctx;
       const { to, templateType, locale } = input;
 
       if (!companyId) {
@@ -851,17 +757,13 @@ export const smsRouter = router({
 
         // Log test SMS
         await logSms({
-          supabase,
+          db,
           companyId,
-          smsType: templateType,
-          recipientPhone: formatPhoneNumber(to),
-          recipientName: 'Test User',
-          messageBody: message,
-          locale,
+          toPhone: formatPhoneNumber(to),
+          content: message,
           twilioSid: result.sid,
-          segments: result.segments,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { test: true },
+          metadata: { smsType: templateType, recipientName: 'Test User', test: true, locale, segments: result.segments },
         });
 
         return {

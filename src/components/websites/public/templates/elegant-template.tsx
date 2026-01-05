@@ -1,10 +1,10 @@
 'use client';
 
-import type { Database } from '@/lib/database.types';
+import type { WeddingWebsite } from '@/lib/db/types';
 import type { WeddingTemplate } from '@/lib/templates/wedding-templates';
 import { Heart, Calendar, Flower2 } from 'lucide-react';
 
-type Website = Database['public']['Tables']['wedding_websites']['Row'];
+type Website = WeddingWebsite;
 
 interface ElegantTemplateProps {
   website: Website;
@@ -22,8 +22,9 @@ interface ElegantTemplateProps {
  * - Guest photos
  */
 export function ElegantTemplate({ website, template }: ElegantTemplateProps) {
-  const heroSection = website.hero_section as any;
-  const ourStorySection = website.our_story_section as any;
+  const content = website.content as Record<string, any> || {};
+  const heroSection = content.hero_section as any;
+  const ourStorySection = content.our_story_section as any;
 
   return (
     <div className="elegant-template min-h-screen" style={{ fontFamily: template.fonts.body, backgroundColor: template.theme_colors.background }}>

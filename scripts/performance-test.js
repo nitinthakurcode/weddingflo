@@ -1,5 +1,5 @@
 /**
- * Performance Testing Script for WeddingFlow Pro
+ * Performance Testing Script for WeddingFlo
  *
  * This script provides basic performance checks.
  * For full Lighthouse testing, install: npm install -g lighthouse
@@ -55,7 +55,7 @@ async function runPerformanceTests() {
   const baseUrl = process.argv[2] || 'http://localhost:3000';
 
   console.log('╔════════════════════════════════════════════════╗');
-  console.log('║  WeddingFlow Pro - Performance Test Suite     ║');
+  console.log('║  WeddingFlo - Performance Test Suite          ║');
   console.log('╚════════════════════════════════════════════════╝');
   console.log('');
   console.log(`Testing: ${baseUrl}`);

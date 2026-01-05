@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getServerSession } from '@/lib/auth/server';
 import { stripe } from '@/lib/stripe/stripe-client';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { db, eq } from '@/lib/db';
+import { companies } from '@/lib/db/schema';
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId } = await getServerSession();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -17,20 +18,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing companyId' }, { status: 400 });
     }
 
-    // Get company data with auth
-    const supabase = createServerSupabaseClient();
-    // @ts-ignore - TODO: Regenerate Supabase types from database schema
-    const { data: company, error } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', companyId)
-      .single();
+    // Get company data using Drizzle
+    const companyResult = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
 
-    if (error || !company) {
+    const company = companyResult[0];
+
+    if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const subscriptionId = (company as any).stripe_subscription_id;
+    const subscriptionId = company.stripeSubscriptionId;
     if (!subscriptionId) {
       return NextResponse.json({ error: 'No active subscription found' }, { status: 400 });
     }
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       cancel_at_period_end: subscription.cancel_at_period_end,
-      current_period_end: subscription.current_period_end,
+      current_period_end: (subscription as any).current_period_end,
     });
   } catch (error: any) {
     console.error('Error canceling subscription:', error);

@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CalendarIcon } from 'lucide-react';
 import { format, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useTranslations } from 'next-intl';
 
 interface DateRange {
   from: Date;
@@ -20,38 +21,39 @@ interface DateRangePickerProps {
 
 export function DateRangePicker({ dateRange, onDateRangeChange }: DateRangePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const t = useTranslations('analytics');
 
   const presets = [
     {
-      label: 'Last 7 Days',
+      label: t('presets.last7Days'),
       getValue: () => ({
         from: subDays(new Date(), 7),
         to: new Date(),
       }),
     },
     {
-      label: 'Last 30 Days',
+      label: t('presets.last30Days'),
       getValue: () => ({
         from: subDays(new Date(), 30),
         to: new Date(),
       }),
     },
     {
-      label: 'Last 3 Months',
+      label: t('presets.last3Months'),
       getValue: () => ({
         from: subMonths(new Date(), 3),
         to: new Date(),
       }),
     },
     {
-      label: 'This Month',
+      label: t('presets.thisMonth'),
       getValue: () => ({
         from: startOfMonth(new Date()),
         to: endOfMonth(new Date()),
       }),
     },
     {
-      label: 'Last Month',
+      label: t('presets.lastMonth'),
       getValue: () => {
         const lastMonth = subMonths(new Date(), 1);
         return {
@@ -83,14 +85,14 @@ export function DateRangePicker({ dateRange, onDateRangeChange }: DateRangePicke
                 format(dateRange.from, 'LLL dd, y')
               )
             ) : (
-              <span>Pick a date range</span>
+              <span>{t('pickDateRange')}</span>
             )}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
           <div className="flex">
             <div className="border-r p-3 space-y-1">
-              <p className="text-sm font-medium mb-2">Presets</p>
+              <p className="text-sm font-medium mb-2">{t('presets.title') || 'Presets'}</p>
               {presets.map((preset) => (
                 <Button
                   key={preset.label}
@@ -129,7 +131,7 @@ export function DateRangePicker({ dateRange, onDateRangeChange }: DateRangePicke
       <div className="text-sm text-muted-foreground">
         {dateRange.from && dateRange.to && (
           <span>
-            Showing data from {format(dateRange.from, 'MMM dd')} to {format(dateRange.to, 'MMM dd')}
+            {t('showingDataFrom')} {format(dateRange.from, 'MMM dd')} {t('to')} {format(dateRange.to, 'MMM dd')}
           </span>
         )}
       </div>
