@@ -13,6 +13,16 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth-client';
 import { trpc } from '@/lib/trpc/client';
 
+/**
+ * Header Component - Production Version
+ *
+ * January 2026 - Properly hydrated via server session
+ *
+ * No longer needs `isMounted` workaround because:
+ * - Server passes initial session to AuthProvider
+ * - Client receives same auth state on first render
+ * - No hydration mismatch occurs
+ */
 export function Header() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const router = useRouter();
@@ -24,14 +34,13 @@ export function Header() {
     id: user.id,
     auth_id: user.id,
     email: user.email,
-    role: (user as any).role || 'company_admin',
-    company_id: (user as any).companyId,
-    first_name: user.name?.split(' ')[0] || '',
-    last_name: user.name?.split(' ').slice(1).join(' ') || '',
+    role: user.role || 'company_admin',
+    company_id: user.companyId,
+    first_name: user.firstName || '',
+    last_name: user.lastName || '',
   } : null;
 
   // Get unread message count via tRPC (messages router)
-  // TODO: Implement conversations in messages router
   const { data: unreadCount } = trpc.activity.getUnreadCount.useQuery(undefined, {
     enabled: !!user?.id,
   });
@@ -124,7 +133,7 @@ export function Header() {
           {/* Notifications Bell */}
           {currentUser && <NotificationBell userId={currentUser.auth_id} />}
 
-          <UserMenu afterSignOutUrl="/sign-in" />
+          <UserMenu />
         </div>
       </header>
 

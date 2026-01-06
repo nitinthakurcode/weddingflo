@@ -29,3 +29,4 @@
 
 export { usersRouter } from './users.router';
 export { companiesRouter } from './companies.router';
+export { activityRouter } from './activity.router';

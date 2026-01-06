@@ -6,8 +6,9 @@ import { notFound } from 'next/navigation'
 import { locales, type Locale } from '@/i18n/config'
 import type { ReactNode } from 'react'
 import dynamicImport from 'next/dynamic'
-import { AuthProvider } from '../AuthProvider'
+import { AuthProvider, type ServerSession } from '../AuthProvider'
 import { AuthLoadedBoundary } from '../AuthLoadedBoundary'
+import { getServerSession } from '@/lib/auth/server'
 import { Toaster } from '@/components/ui/toaster'
 import { PWAProvider } from '@/components/pwa/pwa-provider'
 import { AnalyticsProvider } from '../providers/analytics-provider'
@@ -94,6 +95,16 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
+  icons: {
+    icon: [
+      { url: '/icons/icon-72x72.png', sizes: '72x72', type: 'image/png' },
+      { url: '/icons/icon-96x96.png', sizes: '96x96', type: 'image/png' },
+      { url: '/icons/icon-128x128.png', sizes: '128x128', type: 'image/png' },
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    shortcut: '/icons/icon-96x96.png',
+    apple: '/apple-touch-icon.png',
+  },
 }
 
 export const viewport = {
@@ -132,6 +143,33 @@ export default async function LocaleLayout({
   // Get messages for this locale
   const messages = await getMessages({ locale: locale as Locale })
 
+  // Get server session for proper hydration (prevents flash/mismatch)
+  // This is safe to call on public pages - returns null if not authenticated
+  let initialSession: ServerSession | null = null;
+  try {
+    const { user } = await getServerSession();
+    if (user) {
+      initialSession = {
+        user: {
+          id: user.id,
+          email: user.email || '',
+          name: user.name || null,
+          image: user.image || null,
+          role: (user as any).role || null,
+          companyId: (user as any).companyId || null,
+          firstName: (user as any).firstName || null,
+          lastName: (user as any).lastName || null,
+          onboardingCompleted: (user as any).onboardingCompleted || false,
+        },
+        session: null,
+      };
+    }
+  } catch (error) {
+    // Session fetch failed - continue without initial session
+    // AuthProvider will handle this gracefully
+    console.warn('[Layout] Failed to fetch server session:', error);
+  }
+
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
@@ -144,7 +182,7 @@ export default async function LocaleLayout({
         <meta name="apple-mobile-web-app-title" content="WeddingFlow" />
       </head>
       <body className={`${plusJakarta.variable} ${playfair.variable} font-sans antialiased`}>
-        <AuthProvider>
+        <AuthProvider initialSession={initialSession}>
           <AuthLoadedBoundary>
             <TRPCProvider>
               <NextIntlClientProvider locale={locale} messages={messages}>

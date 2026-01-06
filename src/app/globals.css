@@ -24,12 +24,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ═══════════════════════════════════════════════════════════════
-   DESIGN TOKENS
+   DESIGN TOKENS (all defined inline in @theme block below)
    ═══════════════════════════════════════════════════════════════ */
-@import "../styles/tokens/colors.css";
-@import "../styles/tokens/typography.css";
-@import "../styles/tokens/effects.css";
-@import "../styles/tokens/motion.css";
 
 /* ═══════════════════════════════════════════════════════════════
    TAILWIND V4 THEME CONFIGURATION
