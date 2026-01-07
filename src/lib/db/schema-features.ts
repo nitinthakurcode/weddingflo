@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid, numeric, varchar, time, pgEnum } from 'drizzle-orm/pg-core';
 
 /**
  * Feature Schema
@@ -133,25 +133,54 @@ export const guests = pgTable('guests', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Hotels
+// Hotels (guest accommodation tracking)
 export const hotels = pgTable('hotels', {
-  id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
-  name: text('name').notNull(),
-  address: text('address'),
-  phone: text('phone'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull(),
+  guestId: uuid('guest_id'),
+  guestName: text('guest_name').notNull(),
+  hotelName: text('hotel_name'),
+  roomNumber: text('room_number'),
+  roomType: text('room_type'),
+  checkInDate: text('check_in_date'),
+  checkOutDate: text('check_out_date'),
+  accommodationNeeded: boolean('accommodation_needed').default(true),
+  bookingConfirmed: boolean('booking_confirmed').default(false),
+  checkedIn: boolean('checked_in').default(false),
+  cost: numeric('cost', { precision: 15, scale: 2 }),
+  currency: varchar('currency', { length: 3 }).default('USD'),
+  paymentStatus: text('payment_status').default('pending'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+  partySize: integer('party_size').default(1),
+  guestNamesInRoom: text('guest_names_in_room'),
+  roomAssignments: jsonb('room_assignments').default('{}'),
 });
+
+// Transport leg type enum
+export const transportLegTypeEnum = pgEnum('transport_leg_type', ['arrival', 'departure', 'inter_event']);
 
 // Guest Transport
 export const guestTransport = pgTable('guest_transport', {
-  id: text('id').primaryKey(),
-  guestId: text('guest_id').notNull(),
-  pickupLocation: text('pickup_location'),
-  dropoffLocation: text('dropoff_location'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull(),
+  guestId: uuid('guest_id').notNull(),
+  guestName: text('guest_name').notNull(),
+  pickupDate: text('pickup_date'),
+  pickupTime: time('pickup_time'),
+  pickupFrom: text('pickup_from'),
+  dropTo: text('drop_to'),
+  transportStatus: text('transport_status').default('scheduled'),
+  vehicleInfo: text('vehicle_info'),
+  completedAt: timestamp('completed_at'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  legType: transportLegTypeEnum('leg_type').default('arrival'),
+  legSequence: integer('leg_sequence').default(1),
+  eventId: uuid('event_id'),
 });
 
 // Events
