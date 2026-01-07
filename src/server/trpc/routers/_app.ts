@@ -51,7 +51,7 @@ import { analyticsRouter, budgetRouter, internalBudgetRouter, exportRouter, impo
 // import { teamRouter } from '../../../features/team/server/routers';
 
 // Backup Feature Pocket
-// import { backupRouter, googleSheetsRouter, dataBackupRouter } from '../../../features/backup/server/routers';
+import { googleSheetsRouter } from '../../../features/backup/server/routers';
 
 // Engagement Feature Pocket (November 2025 - WeddingFlow-Pro-App-Flows)
 // import {
@@ -132,7 +132,7 @@ export const appRouter = router({
   // TODO: Uncomment when feature pockets are implemented
   // tasks: tasksRouter,
   // backup: backupRouter,
-  // googleSheets: googleSheetsRouter,
+  googleSheets: googleSheetsRouter,
   // dataBackup: dataBackupRouter,
   // gamification: gamificationRouter,
   // invitations: invitationsRouter,
