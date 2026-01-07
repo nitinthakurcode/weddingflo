@@ -1,7 +1,8 @@
 'use client';
 
 import { LogOut, Settings, User } from 'lucide-react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -78,11 +79,11 @@ export function UserMenu() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push(`/${locale}/dashboard/settings`)}>
+        <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
           <User className="mr-2 h-4 w-4" />
           <span>Profile</span>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => router.push(`/${locale}/dashboard/settings`)}>
+        <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
           <Settings className="mr-2 h-4 w-4" />
           <span>Settings</span>
         </DropdownMenuItem>

@@ -1,7 +1,7 @@
 'use client'
 
-import { useRouter, useParams } from 'next/navigation'
-import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import { Link, useRouter } from '@/lib/navigation'
 import { useEffect, useState } from 'react'
 import { trpc } from '@/lib/trpc/client'
 import {

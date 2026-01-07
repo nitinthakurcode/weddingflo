@@ -4,7 +4,7 @@ import { db, sql, eq } from '@/lib/db';
 import { companies, clients, guests } from '@/lib/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 import { Heart, Calendar, Users, MessageSquare, Clock, MapPin } from 'lucide-react';
 import { getTranslations, getLocale } from 'next-intl/server';
 

@@ -1,6 +1,6 @@
 import { getTranslations } from 'next-intl/server';
 import { Heart, CheckSquare, Users, Wallet, Camera, Sparkles, Clock } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 
 export default async function ClientPortal() {
   const t = await getTranslations('portal');

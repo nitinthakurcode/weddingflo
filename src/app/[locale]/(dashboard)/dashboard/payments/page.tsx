@@ -4,7 +4,7 @@ import { PaymentStatsCards } from '@/components/payments/payment-stats-cards';
 import { PaymentsTable } from '@/components/payments/payments-table';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export const metadata: Metadata = {

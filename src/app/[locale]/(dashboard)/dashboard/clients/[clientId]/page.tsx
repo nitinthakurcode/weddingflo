@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { trpc } from '@/lib/trpc/client'
 import { useParams } from 'next/navigation'
+import { Link, useRouter } from '@/lib/navigation'
+import { trpc } from '@/lib/trpc/client'
 import { useTranslations } from 'next-intl'
 import { useLocale } from 'next-intl'
 import { Button } from '@/components/ui/button'
@@ -256,7 +256,7 @@ export default function ClientDetailPage() {
 
   // Modules ordered per user specification:
   // Guests → Travel → Hotels → Gifts Given → Events → Timeline → Seating → Vendors → Budgets → Documents → Gifts Received
-  // Each module has an hslColor for the themed module-card system (60-30-10 rule)
+  // Each module has an rgbColor for the themed module-card system (60-30-10 rule)
   const modules = [
     {
       titleKey: 'guests',
@@ -265,7 +265,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/guests`,
       color: 'text-cobalt-600',
       bgColor: 'bg-cobalt-50',
-      hslColor: '221 83% 53%', // Cobalt
+      rgbColor: '37, 99, 235', // Cobalt
     },
     {
       titleKey: 'travel',
@@ -274,7 +274,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/transport`,
       color: 'text-gold-600',
       bgColor: 'bg-gold-50',
-      hslColor: '40 52% 58%', // Gold/Accent
+      rgbColor: '212, 168, 83', // Gold/Accent
     },
     {
       titleKey: 'hotels',
@@ -283,7 +283,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/hotels`,
       color: 'text-teal-600',
       bgColor: 'bg-teal-50',
-      hslColor: '173 58% 39%', // Teal/Primary
+      rgbColor: '20, 184, 166', // Teal/Primary
     },
     {
       titleKey: 'giftsGiven',
@@ -292,7 +292,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/guest-gifts`,
       color: 'text-rose-600',
       bgColor: 'bg-rose-50',
-      hslColor: '347 77% 50%', // Rose
+      rgbColor: '225, 29, 72', // Rose
     },
     {
       titleKey: 'events',
@@ -301,7 +301,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/events`,
       color: 'text-teal-600',
       bgColor: 'bg-teal-50',
-      hslColor: '173 58% 39%', // Teal/Primary
+      rgbColor: '20, 184, 166', // Teal/Primary
     },
     {
       titleKey: 'timeline',
@@ -310,7 +310,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/timeline`,
       color: 'text-teal-600',
       bgColor: 'bg-teal-50',
-      hslColor: '173 58% 39%', // Teal/Primary
+      rgbColor: '20, 184, 166', // Teal/Primary
     },
     {
       titleKey: 'seating',
@@ -319,7 +319,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/seating`,
       color: 'text-cobalt-600',
       bgColor: 'bg-cobalt-50',
-      hslColor: '221 83% 53%', // Cobalt
+      rgbColor: '37, 99, 235', // Cobalt
     },
     {
       titleKey: 'vendors',
@@ -328,7 +328,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/vendors`,
       color: 'text-gold-600',
       bgColor: 'bg-gold-50',
-      hslColor: '40 52% 58%', // Gold/Accent
+      rgbColor: '212, 168, 83', // Gold/Accent
     },
     {
       titleKey: 'budgets',
@@ -337,7 +337,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/budget`,
       color: 'text-sage-600',
       bgColor: 'bg-sage-50',
-      hslColor: '112 35% 45%', // Sage
+      rgbColor: '90, 154, 73', // Sage
     },
     {
       titleKey: 'documents',
@@ -346,7 +346,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/documents`,
       color: 'text-mocha-600',
       bgColor: 'bg-mocha-50',
-      hslColor: '24 20% 50%', // Mocha
+      rgbColor: '139, 116, 97', // Mocha
     },
     {
       titleKey: 'giftsReceived',
@@ -355,7 +355,7 @@ export default function ClientDetailPage() {
       href: `/dashboard/clients/${clientId}/gifts`,
       color: 'text-rose-600',
       bgColor: 'bg-rose-50',
-      hslColor: '347 77% 50%', // Rose
+      rgbColor: '225, 29, 72', // Rose
     },
   ]
 
@@ -576,7 +576,7 @@ export default function ClientDetailPage() {
                 ${index === 3 ? 'md:col-span-2' : ''}
                 ${index === 7 ? 'md:row-span-2' : ''}
               `}
-              style={{ '--module-color': module.hslColor } as React.CSSProperties}
+              style={{ '--module-color-rgb': module.rgbColor } as React.CSSProperties}
               onClick={() => router.push(module.href)}
             >
               <div className="p-4 sm:p-6 h-full flex flex-col relative z-10">

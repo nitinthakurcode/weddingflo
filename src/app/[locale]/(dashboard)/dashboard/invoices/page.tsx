@@ -3,7 +3,7 @@ import { Metadata } from 'next';
 import { InvoicesTable } from '@/components/payments/invoices-table';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export const metadata: Metadata = {

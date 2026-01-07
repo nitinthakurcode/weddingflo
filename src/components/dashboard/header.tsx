@@ -7,7 +7,7 @@ import { NotificationBell } from '@/components/notifications/notification-bell';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { UserMenu } from '@/components/auth/user-menu';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { Badge } from '@/components/ui/badge';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/lib/auth-client';

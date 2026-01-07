@@ -4,7 +4,7 @@ import { db, eq, sql, desc } from '@/lib/db';
 import { users, companies, clients } from '@/lib/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 import { Building2, Users, UserCircle, TrendingUp } from 'lucide-react';
 
 export default async function SuperAdminDashboardPage() {

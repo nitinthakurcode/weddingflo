@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 import { redirect } from 'next/navigation';
 import { getServerSession } from '@/lib/auth/server';
 import { LayoutDashboard, Building2, Users, Settings } from 'lucide-react';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';

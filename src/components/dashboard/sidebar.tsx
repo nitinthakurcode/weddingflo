@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { usePathname, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { Link, usePathname } from '@/lib/navigation'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { ClientSelector } from '@/components/dashboard/ClientSelector'

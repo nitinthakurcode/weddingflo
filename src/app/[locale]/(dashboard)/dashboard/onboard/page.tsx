@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useRouter } from '@/lib/navigation'
 import { trpc } from '@/lib/trpc/client'
 import { WelcomeStep } from '@/components/onboarding/WelcomeStep'
 import { CompanyInfoStep } from '@/components/onboarding/CompanyInfoStep'
@@ -38,7 +39,7 @@ export default function OnboardingPage() {
 
       // If already completed, redirect to dashboard
       if (status.completed) {
-        router.push(`/${locale}/dashboard/clients`)
+        router.push('/dashboard/clients')
         return
       }
 
@@ -80,7 +81,7 @@ export default function OnboardingPage() {
   const handleSkip = async () => {
     try {
       await skipOnboarding.mutateAsync()
-      router.push(`/${locale}/dashboard/clients`)
+      router.push('/dashboard/clients')
     } catch (error) {
       console.error('Failed to skip onboarding:', error)
     }
@@ -137,7 +138,7 @@ export default function OnboardingPage() {
   const handleComplete = async () => {
     try {
       await completeOnboarding.mutateAsync()
-      router.push(`/${locale}/dashboard/clients`)
+      router.push('/dashboard/clients')
     } catch (error) {
       console.error('Failed to complete onboarding:', error)
     }

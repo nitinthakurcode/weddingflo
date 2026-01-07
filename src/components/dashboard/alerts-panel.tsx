@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 
 interface Alert {
   id: string;

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Building2, Loader2, Mail, Lock, User, Eye, EyeOff, Gift, Sparkles } from 'lucide-react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { useParams, useSearchParams } from 'next/navigation';
+import { Link, useRouter } from '@/lib/navigation';
 import { signUpWithEmail, signInWithGoogle } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -98,7 +98,7 @@ export default function SignUpPage() {
             console.error('Failed to convert referral signup');
           }
         }
-        router.push(`/${locale}/dashboard`);
+        router.push('/dashboard');
       }
     } catch {
       setCaptchaToken('');

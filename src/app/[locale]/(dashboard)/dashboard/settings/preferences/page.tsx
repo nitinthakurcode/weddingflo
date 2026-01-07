@@ -20,7 +20,7 @@ import { locales, localeNames, localeFlags, type Locale } from '@/i18n/config';
 import { useToast } from '@/hooks/use-toast';
 import { Info, Globe, DollarSign, Clock, Languages } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname } from '@/lib/navigation';
 
 const TIMEZONES = [
   // UTC/GMT

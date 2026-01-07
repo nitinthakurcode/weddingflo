@@ -10,7 +10,7 @@ import { UsageStats } from '@/components/billing/usage-stats';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 
 // Force dynamic rendering for this page
 export const dynamic = 'force-dynamic';

@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { Building2, Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { Link, useRouter } from '@/lib/navigation';
 import { signInWithEmail } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,7 +43,7 @@ export default function SignInPage() {
         setCaptchaToken('');
         setError(result.error.message || 'Invalid email or password');
       } else {
-        router.push(`/${locale}/dashboard`);
+        router.push('/dashboard');
       }
     } catch {
       setCaptchaToken('');
@@ -206,7 +206,7 @@ export default function SignInPage() {
             <div className="text-sm text-center text-muted-foreground">
               Don&apos;t have an account?{' '}
               <Link
-                href={`/${locale}/sign-up`}
+                href="/sign-up"
                 className="text-primary-600 hover:text-primary-700 font-semibold transition-colors"
               >
                 Sign up

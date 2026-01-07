@@ -12,7 +12,7 @@ import {
   AlertCircle,
   Info,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { useEffect, useRef } from 'react';
 
 interface NotificationDropdownProps {

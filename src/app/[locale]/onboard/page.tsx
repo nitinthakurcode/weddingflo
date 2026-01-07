@@ -3,7 +3,8 @@
 import { useAuth } from '@/lib/auth-client';
 import { trpc } from '@/lib/trpc/client';
 import { useEffect, useState, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { PageLoader } from '@/components/ui/loading-spinner';
 
 export default function OnboardPage() {

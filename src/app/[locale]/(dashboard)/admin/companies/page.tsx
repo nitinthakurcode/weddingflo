@@ -28,7 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Building2, Plus, Users, Calendar, TrendingUp } from 'lucide-react';
 import { useIsSuperAdmin } from '@/lib/permissions/can';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 
 export default function CompaniesPage() {
   const isSuperAdmin = useIsSuperAdmin();

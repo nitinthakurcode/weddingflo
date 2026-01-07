@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 
 interface UpcomingEvent {
   id: string;

@@ -3,7 +3,7 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { AlertCircle } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/lib/navigation';
 
 interface UpgradePromptProps {
   title: string;

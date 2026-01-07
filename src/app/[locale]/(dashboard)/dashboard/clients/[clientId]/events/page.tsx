@@ -27,7 +27,7 @@ import { Plus, Trash2, Edit, Calendar, CheckCircle, Clock, Users, Heart, MapPin,
 import { useToast } from '@/hooks/use-toast'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
 import { Badge } from '@/components/ui/badge'
-import Link from 'next/link'
+import { Link } from '@/lib/navigation'
 
 // Pipeline stage labels for display
 const PIPELINE_LABELS: Record<string, { label: string; color: string }> = {

@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { Heart, Sparkles, Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { Link, useRouter } from '@/lib/navigation';
 import { signInWithEmail, signInWithGoogle } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +32,7 @@ export default function PortalSignInPage() {
       if (result.error) {
         setError(result.error.message || 'Invalid email or password');
       } else {
-        router.push(`/${locale}/portal`);
+        router.push('/portal');
       }
     } catch {
       setError('An unexpected error occurred. Please try again.');

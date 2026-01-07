@@ -38,7 +38,8 @@ import { useForm } from 'react-hook-form';
 import type { Client, EventStatus } from '@/lib/db/types';
 import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle, MessageCircle, Sparkles, CalendarDays, Heart, TrendingUp, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import { useRouter } from '@/lib/navigation';
 import { LoadingShimmer, SlideUpItem } from '@/components/ui/micro-interactions';
 import { RevenueWidget } from '@/components/dashboard/revenue-widget';
 import { RecentBookingsWidget } from '@/components/dashboard/recent-bookings-widget';
@@ -632,7 +633,7 @@ export default function DashboardPage() {
       <SlideUpItem delay={200}>
         <Card
           className="group cursor-pointer hover:shadow-md transition-all duration-200"
-          onClick={() => router.push(`/${locale}/dashboard/ai/budget-prediction`)}
+          onClick={() => router.push('/dashboard/ai/budget-prediction')}
         >
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -752,7 +753,7 @@ export default function DashboardPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => router.push(`/${locale}/dashboard/clients/${client.id}`)}
+                            onClick={() => router.push(`/dashboard/clients/${client.id}`)}
                           >
                             {t('view')}
                           </Button>
