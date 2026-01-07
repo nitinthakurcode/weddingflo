@@ -1005,6 +1005,9 @@ async function importGuest(
     })
   }
 
+  let guestId: string
+  const guestFullName = `${firstName} ${lastName}`.trim()
+
   if (existingGuest) {
     // Update existing guest - merge metadata if both old and new have data
     const updateData = { ...guestData }
@@ -1026,15 +1029,117 @@ async function importGuest(
       .set(updateData)
       .where(eq(schema.guests.id, existingGuest.id))
 
+    guestId = existingGuest.id
     results.updated++
   } else {
-    // Create new guest
-    await db.insert(schema.guests).values({
+    // Create new guest with returning to get ID
+    const [newGuest] = await db.insert(schema.guests).values({
       ...guestData,
       clientId,
+    }).returning({ id: schema.guests.id })
+
+    guestId = newGuest.id
+    results.created++
+  }
+
+  // ==========================================
+  // CROSS-MODULE SYNC: Hotels & Transport
+  // ==========================================
+
+  // Sync to Hotels table if hotelRequired is true
+  if (guestData.hotelRequired) {
+    // Check if hotel entry already exists for this guest
+    const existingHotel = await db.query.hotels.findFirst({
+      where: eq(schema.hotels.guestId, guestId),
     })
 
-    results.created++
+    // Parse check-in/out dates
+    const checkInDate = guestData.arrivalDatetime
+      ? (guestData.arrivalDatetime instanceof Date ? guestData.arrivalDatetime.toISOString().split('T')[0] : null)
+      : null
+    const checkOutDate = guestData.departureDatetime
+      ? (guestData.departureDatetime instanceof Date ? guestData.departureDatetime.toISOString().split('T')[0] : null)
+      : null
+
+    if (existingHotel) {
+      // Update existing hotel entry
+      await db
+        .update(schema.hotels)
+        .set({
+          guestName: guestFullName,
+          checkInDate,
+          checkOutDate,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.hotels.id, existingHotel.id))
+    } else {
+      // Create new hotel entry
+      await db.insert(schema.hotels).values({
+        clientId,
+        guestId,
+        guestName: guestFullName,
+        checkInDate,
+        checkOutDate,
+        accommodationNeeded: true,
+      })
+    }
+  } else if (guestData.hotelRequired === false) {
+    // Remove hotel entry if no longer required
+    await db.delete(schema.hotels).where(eq(schema.hotels.guestId, guestId))
+  }
+
+  // Sync to Transport table if transportRequired is true
+  if (guestData.transportRequired) {
+    // Check if transport entry already exists for this guest
+    const existingTransport = await db.query.guestTransport.findFirst({
+      where: eq(schema.guestTransport.guestId, guestId),
+    })
+
+    // Parse pickup date/time from arrival datetime
+    let pickupDate: string | null = null
+    let pickupTime: string | null = null
+    if (guestData.arrivalDatetime instanceof Date) {
+      pickupDate = guestData.arrivalDatetime.toISOString().split('T')[0]
+      pickupTime = guestData.arrivalDatetime.toTimeString().slice(0, 5) // HH:MM
+    }
+
+    // Build vehicle info
+    const vehicleParts: string[] = []
+    if (guestData.transportType) vehicleParts.push(guestData.transportType)
+    if (guestData.arrivalMode) vehicleParts.push(`(${guestData.arrivalMode})`)
+    const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
+
+    if (existingTransport) {
+      // Update existing transport entry
+      await db
+        .update(schema.guestTransport)
+        .set({
+          guestName: guestFullName,
+          pickupDate,
+          pickupFrom: guestData.transportPickupLocation || null,
+          vehicleInfo,
+          notes: guestData.transportNotes || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.guestTransport.id, existingTransport.id))
+    } else {
+      // Create new transport entry
+      await db.insert(schema.guestTransport).values({
+        clientId,
+        guestId,
+        guestName: guestFullName,
+        legType: 'arrival',
+        legSequence: 1,
+        pickupDate,
+        pickupFrom: guestData.transportPickupLocation || null,
+        vehicleInfo,
+        transportStatus: 'scheduled',
+        notes: guestData.transportNotes || null,
+      })
+    }
+  } else if (guestData.transportRequired === false) {
+    // Remove transport entry if no longer required
+    await db.delete(schema.guestTransport).where(eq(schema.guestTransport.guestId, guestId))
   }
 }
 
