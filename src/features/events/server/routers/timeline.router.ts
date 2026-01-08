@@ -35,11 +35,16 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Fetch timeline items
+      // Fetch timeline items (exclude soft-deleted)
       const timelineItems = await ctx.db
         .select()
         .from(timeline)
-        .where(eq(timeline.clientId, input.clientId))
+        .where(
+          and(
+            eq(timeline.clientId, input.clientId),
+            isNull(timeline.deletedAt)
+          )
+        )
         .orderBy(asc(timeline.sortOrder), asc(timeline.startTime))
 
       return timelineItems
@@ -289,7 +294,7 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Get all timeline items with times
+      // Get all timeline items with times (exclude soft-deleted)
       const items = await ctx.db
         .select({
           id: timeline.id,
@@ -299,7 +304,12 @@ export const timelineRouter = router({
           durationMinutes: timeline.durationMinutes,
         })
         .from(timeline)
-        .where(eq(timeline.clientId, input.clientId))
+        .where(
+          and(
+            eq(timeline.clientId, input.clientId),
+            isNull(timeline.deletedAt)
+          )
+        )
         .orderBy(asc(timeline.startTime))
 
       if (!items || items.length === 0) {
@@ -364,14 +374,19 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Get timeline items
+      // Get timeline items (exclude soft-deleted)
       const items = await ctx.db
         .select({
           completed: timeline.completed,
           durationMinutes: timeline.durationMinutes,
         })
         .from(timeline)
-        .where(eq(timeline.clientId, input.clientId))
+        .where(
+          and(
+            eq(timeline.clientId, input.clientId),
+            isNull(timeline.deletedAt)
+          )
+        )
 
       const totalDuration = items.reduce((sum, item) => sum + (item.durationMinutes || 0), 0)
 
@@ -419,11 +434,16 @@ export const timelineRouter = router({
         return []
       }
 
-      // Fetch timeline items for this client
+      // Fetch timeline items for this client (exclude soft-deleted)
       const timelineItems = await ctx.db
         .select()
         .from(timeline)
-        .where(eq(timeline.clientId, clientUser.clientId))
+        .where(
+          and(
+            eq(timeline.clientId, clientUser.clientId),
+            isNull(timeline.deletedAt)
+          )
+        )
         .orderBy(asc(timeline.sortOrder), asc(timeline.startTime))
 
       return timelineItems
