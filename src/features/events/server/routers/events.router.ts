@@ -2,7 +2,7 @@ import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, gte, lte, inArray } from 'drizzle-orm'
-import { events, clients } from '@/lib/db/schema'
+import { events, clients, timeline } from '@/lib/db/schema'
 
 /**
  * Events tRPC Router - Drizzle ORM Version
@@ -133,6 +133,45 @@ export const eventsRouter = router({
         })
       }
 
+      // TIMELINE SYNC: Auto-create timeline entry for this event
+      try {
+        // Parse event date and time for timeline
+        let startDateTime = new Date(input.eventDate)
+        if (input.startTime) {
+          const [hours, minutes] = input.startTime.split(':').map(Number)
+          startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+        }
+
+        let endDateTime: Date | null = null
+        if (input.endTime) {
+          endDateTime = new Date(input.eventDate)
+          const [hours, minutes] = input.endTime.split(':').map(Number)
+          endDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+        }
+
+        // Calculate duration if both times provided
+        let durationMinutes: number | null = null
+        if (startDateTime && endDateTime) {
+          durationMinutes = Math.round((endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60))
+        }
+
+        await ctx.db.insert(timeline).values({
+          clientId: input.clientId,
+          title: input.title,
+          description: input.description || `Event: ${input.eventType || 'Wedding Event'}`,
+          startTime: startDateTime,
+          endTime: endDateTime,
+          durationMinutes,
+          location: input.location || input.venueName || null,
+          notes: input.notes || null,
+          metadata: JSON.stringify({ sourceModule: 'events', eventId: event.id }),
+        })
+        console.log(`[Timeline] Auto-created entry for event: ${input.title}`)
+      } catch (timelineError) {
+        // Log but don't fail - event was created successfully
+        console.warn('[Timeline] Failed to auto-create timeline entry for event:', timelineError)
+      }
+
       return event
     }),
 
@@ -191,6 +230,63 @@ export const eventsRouter = router({
         })
       }
 
+      // TIMELINE SYNC: Update linked timeline entry if exists
+      try {
+        // Find timeline entry linked to this event
+        const existingTimeline = await ctx.db
+          .select()
+          .from(timeline)
+          .where(eq(timeline.clientId, event.clientId))
+
+        // Find the one with matching eventId in metadata
+        const linkedTimeline = existingTimeline.find(t => {
+          try {
+            const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+            return meta.eventId === input.id
+          } catch { return false }
+        })
+
+        if (linkedTimeline) {
+          const timelineUpdate: Record<string, any> = { updatedAt: new Date() }
+
+          if (input.data.title !== undefined) timelineUpdate.title = input.data.title
+          if (input.data.description !== undefined) timelineUpdate.description = input.data.description
+          if (input.data.location !== undefined || input.data.venueName !== undefined) {
+            timelineUpdate.location = input.data.location || input.data.venueName
+          }
+          if (input.data.notes !== undefined) timelineUpdate.notes = input.data.notes
+
+          // Update date/time if changed
+          if (input.data.eventDate !== undefined || input.data.startTime !== undefined) {
+            const eventDate = input.data.eventDate || event.eventDate
+            const startTime = input.data.startTime || event.startTime
+            let startDateTime = new Date(eventDate)
+            if (startTime) {
+              const [hours, minutes] = startTime.split(':').map(Number)
+              startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+            }
+            timelineUpdate.startTime = startDateTime
+          }
+
+          if (input.data.endTime !== undefined) {
+            const eventDate = input.data.eventDate || event.eventDate
+            let endDateTime = new Date(eventDate)
+            const [hours, minutes] = input.data.endTime.split(':').map(Number)
+            endDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+            timelineUpdate.endTime = endDateTime
+          }
+
+          await ctx.db
+            .update(timeline)
+            .set(timelineUpdate)
+            .where(eq(timeline.id, linkedTimeline.id))
+
+          console.log(`[Timeline] Updated entry for event: ${event.title}`)
+        }
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to sync timeline entry for event update:', timelineError)
+      }
+
       return event
     }),
 
@@ -201,9 +297,40 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Get event first to find linked timeline
+      const [eventToDelete] = await ctx.db
+        .select()
+        .from(events)
+        .where(eq(events.id, input.id))
+        .limit(1)
+
       await ctx.db
         .delete(events)
         .where(eq(events.id, input.id))
+
+      // TIMELINE SYNC: Delete linked timeline entry
+      if (eventToDelete) {
+        try {
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, eventToDelete.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.eventId === input.id
+            } catch { return false }
+          })
+
+          if (linkedTimeline) {
+            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Deleted entry for event: ${eventToDelete.title}`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to delete timeline entry for event:', timelineError)
+        }
+      }
 
       return { success: true }
     }),

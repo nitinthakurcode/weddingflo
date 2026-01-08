@@ -2,7 +2,8 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
-import { budget, advancePayments, clients, events, clientUsers, users, clientVendors, vendors } from '@/lib/db/schema'
+import { budget, advancePayments, clients, events, clientUsers, users, clientVendors, vendors, timeline } from '@/lib/db/schema'
+import { nanoid } from 'nanoid'
 
 /**
  * Budget tRPC Router - Drizzle ORM Version
@@ -204,6 +205,34 @@ export const budgetRouter = router({
         })
       }
 
+      // TIMELINE SYNC: Create timeline entry for payment due date
+      if (input.paymentDate && budgetItem) {
+        try {
+          const paymentDateTime = new Date(input.paymentDate)
+          // Payment reminders are typically end of business day
+          paymentDateTime.setHours(17, 0, 0, 0)
+
+          await ctx.db.insert(timeline).values({
+            id: nanoid(),
+            clientId: input.clientId,
+            title: `Payment Due: ${input.itemName}`,
+            description: `${input.category} - ₹${input.estimatedCost.toLocaleString()}`,
+            startTime: paymentDateTime,
+            notes: input.notes || null,
+            metadata: JSON.stringify({
+              sourceModule: 'budget',
+              budgetId: budgetItem.id,
+              vendorId: input.vendorId,
+              type: 'payment-due',
+              amount: input.estimatedCost,
+            }),
+          })
+          console.log(`[Timeline] Created payment due entry: ${input.itemName}`)
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to create timeline entry for budget:', timelineError)
+        }
+      }
+
       return budgetItem
     }),
 
@@ -307,6 +336,70 @@ export const budgetRouter = router({
         }
       }
 
+      // TIMELINE SYNC: Update linked timeline entry for payment due date
+      try {
+        // Find timeline entry linked to this budget item
+        const existingTimeline = await ctx.db
+          .select()
+          .from(timeline)
+          .where(eq(timeline.clientId, budgetItem.clientId))
+
+        const linkedTimeline = existingTimeline.find(t => {
+          try {
+            const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+            return meta.budgetId === input.id
+          } catch { return false }
+        })
+
+        const hasPaymentDate = input.data.paymentDate !== undefined ? input.data.paymentDate : budgetItem.paymentDate
+
+        if (hasPaymentDate) {
+          const itemName = input.data.itemName || budgetItem.item
+          const category = input.data.category || budgetItem.category
+          const estimatedCost = input.data.estimatedCost !== undefined ? input.data.estimatedCost : Number(budgetItem.estimatedCost)
+          const notes = input.data.notes !== undefined ? input.data.notes : budgetItem.notes
+
+          const paymentDateTime = new Date(hasPaymentDate as string)
+          paymentDateTime.setHours(17, 0, 0, 0)
+
+          if (linkedTimeline) {
+            // Update existing
+            await ctx.db.update(timeline).set({
+              title: `Payment Due: ${itemName}`,
+              description: `${category} - ₹${estimatedCost.toLocaleString()}`,
+              startTime: paymentDateTime,
+              notes: notes || null,
+              updatedAt: new Date(),
+            }).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Updated payment due entry: ${itemName}`)
+          } else {
+            // Create new
+            await ctx.db.insert(timeline).values({
+              id: nanoid(),
+              clientId: budgetItem.clientId,
+              title: `Payment Due: ${itemName}`,
+              description: `${category} - ₹${estimatedCost.toLocaleString()}`,
+              startTime: paymentDateTime,
+              notes: notes || null,
+              metadata: JSON.stringify({
+                sourceModule: 'budget',
+                budgetId: budgetItem.id,
+                vendorId: budgetItem.vendorId,
+                type: 'payment-due',
+                amount: estimatedCost,
+              }),
+            })
+            console.log(`[Timeline] Created payment due entry: ${itemName}`)
+          }
+        } else if (linkedTimeline) {
+          // Payment date cleared - soft delete timeline entry
+          await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
+          console.log(`[Timeline] Soft-deleted payment due entry`)
+        }
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to sync timeline with budget update:', timelineError)
+      }
+
       return budgetItem
     }),
 
@@ -317,9 +410,40 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Get budget record first for timeline deletion
+      const [budgetToDelete] = await ctx.db
+        .select({ clientId: budget.clientId })
+        .from(budget)
+        .where(eq(budget.id, input.id))
+        .limit(1)
+
       await ctx.db
         .delete(budget)
         .where(eq(budget.id, input.id))
+
+      // TIMELINE SYNC: Delete linked timeline entry
+      if (budgetToDelete?.clientId) {
+        try {
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, budgetToDelete.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.budgetId === input.id
+            } catch { return false }
+          })
+
+          if (linkedTimeline) {
+            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Deleted payment due entry`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to delete timeline entry for budget:', timelineError)
+        }
+      }
 
       return { success: true }
     }),

@@ -9,7 +9,8 @@ import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
-import { guestTransport, guests, clients } from '@/lib/db/schema'
+import { guestTransport, guests, clients, timeline } from '@/lib/db/schema'
+import { nanoid } from 'nanoid'
 
 export const guestTransportRouter = router({
   // Get all transport entries for a client
@@ -104,6 +105,50 @@ export const guestTransportRouter = router({
         })
         .returning()
 
+      // TIMELINE SYNC: Create timeline entry if pickupDate is provided
+      if (input.pickupDate && transport) {
+        try {
+          const legTypeLabels: Record<string, string> = {
+            arrival: 'Arrival',
+            departure: 'Departure',
+            inter_event: 'Transfer',
+          }
+          const legLabel = legTypeLabels[input.legType] || 'Transport'
+
+          // Parse pickup date/time
+          let startDateTime = new Date(input.pickupDate)
+          if (input.pickupTime) {
+            const [hours, minutes] = input.pickupTime.split(':').map(Number)
+            startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+          }
+
+          // Build location string
+          const locationParts: string[] = []
+          if (input.pickupFrom) locationParts.push(`From: ${input.pickupFrom}`)
+          if (input.dropTo) locationParts.push(`To: ${input.dropTo}`)
+          const location = locationParts.join(' → ') || null
+
+          await ctx.db.insert(timeline).values({
+            id: nanoid(),
+            clientId: input.clientId,
+            title: `${legLabel}: ${input.guestName}`,
+            description: input.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
+            startTime: startDateTime,
+            location,
+            notes: input.notes || null,
+            metadata: JSON.stringify({
+              sourceModule: 'transport',
+              transportId: transport.id,
+              guestId: input.guestId,
+              legType: input.legType,
+            }),
+          })
+          console.log(`[Timeline] Created transport entry: ${legLabel} - ${input.guestName}`)
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to create timeline entry for transport:', timelineError)
+        }
+      }
+
       return transport
     }),
 
@@ -137,6 +182,91 @@ export const guestTransportRouter = router({
         .where(eq(guestTransport.id, input.id))
         .returning()
 
+      // TIMELINE SYNC: Update linked timeline entry
+      if (transport) {
+        try {
+          // Find timeline entry linked to this transport
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, transport.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.transportId === input.id
+            } catch { return false }
+          })
+
+          const hasPickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
+
+          if (hasPickupDate) {
+            const legTypeLabels: Record<string, string> = {
+              arrival: 'Arrival',
+              departure: 'Departure',
+              inter_event: 'Transfer',
+            }
+            const legType = input.data.legType || transport.legType || 'arrival'
+            const legLabel = legTypeLabels[legType] || 'Transport'
+            const guestName = input.data.guestName || transport.guestName
+
+            // Parse pickup date/time
+            const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
+            const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
+            let startDateTime = new Date(pickupDate!)
+            if (pickupTime) {
+              const [hours, minutes] = pickupTime.split(':').map(Number)
+              startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+            }
+
+            // Build location string
+            const pickupFrom = input.data.pickupFrom !== undefined ? input.data.pickupFrom : transport.pickupFrom
+            const dropTo = input.data.dropTo !== undefined ? input.data.dropTo : transport.dropTo
+            const locationParts: string[] = []
+            if (pickupFrom) locationParts.push(`From: ${pickupFrom}`)
+            if (dropTo) locationParts.push(`To: ${dropTo}`)
+            const location = locationParts.join(' → ') || null
+
+            if (linkedTimeline) {
+              // Update existing
+              await ctx.db.update(timeline).set({
+                title: `${legLabel}: ${guestName}`,
+                description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
+                startTime: startDateTime,
+                location,
+                notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
+                updatedAt: new Date(),
+              }).where(eq(timeline.id, linkedTimeline.id))
+              console.log(`[Timeline] Updated transport entry: ${legLabel} - ${guestName}`)
+            } else {
+              // Create new
+              await ctx.db.insert(timeline).values({
+                id: nanoid(),
+                clientId: transport.clientId,
+                title: `${legLabel}: ${guestName}`,
+                description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
+                startTime: startDateTime,
+                location,
+                notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
+                metadata: JSON.stringify({
+                  sourceModule: 'transport',
+                  transportId: transport.id,
+                  guestId: transport.guestId,
+                  legType,
+                }),
+              })
+              console.log(`[Timeline] Created transport entry: ${legLabel} - ${guestName}`)
+            }
+          } else if (linkedTimeline) {
+            // Pickup date cleared - soft delete timeline entry
+            await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Soft-deleted transport entry`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to sync timeline with transport update:', timelineError)
+        }
+      }
+
       return transport
     }),
 
@@ -148,9 +278,40 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
+      // Get transport record first for timeline deletion
+      const [transportToDelete] = await ctx.db
+        .select({ clientId: guestTransport.clientId })
+        .from(guestTransport)
+        .where(eq(guestTransport.id, input.id))
+        .limit(1)
+
       await ctx.db
         .delete(guestTransport)
         .where(eq(guestTransport.id, input.id))
+
+      // TIMELINE SYNC: Delete linked timeline entry
+      if (transportToDelete?.clientId) {
+        try {
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, transportToDelete.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.transportId === input.id
+            } catch { return false }
+          })
+
+          if (linkedTimeline) {
+            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Deleted transport entry`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to delete timeline entry for transport:', timelineError)
+        }
+      }
 
       return { success: true }
     }),

@@ -226,22 +226,25 @@ export const events = pgTable('events', {
   deletedAt: timestamp('deleted_at'),
 });
 
-// Timeline
+// Timeline - Cross-module synced entries for wedding day schedule
 export const timeline = pgTable('timeline', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
-  eventId: text('event_id'),
   title: text('title').notNull(),
-  startTime: timestamp('start_time'),
+  description: text('description'),
+  startTime: timestamp('start_time').notNull(),
   endTime: timestamp('end_time'),
   durationMinutes: integer('duration_minutes'),
   location: text('location'),
-  description: text('description'),
+  participants: text('participants').array(), // Array of participant names
+  responsiblePerson: text('responsible_person'),
   completed: boolean('completed').default(false),
-  sortOrder: integer('sort_order'),
+  sortOrder: integer('sort_order').default(0),
   notes: text('notes'),
+  metadata: text('metadata'), // JSON string for source module info (vendorId, eventId, transportId, etc.)
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'), // Soft delete support
 });
 
 // Vendors

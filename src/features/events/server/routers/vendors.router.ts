@@ -2,7 +2,7 @@ import { router, adminProcedure, publicProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
-import { clients, vendors, clientVendors, events, vendorComments, budget, advancePayments } from '@/lib/db/schema'
+import { clients, vendors, clientVendors, events, vendorComments, budget, advancePayments, timeline } from '@/lib/db/schema'
 
 /**
  * Vendors tRPC Router - Drizzle ORM Version
@@ -383,6 +383,31 @@ export const vendorsRouter = router({
         console.warn('Failed to auto-create budget item for vendor:', budgetError)
       }
 
+      // TIMELINE SYNC: Create timeline entry if service date is set
+      if (input.serviceDate) {
+        try {
+          const serviceDateTime = new Date(input.serviceDate)
+          await ctx.db.insert(timeline).values({
+            clientId: input.clientId,
+            title: `${input.vendorName} - ${input.category || 'Vendor Service'}`,
+            description: `Vendor service: ${input.vendorName}`,
+            startTime: serviceDateTime,
+            location: input.venueAddress || null,
+            responsiblePerson: input.contactName || input.onsitePocName || null,
+            notes: input.notes || null,
+            metadata: JSON.stringify({
+              sourceModule: 'vendors',
+              vendorId: vendor.id,
+              clientVendorId: clientVendor?.id,
+              category: input.category
+            }),
+          })
+          console.log(`[Timeline] Auto-created entry for vendor service: ${input.vendorName}`)
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to auto-create timeline entry for vendor:', timelineError)
+        }
+      }
+
       return {
         ...clientVendor,
         ...vendor
@@ -513,6 +538,59 @@ export const vendorsRouter = router({
         console.warn('Failed to sync budget item with vendor update:', budgetError)
       }
 
+      // TIMELINE SYNC: Update or create timeline entry if service date changes
+      if (input.data.serviceDate !== undefined) {
+        try {
+          // Find existing timeline entry for this vendor
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, clientVendorRecord.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.vendorId === clientVendorRecord.vendorId || meta.clientVendorId === input.id
+            } catch { return false }
+          })
+
+          if (input.data.serviceDate) {
+            const serviceDateTime = new Date(input.data.serviceDate)
+            const timelineData = {
+              title: `${input.data.vendorName || 'Vendor'} - Service`,
+              startTime: serviceDateTime,
+              location: input.data.venueAddress || null,
+              responsiblePerson: input.data.contactName || input.data.onsitePocName || null,
+              notes: input.data.notes || null,
+              updatedAt: new Date(),
+            }
+
+            if (linkedTimeline) {
+              await ctx.db.update(timeline).set(timelineData).where(eq(timeline.id, linkedTimeline.id))
+              console.log(`[Timeline] Updated vendor service entry`)
+            } else {
+              await ctx.db.insert(timeline).values({
+                clientId: clientVendorRecord.clientId,
+                ...timelineData,
+                description: `Vendor service`,
+                metadata: JSON.stringify({
+                  sourceModule: 'vendors',
+                  vendorId: clientVendorRecord.vendorId,
+                  clientVendorId: input.id,
+                }),
+              })
+              console.log(`[Timeline] Created vendor service entry`)
+            }
+          } else if (linkedTimeline) {
+            // Service date cleared - soft delete timeline entry
+            await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Soft-deleted vendor service entry`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to sync timeline with vendor update:', timelineError)
+        }
+      }
+
       return { success: true }
     }),
 
@@ -523,9 +601,9 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Get vendor ID before deleting client_vendor relationship
+      // Get vendor ID and client ID before deleting client_vendor relationship
       const [clientVendorRecord] = await ctx.db
-        .select({ vendorId: clientVendors.vendorId })
+        .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
         .from(clientVendors)
         .where(eq(clientVendors.id, input.id))
         .limit(1)
@@ -543,6 +621,30 @@ export const vendorsRouter = router({
             .where(eq(budget.vendorId, clientVendorRecord.vendorId))
         } catch (budgetError) {
           console.warn('Failed to delete budget item for vendor:', budgetError)
+        }
+      }
+
+      // TIMELINE SYNC: Delete linked timeline entry
+      if (clientVendorRecord?.clientId) {
+        try {
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, clientVendorRecord.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.clientVendorId === input.id || meta.vendorId === clientVendorRecord.vendorId
+            } catch { return false }
+          })
+
+          if (linkedTimeline) {
+            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Deleted vendor service entry`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to delete timeline entry for vendor:', timelineError)
         }
       }
 

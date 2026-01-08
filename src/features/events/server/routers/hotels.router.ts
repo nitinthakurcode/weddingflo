@@ -2,7 +2,8 @@ import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
-import { hotels, clients, guests } from '@/lib/db/schema'
+import { hotels, clients, guests, timeline } from '@/lib/db/schema'
+import { nanoid } from 'nanoid'
 
 /**
  * Hotels tRPC Router - Drizzle ORM Version
@@ -161,6 +162,34 @@ export const hotelsRouter = router({
         })
       }
 
+      // TIMELINE SYNC: Create timeline entry for check-in if date is provided
+      if (effectiveCheckIn && hotel) {
+        try {
+          const checkInDateTime = new Date(effectiveCheckIn)
+          // Default check-in time is 3 PM
+          checkInDateTime.setHours(15, 0, 0, 0)
+
+          await ctx.db.insert(timeline).values({
+            id: nanoid(),
+            clientId: input.clientId,
+            title: `Hotel Check-in: ${input.guestName}`,
+            description: input.hotelName ? `Check-in at ${input.hotelName}` : 'Guest hotel check-in',
+            startTime: checkInDateTime,
+            location: input.hotelName || null,
+            notes: input.notes || null,
+            metadata: JSON.stringify({
+              sourceModule: 'hotels',
+              hotelId: hotel.id,
+              guestId: input.guestId,
+              type: 'check-in',
+            }),
+          })
+          console.log(`[Timeline] Created hotel check-in entry: ${input.guestName}`)
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to create timeline entry for hotel:', timelineError)
+        }
+      }
+
       return hotel
     }),
 
@@ -228,6 +257,70 @@ export const hotelsRouter = router({
         })
       }
 
+      // TIMELINE SYNC: Update linked timeline entry
+      try {
+        // Find timeline entry linked to this hotel
+        const existingTimeline = await ctx.db
+          .select()
+          .from(timeline)
+          .where(eq(timeline.clientId, hotel.clientId))
+
+        const linkedTimeline = existingTimeline.find(t => {
+          try {
+            const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+            return meta.hotelId === input.id
+          } catch { return false }
+        })
+
+        const hasCheckInDate = input.data.checkInDate !== undefined ? input.data.checkInDate : hotel.checkInDate
+
+        if (hasCheckInDate) {
+          const guestName = input.data.guestName || hotel.guestName
+          const hotelName = input.data.hotelName !== undefined ? input.data.hotelName : hotel.hotelName
+          const notes = input.data.notes !== undefined ? input.data.notes : hotel.notes
+
+          const checkInDateTime = new Date(hasCheckInDate)
+          checkInDateTime.setHours(15, 0, 0, 0)
+
+          if (linkedTimeline) {
+            // Update existing
+            await ctx.db.update(timeline).set({
+              title: `Hotel Check-in: ${guestName}`,
+              description: hotelName ? `Check-in at ${hotelName}` : 'Guest hotel check-in',
+              startTime: checkInDateTime,
+              location: hotelName || null,
+              notes: notes || null,
+              updatedAt: new Date(),
+            }).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Updated hotel check-in entry: ${guestName}`)
+          } else {
+            // Create new
+            await ctx.db.insert(timeline).values({
+              id: nanoid(),
+              clientId: hotel.clientId,
+              title: `Hotel Check-in: ${guestName}`,
+              description: hotelName ? `Check-in at ${hotelName}` : 'Guest hotel check-in',
+              startTime: checkInDateTime,
+              location: hotelName || null,
+              notes: notes || null,
+              metadata: JSON.stringify({
+                sourceModule: 'hotels',
+                hotelId: hotel.id,
+                guestId: hotel.guestId,
+                type: 'check-in',
+              }),
+            })
+            console.log(`[Timeline] Created hotel check-in entry: ${guestName}`)
+          }
+        } else if (linkedTimeline) {
+          // Check-in date cleared - soft delete timeline entry
+          await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
+          console.log(`[Timeline] Soft-deleted hotel check-in entry`)
+        }
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to sync timeline with hotel update:', timelineError)
+      }
+
       return hotel
     }),
 
@@ -238,9 +331,40 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Get hotel record first for timeline deletion
+      const [hotelToDelete] = await ctx.db
+        .select({ clientId: hotels.clientId })
+        .from(hotels)
+        .where(eq(hotels.id, input.id))
+        .limit(1)
+
       await ctx.db
         .delete(hotels)
         .where(eq(hotels.id, input.id))
+
+      // TIMELINE SYNC: Delete linked timeline entry
+      if (hotelToDelete?.clientId) {
+        try {
+          const existingTimeline = await ctx.db
+            .select()
+            .from(timeline)
+            .where(eq(timeline.clientId, hotelToDelete.clientId))
+
+          const linkedTimeline = existingTimeline.find(t => {
+            try {
+              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
+              return meta.hotelId === input.id
+            } catch { return false }
+          })
+
+          if (linkedTimeline) {
+            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
+            console.log(`[Timeline] Deleted hotel check-in entry`)
+          }
+        } catch (timelineError) {
+          console.warn('[Timeline] Failed to delete timeline entry for hotel:', timelineError)
+        }
+      }
 
       return { success: true }
     }),
