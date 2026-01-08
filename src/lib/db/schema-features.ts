@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid, numeric, varchar, time, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid, numeric, varchar, time, pgEnum, index } from 'drizzle-orm/pg-core';
 
 /**
  * Feature Schema
@@ -25,16 +25,30 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Companies table
+// Companies table - synced with database schema
 export const companies = pgTable('companies', {
-  id: text('id').primaryKey(),
+  id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  slug: text('slug').unique(),
   subdomain: text('subdomain').unique(),
-  ownerId: text('owner_id'),
+  logoUrl: text('logo_url'),
+  branding: jsonb('branding'),
+  settings: jsonb('settings'),
   subscriptionTier: text('subscription_tier').default('free'),
   subscriptionStatus: text('subscription_status').default('trialing'),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
   trialEndsAt: timestamp('trial_ends_at'),
+  subscriptionEndsAt: timestamp('subscription_ends_at'),
+  aiQueriesThisMonth: integer('ai_queries_this_month').default(0),
+  aiLastResetAt: timestamp('ai_last_reset_at'),
+  defaultCurrency: varchar('default_currency', { length: 10 }).default('INR'),
+  supportedCurrencies: text('supported_currencies').array(),
+  onboardingCompleted: boolean('onboarding_completed').default(false),
+  onboardingStep: integer('onboarding_step').default(1),
+  onboardingStartedAt: timestamp('onboarding_started_at'),
+  onboardingCompletedAt: timestamp('onboarding_completed_at'),
+  onboardingData: jsonb('onboarding_data'),
+  businessType: text('business_type').default('wedding_planner'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -74,7 +88,9 @@ export const clients = pgTable('clients', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'),
-});
+}, (table) => [
+  index('clients_company_id_idx').on(table.companyId),
+]);
 
 // Client Users (relationship between clients and users)
 export const clientUsers = pgTable('client_users', {
@@ -131,7 +147,11 @@ export const guests = pgTable('guests', {
   metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+  guestSide: text('guest_side').default('mutual'),
+}, (table) => [
+  index('guests_client_id_idx').on(table.clientId),
+  index('guests_rsvp_status_idx').on(table.rsvpStatus),
+]);
 
 // Hotels (guest accommodation tracking)
 export const hotels = pgTable('hotels', {
@@ -157,7 +177,10 @@ export const hotels = pgTable('hotels', {
   partySize: integer('party_size').default(1),
   guestNamesInRoom: text('guest_names_in_room'),
   roomAssignments: jsonb('room_assignments').default('{}'),
-});
+}, (table) => [
+  index('hotels_client_id_idx').on(table.clientId),
+  index('hotels_guest_id_idx').on(table.guestId),
+]);
 
 // Transport leg type enum
 export const transportLegTypeEnum = pgEnum('transport_leg_type', ['arrival', 'departure', 'inter_event']);
@@ -181,7 +204,10 @@ export const guestTransport = pgTable('guest_transport', {
   legType: transportLegTypeEnum('leg_type').default('arrival'),
   legSequence: integer('leg_sequence').default(1),
   eventId: uuid('event_id'),
-});
+}, (table) => [
+  index('guest_transport_client_id_idx').on(table.clientId),
+  index('guest_transport_guest_id_idx').on(table.guestId),
+]);
 
 // Events
 export const events = pgTable('events', {
@@ -224,19 +250,46 @@ export const vendors = pgTable('vendors', {
   companyId: text('company_id'),
   name: text('name').notNull(),
   category: text('category'),
+  contactName: text('contact_name'),
   email: text('email'),
   phone: text('phone'),
   website: text('website'),
+  address: text('address'),
+  contractSigned: boolean('contract_signed').default(false),
+  contractDate: text('contract_date'),
+  notes: text('notes'),
+  rating: integer('rating'),
+  isPreferred: boolean('is_preferred').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Client Vendors (relationship)
+// Client Vendors (relationship) - Links vendors to clients with contract/payment details
 export const clientVendors = pgTable('client_vendors', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
   vendorId: text('vendor_id').notNull(),
+  eventId: uuid('event_id'), // Links vendor to specific event
   status: text('status').default('active'),
+  // Contract & Payment Details
+  contractAmount: text('contract_amount'), // Total contract value
+  depositAmount: text('deposit_amount'),
+  depositPaid: boolean('deposit_paid').default(false),
+  paymentStatus: text('payment_status').default('pending'), // pending, paid, overdue
+  serviceDate: text('service_date'),
+  contractSignedAt: timestamp('contract_signed_at'),
+  // Venue/On-site Details
+  venueAddress: text('venue_address'),
+  onsitePocName: text('onsite_poc_name'),
+  onsitePocPhone: text('onsite_poc_phone'),
+  onsitePocNotes: text('onsite_poc_notes'),
+  // Deliverables & Approval
+  deliverables: text('deliverables'),
+  approvalStatus: text('approval_status').default('pending'), // pending, approved, rejected
+  approvalComments: text('approval_comments'),
+  approvedBy: text('approved_by'),
+  approvedAt: timestamp('approved_at'),
+  notes: text('notes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -251,31 +304,42 @@ export const vendorComments = pgTable('vendor_comments', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Budget
+// Budget - Linked to vendors for seamless bidirectional sync
 export const budget = pgTable('budget', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
+  vendorId: text('vendor_id'), // Links to vendors table for sync
+  eventId: uuid('event_id'), // Links to events table
   category: text('category').notNull(),
-  segment: text('segment'),
+  segment: text('segment'), // vendors, travel, creatives, artists, accommodation, other
   item: text('item'),
   description: text('description'),
+  expenseDetails: text('expense_details'),
   estimatedCost: text('estimated_cost'),
+  actualCost: text('actual_cost'),
   paidAmount: text('paid_amount').default('0'),
-  paymentStatus: text('payment_status').default('pending'),
+  paymentStatus: text('payment_status').default('pending'), // pending, paid, overdue
+  transactionDate: text('transaction_date'),
+  paymentDate: timestamp('payment_date'),
   clientVisible: boolean('client_visible').default(true),
+  isLumpSum: boolean('is_lump_sum').default(false),
   notes: text('notes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Advance Payments
+// Advance Payments - Linked to budget items for payment tracking
 export const advancePayments = pgTable('advance_payments', {
   id: text('id').primaryKey(),
-  budgetId: text('budget_id'),
+  budgetItemId: text('budget_item_id'), // Links to budget.id
+  budgetId: text('budget_id'), // Legacy field
   vendorId: text('vendor_id'),
-  amount: real('amount').notNull(),
-  date: timestamp('date'),
+  amount: text('amount').notNull(), // Store as text for precision
+  paymentDate: text('payment_date'),
+  paymentMode: text('payment_mode'), // Cash, Bank Transfer, UPI, Check, Credit Card, Other
+  paidBy: text('paid_by'),
   notes: text('notes'),
+  date: timestamp('date'), // Legacy field
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

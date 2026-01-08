@@ -10,7 +10,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq } from '@/lib/db';
 import { user as userTable } from '@/lib/db/schema/auth';
-import { companies, users } from '@/lib/db/schema/core';
+import { companies, users } from '@/lib/db/schema';
 import { randomUUID } from 'crypto';
 
 export async function POST() {

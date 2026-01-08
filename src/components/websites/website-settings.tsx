@@ -61,12 +61,17 @@ export function WebsiteSettings({ website, onUpdate }: WebsiteSettingsProps) {
   const [metaTitle, setMetaTitle] = useState(settings.metaTitle || '');
   const [metaDescription, setMetaDescription] = useState(settings.metaDescription || '');
 
+  // Track previous state for rollback on error
+  const [previousPasswordState, setPreviousPasswordState] = useState(enablePassword);
+
   const updateSettings = trpc.websites.update.useMutation({
     onSuccess: () => {
       toast.success('Settings updated!');
       onUpdate();
     },
     onError: (error) => {
+      // Rollback on error
+      setEnablePassword(previousPasswordState);
       toast.error(error.message);
     },
   });
@@ -82,9 +87,13 @@ export function WebsiteSettings({ website, onUpdate }: WebsiteSettingsProps) {
   });
 
   const handlePasswordToggle = (enabled: boolean) => {
+    // Save previous state for potential rollback
+    setPreviousPasswordState(enablePassword);
+    // Optimistically update UI immediately
     setEnablePassword(enabled);
+
     if (!enabled) {
-      // Remove password protection
+      // Remove password protection - mutation runs in background
       updateSettings.mutate({
         websiteId: website.id,
         data: {

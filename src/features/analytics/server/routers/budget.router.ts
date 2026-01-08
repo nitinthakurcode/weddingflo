@@ -2,7 +2,7 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
-import { budget, advancePayments, clients, events, clientUsers, users } from '@/lib/db/schema'
+import { budget, advancePayments, clients, events, clientUsers, users, clientVendors, vendors } from '@/lib/db/schema'
 
 /**
  * Budget tRPC Router - Drizzle ORM Version
@@ -266,6 +266,47 @@ export const budgetRouter = router({
         })
       }
 
+      // BIDIRECTIONAL SYNC: If this budget item is linked to a vendor, sync changes back
+      if (budgetItem.vendorId) {
+        try {
+          const syncData: Record<string, any> = {
+            updatedAt: new Date(),
+          }
+
+          // Sync estimatedCost → contractAmount
+          if (input.data.estimatedCost !== undefined) {
+            syncData.contractAmount = input.data.estimatedCost.toString()
+          }
+
+          // Sync paymentStatus
+          if (input.data.paymentStatus !== undefined) {
+            syncData.paymentStatus = input.data.paymentStatus
+            // If paid, mark depositPaid as true
+            if (input.data.paymentStatus === 'paid') {
+              syncData.depositPaid = true
+            }
+          }
+
+          // Sync eventId
+          if (input.data.eventId !== undefined) {
+            syncData.eventId = input.data.eventId
+          }
+
+          // Update clientVendors if there are fields to sync
+          if (Object.keys(syncData).length > 1) {
+            await ctx.db
+              .update(clientVendors)
+              .set(syncData)
+              .where(eq(clientVendors.vendorId, budgetItem.vendorId))
+
+            console.log(`[Budget] Synced budget changes to vendor ${budgetItem.vendorId}:`, syncData)
+          }
+        } catch (syncError) {
+          // Log but don't fail - budget update succeeded
+          console.warn('[Budget] Failed to sync budget changes to vendor:', syncError)
+        }
+      }
+
       return budgetItem
     }),
 
@@ -337,13 +378,32 @@ export const budgetRouter = router({
 
       const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-      await ctx.db
+      const [updatedBudget] = await ctx.db
         .update(budget)
         .set({
           paidAmount: totalPaid.toString(),
           updatedAt: new Date(),
         })
         .where(eq(budget.id, input.budgetItemId))
+        .returning()
+
+      // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+      if (updatedBudget?.vendorId) {
+        try {
+          await ctx.db
+            .update(clientVendors)
+            .set({
+              depositAmount: totalPaid.toString(),
+              depositPaid: totalPaid > 0,
+              updatedAt: new Date(),
+            })
+            .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
+
+          console.log(`[Budget] Synced advance payment to vendor ${updatedBudget.vendorId}: total paid = ${totalPaid}`)
+        } catch (syncError) {
+          console.warn('[Budget] Failed to sync advance payment to vendor:', syncError)
+        }
+      }
 
       return advance
     }),
@@ -395,13 +455,30 @@ export const budgetRouter = router({
 
       const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-      await ctx.db
+      const [updatedBudget] = await ctx.db
         .update(budget)
         .set({
           paidAmount: totalPaid.toString(),
           updatedAt: new Date(),
         })
         .where(eq(budget.id, advance.budgetItemId))
+        .returning()
+
+      // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+      if (updatedBudget?.vendorId) {
+        try {
+          await ctx.db
+            .update(clientVendors)
+            .set({
+              depositAmount: totalPaid.toString(),
+              depositPaid: totalPaid > 0,
+              updatedAt: new Date(),
+            })
+            .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
+        } catch (syncError) {
+          console.warn('[Budget] Failed to sync advance payment update to vendor:', syncError)
+        }
+      }
 
       return advance
     }),
@@ -437,13 +514,30 @@ export const budgetRouter = router({
 
       const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-      await ctx.db
+      const [updatedBudget] = await ctx.db
         .update(budget)
         .set({
           paidAmount: totalPaid.toString(),
           updatedAt: new Date(),
         })
         .where(eq(budget.id, advance.budgetItemId))
+        .returning()
+
+      // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+      if (updatedBudget?.vendorId) {
+        try {
+          await ctx.db
+            .update(clientVendors)
+            .set({
+              depositAmount: totalPaid.toString(),
+              depositPaid: totalPaid > 0,
+              updatedAt: new Date(),
+            })
+            .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
+        } catch (syncError) {
+          console.warn('[Budget] Failed to sync advance payment deletion to vendor:', syncError)
+        }
+      }
 
       return { success: true }
     }),

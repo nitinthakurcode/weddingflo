@@ -91,17 +91,36 @@ export default async function DashboardLayout({
     return null;
   }
 
-  // Onboarding check (only for company_admin, using user data - NO extra database query!)
+  // Onboarding check (only for company_admin)
   if (role === 'company_admin') {
     // Check if we're already on the onboarding page to prevent redirect loop
     const pathname = headersList.get('x-invoke-path') || '';
 
     if (!pathname.includes('/onboard')) {
-      // ✅ Read from user object (fast, no DB query)
-      const onboardingCompleted = (user as any).onboardingCompleted;
+      // First try session, then fall back to DB if session value is false/undefined
+      // This handles stale session cache after onboarding completion
+      let onboardingCompleted = (user as any).onboardingCompleted;
 
-      // Redirect to onboarding if not completed
-      // Note: If onboardingCompleted is undefined (legacy users), assume completed to avoid breaking existing accounts
+      // If session says not completed, verify with DB (session might be stale)
+      if (onboardingCompleted !== true && companyId) {
+        try {
+          const { companies } = await import('@/lib/db/schema');
+          const [company] = await db
+            .select({ onboardingCompleted: companies.onboardingCompleted })
+            .from(companies)
+            .where(eq(companies.id, companyId))
+            .limit(1);
+
+          if (company) {
+            onboardingCompleted = company.onboardingCompleted;
+          }
+        } catch (err) {
+          console.error('[Dashboard Layout] Failed to check company onboarding status:', err);
+        }
+      }
+
+      // Redirect to onboarding if explicitly not completed
+      // Note: If undefined (legacy users), assume completed to avoid breaking existing accounts
       if (onboardingCompleted === false) {
         redirect(`/${locale}/dashboard/onboard`);
         return null;

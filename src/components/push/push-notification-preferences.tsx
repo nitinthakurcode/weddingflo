@@ -62,40 +62,48 @@ function PreferenceItem({
 }
 
 export function PushNotificationPreferences() {
+  const utils = trpc.useUtils();
+
   // Get current preferences
   const {
     data: preferences,
     isLoading,
-    refetch,
   } = trpc.push.getPreferences.useQuery();
 
-  // Update preferences mutation
+  // Update preferences mutation with optimistic updates
   const updateMutation = trpc.push.updatePreferences.useMutation({
-    onSuccess: () => {
-      refetch();
-      toast.success('Preferences updated');
+    onMutate: async (newData) => {
+      // Cancel outgoing refetches
+      await utils.push.getPreferences.cancel();
+
+      // Snapshot previous value
+      const previousPreferences = utils.push.getPreferences.getData();
+
+      // Optimistically update the cache
+      utils.push.getPreferences.setData(undefined, (old) => {
+        if (!old) return old;
+        return { ...old, ...newData };
+      });
+
+      return { previousPreferences };
     },
-    onError: (error) => {
+    onError: (error, _newData, context) => {
+      // Rollback on error
+      if (context?.previousPreferences) {
+        utils.push.getPreferences.setData(undefined, context.previousPreferences);
+      }
       toast.error('Failed to update preferences', {
         description: error.message,
       });
-      // Refetch to reset UI to actual values
-      refetch();
+    },
+    onSettled: () => {
+      // Refetch in background to ensure consistency
+      utils.push.getPreferences.invalidate();
     },
   });
 
-  const handleUpdatePreference = async (
-    field: string,
-    value: boolean
-  ) => {
-    try {
-      // Optimistically update UI
-      await updateMutation.mutateAsync({
-        [field]: value,
-      } as any);
-    } catch (error) {
-      console.error('Update preference error:', error);
-    }
+  const handleUpdatePreference = (field: string, value: boolean) => {
+    updateMutation.mutate({ [field]: value } as any);
   };
 
   if (isLoading) {

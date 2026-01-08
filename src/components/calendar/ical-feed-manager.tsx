@@ -14,35 +14,90 @@ import { useToast } from '@/hooks/use-toast';
 export function ICalFeedManager() {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const utils = trpc.useUtils();
 
-  const { data: tokenData, refetch: refetchToken } = trpc.calendar.getOrCreateICalToken.useQuery();
-  const { data: settings, refetch: refetchSettings } = trpc.calendar.getCalendarSettings.useQuery();
+  const { data: tokenData } = trpc.calendar.getOrCreateICalToken.useQuery();
+  const { data: settings } = trpc.calendar.getCalendarSettings.useQuery();
 
   const regenerateMutation = trpc.calendar.regenerateICalToken.useMutation({
     onSuccess: () => {
-      refetchToken();
+      utils.calendar.getOrCreateICalToken.invalidate();
       toast({ title: 'Feed URL regenerated successfully' });
     },
   });
 
+  // Optimistic update for calendar settings
   const updateSettingsMutation = trpc.calendar.updateCalendarSettings.useMutation({
-    onSuccess: () => {
-      refetchSettings();
-      toast({ title: 'Settings updated' });
+    onMutate: async (newData) => {
+      await utils.calendar.getCalendarSettings.cancel();
+      const previousSettings = utils.calendar.getCalendarSettings.getData();
+
+      // Optimistically update UI
+      utils.calendar.getCalendarSettings.setData(undefined, (old) => {
+        if (!old) return old;
+        return { ...old, ...newData };
+      });
+
+      return { previousSettings };
+    },
+    onError: (error, _newData, context) => {
+      // Rollback on error
+      if (context?.previousSettings) {
+        utils.calendar.getCalendarSettings.setData(undefined, context.previousSettings);
+      }
+      toast({ title: 'Failed to update settings', variant: 'destructive' });
+    },
+    onSettled: () => {
+      utils.calendar.getCalendarSettings.invalidate();
     },
   });
 
+  // Optimistic update for feed toggle
   const toggleFeedMutation = trpc.calendar.enableICalFeed.useMutation({
-    onSuccess: () => {
-      refetchToken();
-      toast({ title: 'Feed status updated' });
+    onMutate: async () => {
+      await utils.calendar.getOrCreateICalToken.cancel();
+      const previousToken = utils.calendar.getOrCreateICalToken.getData();
+
+      // Optimistically update UI
+      utils.calendar.getOrCreateICalToken.setData(undefined, (old) => {
+        if (!old) return old;
+        return { ...old, isActive: true };
+      });
+
+      return { previousToken };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previousToken) {
+        utils.calendar.getOrCreateICalToken.setData(undefined, context.previousToken);
+      }
+      toast({ title: 'Failed to enable feed', variant: 'destructive' });
+    },
+    onSettled: () => {
+      utils.calendar.getOrCreateICalToken.invalidate();
     },
   });
 
   const disableFeedMutation = trpc.calendar.disableICalFeed.useMutation({
-    onSuccess: () => {
-      refetchToken();
-      toast({ title: 'Feed disabled' });
+    onMutate: async () => {
+      await utils.calendar.getOrCreateICalToken.cancel();
+      const previousToken = utils.calendar.getOrCreateICalToken.getData();
+
+      // Optimistically update UI
+      utils.calendar.getOrCreateICalToken.setData(undefined, (old) => {
+        if (!old) return old;
+        return { ...old, isActive: false };
+      });
+
+      return { previousToken };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previousToken) {
+        utils.calendar.getOrCreateICalToken.setData(undefined, context.previousToken);
+      }
+      toast({ title: 'Failed to disable feed', variant: 'destructive' });
+    },
+    onSettled: () => {
+      utils.calendar.getOrCreateICalToken.invalidate();
     },
   });
 

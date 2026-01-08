@@ -177,6 +177,11 @@
     "description": "Description",
     "status": "Status",
     "pending": "Pending",
+    "scheduled": "Scheduled",
+    "cancelled": "Cancelled",
+    "confirmed": "Confirmed",
+    "completed": "Completed",
+    "guest": "Guest",
     "date": "Date",
     "time": "Time",
     "total": "Total",
@@ -3049,6 +3054,19 @@
     "dropToPlaceholder": "e.g., Venue, Hotel",
     "vehicleInfoPlaceholder": "e.g., White SUV, Driver: John",
     "startTransport": "Start Transport",
-    "transportStarted": "Transport Started"
+    "transportStarted": "Transport Started",
+    "guestTransports": "Guest Transports",
+    "guestName": "Guest Name",
+    "legType": "Leg Type",
+    "route": "Route",
+    "vehicle": "Vehicle",
+    "arrival": "Arrival",
+    "departure": "Departure",
+    "interEvent": "Inter-Event",
+    "notesPlaceholder": "Add any special notes or requirements...",
+    "partyOf": "Party of {size}",
+    "guestsSynced": "Guests Synced",
+    "noTransportsYet": "No transport entries yet",
+    "noTransportsDescription": "Click \"Sync from Guests\" to import guests who need transport, or add manually."
   }
 }

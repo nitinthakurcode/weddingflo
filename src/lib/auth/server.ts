@@ -1,51 +1,37 @@
-import { cookies } from 'next/headers';
-import { betterAuth } from 'better-auth';
+import { headers } from 'next/headers';
+import { auth } from '@/lib/auth';
 
 /**
  * BetterAuth Server Session
  *
  * December 2025 - Server-side session helpers for BetterAuth
- * Uses cookie-based sessions for fast, secure auth
+ * Uses direct auth.api.getSession() for fast, in-process auth (no HTTP roundtrip)
  */
-
-// Initialize better-auth for server-side operations
-// Note: This is a simplified version - full config should be in a separate auth config file
-const auth = betterAuth({
-  // Config is loaded from environment and auth config
-});
 
 /**
  * Get the current session on the server side
  * Call this inside API routes or server components
+ *
+ * This uses the auth instance directly instead of making HTTP requests,
+ * eliminating ~600ms of network latency per call.
  */
 export async function getServerSession() {
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('better-auth.session_token');
+    const headersList = await headers();
 
-    if (!sessionCookie?.value) {
-      return { userId: null, user: null, session: null };
-    }
-
-    // For now, return a placeholder - actual implementation should verify the session
-    // with better-auth's session verification
-    const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/auth/get-session`, {
-      headers: {
-        cookie: `better-auth.session_token=${sessionCookie.value}`,
-      },
-      cache: 'no-store',
+    // Call auth.api.getSession directly - no HTTP roundtrip
+    const session = await auth.api.getSession({
+      headers: headersList,
     });
 
-    if (!response.ok) {
+    if (!session?.user) {
       return { userId: null, user: null, session: null };
     }
 
-    const data = await response.json();
-
     return {
-      userId: data.user?.id ?? null,
-      user: data.user ?? null,
-      session: data.session ?? null,
+      userId: session.user.id ?? null,
+      user: session.user ?? null,
+      session: session.session ?? null,
     };
   } catch {
     return { userId: null, user: null, session: null };

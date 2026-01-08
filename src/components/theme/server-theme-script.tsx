@@ -22,7 +22,7 @@ export async function ServerThemeScript() {
       return null;
     }
 
-    // Fetch company using Drizzle
+    // Fetch company branding using Drizzle
     const companyResult = await db
       .select({ branding: companies.branding })
       .from(companies)
@@ -35,8 +35,31 @@ export async function ServerThemeScript() {
       return null;
     }
 
-    const branding = company.branding as { primary_color?: string; secondary_color?: string; accent_color?: string };
-    const { primary_color, secondary_color, accent_color } = branding;
+    // Safely parse branding - it might be null, undefined, empty object, or string
+    const rawBranding = company.branding;
+
+    // Guard against null/undefined/non-object branding
+    if (!rawBranding || typeof rawBranding !== 'object' || Array.isArray(rawBranding)) {
+      return null;
+    }
+
+    const branding = rawBranding as { primary_color?: string; secondary_color?: string; accent_color?: string };
+
+    // Safely extract colors with explicit type checks
+    const primary_color = typeof branding.primary_color === 'string' && branding.primary_color.length > 0
+      ? branding.primary_color
+      : null;
+    const secondary_color = typeof branding.secondary_color === 'string' && branding.secondary_color.length > 0
+      ? branding.secondary_color
+      : null;
+    const accent_color = typeof branding.accent_color === 'string' && branding.accent_color.length > 0
+      ? branding.accent_color
+      : null;
+
+    // If no colors are defined, skip generating theme
+    if (!primary_color && !secondary_color && !accent_color) {
+      return null;
+    }
 
     // Generate CSS with color palettes
     const hexToHSL = (hex: string): { h: number; s: number; l: number } | null => {

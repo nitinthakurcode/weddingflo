@@ -158,6 +158,46 @@ export default function GuestsPage() {
     },
   })
 
+  // Optimistic toggle mutation for instant UI feedback (hotel/transport switches)
+  const toggleMutation = trpc.guests.update.useMutation({
+    onMutate: async (newData) => {
+      // Cancel outgoing refetches
+      await utils.guests.getAll.cancel({ clientId })
+
+      // Snapshot previous value
+      const previousGuests = utils.guests.getAll.getData({ clientId })
+
+      // Optimistically update the cache
+      utils.guests.getAll.setData({ clientId }, (old) => {
+        if (!old) return old
+        return old.map((guest) => {
+          if (guest.id === newData.id) {
+            return {
+              ...guest,
+              hotelRequired: newData.data.hotelRequired ?? guest.hotelRequired,
+              transportRequired: newData.data.transportRequired ?? guest.transportRequired,
+              metadata: newData.data.metadata ?? guest.metadata,
+            }
+          }
+          return guest
+        })
+      })
+
+      return { previousGuests }
+    },
+    onError: (err, newData, context) => {
+      // Rollback on error
+      if (context?.previousGuests) {
+        utils.guests.getAll.setData({ clientId }, context.previousGuests)
+      }
+      toast({ title: t('error'), description: err.message, variant: 'destructive' })
+    },
+    onSettled: () => {
+      // Refetch in background after mutation settles (don't await)
+      utils.guests.getAll.invalidate({ clientId })
+    },
+  })
+
   const deleteMutation = trpc.guests.delete.useMutation({
     onSuccess: async () => {
       toast({ title: t('guestDeleted') })
@@ -665,7 +705,7 @@ export default function GuestsPage() {
                               <Switch
                                 checked={guest.hotelRequired || false}
                                 onCheckedChange={(checked) => {
-                                  updateMutation.mutate({
+                                  toggleMutation.mutate({
                                     id: guest.id,
                                     data: {
                                       name: `${guest.firstName} ${guest.lastName}`,
@@ -683,7 +723,7 @@ export default function GuestsPage() {
                               <Switch
                                 checked={guest.transportRequired || false}
                                 onCheckedChange={(checked) => {
-                                  updateMutation.mutate({
+                                  toggleMutation.mutate({
                                     id: guest.id,
                                     data: {
                                       name: `${guest.firstName} ${guest.lastName}`,
@@ -720,7 +760,7 @@ export default function GuestsPage() {
                                             },
                                           },
                                         }
-                                        updateMutation.mutate({
+                                        toggleMutation.mutate({
                                           id: guest.id,
                                           data: {
                                             name: `${guest.firstName} ${guest.lastName}`,
@@ -752,7 +792,7 @@ export default function GuestsPage() {
                                             },
                                           },
                                         }
-                                        updateMutation.mutate({
+                                        toggleMutation.mutate({
                                           id: guest.id,
                                           data: {
                                             name: `${guest.firstName} ${guest.lastName}`,

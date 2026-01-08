@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, index } from 'drizzle-orm/pg-core';
 
 /**
  * Database Schema
@@ -54,7 +54,10 @@ export const session = pgTable('session', {
   userAgent: text('user_agent'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('session_user_id_idx').on(table.userId),
+  index('session_expires_at_idx').on(table.expiresAt),
+]);
 
 // Account table (for credentials and OAuth)
 export const account = pgTable('account', {

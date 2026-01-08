@@ -43,6 +43,14 @@ export async function signInWithGoogle() {
   return signIn.social({ provider: 'google' });
 }
 
+export async function signUpWithEmail(email: string, password: string, name: string) {
+  return signUp.email({
+    email,
+    password,
+    name,
+  });
+}
+
 /**
  * useAuth Hook - PRODUCTION VERSION
  *

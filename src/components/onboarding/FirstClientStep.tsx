@@ -19,6 +19,7 @@ const clientSchema = z.object({
   email: z.string().email('Invalid email address'),
   phone: z.string().optional(),
   wedding_date: z.date(),
+  vendors: z.string().optional(), // Comma-separated vendor names with optional category
 })
 
 type ClientFormData = z.input<typeof clientSchema>
@@ -138,6 +139,18 @@ export function FirstClientStep({ onNext, onBack, initialData }: FirstClientStep
               {errors.wedding_date && (
                 <p className="text-sm text-destructive">{errors.wedding_date.message}</p>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="vendors">Vendors (Optional)</Label>
+              <Input
+                id="vendors"
+                placeholder="e.g., Venue: Grand Hotel, Catering: Tasty Foods, Photography: Picture Perfect"
+                {...register('vendors')}
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter vendors separated by commas. Format: "Category: Vendor Name" or just "Vendor Name"
+              </p>
             </div>
 
             <div className="flex justify-between pt-4">

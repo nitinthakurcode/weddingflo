@@ -262,4 +262,69 @@ export const guestTransportRouter = router({
     .query(async () => {
       return []
     }),
+
+  // Get all transport entries with guest information (party details)
+  getAllWithGuests: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      const transportList = await ctx.db
+        .select()
+        .from(guestTransport)
+        .where(eq(guestTransport.clientId, input.clientId))
+        .orderBy(asc(guestTransport.pickupDate))
+
+      // Get guest info for transport entries that have guestId
+      const guestIds = transportList.map(t => t.guestId).filter(Boolean) as string[]
+
+      let guestMap: Record<string, any> = {}
+      if (guestIds.length > 0) {
+        const guestList = await ctx.db
+          .select({
+            id: guests.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            email: guests.email,
+            phone: guests.phone,
+            partySize: guests.partySize,
+            additionalGuestNames: guests.additionalGuestNames,
+            relationshipToFamily: guests.relationshipToFamily,
+          })
+          .from(guests)
+          .where(eq(guests.clientId, input.clientId))
+
+        guestMap = guestList.reduce((acc, g) => {
+          acc[g.id] = g
+          return acc
+        }, {} as Record<string, any>)
+      }
+
+      // Combine transport with guest info
+      const transportWithGuests = transportList.map(transport => ({
+        ...transport,
+        guest: transport.guestId && guestMap[transport.guestId] ? guestMap[transport.guestId] : null,
+      }))
+
+      return transportWithGuests
+    }),
 })

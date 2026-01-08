@@ -2,7 +2,7 @@ import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, ilike, or } from 'drizzle-orm';
-import { clients, users, companies, events, clientUsers, budget, timeline } from '@/lib/db/schema';
+import { clients, users, companies, events, clientUsers, budget, timeline, vendors, clientVendors } from '@/lib/db/schema';
 import type { UserRole, SubscriptionTier, SubscriptionStatus, WeddingType, BudgetSegment } from '@/lib/db/schema/enums';
 
 /**
@@ -308,6 +308,10 @@ export const clientsRouter = router({
         // Planning context
         planning_side: z.enum(['bride_side', 'groom_side', 'both']).optional(),
         wedding_type: z.enum(['traditional', 'destination', 'intimate', 'elopement', 'multi_day', 'cultural']).optional(),
+        // Vendors - comma-separated list with optional category prefix
+        // Format: "Category: Vendor Name" or just "Vendor Name"
+        // e.g., "Venue: Grand Hotel, Catering: Tasty Foods, Photography: Picture Perfect"
+        vendors: z.string().optional(),
       }).transform((data) => ({
         ...data,
         partner1_last_name: data.partner1_last_name === '' ? null : data.partner1_last_name,
@@ -491,12 +495,13 @@ export const clientsRouter = router({
       }
 
       // Auto-create "Main Wedding" event if wedding_date is provided
+      let mainEventId: string | null = null;
       if (data && input.wedding_date) {
         const eventTitle = input.wedding_name ||
           `${input.partner1_first_name}${input.partner2_first_name ? ` & ${input.partner2_first_name}` : ''}'s Wedding`;
 
         try {
-          await ctx.db
+          const [createdEvent] = await ctx.db
             .insert(events)
             .values({
               clientId: data.id,
@@ -508,9 +513,13 @@ export const clientsRouter = router({
               status: 'planned',
               notes: input.notes || null,
               description: `Main wedding ceremony for ${eventTitle}`,
-            });
+            })
+            .returning({ id: events.id });
 
-          console.log('[Clients Router] Auto-created Main Wedding event for client:', data.id);
+          if (createdEvent) {
+            mainEventId = createdEvent.id;
+          }
+          console.log('[Clients Router] Auto-created Main Wedding event for client:', data.id, 'eventId:', mainEventId);
         } catch (eventError) {
           // Log but don't fail - client creation succeeded
           console.error('[Clients Router] Failed to auto-create wedding event:', eventError);
@@ -568,6 +577,148 @@ export const clientsRouter = router({
         } catch (timelineError) {
           // Log but don't fail - client creation succeeded
           console.error('[Clients Router] Failed to auto-create timeline:', timelineError);
+        }
+      }
+
+      // Auto-create vendors from comma-separated list
+      // Format: "Category: Vendor Name" or just "Vendor Name"
+      // e.g., "Venue: Grand Hotel, Catering: Tasty Foods, Photography"
+      if (data && input.vendors && input.vendors.trim()) {
+        try {
+          // Parse vendor entries - each can be "Category: Name" or just "Name"
+          const vendorEntries = input.vendors
+            .split(',')
+            .map(entry => entry.trim())
+            .filter(entry => entry.length > 0);
+
+          // Get event title for budget category
+          const budgetCategory = mainEventId
+            ? (input.wedding_name || `${input.partner1_first_name}'s Wedding`)
+            : 'Unassigned';
+
+          // Category mapping for recognized keywords
+          const categoryKeywords: Record<string, string> = {
+            'venue': 'venue',
+            'catering': 'catering',
+            'caterer': 'catering',
+            'food': 'catering',
+            'photo': 'photography',
+            'photography': 'photography',
+            'photographer': 'photography',
+            'video': 'videography',
+            'videography': 'videography',
+            'videographer': 'videography',
+            'floral': 'florals',
+            'florals': 'florals',
+            'florist': 'florals',
+            'flowers': 'florals',
+            'decor': 'decor',
+            'decoration': 'decor',
+            'music': 'music',
+            'band': 'music',
+            'dj': 'dj',
+            'transport': 'transportation',
+            'transportation': 'transportation',
+            'car': 'transportation',
+            'hotel': 'accommodation',
+            'accommodation': 'accommodation',
+            'beauty': 'beauty',
+            'makeup': 'beauty',
+            'hair': 'beauty',
+            'cake': 'bakery',
+            'bakery': 'bakery',
+            'entertainment': 'entertainment',
+            'rentals': 'rentals',
+            'stationery': 'stationery',
+            'invitation': 'stationery',
+          };
+
+          const createdVendors: string[] = [];
+
+          for (const entry of vendorEntries) {
+            let category = 'other';
+            let vendorName = entry;
+
+            // Check if entry has "Category: Name" format
+            if (entry.includes(':')) {
+              const [catPart, namePart] = entry.split(':').map(s => s.trim());
+              vendorName = namePart || catPart;
+
+              // Try to match category
+              const catLower = catPart.toLowerCase();
+              for (const [keyword, cat] of Object.entries(categoryKeywords)) {
+                if (catLower.includes(keyword)) {
+                  category = cat;
+                  break;
+                }
+              }
+            } else {
+              // Try to infer category from vendor name
+              const nameLower = entry.toLowerCase();
+              for (const [keyword, cat] of Object.entries(categoryKeywords)) {
+                if (nameLower.includes(keyword)) {
+                  category = cat;
+                  break;
+                }
+              }
+            }
+
+            if (!vendorName) continue;
+
+            try {
+              // Create vendor in vendors table
+              const [vendor] = await ctx.db
+                .insert(vendors)
+                .values({
+                  companyId: effectiveCompanyId,
+                  name: vendorName,
+                  category: category,
+                  isPreferred: false,
+                })
+                .returning();
+
+              if (vendor) {
+                // Create client_vendor relationship
+                await ctx.db
+                  .insert(clientVendors)
+                  .values({
+                    clientId: data.id,
+                    vendorId: vendor.id,
+                    eventId: mainEventId,
+                    paymentStatus: 'pending',
+                    approvalStatus: 'pending',
+                  });
+
+                // Auto-create budget item for this vendor (seamless module integration)
+                await ctx.db.insert(budget).values({
+                  clientId: data.id,
+                  vendorId: vendor.id,
+                  eventId: mainEventId,
+                  category: budgetCategory,
+                  segment: 'vendors',
+                  item: vendorName,
+                  estimatedCost: '0',
+                  actualCost: null,
+                  paidAmount: '0',
+                  paymentStatus: 'pending',
+                  clientVisible: true,
+                  isLumpSum: false,
+                  notes: `Auto-created from vendor: ${vendorName}`,
+                });
+
+                createdVendors.push(vendorName);
+              }
+            } catch (vendorErr) {
+              console.warn(`[Clients Router] Failed to create vendor "${vendorName}":`, vendorErr);
+            }
+          }
+
+          if (createdVendors.length > 0) {
+            console.log('[Clients Router] Auto-created', createdVendors.length, 'vendors for client:', data.id, createdVendors);
+          }
+        } catch (vendorsError) {
+          // Log but don't fail - client creation succeeded
+          console.error('[Clients Router] Failed to auto-create vendors:', vendorsError);
         }
       }
 

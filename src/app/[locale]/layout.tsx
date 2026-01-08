@@ -159,7 +159,8 @@ export default async function LocaleLayout({
           companyId: (user as any).companyId || null,
           firstName: (user as any).firstName || null,
           lastName: (user as any).lastName || null,
-          onboardingCompleted: (user as any).onboardingCompleted || false,
+          // Don't default to false - let undefined flow through so dashboard can check DB
+          onboardingCompleted: (user as any).onboardingCompleted ?? undefined,
         },
         session: null,
       };

@@ -7,6 +7,9 @@ import * as schema from '@/lib/db/schema';
  * BetterAuth Configuration
  *
  * December 2025 - Main auth configuration for WeddingFlo
+ *
+ * Custom fields (role, companyId) are included in session via user.additionalFields
+ * This eliminates the need for extra DB queries in dashboard layout
  */
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -26,6 +29,26 @@ export const auth = betterAuth({
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    },
+  },
+  user: {
+    // Include custom fields in session - eliminates extra DB queries
+    additionalFields: {
+      role: {
+        type: 'string',
+        defaultValue: 'company_admin',
+        input: false, // Not settable via API
+      },
+      companyId: {
+        type: 'string',
+        defaultValue: null,
+        input: false,
+      },
+      onboardingCompleted: {
+        type: 'boolean',
+        defaultValue: false,
+        input: false,
+      },
     },
   },
   session: {

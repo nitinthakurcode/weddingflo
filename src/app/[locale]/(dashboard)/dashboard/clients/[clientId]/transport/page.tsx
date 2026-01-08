@@ -85,8 +85,8 @@ export default function TransportPage() {
 
   const utils = trpc.useUtils()
 
-  // Queries
-  const { data: transportList, isLoading } = trpc.guestTransport.getAll.useQuery({
+  // Queries - use getAllWithGuests to get party information
+  const { data: transportList, isLoading } = trpc.guestTransport.getAllWithGuests.useQuery({
     clientId,
   })
 
@@ -109,7 +109,7 @@ export default function TransportPage() {
         })
       }
       await Promise.all([
-        utils.guestTransport.getAll.invalidate({ clientId }),
+        utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
       ])
     },
@@ -124,7 +124,7 @@ export default function TransportPage() {
       resetForm()
       setIsAddDialogOpen(false)
       await Promise.all([
-        utils.guestTransport.getAll.invalidate({ clientId }),
+        utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
       ])
     },
@@ -139,7 +139,7 @@ export default function TransportPage() {
       setEditingTransport(null)
       resetForm()
       await Promise.all([
-        utils.guestTransport.getAll.invalidate({ clientId }),
+        utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
       ])
     },
@@ -152,7 +152,7 @@ export default function TransportPage() {
     onSuccess: async () => {
       toast({ title: t('transportDeleted') || 'Transport deleted' })
       await Promise.all([
-        utils.guestTransport.getAll.invalidate({ clientId }),
+        utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
       ])
     },
@@ -395,6 +395,16 @@ export default function TransportPage() {
                     <TableRow key={transport.id}>
                       <TableCell>
                         <div className="font-medium">{transport.guestName}</div>
+                        {transport.guest && transport.guest.partySize > 1 && (
+                          <div className="text-xs text-muted-foreground">
+                            {t('partyOf', { size: transport.guest.partySize })} • {transport.guest.relationshipToFamily || 'Guest'}
+                          </div>
+                        )}
+                        {transport.guest && transport.guest.partySize === 1 && transport.guest.relationshipToFamily && (
+                          <div className="text-xs text-muted-foreground">
+                            {transport.guest.relationshipToFamily}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

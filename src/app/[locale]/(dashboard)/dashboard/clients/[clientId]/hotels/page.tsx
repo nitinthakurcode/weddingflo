@@ -424,9 +424,14 @@ export default function HotelsPage() {
                     <TableRow key={hotel.id}>
                       <TableCell>
                         <div className="font-medium">{hotel.guestName}</div>
-                        {hotel.guests && (
+                        {hotel.guests && hotel.guests.partySize > 1 && (
                           <div className="text-xs text-muted-foreground">
-                            {t('partyOf', { size: hotel.guests.partySize || 1 })}
+                            {t('partyOf', { size: hotel.guests.partySize })} • {hotel.guests.relationshipToFamily || tc('guest')}
+                          </div>
+                        )}
+                        {hotel.guests && hotel.guests.partySize === 1 && hotel.guests.relationshipToFamily && (
+                          <div className="text-xs text-muted-foreground">
+                            {hotel.guests.relationshipToFamily}
                           </div>
                         )}
                       </TableCell>
