@@ -395,12 +395,9 @@ export const vendorsRouter = router({
             location: input.venueAddress || null,
             responsiblePerson: input.contactName || input.onsitePocName || null,
             notes: input.notes || null,
-            metadata: JSON.stringify({
-              sourceModule: 'vendors',
-              vendorId: vendor.id,
-              clientVendorId: clientVendor?.id,
-              category: input.category
-            }),
+            sourceModule: 'vendors',
+            sourceId: clientVendor?.id || vendor.id,
+            metadata: JSON.stringify({ category: input.category, vendorId: vendor.id }),
           })
           console.log(`[Timeline] Auto-created entry for vendor service: ${input.vendorName}`)
         } catch (timelineError) {
@@ -541,19 +538,6 @@ export const vendorsRouter = router({
       // TIMELINE SYNC: Update or create timeline entry if service date changes
       if (input.data.serviceDate !== undefined) {
         try {
-          // Find existing timeline entry for this vendor
-          const existingTimeline = await ctx.db
-            .select()
-            .from(timeline)
-            .where(eq(timeline.clientId, clientVendorRecord.clientId))
-
-          const linkedTimeline = existingTimeline.find(t => {
-            try {
-              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-              return meta.vendorId === clientVendorRecord.vendorId || meta.clientVendorId === input.id
-            } catch { return false }
-          })
-
           if (input.data.serviceDate) {
             const serviceDateTime = new Date(input.data.serviceDate)
             const timelineData = {
@@ -565,26 +549,43 @@ export const vendorsRouter = router({
               updatedAt: new Date(),
             }
 
-            if (linkedTimeline) {
-              await ctx.db.update(timeline).set(timelineData).where(eq(timeline.id, linkedTimeline.id))
-              console.log(`[Timeline] Updated vendor service entry`)
-            } else {
+            // Try to update existing entry first
+            const result = await ctx.db
+              .update(timeline)
+              .set(timelineData)
+              .where(
+                and(
+                  eq(timeline.sourceModule, 'vendors'),
+                  eq(timeline.sourceId, input.id)
+                )
+              )
+              .returning({ id: timeline.id })
+
+            if (result.length === 0) {
+              // No existing entry - create new one
               await ctx.db.insert(timeline).values({
                 clientId: clientVendorRecord.clientId,
                 ...timelineData,
                 description: `Vendor service`,
-                metadata: JSON.stringify({
-                  sourceModule: 'vendors',
-                  vendorId: clientVendorRecord.vendorId,
-                  clientVendorId: input.id,
-                }),
+                sourceModule: 'vendors',
+                sourceId: input.id,
+                metadata: JSON.stringify({ vendorId: clientVendorRecord.vendorId }),
               })
               console.log(`[Timeline] Created vendor service entry`)
+            } else {
+              console.log(`[Timeline] Updated vendor service entry`)
             }
-          } else if (linkedTimeline) {
-            // Service date cleared - soft delete timeline entry
-            await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Soft-deleted vendor service entry`)
+          } else {
+            // Service date cleared - delete timeline entry
+            await ctx.db
+              .delete(timeline)
+              .where(
+                and(
+                  eq(timeline.sourceModule, 'vendors'),
+                  eq(timeline.sourceId, input.id)
+                )
+              )
+            console.log(`[Timeline] Deleted vendor service entry (date cleared)`)
           }
         } catch (timelineError) {
           console.warn('[Timeline] Failed to sync timeline with vendor update:', timelineError)
@@ -624,28 +625,19 @@ export const vendorsRouter = router({
         }
       }
 
-      // TIMELINE SYNC: Delete linked timeline entry
-      if (clientVendorRecord?.clientId) {
-        try {
-          const existingTimeline = await ctx.db
-            .select()
-            .from(timeline)
-            .where(eq(timeline.clientId, clientVendorRecord.clientId))
-
-          const linkedTimeline = existingTimeline.find(t => {
-            try {
-              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-              return meta.clientVendorId === input.id || meta.vendorId === clientVendorRecord.vendorId
-            } catch { return false }
-          })
-
-          if (linkedTimeline) {
-            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Deleted vendor service entry`)
-          }
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to delete timeline entry for vendor:', timelineError)
-        }
+      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
+      try {
+        await ctx.db
+          .delete(timeline)
+          .where(
+            and(
+              eq(timeline.sourceModule, 'vendors'),
+              eq(timeline.sourceId, input.id)
+            )
+          )
+        console.log(`[Timeline] Deleted vendor service entry`)
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to delete timeline entry for vendor:', timelineError)
       }
 
       return { success: true }

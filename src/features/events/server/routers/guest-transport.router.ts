@@ -136,12 +136,9 @@ export const guestTransportRouter = router({
             startTime: startDateTime,
             location,
             notes: input.notes || null,
-            metadata: JSON.stringify({
-              sourceModule: 'transport',
-              transportId: transport.id,
-              guestId: input.guestId,
-              legType: input.legType,
-            }),
+            sourceModule: 'transport',
+            sourceId: transport.id,
+            metadata: JSON.stringify({ guestId: input.guestId, legType: input.legType }),
           })
           console.log(`[Timeline] Created transport entry: ${legLabel} - ${input.guestName}`)
         } catch (timelineError) {
@@ -182,22 +179,9 @@ export const guestTransportRouter = router({
         .where(eq(guestTransport.id, input.id))
         .returning()
 
-      // TIMELINE SYNC: Update linked timeline entry
+      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
       if (transport) {
         try {
-          // Find timeline entry linked to this transport
-          const existingTimeline = await ctx.db
-            .select()
-            .from(timeline)
-            .where(eq(timeline.clientId, transport.clientId))
-
-          const linkedTimeline = existingTimeline.find(t => {
-            try {
-              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-              return meta.transportId === input.id
-            } catch { return false }
-          })
-
           const hasPickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
 
           if (hasPickupDate) {
@@ -227,40 +211,52 @@ export const guestTransportRouter = router({
             if (dropTo) locationParts.push(`To: ${dropTo}`)
             const location = locationParts.join(' → ') || null
 
-            if (linkedTimeline) {
-              // Update existing
-              await ctx.db.update(timeline).set({
-                title: `${legLabel}: ${guestName}`,
-                description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
-                startTime: startDateTime,
-                location,
-                notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
-                updatedAt: new Date(),
-              }).where(eq(timeline.id, linkedTimeline.id))
-              console.log(`[Timeline] Updated transport entry: ${legLabel} - ${guestName}`)
-            } else {
-              // Create new
+            const timelineData = {
+              title: `${legLabel}: ${guestName}`,
+              description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
+              startTime: startDateTime,
+              location,
+              notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
+              updatedAt: new Date(),
+            }
+
+            // Try to update existing entry first
+            const result = await ctx.db
+              .update(timeline)
+              .set(timelineData)
+              .where(
+                and(
+                  eq(timeline.sourceModule, 'transport'),
+                  eq(timeline.sourceId, input.id)
+                )
+              )
+              .returning({ id: timeline.id })
+
+            if (result.length === 0) {
+              // No existing entry - create new one
               await ctx.db.insert(timeline).values({
                 id: nanoid(),
                 clientId: transport.clientId,
-                title: `${legLabel}: ${guestName}`,
-                description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
-                startTime: startDateTime,
-                location,
-                notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
-                metadata: JSON.stringify({
-                  sourceModule: 'transport',
-                  transportId: transport.id,
-                  guestId: transport.guestId,
-                  legType,
-                }),
+                ...timelineData,
+                sourceModule: 'transport',
+                sourceId: transport.id,
+                metadata: JSON.stringify({ guestId: transport.guestId, legType }),
               })
               console.log(`[Timeline] Created transport entry: ${legLabel} - ${guestName}`)
+            } else {
+              console.log(`[Timeline] Updated transport entry: ${legLabel} - ${guestName}`)
             }
-          } else if (linkedTimeline) {
-            // Pickup date cleared - soft delete timeline entry
-            await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Soft-deleted transport entry`)
+          } else {
+            // Pickup date cleared - delete timeline entry
+            await ctx.db
+              .delete(timeline)
+              .where(
+                and(
+                  eq(timeline.sourceModule, 'transport'),
+                  eq(timeline.sourceId, input.id)
+                )
+              )
+            console.log(`[Timeline] Deleted transport entry (date cleared)`)
           }
         } catch (timelineError) {
           console.warn('[Timeline] Failed to sync timeline with transport update:', timelineError)
@@ -278,39 +274,23 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get transport record first for timeline deletion
-      const [transportToDelete] = await ctx.db
-        .select({ clientId: guestTransport.clientId })
-        .from(guestTransport)
-        .where(eq(guestTransport.id, input.id))
-        .limit(1)
-
       await ctx.db
         .delete(guestTransport)
         .where(eq(guestTransport.id, input.id))
 
-      // TIMELINE SYNC: Delete linked timeline entry
-      if (transportToDelete?.clientId) {
-        try {
-          const existingTimeline = await ctx.db
-            .select()
-            .from(timeline)
-            .where(eq(timeline.clientId, transportToDelete.clientId))
-
-          const linkedTimeline = existingTimeline.find(t => {
-            try {
-              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-              return meta.transportId === input.id
-            } catch { return false }
-          })
-
-          if (linkedTimeline) {
-            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Deleted transport entry`)
-          }
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to delete timeline entry for transport:', timelineError)
-        }
+      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
+      try {
+        await ctx.db
+          .delete(timeline)
+          .where(
+            and(
+              eq(timeline.sourceModule, 'transport'),
+              eq(timeline.sourceId, input.id)
+            )
+          )
+        console.log(`[Timeline] Deleted transport entry`)
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to delete timeline entry for transport:', timelineError)
       }
 
       return { success: true }

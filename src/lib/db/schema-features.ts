@@ -241,7 +241,10 @@ export const timeline = pgTable('timeline', {
   completed: boolean('completed').default(false),
   sortOrder: integer('sort_order').default(0),
   notes: text('notes'),
-  metadata: text('metadata'), // JSON string for source module info (vendorId, eventId, transportId, etc.)
+  // Cross-module sync columns - allows efficient DB queries for linked records
+  sourceModule: text('source_module'), // 'events', 'vendors', 'transport', 'hotels', 'budget'
+  sourceId: text('source_id'), // UUID of the source record
+  metadata: text('metadata'), // JSON string for additional source module info
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'), // Soft delete support

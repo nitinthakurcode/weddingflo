@@ -164,7 +164,9 @@ export const eventsRouter = router({
           durationMinutes,
           location: input.location || input.venueName || null,
           notes: input.notes || null,
-          metadata: JSON.stringify({ sourceModule: 'events', eventId: event.id }),
+          sourceModule: 'events',
+          sourceId: event.id,
+          metadata: JSON.stringify({ eventType: input.eventType || 'Wedding Event' }),
         })
         console.log(`[Timeline] Auto-created entry for event: ${input.title}`)
       } catch (timelineError) {
@@ -230,59 +232,49 @@ export const eventsRouter = router({
         })
       }
 
-      // TIMELINE SYNC: Update linked timeline entry if exists
+      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
       try {
-        // Find timeline entry linked to this event
-        const existingTimeline = await ctx.db
-          .select()
-          .from(timeline)
-          .where(eq(timeline.clientId, event.clientId))
+        const timelineUpdate: Record<string, any> = { updatedAt: new Date() }
 
-        // Find the one with matching eventId in metadata
-        const linkedTimeline = existingTimeline.find(t => {
-          try {
-            const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-            return meta.eventId === input.id
-          } catch { return false }
-        })
-
-        if (linkedTimeline) {
-          const timelineUpdate: Record<string, any> = { updatedAt: new Date() }
-
-          if (input.data.title !== undefined) timelineUpdate.title = input.data.title
-          if (input.data.description !== undefined) timelineUpdate.description = input.data.description
-          if (input.data.location !== undefined || input.data.venueName !== undefined) {
-            timelineUpdate.location = input.data.location || input.data.venueName
-          }
-          if (input.data.notes !== undefined) timelineUpdate.notes = input.data.notes
-
-          // Update date/time if changed
-          if (input.data.eventDate !== undefined || input.data.startTime !== undefined) {
-            const eventDate = input.data.eventDate || event.eventDate
-            const startTime = input.data.startTime || event.startTime
-            let startDateTime = new Date(eventDate)
-            if (startTime) {
-              const [hours, minutes] = startTime.split(':').map(Number)
-              startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
-            }
-            timelineUpdate.startTime = startDateTime
-          }
-
-          if (input.data.endTime !== undefined) {
-            const eventDate = input.data.eventDate || event.eventDate
-            let endDateTime = new Date(eventDate)
-            const [hours, minutes] = input.data.endTime.split(':').map(Number)
-            endDateTime.setHours(hours || 0, minutes || 0, 0, 0)
-            timelineUpdate.endTime = endDateTime
-          }
-
-          await ctx.db
-            .update(timeline)
-            .set(timelineUpdate)
-            .where(eq(timeline.id, linkedTimeline.id))
-
-          console.log(`[Timeline] Updated entry for event: ${event.title}`)
+        if (input.data.title !== undefined) timelineUpdate.title = input.data.title
+        if (input.data.description !== undefined) timelineUpdate.description = input.data.description
+        if (input.data.location !== undefined || input.data.venueName !== undefined) {
+          timelineUpdate.location = input.data.location || input.data.venueName
         }
+        if (input.data.notes !== undefined) timelineUpdate.notes = input.data.notes
+
+        // Update date/time if changed
+        if (input.data.eventDate !== undefined || input.data.startTime !== undefined) {
+          const eventDate = input.data.eventDate || event.eventDate
+          const startTime = input.data.startTime || event.startTime
+          let startDateTime = new Date(eventDate)
+          if (startTime) {
+            const [hours, minutes] = startTime.split(':').map(Number)
+            startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+          }
+          timelineUpdate.startTime = startDateTime
+        }
+
+        if (input.data.endTime !== undefined) {
+          const eventDate = input.data.eventDate || event.eventDate
+          let endDateTime = new Date(eventDate)
+          const [hours, minutes] = input.data.endTime.split(':').map(Number)
+          endDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+          timelineUpdate.endTime = endDateTime
+        }
+
+        // Direct DB update using sourceModule and sourceId columns
+        await ctx.db
+          .update(timeline)
+          .set(timelineUpdate)
+          .where(
+            and(
+              eq(timeline.sourceModule, 'events'),
+              eq(timeline.sourceId, input.id)
+            )
+          )
+
+        console.log(`[Timeline] Updated entry for event: ${event.title}`)
       } catch (timelineError) {
         console.warn('[Timeline] Failed to sync timeline entry for event update:', timelineError)
       }
@@ -297,39 +289,24 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Get event first to find linked timeline
-      const [eventToDelete] = await ctx.db
-        .select()
-        .from(events)
-        .where(eq(events.id, input.id))
-        .limit(1)
-
+      // Delete event
       await ctx.db
         .delete(events)
         .where(eq(events.id, input.id))
 
-      // TIMELINE SYNC: Delete linked timeline entry
-      if (eventToDelete) {
-        try {
-          const existingTimeline = await ctx.db
-            .select()
-            .from(timeline)
-            .where(eq(timeline.clientId, eventToDelete.clientId))
-
-          const linkedTimeline = existingTimeline.find(t => {
-            try {
-              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-              return meta.eventId === input.id
-            } catch { return false }
-          })
-
-          if (linkedTimeline) {
-            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Deleted entry for event: ${eventToDelete.title}`)
-          }
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to delete timeline entry for event:', timelineError)
-        }
+      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
+      try {
+        await ctx.db
+          .delete(timeline)
+          .where(
+            and(
+              eq(timeline.sourceModule, 'events'),
+              eq(timeline.sourceId, input.id)
+            )
+          )
+        console.log(`[Timeline] Deleted entry for event: ${input.id}`)
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to delete timeline entry for event:', timelineError)
       }
 
       return { success: true }

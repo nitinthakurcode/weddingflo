@@ -219,9 +219,9 @@ export const budgetRouter = router({
             description: `${input.category} - ₹${input.estimatedCost.toLocaleString()}`,
             startTime: paymentDateTime,
             notes: input.notes || null,
+            sourceModule: 'budget',
+            sourceId: budgetItem.id,
             metadata: JSON.stringify({
-              sourceModule: 'budget',
-              budgetId: budgetItem.id,
               vendorId: input.vendorId,
               type: 'payment-due',
               amount: input.estimatedCost,
@@ -336,21 +336,8 @@ export const budgetRouter = router({
         }
       }
 
-      // TIMELINE SYNC: Update linked timeline entry for payment due date
+      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
       try {
-        // Find timeline entry linked to this budget item
-        const existingTimeline = await ctx.db
-          .select()
-          .from(timeline)
-          .where(eq(timeline.clientId, budgetItem.clientId))
-
-        const linkedTimeline = existingTimeline.find(t => {
-          try {
-            const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-            return meta.budgetId === input.id
-          } catch { return false }
-        })
-
         const hasPaymentDate = input.data.paymentDate !== undefined ? input.data.paymentDate : budgetItem.paymentDate
 
         if (hasPaymentDate) {
@@ -362,39 +349,55 @@ export const budgetRouter = router({
           const paymentDateTime = new Date(hasPaymentDate as string)
           paymentDateTime.setHours(17, 0, 0, 0)
 
-          if (linkedTimeline) {
-            // Update existing
-            await ctx.db.update(timeline).set({
-              title: `Payment Due: ${itemName}`,
-              description: `${category} - ₹${estimatedCost.toLocaleString()}`,
-              startTime: paymentDateTime,
-              notes: notes || null,
-              updatedAt: new Date(),
-            }).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Updated payment due entry: ${itemName}`)
-          } else {
-            // Create new
+          const timelineData = {
+            title: `Payment Due: ${itemName}`,
+            description: `${category} - ₹${estimatedCost.toLocaleString()}`,
+            startTime: paymentDateTime,
+            notes: notes || null,
+            updatedAt: new Date(),
+          }
+
+          // Try to update existing entry first
+          const result = await ctx.db
+            .update(timeline)
+            .set(timelineData)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'budget'),
+                eq(timeline.sourceId, input.id)
+              )
+            )
+            .returning({ id: timeline.id })
+
+          if (result.length === 0) {
+            // No existing entry - create new one
             await ctx.db.insert(timeline).values({
               id: nanoid(),
               clientId: budgetItem.clientId,
-              title: `Payment Due: ${itemName}`,
-              description: `${category} - ₹${estimatedCost.toLocaleString()}`,
-              startTime: paymentDateTime,
-              notes: notes || null,
+              ...timelineData,
+              sourceModule: 'budget',
+              sourceId: budgetItem.id,
               metadata: JSON.stringify({
-                sourceModule: 'budget',
-                budgetId: budgetItem.id,
                 vendorId: budgetItem.vendorId,
                 type: 'payment-due',
                 amount: estimatedCost,
               }),
             })
             console.log(`[Timeline] Created payment due entry: ${itemName}`)
+          } else {
+            console.log(`[Timeline] Updated payment due entry: ${itemName}`)
           }
-        } else if (linkedTimeline) {
-          // Payment date cleared - soft delete timeline entry
-          await ctx.db.update(timeline).set({ deletedAt: new Date() }).where(eq(timeline.id, linkedTimeline.id))
-          console.log(`[Timeline] Soft-deleted payment due entry`)
+        } else {
+          // Payment date cleared - delete timeline entry
+          await ctx.db
+            .delete(timeline)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'budget'),
+                eq(timeline.sourceId, input.id)
+              )
+            )
+          console.log(`[Timeline] Deleted payment due entry (date cleared)`)
         }
       } catch (timelineError) {
         console.warn('[Timeline] Failed to sync timeline with budget update:', timelineError)
@@ -410,39 +413,23 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Get budget record first for timeline deletion
-      const [budgetToDelete] = await ctx.db
-        .select({ clientId: budget.clientId })
-        .from(budget)
-        .where(eq(budget.id, input.id))
-        .limit(1)
-
       await ctx.db
         .delete(budget)
         .where(eq(budget.id, input.id))
 
-      // TIMELINE SYNC: Delete linked timeline entry
-      if (budgetToDelete?.clientId) {
-        try {
-          const existingTimeline = await ctx.db
-            .select()
-            .from(timeline)
-            .where(eq(timeline.clientId, budgetToDelete.clientId))
-
-          const linkedTimeline = existingTimeline.find(t => {
-            try {
-              const meta = t.metadata ? JSON.parse(t.metadata as string) : {}
-              return meta.budgetId === input.id
-            } catch { return false }
-          })
-
-          if (linkedTimeline) {
-            await ctx.db.delete(timeline).where(eq(timeline.id, linkedTimeline.id))
-            console.log(`[Timeline] Deleted payment due entry`)
-          }
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to delete timeline entry for budget:', timelineError)
-        }
+      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
+      try {
+        await ctx.db
+          .delete(timeline)
+          .where(
+            and(
+              eq(timeline.sourceModule, 'budget'),
+              eq(timeline.sourceId, input.id)
+            )
+          )
+        console.log(`[Timeline] Deleted payment due entry`)
+      } catch (timelineError) {
+        console.warn('[Timeline] Failed to delete timeline entry for budget:', timelineError)
       }
 
       return { success: true }
