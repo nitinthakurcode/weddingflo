@@ -14,7 +14,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Hotel, Plus, Trash2, Users, GripVertical, Save } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Hotel, Plus, Trash2, Users, GripVertical, Save, Building2 } from 'lucide-react'
 
 interface RoomAssignment {
   roomNumber: string
@@ -27,7 +34,8 @@ interface RoomAssignmentDialogProps {
   mainGuestName: string
   partyMembers: string[]
   hotelName?: string
-  onSaveAssignments: (rooms: RoomAssignment[]) => void
+  availableHotels?: string[] // List of existing hotel names
+  onSaveAssignments: (rooms: RoomAssignment[], selectedHotel: string) => void
 }
 
 export function RoomAssignmentDialog({
@@ -36,21 +44,50 @@ export function RoomAssignmentDialog({
   mainGuestName,
   partyMembers,
   hotelName,
+  availableHotels = [],
   onSaveAssignments,
 }: RoomAssignmentDialogProps) {
   const [rooms, setRooms] = useState<RoomAssignment[]>([
     { roomNumber: '', guests: [] }
   ])
   const [unassignedGuests, setUnassignedGuests] = useState<string[]>([])
+  const [selectedHotel, setSelectedHotel] = useState<string>(hotelName || '')
+  const [isCreatingHotel, setIsCreatingHotel] = useState(false)
+  const [newHotelName, setNewHotelName] = useState('')
 
-  // Initialize unassigned guests when dialog opens
+  // Initialize state when dialog opens
   useEffect(() => {
     if (open) {
       const allGuests = [mainGuestName, ...partyMembers.filter(m => m !== mainGuestName)]
       const assignedGuests = rooms.flatMap(r => r.guests)
       setUnassignedGuests(allGuests.filter(g => !assignedGuests.includes(g)))
+
+      // Auto-select hotel if only one available and no current selection
+      if (!hotelName && availableHotels.length === 1) {
+        setSelectedHotel(availableHotels[0])
+      } else if (hotelName) {
+        setSelectedHotel(hotelName)
+      }
     }
-  }, [open, mainGuestName, partyMembers, rooms])
+  }, [open, mainGuestName, partyMembers, rooms, hotelName, availableHotels])
+
+  const handleHotelChange = (value: string) => {
+    if (value === '__create_new__') {
+      setIsCreatingHotel(true)
+      setSelectedHotel('')
+    } else {
+      setIsCreatingHotel(false)
+      setSelectedHotel(value)
+    }
+  }
+
+  const handleCreateHotel = () => {
+    if (newHotelName.trim()) {
+      setSelectedHotel(newHotelName.trim())
+      setIsCreatingHotel(false)
+      setNewHotelName('')
+    }
+  }
 
   const addRoom = () => {
     setRooms([...rooms, { roomNumber: '', guests: [] }])
@@ -90,7 +127,7 @@ export function RoomAssignmentDialog({
   const handleSave = () => {
     // Filter out empty rooms
     const validRooms = rooms.filter(r => r.roomNumber && r.guests.length > 0)
-    onSaveAssignments(validRooms)
+    onSaveAssignments(validRooms, selectedHotel)
     onOpenChange(false)
   }
 
@@ -111,6 +148,60 @@ export function RoomAssignmentDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Hotel Selection */}
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="p-4">
+              <Label className="text-sm font-medium mb-2 flex items-center gap-2">
+                <Building2 className="w-4 h-4" />
+                Select Hotel
+              </Label>
+              {isCreatingHotel ? (
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    placeholder="Enter new hotel name"
+                    value={newHotelName}
+                    onChange={(e) => setNewHotelName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateHotel()}
+                    autoFocus
+                  />
+                  <Button size="sm" onClick={handleCreateHotel}>
+                    Add
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => {
+                    setIsCreatingHotel(false)
+                    setNewHotelName('')
+                  }}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Select value={selectedHotel} onValueChange={handleHotelChange}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Choose a hotel or create new" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableHotels.map((hotel) => (
+                      <SelectItem key={hotel} value={hotel}>
+                        {hotel}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__create_new__" className="text-primary font-medium">
+                      <span className="flex items-center gap-2">
+                        <Plus className="w-4 h-4" />
+                        Create New Hotel
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {selectedHotel && !isCreatingHotel && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Rooms will be assigned at: <span className="font-medium">{selectedHotel}</span>
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Progress indicator */}
           <div className="flex items-center justify-between text-sm bg-muted/50 p-3 rounded-lg">
             <span className="text-muted-foreground">Assignment Progress</span>

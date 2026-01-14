@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
 import { useParams } from 'next/navigation'
@@ -24,7 +24,12 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Plus, Trash2, Edit, Hotel, CheckCircle, Clock, RefreshCw, Users, Download, Upload } from 'lucide-react'
+import { Plus, Trash2, Edit, Hotel, CheckCircle, Clock, RefreshCw, Users, Download, Upload, Building2, Loader2 } from 'lucide-react'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { useToast } from '@/hooks/use-toast'
 import {
   Table,
@@ -39,6 +44,7 @@ import { ExportButton } from '@/components/export/export-button'
 import { ImportDialog } from '@/components/import/ImportDialog'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
 import { RoomAssignmentDialog } from '@/components/hotels/RoomAssignmentDialog'
+import { CreateAccommodationDialog } from '@/components/hotels/CreateAccommodationDialog'
 
 export default function HotelsPage() {
   const params = useParams()
@@ -69,6 +75,14 @@ export default function HotelsPage() {
   const [showRoomAssignment, setShowRoomAssignment] = useState(false)
   const [partyMembers, setPartyMembers] = useState<string[]>([])
 
+  // Accommodation dialog state
+  const [showCreateAccommodation, setShowCreateAccommodation] = useState(false)
+  const [editingAccommodation, setEditingAccommodation] = useState<any>(null)
+
+  // Quick assign state for single guests
+  const [quickAssignHotelId, setQuickAssignHotelId] = useState<string | null>(null)
+  const [quickAssignData, setQuickAssignData] = useState({ hotelName: '', roomNumber: '' })
+
   const utils = trpc.useUtils()
 
   // Queries - use getAllWithGuests to get guest info
@@ -77,6 +91,11 @@ export default function HotelsPage() {
   })
 
   const { data: stats } = trpc.hotels.getStats.useQuery({
+    clientId: clientId,
+  })
+
+  // Query accommodations (hotel properties)
+  const { data: accommodations } = trpc.accommodations.getAll.useQuery({
     clientId: clientId,
   })
 
@@ -147,6 +166,68 @@ export default function HotelsPage() {
     },
   })
 
+  // Delete accommodation mutation
+  const deleteAccommodationMutation = trpc.accommodations.delete.useMutation({
+    onSuccess: async () => {
+      toast({ title: 'Accommodation deleted', description: 'Room assignments for this hotel have been cleared.' })
+      await Promise.all([
+        utils.accommodations.getAll.invalidate({ clientId }),
+        utils.hotels.getAllWithGuests.invalidate({ clientId }),
+        utils.hotels.getStats.invalidate({ clientId }),
+      ])
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
+  const handleDeleteAccommodation = (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete "${name}"?\n\nThis will also clear room assignments for all guests assigned to this hotel.`)) {
+      deleteAccommodationMutation.mutate({ id })
+    }
+  }
+
+  // Quick assign mutation for single guests
+  const quickAssignMutation = trpc.hotels.update.useMutation({
+    onSuccess: async () => {
+      toast({ title: 'Room assigned successfully' })
+      setQuickAssignHotelId(null)
+      setQuickAssignData({ hotelName: '', roomNumber: '' })
+      await Promise.all([
+        utils.hotels.getAllWithGuests.invalidate({ clientId }),
+        utils.hotels.getStats.invalidate({ clientId }),
+      ])
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
+  const handleQuickAssign = (hotelId: string, guestName: string) => {
+    if (!quickAssignData.hotelName || !quickAssignData.roomNumber) {
+      toast({ title: 'Please select a hotel and enter a room number', variant: 'destructive' })
+      return
+    }
+
+    // Create room assignment for single guest
+    const roomAssignments = {
+      [quickAssignData.roomNumber]: {
+        guests: [guestName],
+        roomType: '',
+      }
+    }
+
+    quickAssignMutation.mutate({
+      id: hotelId,
+      data: {
+        hotelName: quickAssignData.hotelName,
+        roomNumber: quickAssignData.roomNumber,
+        roomAssignments,
+        accommodationNeeded: true,
+      },
+    })
+  }
+
   // Handle sync on initial load
   const handleSync = () => {
     syncMutation.mutate({ clientId })
@@ -172,9 +253,28 @@ export default function HotelsPage() {
     setPartyMembers([])
   }
 
+  // Get available accommodations for dropdown (from accommodations table)
+  // Also include current hotel name if it's not in the list (for backwards compatibility)
+  const availableHotels = useMemo(() => {
+    if (!accommodations || accommodations.length === 0) return []
+    const hotelNames = accommodations.map((acc: any) => acc.name)
+    // Include current hotel name if it exists and is not in the list
+    if (formData.hotelName && !hotelNames.includes(formData.hotelName)) {
+      return [formData.hotelName, ...hotelNames]
+    }
+    return hotelNames
+  }, [accommodations, formData.hotelName])
+
+  // Find default accommodation (for auto-assignment)
+  const defaultAccommodation = useMemo(() => {
+    if (!accommodations || accommodations.length === 0) return null
+    return accommodations.find((acc: any) => acc.isDefault) || accommodations[0]
+  }, [accommodations])
+
   // Batch save all room assignments as a SINGLE record with multi-room structure
   const handleBatchRoomAssignments = async (
-    rooms: Array<{ roomNumber: string; guests: string[] }>
+    rooms: Array<{ roomNumber: string; guests: string[] }>,
+    selectedHotel?: string
   ) => {
     try {
       // Build room assignments object: {"143": {"guests": ["first", "ape"], "roomType": "deluxe"}, ...}
@@ -189,15 +289,15 @@ export default function HotelsPage() {
       // Calculate total party size
       const totalPartySize = rooms.reduce((sum, room) => sum + room.guests.length, 0)
 
-      // Get all room numbers as comma-separated string for display
-      const roomNumbers = rooms.map(r => r.roomNumber).join(', ')
+      // Use selected hotel from dialog if provided, otherwise fall back to form data
+      const hotelNameToUse = selectedHotel || formData.hotelName
 
       const hotelData = {
         guestId: editingHotel?.guestId,
         guestName: formData.guestName,
         partySize: totalPartySize,
         roomAssignments,
-        hotelName: formData.hotelName,
+        hotelName: hotelNameToUse,
         roomNumber: rooms[0]?.roomNumber || '', // Legacy field - first room
         roomType: formData.roomType,
         checkInDate: formData.checkInDate,
@@ -282,9 +382,15 @@ export default function HotelsPage() {
     // Auto-populate party size from guest list
     const autoPartySize = hotel.guests?.partySize || guests.length || 1
 
+    // Auto-assign default accommodation if no hotel assigned and only one exists
+    let hotelNameToUse = hotel.hotelName || ''
+    if (!hotelNameToUse && defaultAccommodation) {
+      hotelNameToUse = defaultAccommodation.name
+    }
+
     setFormData({
       guestName: mainGuestName,
-      hotelName: hotel.hotelName || '',
+      hotelName: hotelNameToUse,
       roomNumber: hotel.roomNumber || '',
       roomType: hotel.roomType || '',
       checkInDate,
@@ -303,6 +409,99 @@ export default function HotelsPage() {
   const handleDelete = (id: string) => {
     if (confirm(t('confirmDelete'))) {
       deleteMutation.mutate({ id })
+    }
+  }
+
+  // Group hotels by parent guest to show same-party members together
+  const groupedHotels = useMemo(() => {
+    if (!hotels || hotels.length === 0) return []
+
+    const groups: Map<string, {
+      primaryHotel: any
+      allHotels: any[]
+      guestNames: string[]
+      totalGuests: number
+      relationship: string | null
+      contact: { email: string | null; phone: string | null }
+    }> = new Map()
+
+    hotels.forEach((hotel: any) => {
+      // Use guestId as group key, or hotel.id for standalone records
+      const groupKey = hotel.guestId || `standalone-${hotel.id}`
+
+      if (groups.has(groupKey)) {
+        const group = groups.get(groupKey)!
+        group.allHotels.push(hotel)
+        group.guestNames.push(hotel.guestName)
+        group.totalGuests = group.guestNames.length
+      } else {
+        groups.set(groupKey, {
+          primaryHotel: hotel,
+          allHotels: [hotel],
+          guestNames: [hotel.guestName],
+          totalGuests: 1,
+          relationship: hotel.guests?.relationshipToFamily || null,
+          contact: {
+            email: hotel.guests?.email || null,
+            phone: hotel.guests?.phone || null,
+          }
+        })
+      }
+    })
+
+    return Array.from(groups.values())
+  }, [hotels])
+
+  // Handle edit for a group (opens with all party members who need accommodation)
+  const handleEditGroup = (group: typeof groupedHotels[0]) => {
+    const primaryHotel = group.primaryHotel
+    setEditingHotel(primaryHotel)
+
+    // Auto-populate check-in/check-out from guest arrival/departure if not already set
+    let checkInDate = primaryHotel.checkInDate || ''
+    let checkOutDate = primaryHotel.checkOutDate || ''
+
+    if (!checkInDate && primaryHotel.guests?.arrivalDatetime) {
+      checkInDate = new Date(primaryHotel.guests.arrivalDatetime).toISOString().split('T')[0]
+    }
+    if (!checkOutDate && primaryHotel.guests?.departureDatetime) {
+      checkOutDate = new Date(primaryHotel.guests.departureDatetime).toISOString().split('T')[0]
+    }
+
+    // Set party members to all guests in the group who need accommodation
+    setPartyMembers([...group.guestNames])
+
+    // Auto-assign default accommodation if no hotel assigned and only one exists
+    let hotelNameToUse = primaryHotel.hotelName || ''
+    if (!hotelNameToUse && defaultAccommodation) {
+      hotelNameToUse = defaultAccommodation.name
+    }
+
+    setFormData({
+      guestName: group.guestNames.join(', '),
+      hotelName: hotelNameToUse,
+      roomNumber: primaryHotel.roomNumber || '',
+      roomType: primaryHotel.roomType || '',
+      checkInDate,
+      checkOutDate,
+      accommodationNeeded: primaryHotel.accommodationNeeded ?? true,
+      bookingConfirmed: primaryHotel.bookingConfirmed || false,
+      checkedIn: primaryHotel.checkedIn || false,
+      cost: primaryHotel.cost ? primaryHotel.cost.toString() : '',
+      paymentStatus: primaryHotel.paymentStatus || 'pending',
+      notes: primaryHotel.notes || '',
+      partySize: group.totalGuests,
+      guestNamesInRoom: group.guestNames.join(', '),
+    })
+  }
+
+  // Handle delete for entire group
+  const handleDeleteGroup = async (group: typeof groupedHotels[0]) => {
+    if (confirm(t('confirmDelete'))) {
+      // Delete all hotel records in the group
+      for (const hotel of group.allHotels) {
+        await deleteMutation.mutateAsync({ id: hotel.id })
+      }
     }
   }
 
@@ -350,6 +549,10 @@ export default function HotelsPage() {
           <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
           {syncMutation.isPending ? t('syncing') : t('syncFromGuests')}
         </Button>
+        <Button variant="outline" onClick={() => setShowCreateAccommodation(true)}>
+          <Building2 className="w-4 h-4 mr-2" />
+          Create Accommodation
+        </Button>
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           {t('addBooking')}
@@ -392,11 +595,11 @@ export default function HotelsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="w-5 h-5" />
-            {t('guestAccommodations')} ({hotels?.length || 0})
+            {t('guestAccommodations')} ({groupedHotels.length} {groupedHotels.length === 1 ? 'group' : 'groups'}, {hotels?.length || 0} guests)
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {hotels?.length === 0 ? (
+          {groupedHotels.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p className="mb-4">{t('noBookingsYet')}</p>
               <p className="text-sm">
@@ -408,41 +611,44 @@ export default function HotelsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('guestName')}</TableHead>
+                    <TableHead>Guests Needing Accommodation</TableHead>
                     <TableHead>{t('contact')}</TableHead>
-                    <TableHead>Guests in Room</TableHead>
-                    <TableHead>{t('accommodation')}</TableHead>
+                    <TableHead>Room Assignment</TableHead>
                     <TableHead>{t('hotelName')}</TableHead>
-                    <TableHead>{t('roomNumber')}</TableHead>
-                    <TableHead>{t('partySize')}</TableHead>
+                    <TableHead>Guests Count</TableHead>
                     <TableHead>{t('checkedIn')}</TableHead>
                     <TableHead>{tc('actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {hotels?.map((hotel: any) => (
-                    <TableRow key={hotel.id}>
+                  {groupedHotels.map((group) => {
+                    const primaryHotel = group.primaryHotel
+
+                    return (
+                    <TableRow key={primaryHotel.id}>
                       <TableCell>
-                        <div className="font-medium">{hotel.guestName}</div>
-                        {hotel.guests && hotel.guests.partySize > 1 && (
+                        <div className="font-medium">
+                          {group.guestNames.join(', ')}
+                        </div>
+                        {group.relationship && (
                           <div className="text-xs text-muted-foreground">
-                            {t('partyOf', { size: hotel.guests.partySize })} • {hotel.guests.relationshipToFamily || tc('guest')}
+                            {group.relationship}
                           </div>
                         )}
-                        {hotel.guests && hotel.guests.partySize === 1 && hotel.guests.relationshipToFamily && (
-                          <div className="text-xs text-muted-foreground">
-                            {hotel.guests.relationshipToFamily}
-                          </div>
+                        {group.totalGuests > 1 && (
+                          <Badge variant="secondary" className="mt-1 text-xs">
+                            {group.totalGuests} people need room
+                          </Badge>
                         )}
                       </TableCell>
                       <TableCell>
-                        {hotel.guests ? (
+                        {group.contact.email || group.contact.phone ? (
                           <div className="text-sm">
-                            {hotel.guests.email && (
-                              <div className="truncate max-w-[150px]">{hotel.guests.email}</div>
+                            {group.contact.email && (
+                              <div className="truncate max-w-[150px]">{group.contact.email}</div>
                             )}
-                            {hotel.guests.phone && (
-                              <div className="text-muted-foreground">{hotel.guests.phone}</div>
+                            {group.contact.phone && (
+                              <div className="text-muted-foreground">{group.contact.phone}</div>
                             )}
                           </div>
                         ) : (
@@ -450,83 +656,205 @@ export default function HotelsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {hotel.roomAssignments && typeof hotel.roomAssignments === 'object' && Object.keys(hotel.roomAssignments).length > 0 ? (
-                          <div className="text-sm max-w-[250px] space-y-1">
-                            {Object.entries(hotel.roomAssignments as Record<string, { guests: string[], roomType?: string }>).map(([roomNum, details]) => (
-                              <div key={roomNum} className="text-xs">
-                                <span className="font-medium text-cobalt-600 dark:text-cobalt-400">
-                                  {roomNum}:
-                                </span>{' '}
-                                <span className="text-muted-foreground">
-                                  {details.guests.join(', ')}
-                                </span>
+                        {primaryHotel.roomAssignments && typeof primaryHotel.roomAssignments === 'object' && Object.keys(primaryHotel.roomAssignments).length > 0 ? (
+                          <Popover
+                            open={quickAssignHotelId === primaryHotel.id}
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setQuickAssignHotelId(primaryHotel.id)
+                                // Get first room assignment for editing
+                                const assignments = primaryHotel.roomAssignments as Record<string, { guests: string[], roomType?: string }>
+                                const firstRoom = Object.keys(assignments)[0] || ''
+                                setQuickAssignData({
+                                  hotelName: primaryHotel.hotelName || (defaultAccommodation?.name || ''),
+                                  roomNumber: firstRoom
+                                })
+                              } else {
+                                setQuickAssignHotelId(null)
+                                setQuickAssignData({ hotelName: '', roomNumber: '' })
+                              }
+                            }}
+                          >
+                            <PopoverTrigger asChild>
+                              <button className="text-sm max-w-[250px] space-y-1 text-left cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1 transition-colors">
+                                {Object.entries(primaryHotel.roomAssignments as Record<string, { guests: string[], roomType?: string }>).map(([roomNum, details]) => (
+                                  <div key={roomNum} className="text-xs">
+                                    <span className="font-medium text-cobalt-600 dark:text-cobalt-400">
+                                      Room {roomNum}:
+                                    </span>{' '}
+                                    <span className="text-muted-foreground">
+                                      {details.guests.join(', ')}
+                                    </span>
+                                  </div>
+                                ))}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-72 p-4" align="start">
+                              <div className="space-y-3">
+                                <h4 className="font-medium text-sm">Edit Room Assignment</h4>
+                                <div className="space-y-2">
+                                  <Label className="text-xs">Hotel</Label>
+                                  {availableHotels.length > 0 ? (
+                                    <Select
+                                      value={quickAssignData.hotelName}
+                                      onValueChange={(value) => setQuickAssignData(prev => ({ ...prev, hotelName: value }))}
+                                    >
+                                      <SelectTrigger className="h-8">
+                                        <SelectValue placeholder="Select hotel" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {availableHotels.map((hotel) => (
+                                          <SelectItem key={hotel} value={hotel}>
+                                            {hotel}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Input
+                                      className="h-8"
+                                      value={quickAssignData.hotelName}
+                                      onChange={(e) => setQuickAssignData(prev => ({ ...prev, hotelName: e.target.value }))}
+                                      placeholder="Hotel name"
+                                    />
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-xs">Room Number</Label>
+                                  <Input
+                                    className="h-8"
+                                    value={quickAssignData.roomNumber}
+                                    onChange={(e) => setQuickAssignData(prev => ({ ...prev, roomNumber: e.target.value }))}
+                                    placeholder="e.g., 301"
+                                  />
+                                </div>
+                                <Button
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={() => handleQuickAssign(primaryHotel.id, group.guestNames[0])}
+                                  disabled={quickAssignMutation.isPending}
+                                >
+                                  {quickAssignMutation.isPending ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                                      Updating...
+                                    </>
+                                  ) : (
+                                    'Update Room'
+                                  )}
+                                </Button>
                               </div>
-                            ))}
-                          </div>
-                        ) : hotel.guestNamesInRoom ? (
-                          <div className="text-sm max-w-[200px]">
-                            <span className="font-medium text-cobalt-600 dark:text-cobalt-400">
-                              {hotel.guestNamesInRoom}
-                            </span>
+                            </PopoverContent>
+                          </Popover>
+                        ) : group.totalGuests > 1 ? (
+                          <div className="text-xs text-amber-600 dark:text-amber-400">
+                            Click Edit to assign rooms
                           </div>
                         ) : (
-                          <span className="text-muted-foreground text-xs">Not specified</span>
+                          <Popover
+                            open={quickAssignHotelId === primaryHotel.id}
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setQuickAssignHotelId(primaryHotel.id)
+                                // Pre-fill with existing hotel name if available
+                                setQuickAssignData({
+                                  hotelName: primaryHotel.hotelName || (defaultAccommodation?.name || ''),
+                                  roomNumber: primaryHotel.roomNumber || ''
+                                })
+                              } else {
+                                setQuickAssignHotelId(null)
+                                setQuickAssignData({ hotelName: '', roomNumber: '' })
+                              }
+                            }}
+                          >
+                            <PopoverTrigger asChild>
+                              <button className="text-xs text-primary hover:underline cursor-pointer font-medium">
+                                Quick Assign Room
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-72 p-4" align="start">
+                              <div className="space-y-3">
+                                <h4 className="font-medium text-sm">Assign Room for {group.guestNames[0]}</h4>
+                                <div className="space-y-2">
+                                  <Label className="text-xs">Hotel</Label>
+                                  {availableHotels.length > 0 ? (
+                                    <Select
+                                      value={quickAssignData.hotelName}
+                                      onValueChange={(value) => setQuickAssignData(prev => ({ ...prev, hotelName: value }))}
+                                    >
+                                      <SelectTrigger className="h-8">
+                                        <SelectValue placeholder="Select hotel" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {availableHotels.map((hotel) => (
+                                          <SelectItem key={hotel} value={hotel}>
+                                            {hotel}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Input
+                                      className="h-8"
+                                      value={quickAssignData.hotelName}
+                                      onChange={(e) => setQuickAssignData(prev => ({ ...prev, hotelName: e.target.value }))}
+                                      placeholder="Hotel name"
+                                    />
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-xs">Room Number</Label>
+                                  <Input
+                                    className="h-8"
+                                    value={quickAssignData.roomNumber}
+                                    onChange={(e) => setQuickAssignData(prev => ({ ...prev, roomNumber: e.target.value }))}
+                                    placeholder="e.g., 301"
+                                  />
+                                </div>
+                                <Button
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={() => handleQuickAssign(primaryHotel.id, group.guestNames[0])}
+                                  disabled={quickAssignMutation.isPending}
+                                >
+                                  {quickAssignMutation.isPending ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                                      Assigning...
+                                    </>
+                                  ) : (
+                                    'Assign Room'
+                                  )}
+                                </Button>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
                         )}
                       </TableCell>
                       <TableCell>
-                        {hotel.accommodationNeeded ? (
-                          <Badge className="bg-sage-600">{tc('yes')}</Badge>
-                        ) : (
-                          <Badge variant="outline">{tc('no')}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {hotel.hotelName ? (
-                          <span>{hotel.hotelName}</span>
+                        {primaryHotel.hotelName ? (
+                          <span>{primaryHotel.hotelName}</span>
                         ) : (
                           <span className="text-muted-foreground">{t('notAssigned')}</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        {hotel.roomAssignments && typeof hotel.roomAssignments === 'object' && Object.keys(hotel.roomAssignments).length > 0 ? (
-                          <div className="space-y-1">
-                            {Object.entries(hotel.roomAssignments as Record<string, { guests: string[], roomType?: string }>).map(([roomNum, details]) => (
-                              <div key={roomNum}>
-                                <span className="font-medium">{roomNum}</span>
-                                {details.roomType && (
-                                  <span className="text-xs text-muted-foreground ml-1">
-                                    ({details.roomType})
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : hotel.roomNumber ? (
-                          <div>
-                            <span className="font-medium">{hotel.roomNumber}</span>
-                            {hotel.roomType && (
-                              <span className="text-xs text-muted-foreground ml-1">
-                                ({hotel.roomType})
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
                         <div className="flex items-center gap-1">
-                          <span className="font-medium">{hotel.partySize || 1}</span>
+                          <span className="font-medium">{group.totalGuests}</span>
                           <span className="text-xs text-muted-foreground">
-                            {hotel.partySize === 1 ? 'person' : 'people'}
+                            {group.totalGuests === 1 ? 'person' : 'people'}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell>
-                        {hotel.checkedIn ? (
+                        {group.allHotels.every((h: any) => h.checkedIn) ? (
                           <div className="flex items-center gap-1 text-sage-600">
                             <CheckCircle className="w-4 h-4" />
-                            <span className="text-sm">{tc('yes')}</span>
+                            <span className="text-sm">All</span>
+                          </div>
+                        ) : group.allHotels.some((h: any) => h.checkedIn) ? (
+                          <div className="flex items-center gap-1 text-amber-600">
+                            <span className="text-sm">Partial</span>
                           </div>
                         ) : (
                           <span className="text-muted-foreground">{tc('no')}</span>
@@ -537,7 +865,7 @@ export default function HotelsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleEdit(hotel)}
+                            onClick={() => handleEditGroup(group)}
                             className="h-8 w-8 hover:bg-muted"
                           >
                             <Edit className="w-4 h-4" />
@@ -546,7 +874,7 @@ export default function HotelsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDelete(hotel.id)}
+                            onClick={() => handleDeleteGroup(group)}
                             className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -555,7 +883,9 @@ export default function HotelsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
+
                 </TableBody>
               </Table>
             </div>
@@ -624,17 +954,35 @@ export default function HotelsPage() {
 
               {formData.accommodationNeeded && (
                 <>
-                  {/* Hotel Name */}
+                  {/* Hotel Name - Dropdown if accommodations exist */}
                   <div>
                     <Label htmlFor="hotelName">{t('hotelName')}</Label>
-                    <Input
-                      id="hotelName"
-                      value={formData.hotelName}
-                      onChange={(e) =>
-                        setFormData({ ...formData, hotelName: e.target.value })
-                      }
-                      placeholder={t('enterHotelName')}
-                    />
+                    {availableHotels.length > 0 ? (
+                      <Select
+                        value={formData.hotelName}
+                        onValueChange={(value) => setFormData({ ...formData, hotelName: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select accommodation" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableHotels.map((hotel) => (
+                            <SelectItem key={hotel} value={hotel}>
+                              {hotel}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="hotelName"
+                        value={formData.hotelName}
+                        onChange={(e) =>
+                          setFormData({ ...formData, hotelName: e.target.value })
+                        }
+                        placeholder={t('enterHotelName')}
+                      />
+                    )}
                   </div>
 
                   {/* Room Number */}
@@ -822,8 +1170,106 @@ export default function HotelsPage() {
         mainGuestName={formData.guestName}
         partyMembers={partyMembers}
         hotelName={formData.hotelName}
+        availableHotels={availableHotels}
         onSaveAssignments={handleBatchRoomAssignments}
       />
+
+      {/* Create Accommodation Dialog */}
+      <CreateAccommodationDialog
+        open={showCreateAccommodation}
+        onOpenChange={setShowCreateAccommodation}
+        clientId={clientId}
+        onSuccess={() => {
+          utils.accommodations.getAll.invalidate({ clientId })
+        }}
+      />
+
+      {/* Edit Accommodation Dialog */}
+      <CreateAccommodationDialog
+        open={!!editingAccommodation}
+        onOpenChange={(open) => {
+          if (!open) setEditingAccommodation(null)
+        }}
+        clientId={clientId}
+        accommodation={editingAccommodation}
+        onSuccess={() => {
+          utils.accommodations.getAll.invalidate({ clientId })
+          setEditingAccommodation(null)
+        }}
+      />
+
+      {/* Accommodations List - Show available hotels */}
+      {accommodations && accommodations.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              Available Accommodations ({accommodations.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {accommodations.map((acc: any) => (
+                <div
+                  key={acc.id}
+                  className={`p-4 rounded-lg border ${acc.isDefault ? 'border-primary bg-primary/5' : 'bg-muted/30'}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-semibold flex items-center gap-2">
+                        <Hotel className="w-4 h-4" />
+                        {acc.name}
+                      </h4>
+                      {acc.address && (
+                        <p className="text-sm text-muted-foreground mt-1">{acc.address}</p>
+                      )}
+                      {acc.city && (
+                        <p className="text-xs text-muted-foreground">{acc.city}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {acc.isDefault && (
+                        <Badge variant="secondary" className="bg-primary/10 text-primary text-xs mr-1">
+                          Default
+                        </Badge>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setEditingAccommodation(acc)}
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => handleDeleteAccommodation(acc.id, acc.name)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  {(acc.phone || acc.email) && (
+                    <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                      {acc.phone && <div>Phone: {acc.phone}</div>}
+                      {acc.email && <div>Email: {acc.email}</div>}
+                    </div>
+                  )}
+                  {(acc.checkInTime || acc.checkOutTime) && (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      {acc.checkInTime && <span>In: {acc.checkInTime}</span>}
+                      {acc.checkOutTime && <span>Out: {acc.checkOutTime}</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

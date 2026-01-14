@@ -159,6 +159,7 @@ export const hotels = pgTable('hotels', {
   clientId: uuid('client_id').notNull(),
   guestId: uuid('guest_id'),
   guestName: text('guest_name').notNull(),
+  accommodationId: uuid('accommodation_id'), // Links to accommodations table
   hotelName: text('hotel_name'),
   roomNumber: text('room_number'),
   roomType: text('room_type'),
@@ -857,3 +858,26 @@ export const weddingWebsites = pgTable('wedding_websites', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+// Accommodations (Hotel Properties) - Stores hotel definitions for room allotment
+export const accommodations = pgTable('accommodations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull(),
+  name: text('name').notNull(),
+  address: text('address'),
+  city: text('city'),
+  phone: text('phone'),
+  email: text('email'),
+  website: text('website'),
+  checkInTime: text('check_in_time'),
+  checkOutTime: text('check_out_time'),
+  amenities: text('amenities').array(),
+  roomTypes: jsonb('room_types'), // Array of { type: string, capacity: number, ratePerNight: number, totalRooms: number }
+  notes: text('notes'),
+  isDefault: boolean('is_default').default(false), // Mark as default hotel for auto-assignment
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('accommodations_client_id_idx').on(table.clientId),
+]);
