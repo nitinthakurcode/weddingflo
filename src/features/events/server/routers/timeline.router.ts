@@ -2,7 +2,7 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
-import { timeline, clients, users, clientUsers } from '@/lib/db/schema'
+import { timeline, clients, users, clientUsers, events } from '@/lib/db/schema'
 
 /**
  * Timeline tRPC Router - Drizzle ORM Version
@@ -73,6 +73,7 @@ export const timelineRouter = router({
   create: adminProcedure
     .input(z.object({
       clientId: z.string().uuid(),
+      eventId: z.string().uuid().optional(), // Optional link to specific event
       title: z.string().min(1),
       description: z.string().optional(),
       startTime: z.string(),
@@ -110,6 +111,7 @@ export const timelineRouter = router({
         .insert(timeline)
         .values({
           clientId: input.clientId,
+          eventId: input.eventId || null, // Link to specific event if provided
           title: input.title,
           description: input.description || null,
           startTime: new Date(input.startTime),
@@ -294,7 +296,7 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Get all timeline items with times (exclude soft-deleted)
+      // Get all timeline items with times and location (exclude soft-deleted)
       const items = await ctx.db
         .select({
           id: timeline.id,
@@ -302,6 +304,7 @@ export const timelineRouter = router({
           startTime: timeline.startTime,
           endTime: timeline.endTime,
           durationMinutes: timeline.durationMinutes,
+          location: timeline.location, // Include location for smart conflict detection
         })
         .from(timeline)
         .where(
@@ -331,13 +334,23 @@ export const timelineRouter = router({
         return end
       }
 
-      // Detect conflicts
+      // Detect conflicts - only flag overlaps at the SAME location or when location is shared/unspecified
+      // Activities at DIFFERENT locations can run in parallel (e.g., Bride Getting Ready vs Groom Getting Ready)
       const conflicts = []
       for (let i = 0; i < items.length - 1; i++) {
         const currentEnd = getEndTime(items[i])
         const nextStart = new Date(items[i + 1].startTime)
 
         if (currentEnd > nextStart) {
+          const item1Location = items[i].location?.trim().toLowerCase() || ''
+          const item2Location = items[i + 1].location?.trim().toLowerCase() || ''
+
+          // Skip conflict if both items have different, non-empty locations
+          // This allows parallel activities at different venues (e.g., Bridal Suite vs Groom Suite)
+          if (item1Location && item2Location && item1Location !== item2Location) {
+            continue // Not a conflict - different locations
+          }
+
           const overlapMs = currentEnd.getTime() - nextStart.getTime()
           conflicts.push({
             item1: items[i],
@@ -447,5 +460,138 @@ export const timelineRouter = router({
         .orderBy(asc(timeline.sortOrder), asc(timeline.startTime))
 
       return timelineItems
+    }),
+
+  /**
+   * Get timeline items grouped by event and date
+   * Returns timeline items organized by date -> events -> items
+   */
+  getGroupedByEvent: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      // Fetch all events for this client
+      const clientEvents = await ctx.db
+        .select({
+          id: events.id,
+          title: events.title,
+          eventType: events.eventType,
+          eventDate: events.eventDate,
+        })
+        .from(events)
+        .where(eq(events.clientId, input.clientId))
+        .orderBy(asc(events.eventDate))
+
+      // Fetch all timeline items for this client (exclude soft-deleted)
+      const timelineItems = await ctx.db
+        .select()
+        .from(timeline)
+        .where(
+          and(
+            eq(timeline.clientId, input.clientId),
+            isNull(timeline.deletedAt)
+          )
+        )
+        .orderBy(asc(timeline.startTime), asc(timeline.sortOrder))
+
+      // Group timeline items by eventId
+      const itemsByEvent = new Map<string | null, typeof timelineItems>()
+      for (const item of timelineItems) {
+        const eventId = item.eventId
+        if (!itemsByEvent.has(eventId)) {
+          itemsByEvent.set(eventId, [])
+        }
+        itemsByEvent.get(eventId)!.push(item)
+      }
+
+      // Build grouped structure: date -> events -> items
+      const dateGroups = new Map<string, {
+        date: string
+        events: {
+          eventId: string
+          eventTitle: string
+          eventType: string | null
+          items: typeof timelineItems
+        }[]
+      }>()
+
+      // Process events and their timeline items
+      for (const event of clientEvents) {
+        const eventItems = itemsByEvent.get(event.id) || []
+        const dateKey = event.eventDate || 'unknown'
+
+        if (!dateGroups.has(dateKey)) {
+          dateGroups.set(dateKey, {
+            date: dateKey,
+            events: []
+          })
+        }
+
+        dateGroups.get(dateKey)!.events.push({
+          eventId: event.id,
+          eventTitle: event.title,
+          eventType: event.eventType,
+          items: eventItems
+        })
+      }
+
+      // Handle timeline items without eventId (orphaned items)
+      const orphanedItems = itemsByEvent.get(null) || []
+      if (orphanedItems.length > 0) {
+        // Group orphaned items by their startTime date
+        const orphanedByDate = new Map<string, typeof timelineItems>()
+        for (const item of orphanedItems) {
+          const dateKey = item.startTime ? item.startTime.toISOString().split('T')[0] : 'unknown'
+          if (!orphanedByDate.has(dateKey)) {
+            orphanedByDate.set(dateKey, [])
+          }
+          orphanedByDate.get(dateKey)!.push(item)
+        }
+
+        // Add orphaned items as "General" event under each date
+        for (const [dateKey, items] of orphanedByDate) {
+          if (!dateGroups.has(dateKey)) {
+            dateGroups.set(dateKey, {
+              date: dateKey,
+              events: []
+            })
+          }
+          dateGroups.get(dateKey)!.events.push({
+            eventId: 'general',
+            eventTitle: 'General',
+            eventType: null,
+            items
+          })
+        }
+      }
+
+      // Convert to array and sort by date
+      const result = Array.from(dateGroups.values()).sort((a, b) => {
+        if (a.date === 'unknown') return 1
+        if (b.date === 'unknown') return -1
+        return a.date.localeCompare(b.date)
+      })
+
+      return result
     }),
 })

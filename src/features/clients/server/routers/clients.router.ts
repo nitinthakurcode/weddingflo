@@ -552,33 +552,9 @@ export const clientsRouter = router({
         }
       }
 
-      // Auto-generate timeline based on wedding type and date
-      if (data && input.wedding_date) {
-        const weddingType = (input.wedding_type || 'traditional') as WeddingType;
-
-        try {
-          const timelineItems = generateDefaultTimeline(input.wedding_date, weddingType, input.venue);
-
-          const timelineEntries = timelineItems.map((item, index) => ({
-            clientId: data.id,
-            title: item.title,
-            description: item.description || null,
-            startTime: item.startTime,
-            endTime: item.endTime || null,
-            durationMinutes: item.durationMinutes,
-            location: item.location || null,
-            completed: false,
-            sortOrder: index,
-            notes: `Auto-generated ${weddingType} wedding timeline`,
-          }));
-
-          await ctx.db.insert(timeline).values(timelineEntries);
-          console.log('[Clients Router] Auto-created', timelineEntries.length, 'timeline items for client:', data.id);
-        } catch (timelineError) {
-          // Log but don't fail - client creation succeeded
-          console.error('[Clients Router] Failed to auto-create timeline:', timelineError);
-        }
-      }
+      // NOTE: Timeline items are no longer auto-generated at client creation.
+      // They are now generated per-event when events are created via the events router.
+      // This allows for date-specific and event-type-specific timelines.
 
       // Auto-create vendors from comma-separated list
       // Format: "Category: Vendor Name" or just "Vendor Name"

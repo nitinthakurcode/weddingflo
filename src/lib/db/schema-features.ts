@@ -186,6 +186,30 @@ export const hotels = pgTable('hotels', {
 // Transport leg type enum
 export const transportLegTypeEnum = pgEnum('transport_leg_type', ['arrival', 'departure', 'inter_event']);
 
+// Vehicle status enum
+export const vehicleStatusEnum = pgEnum('vehicle_status', ['available', 'in_use', 'maintenance']);
+
+// Fleet Vehicles - Track company vehicles for auto-availability
+export const vehicles = pgTable('vehicles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: uuid('client_id').notNull(),
+  vehicleNumber: text('vehicle_number').notNull(),
+  vehicleType: text('vehicle_type'), // sedan, suv, bus, van, tempo, etc.
+  driverName: text('driver_name'),
+  driverPhone: text('driver_phone'),
+  coordinatorPhone: text('coordinator_phone'),
+  status: vehicleStatusEnum('status').default('available'),
+  currentTransportId: uuid('current_transport_id'), // Active transport using this vehicle
+  availableAt: timestamp('available_at'), // Estimated time when vehicle becomes available
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('vehicles_client_id_idx').on(table.clientId),
+  index('vehicles_vehicle_number_idx').on(table.vehicleNumber),
+  index('vehicles_status_idx').on(table.status),
+]);
+
 // Guest Transport
 export const guestTransport = pgTable('guest_transport', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -198,6 +222,11 @@ export const guestTransport = pgTable('guest_transport', {
   dropTo: text('drop_to'),
   transportStatus: text('transport_status').default('scheduled'),
   vehicleInfo: text('vehicle_info'),
+  vehicleType: text('vehicle_type'), // sedan, suv, bus, van, tempo, etc.
+  vehicleNumber: text('vehicle_number'),
+  vehicleId: uuid('vehicle_id'), // Link to vehicles table for tracking
+  driverPhone: text('driver_phone'),
+  coordinatorPhone: text('coordinator_phone'),
   completedAt: timestamp('completed_at'),
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -208,6 +237,7 @@ export const guestTransport = pgTable('guest_transport', {
 }, (table) => [
   index('guest_transport_client_id_idx').on(table.clientId),
   index('guest_transport_guest_id_idx').on(table.guestId),
+  index('guest_transport_vehicle_id_idx').on(table.vehicleId),
 ]);
 
 // Events
@@ -217,7 +247,11 @@ export const events = pgTable('events', {
   title: text('title').notNull(),
   eventType: text('event_type'),
   eventDate: text('event_date'),
+  startTime: text('start_time'), // HH:MM format - syncs to timeline
+  endTime: text('end_time'), // HH:MM format - syncs to timeline
+  location: text('location'), // Event location - syncs to timeline
   venueName: text('venue_name'),
+  address: text('address'),
   guestCount: integer('guest_count'),
   status: text('status').default('planned'),
   description: text('description'),
@@ -231,8 +265,10 @@ export const events = pgTable('events', {
 export const timeline = pgTable('timeline', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
+  eventId: text('event_id'), // Links timeline item to specific event (FK to events.id with cascade delete)
   title: text('title').notNull(),
   description: text('description'),
+  phase: text('phase').default('showtime'), // 'setup' | 'showtime' | 'wrapup' - segments within event
   startTime: timestamp('start_time').notNull(),
   endTime: timestamp('end_time'),
   durationMinutes: integer('duration_minutes'),

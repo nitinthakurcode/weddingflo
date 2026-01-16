@@ -26,7 +26,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
   Plus, Trash2, Edit, Briefcase, DollarSign, FileText, AlertCircle,
-  CheckCircle, Clock, XCircle, MessageSquare, User, MapPin, Phone, Filter, Star
+  CheckCircle, Clock, XCircle, MessageSquare, User, MapPin, Phone, Filter, Star,
+  ChevronDown, ChevronRight
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { ImportDialog } from '@/components/import/ImportDialog'
@@ -48,6 +49,20 @@ export default function VendorsPage() {
   const [approvalComment, setApprovalComment] = useState('')
   const [eventFilter, setEventFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+
+  // Toggle section collapse
+  const toggleSection = (sectionKey: string) => {
+    setCollapsedSections(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(sectionKey)) {
+        newSet.delete(sectionKey)
+      } else {
+        newSet.add(sectionKey)
+      }
+      return newSet
+    })
+  }
 
   const [formData, setFormData] = useState({
     vendorName: '',
@@ -541,11 +556,75 @@ export default function VendorsPage() {
                   {t('noVendorsOfType') || 'No vendors found of this type'}
                 </div>
               ) : (
-                vendorsByCategory.map(([eventKey, { eventTitle, eventDate, vendors: eventVendors }]) => (
+                vendorsByCategory.map(([eventKey, { eventTitle, eventDate, vendors: eventVendors }]) => {
+                  const isCollapsed = collapsedSections.has(`cat-${eventKey}`)
+                  return (
+                    <div key={eventKey} className="space-y-3">
+                      {/* Event Header - Collapsible */}
+                      <button
+                        onClick={() => toggleSection(`cat-${eventKey}`)}
+                        className="w-full flex items-center justify-between border-b pb-2 bg-teal-50/50 dark:bg-teal-900/20 p-3 rounded-t-lg -mx-3 hover:bg-teal-100/50 dark:hover:bg-teal-900/30 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          {isCollapsed ? (
+                            <ChevronRight className="w-5 h-5 text-teal-600" />
+                          ) : (
+                            <ChevronDown className="w-5 h-5 text-teal-600" />
+                          )}
+                          <h3 className="font-semibold text-lg">{eventTitle}</h3>
+                          {eventDate && (
+                            <Badge variant="outline" className="text-xs">
+                              {eventDate}
+                            </Badge>
+                          )}
+                        </div>
+                        <Badge variant="secondary" className="bg-teal-100 text-teal-700">
+                          {eventVendors.length} {categoryFilter}
+                        </Badge>
+                      </button>
+
+                      {/* Vendors for this event - Collapsible content */}
+                      {!isCollapsed && (
+                        <div className="space-y-3 pl-2 border-l-2 border-teal-200 dark:border-teal-800">
+                          {eventVendors.map((vendor) => (
+                            <VendorCard
+                              key={vendor.id}
+                              vendor={vendor}
+                              t={t}
+                              tc={tc}
+                              getApprovalBadge={getApprovalBadge}
+                              handleEdit={handleEdit}
+                              handleDelete={handleDelete}
+                              setCommentDialogVendor={setCommentDialogVendor}
+                              setApprovalDialogVendor={setApprovalDialogVendor}
+                              showEventBadge={false}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          ) : eventFilter === 'all' && vendorsByEvent ? (
+            /* Grouped by Event View (no category filter) */
+            <div className="space-y-6">
+              {vendorsByEvent.map(([eventKey, { eventTitle, eventDate, vendors: eventVendors }]) => {
+                const isCollapsed = collapsedSections.has(`event-${eventKey}`)
+                return (
                   <div key={eventKey} className="space-y-3">
-                    {/* Event Header */}
-                    <div className="flex items-center justify-between border-b pb-2 bg-teal-50/50 dark:bg-teal-900/20 p-3 rounded-t-lg -mx-3">
+                    {/* Event Header - Collapsible */}
+                    <button
+                      onClick={() => toggleSection(`event-${eventKey}`)}
+                      className="w-full flex items-center justify-between border-b pb-2 hover:bg-muted/50 p-2 rounded-t-lg transition-colors cursor-pointer"
+                    >
                       <div className="flex items-center gap-2">
+                        {isCollapsed ? (
+                          <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                        )}
                         <h3 className="font-semibold text-lg">{eventTitle}</h3>
                         {eventDate && (
                           <Badge variant="outline" className="text-xs">
@@ -553,71 +632,33 @@ export default function VendorsPage() {
                           </Badge>
                         )}
                       </div>
-                      <Badge variant="secondary" className="bg-teal-100 text-teal-700">
-                        {eventVendors.length} {categoryFilter}
+                      <Badge variant="secondary">
+                        {eventVendors.length} {eventVendors.length === 1 ? t('vendor') : t('vendorsFiltered')}
                       </Badge>
-                    </div>
+                    </button>
 
-                    {/* Vendors for this event */}
-                    <div className="space-y-3 pl-2 border-l-2 border-teal-200 dark:border-teal-800">
-                      {eventVendors.map((vendor) => (
-                        <VendorCard
-                          key={vendor.id}
-                          vendor={vendor}
-                          t={t}
-                          tc={tc}
-                          getApprovalBadge={getApprovalBadge}
-                          handleEdit={handleEdit}
-                          handleDelete={handleDelete}
-                          setCommentDialogVendor={setCommentDialogVendor}
-                          setApprovalDialogVendor={setApprovalDialogVendor}
-                          showEventBadge={false}
-                        />
-                      ))}
-                    </div>
+                    {/* Vendors for this event - Collapsible content */}
+                    {!isCollapsed && (
+                      <div className="space-y-3 pl-2 border-l-2 border-muted">
+                        {eventVendors.map((vendor) => (
+                          <VendorCard
+                            key={vendor.id}
+                            vendor={vendor}
+                            t={t}
+                            tc={tc}
+                            getApprovalBadge={getApprovalBadge}
+                            handleEdit={handleEdit}
+                            handleDelete={handleDelete}
+                            setCommentDialogVendor={setCommentDialogVendor}
+                            setApprovalDialogVendor={setApprovalDialogVendor}
+                            showEventBadge={false}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          ) : eventFilter === 'all' && vendorsByEvent ? (
-            /* Grouped by Event View (no category filter) */
-            <div className="space-y-6">
-              {vendorsByEvent.map(([eventKey, { eventTitle, eventDate, vendors: eventVendors }]) => (
-                <div key={eventKey} className="space-y-3">
-                  {/* Event Header */}
-                  <div className="flex items-center justify-between border-b pb-2">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-lg">{eventTitle}</h3>
-                      {eventDate && (
-                        <Badge variant="outline" className="text-xs">
-                          {eventDate}
-                        </Badge>
-                      )}
-                    </div>
-                    <Badge variant="secondary">
-                      {eventVendors.length} {eventVendors.length === 1 ? t('vendor') : t('vendorsFiltered')}
-                    </Badge>
-                  </div>
-
-                  {/* Vendors for this event */}
-                  <div className="space-y-3 pl-2 border-l-2 border-muted">
-                    {eventVendors.map((vendor) => (
-                      <VendorCard
-                        key={vendor.id}
-                        vendor={vendor}
-                        t={t}
-                        tc={tc}
-                        getApprovalBadge={getApprovalBadge}
-                        handleEdit={handleEdit}
-                        handleDelete={handleDelete}
-                        setCommentDialogVendor={setCommentDialogVendor}
-                        setApprovalDialogVendor={setApprovalDialogVendor}
-                        showEventBadge={false}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             /* Flat List View (when event filtered) */
@@ -977,7 +1018,9 @@ function VendorCard({
                 <Star className="w-3 h-3 mr-1 fill-current" />{t('preferred')}
               </Badge>
             )}
-            <Badge variant="outline">{vendor.category}</Badge>
+            {vendor.category && vendor.category !== 'other' && (
+              <Badge variant="outline">{vendor.category}</Badge>
+            )}
             {getApprovalBadge(vendor.approval_status || 'pending')}
             {showEventBadge && vendor.event_title && (
               <Badge variant="secondary">{vendor.event_title}</Badge>
