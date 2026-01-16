@@ -3,14 +3,35 @@
  *
  * Manages guest travel and transport logistics with cross-module sync.
  * December 2025 - Full implementation with Drizzle ORM
+ * January 2026 - Added fleet vehicle tracking with auto-availability
  */
 
 import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { eq, and, isNull, asc } from 'drizzle-orm'
-import { guestTransport, guests, clients, timeline } from '@/lib/db/schema'
+import { eq, and, isNull, asc, or, lte } from 'drizzle-orm'
+import { guestTransport, guests, clients, timeline, vehicles } from '@/lib/db/schema'
 import { nanoid } from 'nanoid'
+
+// Vehicle types available for selection
+const VEHICLE_TYPES = ['sedan', 'suv', 'bus', 'van', 'tempo', 'minibus', 'luxury', 'other'] as const
+
+/**
+ * Calculate estimated available time based on pickup date/time
+ * Adds 1 hour buffer after the scheduled pickup for drop completion
+ */
+function calculateAvailableAt(pickupDate: string | null, pickupTime: string | null): Date | null {
+  if (!pickupDate) return null
+
+  const dateTime = new Date(pickupDate)
+  if (pickupTime) {
+    const [hours, minutes] = pickupTime.split(':').map(Number)
+    dateTime.setHours(hours || 0, minutes || 0, 0, 0)
+  }
+  // Add 2 hours buffer for drop completion
+  dateTime.setHours(dateTime.getHours() + 2)
+  return dateTime
+}
 
 export const guestTransportRouter = router({
   // Get all transport entries for a client
@@ -80,12 +101,65 @@ export const guestTransportRouter = router({
       pickupFrom: z.string().optional(),
       dropTo: z.string().optional(),
       vehicleInfo: z.string().optional(),
+      vehicleType: z.string().optional(),
+      vehicleNumber: z.string().optional(),
+      driverPhone: z.string().optional(),
+      coordinatorPhone: z.string().optional(),
       legType: z.enum(['arrival', 'departure', 'inter_event']).default('arrival'),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
+      }
+
+      let vehicleId: string | null = null
+
+      // VEHICLE TRACKING: Auto-create or update vehicle record if vehicle number is provided
+      if (input.vehicleNumber) {
+        const [existingVehicle] = await ctx.db
+          .select()
+          .from(vehicles)
+          .where(
+            and(
+              eq(vehicles.clientId, input.clientId),
+              eq(vehicles.vehicleNumber, input.vehicleNumber)
+            )
+          )
+          .limit(1)
+
+        const availableAt = calculateAvailableAt(input.pickupDate || null, input.pickupTime || null)
+
+        if (existingVehicle) {
+          // Update existing vehicle
+          vehicleId = existingVehicle.id
+          await ctx.db
+            .update(vehicles)
+            .set({
+              vehicleType: input.vehicleType || existingVehicle.vehicleType,
+              driverPhone: input.driverPhone || existingVehicle.driverPhone,
+              coordinatorPhone: input.coordinatorPhone || existingVehicle.coordinatorPhone,
+              status: 'in_use',
+              availableAt,
+              updatedAt: new Date(),
+            })
+            .where(eq(vehicles.id, existingVehicle.id))
+        } else {
+          // Create new vehicle record
+          const [newVehicle] = await ctx.db
+            .insert(vehicles)
+            .values({
+              clientId: input.clientId,
+              vehicleNumber: input.vehicleNumber,
+              vehicleType: input.vehicleType || null,
+              driverPhone: input.driverPhone || null,
+              coordinatorPhone: input.coordinatorPhone || null,
+              status: 'in_use',
+              availableAt,
+            })
+            .returning()
+          vehicleId = newVehicle.id
+        }
       }
 
       const [transport] = await ctx.db
@@ -98,12 +172,25 @@ export const guestTransportRouter = router({
           pickupFrom: input.pickupFrom || null,
           dropTo: input.dropTo || null,
           vehicleInfo: input.vehicleInfo || null,
+          vehicleType: input.vehicleType || null,
+          vehicleNumber: input.vehicleNumber || null,
+          vehicleId,
+          driverPhone: input.driverPhone || null,
+          coordinatorPhone: input.coordinatorPhone || null,
           legType: input.legType,
           legSequence: 1,
           transportStatus: 'scheduled',
           notes: input.notes || null,
         })
         .returning()
+
+      // Update vehicle with current transport ID
+      if (vehicleId && transport) {
+        await ctx.db
+          .update(vehicles)
+          .set({ currentTransportId: transport.id })
+          .where(eq(vehicles.id, vehicleId))
+      }
 
       // TIMELINE SYNC: Create timeline entry if pickupDate is provided
       if (input.pickupDate && transport) {
@@ -160,6 +247,10 @@ export const guestTransportRouter = router({
         pickupFrom: z.string().optional().nullable(),
         dropTo: z.string().optional().nullable(),
         vehicleInfo: z.string().optional().nullable(),
+        vehicleType: z.string().optional().nullable(),
+        vehicleNumber: z.string().optional().nullable(),
+        driverPhone: z.string().optional().nullable(),
+        coordinatorPhone: z.string().optional().nullable(),
         transportStatus: z.enum(['scheduled', 'in_progress', 'completed', 'cancelled']).optional(),
         legType: z.enum(['arrival', 'departure', 'inter_event']).optional(),
         notes: z.string().optional().nullable(),
@@ -170,10 +261,130 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
+      // Get existing transport to check for vehicle changes
+      const [existingTransport] = await ctx.db
+        .select()
+        .from(guestTransport)
+        .where(eq(guestTransport.id, input.id))
+        .limit(1)
+
+      if (!existingTransport) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Transport not found' })
+      }
+
+      let vehicleId = existingTransport.vehicleId
+      const newVehicleNumber = input.data.vehicleNumber !== undefined ? input.data.vehicleNumber : existingTransport.vehicleNumber
+      const newStatus = input.data.transportStatus || existingTransport.transportStatus
+
+      // VEHICLE TRACKING: Handle vehicle assignment changes
+      if (newVehicleNumber) {
+        // Check if vehicle changed
+        if (newVehicleNumber !== existingTransport.vehicleNumber) {
+          // Release old vehicle if any
+          if (existingTransport.vehicleId) {
+            await ctx.db
+              .update(vehicles)
+              .set({
+                status: 'available',
+                currentTransportId: null,
+                availableAt: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(vehicles.id, existingTransport.vehicleId))
+          }
+
+          // Find or create new vehicle
+          const [existingVehicle] = await ctx.db
+            .select()
+            .from(vehicles)
+            .where(
+              and(
+                eq(vehicles.clientId, existingTransport.clientId),
+                eq(vehicles.vehicleNumber, newVehicleNumber)
+              )
+            )
+            .limit(1)
+
+          const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : existingTransport.pickupDate
+          const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
+          const availableAt = calculateAvailableAt(pickupDate, pickupTime)
+
+          if (existingVehicle) {
+            vehicleId = existingVehicle.id
+          } else {
+            // Create new vehicle record
+            const [newVehicle] = await ctx.db
+              .insert(vehicles)
+              .values({
+                clientId: existingTransport.clientId,
+                vehicleNumber: newVehicleNumber,
+                vehicleType: input.data.vehicleType || null,
+                driverPhone: input.data.driverPhone || null,
+                coordinatorPhone: input.data.coordinatorPhone || null,
+                status: newStatus === 'completed' || newStatus === 'cancelled' ? 'available' : 'in_use',
+                availableAt: newStatus === 'completed' || newStatus === 'cancelled' ? null : availableAt,
+                currentTransportId: newStatus === 'completed' || newStatus === 'cancelled' ? null : input.id,
+              })
+              .returning()
+            vehicleId = newVehicle.id
+          }
+        }
+
+        // Update vehicle status based on transport status
+        if (vehicleId) {
+          const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : existingTransport.pickupDate
+          const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
+          const availableAt = calculateAvailableAt(pickupDate, pickupTime)
+
+          if (newStatus === 'completed' || newStatus === 'cancelled') {
+            // Transport done - mark vehicle as available
+            await ctx.db
+              .update(vehicles)
+              .set({
+                status: 'available',
+                currentTransportId: null,
+                availableAt: null,
+                vehicleType: input.data.vehicleType || undefined,
+                driverPhone: input.data.driverPhone || undefined,
+                coordinatorPhone: input.data.coordinatorPhone || undefined,
+                updatedAt: new Date(),
+              })
+              .where(eq(vehicles.id, vehicleId))
+          } else {
+            // Transport active - mark vehicle as in_use with estimated availability
+            await ctx.db
+              .update(vehicles)
+              .set({
+                status: 'in_use',
+                currentTransportId: input.id,
+                availableAt,
+                vehicleType: input.data.vehicleType || undefined,
+                driverPhone: input.data.driverPhone || undefined,
+                coordinatorPhone: input.data.coordinatorPhone || undefined,
+                updatedAt: new Date(),
+              })
+              .where(eq(vehicles.id, vehicleId))
+          }
+        }
+      } else if (existingTransport.vehicleId && !newVehicleNumber) {
+        // Vehicle number cleared - release the vehicle
+        await ctx.db
+          .update(vehicles)
+          .set({
+            status: 'available',
+            currentTransportId: null,
+            availableAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(vehicles.id, existingTransport.vehicleId))
+        vehicleId = null
+      }
+
       const [transport] = await ctx.db
         .update(guestTransport)
         .set({
           ...input.data,
+          vehicleId,
           updatedAt: new Date(),
         })
         .where(eq(guestTransport.id, input.id))
@@ -297,6 +508,7 @@ export const guestTransportRouter = router({
     }),
 
   // Sync transport with guests who have transport_required = true
+  // Creates both arrival and departure transport entries
   syncWithGuests: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -329,6 +541,8 @@ export const guestTransportRouter = router({
           lastName: guests.lastName,
           arrivalDatetime: guests.arrivalDatetime,
           arrivalMode: guests.arrivalMode,
+          departureDatetime: guests.departureDatetime,
+          departureMode: guests.departureMode,
           transportType: guests.transportType,
           transportPickupLocation: guests.transportPickupLocation,
           transportNotes: guests.transportNotes,
@@ -343,47 +557,94 @@ export const guestTransportRouter = router({
         )
 
       if (!guestsNeedingTransport || guestsNeedingTransport.length === 0) {
-        return { synced: 0, message: 'No guests require transport' }
+        return { synced: 0, arrivals: 0, departures: 0, message: 'No guests require transport' }
       }
 
-      // Get existing transport records for this client
+      // Get existing transport records for this client with guestId and legType
       const existingTransport = await ctx.db
-        .select({ guestId: guestTransport.guestId })
+        .select({
+          guestId: guestTransport.guestId,
+          legType: guestTransport.legType
+        })
         .from(guestTransport)
         .where(eq(guestTransport.clientId, input.clientId))
 
-      const existingGuestIds = new Set(existingTransport.map(t => t.guestId).filter(Boolean))
+      // Create a Set of "guestId-legType" combinations for quick lookup
+      const existingCombinations = new Set(
+        existingTransport
+          .filter(t => t.guestId)
+          .map(t => `${t.guestId}-${t.legType}`)
+      )
 
-      // Create transport records for guests who don't have one
-      const newTransportRecords = guestsNeedingTransport
-        .filter(guest => !existingGuestIds.has(guest.id))
-        .map(guest => {
-          // Parse pickup date/time from arrival datetime
-          let pickupDate: string | null = null
+      const newTransportRecords: any[] = []
+
+      for (const guest of guestsNeedingTransport) {
+        const guestName = `${guest.firstName} ${guest.lastName || ''}`.trim()
+
+        // Create ARRIVAL transport if not exists and guest has arrival data
+        const arrivalKey = `${guest.id}-arrival`
+        if (!existingCombinations.has(arrivalKey)) {
+          let arrivalDate: string | null = null
+          let arrivalTime: string | null = null
           if (guest.arrivalDatetime) {
-            pickupDate = new Date(guest.arrivalDatetime).toISOString().split('T')[0]
+            const dt = new Date(guest.arrivalDatetime)
+            arrivalDate = dt.toISOString().split('T')[0]
+            arrivalTime = dt.toTimeString().slice(0, 5) // HH:MM format
           }
 
-          // Build vehicle info
-          const vehicleParts: string[] = []
-          if (guest.transportType) vehicleParts.push(guest.transportType)
-          if (guest.arrivalMode) vehicleParts.push(`(${guest.arrivalMode})`)
-          const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
+          // Build transport info for arrival
+          const arrivalInfo = guest.arrivalMode ? `(${guest.arrivalMode})` : null
 
-          return {
+          newTransportRecords.push({
             clientId: input.clientId,
             guestId: guest.id,
-            guestName: `${guest.firstName} ${guest.lastName || ''}`.trim(),
-            pickupDate,
+            guestName,
+            pickupDate: arrivalDate,
+            pickupTime: arrivalTime,
             pickupFrom: guest.transportPickupLocation || null,
             dropTo: guest.hotelName || null,
-            vehicleInfo,
+            vehicleInfo: arrivalInfo,
             legType: 'arrival' as const,
             legSequence: 1,
             transportStatus: 'scheduled',
             notes: guest.transportNotes || null,
+          })
+        }
+
+        // Create DEPARTURE transport if not exists and guest has departure data
+        const departureKey = `${guest.id}-departure`
+        if (!existingCombinations.has(departureKey)) {
+          let departureDate: string | null = null
+          let departureTime: string | null = null
+          if (guest.departureDatetime) {
+            const dt = new Date(guest.departureDatetime)
+            departureDate = dt.toISOString().split('T')[0]
+            departureTime = dt.toTimeString().slice(0, 5) // HH:MM format
           }
-        })
+
+          // Build transport info for departure
+          const departureInfo = guest.departureMode ? `(${guest.departureMode})` : null
+
+          // For departure: pickup from hotel, drop to departure point
+          newTransportRecords.push({
+            clientId: input.clientId,
+            guestId: guest.id,
+            guestName,
+            pickupDate: departureDate,
+            pickupTime: departureTime,
+            pickupFrom: guest.hotelName || null, // Pickup from hotel
+            dropTo: guest.transportPickupLocation || null, // Drop to airport/station
+            vehicleInfo: departureInfo,
+            legType: 'departure' as const,
+            legSequence: 2,
+            transportStatus: 'scheduled',
+            notes: guest.transportNotes || null,
+          })
+        }
+      }
+
+      const arrivals = newTransportRecords.filter(r => r.legType === 'arrival').length
+      const departures = newTransportRecords.filter(r => r.legType === 'departure').length
 
       if (newTransportRecords.length > 0) {
         await ctx.db.insert(guestTransport).values(newTransportRecords)
@@ -391,8 +652,10 @@ export const guestTransportRouter = router({
 
       return {
         synced: newTransportRecords.length,
+        arrivals,
+        departures,
         message: newTransportRecords.length > 0
-          ? `Created ${newTransportRecords.length} transport record(s) from guest list`
+          ? `Created ${arrivals} arrival(s) and ${departures} departure(s) from guest list`
           : 'All guests with transport requirements already have transport records'
       }
     }),
@@ -450,6 +713,7 @@ export const guestTransportRouter = router({
             partySize: guests.partySize,
             additionalGuestNames: guests.additionalGuestNames,
             relationshipToFamily: guests.relationshipToFamily,
+            arrivalMode: guests.arrivalMode,
           })
           .from(guests)
           .where(eq(guests.clientId, input.clientId))
@@ -467,5 +731,93 @@ export const guestTransportRouter = router({
       }))
 
       return transportWithGuests
+    }),
+
+  // Get all vehicles for a client with availability status
+  getVehicles: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      const vehicleList = await ctx.db
+        .select()
+        .from(vehicles)
+        .where(eq(vehicles.clientId, input.clientId))
+        .orderBy(asc(vehicles.vehicleNumber))
+
+      // Enrich with current transport info if in use
+      const enrichedVehicles = await Promise.all(
+        vehicleList.map(async (vehicle) => {
+          let currentTransport = null
+          if (vehicle.currentTransportId) {
+            const [transport] = await ctx.db
+              .select({
+                id: guestTransport.id,
+                guestName: guestTransport.guestName,
+                pickupDate: guestTransport.pickupDate,
+                pickupTime: guestTransport.pickupTime,
+                pickupFrom: guestTransport.pickupFrom,
+                dropTo: guestTransport.dropTo,
+                legType: guestTransport.legType,
+              })
+              .from(guestTransport)
+              .where(eq(guestTransport.id, vehicle.currentTransportId))
+              .limit(1)
+            currentTransport = transport || null
+          }
+
+          // Calculate availability message
+          let availabilityMessage = 'Available'
+          if (vehicle.status === 'in_use') {
+            if (vehicle.availableAt) {
+              const now = new Date()
+              const availAt = new Date(vehicle.availableAt)
+              if (availAt > now) {
+                const diffMs = availAt.getTime() - now.getTime()
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+                const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                if (diffHours > 0) {
+                  availabilityMessage = `Available in ~${diffHours}h ${diffMins}m`
+                } else {
+                  availabilityMessage = `Available in ~${diffMins}m`
+                }
+              } else {
+                availabilityMessage = 'Available soon (trip overdue)'
+              }
+            } else {
+              availabilityMessage = 'In use'
+            }
+          } else if (vehicle.status === 'maintenance') {
+            availabilityMessage = 'Under maintenance'
+          }
+
+          return {
+            ...vehicle,
+            currentTransport,
+            availabilityMessage,
+          }
+        })
+      )
+
+      return enrichedVehicles
     }),
 })

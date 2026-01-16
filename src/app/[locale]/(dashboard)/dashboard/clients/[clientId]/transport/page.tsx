@@ -40,6 +40,7 @@ import {
   Car,
   Plane,
   Bus,
+  Train,
   Plus,
   Edit,
   Trash2,
@@ -50,6 +51,10 @@ import {
   MapPin,
   Calendar,
   ArrowRight,
+  Phone,
+  User,
+  Truck,
+  Circle,
 } from 'lucide-react'
 
 /**
@@ -78,6 +83,10 @@ export default function TransportPage() {
     pickupFrom: '',
     dropTo: '',
     vehicleInfo: '',
+    vehicleType: '' as string,
+    vehicleNumber: '',
+    driverPhone: '',
+    coordinatorPhone: '',
     legType: 'arrival' as 'arrival' | 'departure' | 'inter_event',
     transportStatus: 'scheduled' as 'scheduled' | 'in_progress' | 'completed' | 'cancelled',
     notes: '',
@@ -94,13 +103,18 @@ export default function TransportPage() {
     clientId,
   })
 
+  // Query for fleet vehicles with availability status
+  const { data: vehiclesList } = trpc.guestTransport.getVehicles.useQuery({
+    clientId,
+  })
+
   // Mutations
   const syncMutation = trpc.guestTransport.syncWithGuests.useMutation({
     onSuccess: async (result) => {
       if (result.synced > 0) {
         toast({
-          title: t('guestsSynced') || 'Guests Synced',
-          description: result.message
+          title: 'Transport Synced',
+          description: `Created ${result.arrivals} arrival(s) and ${result.departures} departure(s)`
         })
       } else {
         toast({
@@ -111,6 +125,7 @@ export default function TransportPage() {
       await Promise.all([
         utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
+        utils.guestTransport.getVehicles.invalidate({ clientId }),
       ])
     },
     onError: (error) => {
@@ -126,6 +141,7 @@ export default function TransportPage() {
       await Promise.all([
         utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
+        utils.guestTransport.getVehicles.invalidate({ clientId }),
       ])
     },
     onError: (error) => {
@@ -141,6 +157,7 @@ export default function TransportPage() {
       await Promise.all([
         utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
+        utils.guestTransport.getVehicles.invalidate({ clientId }),
       ])
     },
     onError: (error) => {
@@ -154,6 +171,7 @@ export default function TransportPage() {
       await Promise.all([
         utils.guestTransport.getAllWithGuests.invalidate({ clientId }),
         utils.guestTransport.getStats.invalidate({ clientId }),
+        utils.guestTransport.getVehicles.invalidate({ clientId }),
       ])
     },
     onError: (error) => {
@@ -173,6 +191,10 @@ export default function TransportPage() {
       pickupFrom: '',
       dropTo: '',
       vehicleInfo: '',
+      vehicleType: '',
+      vehicleNumber: '',
+      driverPhone: '',
+      coordinatorPhone: '',
       legType: 'arrival',
       transportStatus: 'scheduled',
       notes: '',
@@ -192,6 +214,10 @@ export default function TransportPage() {
           pickupFrom: formData.pickupFrom || null,
           dropTo: formData.dropTo || null,
           vehicleInfo: formData.vehicleInfo || null,
+          vehicleType: formData.vehicleType || null,
+          vehicleNumber: formData.vehicleNumber || null,
+          driverPhone: formData.driverPhone || null,
+          coordinatorPhone: formData.coordinatorPhone || null,
           legType: formData.legType,
           transportStatus: formData.transportStatus,
           notes: formData.notes || null,
@@ -206,6 +232,10 @@ export default function TransportPage() {
         pickupFrom: formData.pickupFrom || undefined,
         dropTo: formData.dropTo || undefined,
         vehicleInfo: formData.vehicleInfo || undefined,
+        vehicleType: formData.vehicleType || undefined,
+        vehicleNumber: formData.vehicleNumber || undefined,
+        driverPhone: formData.driverPhone || undefined,
+        coordinatorPhone: formData.coordinatorPhone || undefined,
         legType: formData.legType,
         notes: formData.notes || undefined,
       })
@@ -221,6 +251,10 @@ export default function TransportPage() {
       pickupFrom: transport.pickupFrom || '',
       dropTo: transport.dropTo || '',
       vehicleInfo: transport.vehicleInfo || '',
+      vehicleType: transport.vehicleType || '',
+      vehicleNumber: transport.vehicleNumber || '',
+      driverPhone: transport.driverPhone || '',
+      coordinatorPhone: transport.coordinatorPhone || '',
       legType: transport.legType || 'arrival',
       transportStatus: transport.transportStatus || 'scheduled',
       notes: transport.notes || '',
@@ -233,17 +267,42 @@ export default function TransportPage() {
     }
   }
 
-  const getLegTypeIcon = (legType: string) => {
-    switch (legType) {
-      case 'arrival':
-        return <Plane className="w-4 h-4 text-cobalt-500" />
-      case 'departure':
-        return <Plane className="w-4 h-4 text-rose-500 rotate-45" />
-      case 'inter_event':
-        return <Bus className="w-4 h-4 text-teal-500" />
+  // Get icon based on travel mode (flight, train, bus, car)
+  const getTravelModeIcon = (travelMode: string | null | undefined, legType: string) => {
+    const mode = travelMode?.toLowerCase()
+    const isArrival = legType === 'arrival'
+    const isDeparture = legType === 'departure'
+
+    switch (mode) {
+      case 'flight':
+        return <Plane className={`w-4 h-4 ${isDeparture ? 'text-rose-500 rotate-45' : 'text-cobalt-500'}`} />
+      case 'train':
+        return <Train className={`w-4 h-4 ${isDeparture ? 'text-rose-500' : 'text-cobalt-500'}`} />
+      case 'bus':
+        return <Bus className={`w-4 h-4 ${isDeparture ? 'text-rose-500' : 'text-teal-500'}`} />
+      case 'car':
+        return <Car className={`w-4 h-4 ${isDeparture ? 'text-rose-500' : 'text-sage-600'}`} />
       default:
+        // Fallback to leg type based icons if no travel mode
+        if (legType === 'inter_event') {
+          return <Bus className="w-4 h-4 text-teal-500" />
+        }
         return <Car className="w-4 h-4 text-muted-foreground" />
     }
+  }
+
+  // Extract travel mode from vehicleInfo string like "(train)" or "(flight)"
+  const extractTravelMode = (vehicleInfo: string | null | undefined): string | null => {
+    if (!vehicleInfo) return null
+    const match = vehicleInfo.match(/\((flight|train|bus|car)\)/i)
+    return match ? match[1].toLowerCase() : null
+  }
+
+  // Combined function that gets icon from guest arrivalMode or vehicleInfo
+  const getLegTypeIcon = (legType: string, guest?: any, vehicleInfo?: string | null) => {
+    // Priority: 1. Guest's arrivalMode, 2. Extract from vehicleInfo, 3. Default
+    const travelMode = guest?.arrivalMode || extractTravelMode(vehicleInfo)
+    return getTravelModeIcon(travelMode, legType)
   }
 
   const getLegTypeLabel = (legType: string) => {
@@ -357,32 +416,342 @@ export default function TransportPage() {
         />
       </div>
 
-      {/* Transport List */}
+      {/* Arrivals Section */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Car className="w-5 h-5" />
-            {t('guestTransports') || 'Guest Transports'} ({transportList?.length || 0})
+            <Plane className="w-5 h-5 text-cobalt-500" />
+            Arrivals ({transportList?.filter((t: any) => t.legType === 'arrival').length || 0})
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {transportList?.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <div className="p-4 rounded-full bg-gold-50 dark:bg-gold-950/30 w-fit mx-auto mb-4">
-                <Car className="w-12 h-12 text-gold-500" />
+          {(() => {
+            const arrivals = transportList?.filter((t: any) => t.legType === 'arrival') || []
+            if (arrivals.length === 0) {
+              return (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Plane className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+                  <p className="text-sm">No arrival transports yet</p>
+                </div>
+              )
+            }
+            return (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('guestName') || 'Guest'}</TableHead>
+                      <TableHead>Mode</TableHead>
+                      <TableHead>{t('pickupDate') || 'Date'}</TableHead>
+                      <TableHead>{t('route') || 'Route'}</TableHead>
+                      <TableHead>{t('vehicle') || 'Vehicle'}</TableHead>
+                      <TableHead>{tc('status') || 'Status'}</TableHead>
+                      <TableHead>{tc('actions')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {arrivals.map((transport: any) => (
+                      <TableRow key={transport.id}>
+                        <TableCell>
+                          <div className="font-medium">{transport.guestName}</div>
+                          {transport.guest && transport.guest.partySize > 1 && (
+                            <div className="text-xs text-muted-foreground">
+                              Party of {transport.guest.partySize} • {transport.guest.relationshipToFamily || 'Guest'}
+                            </div>
+                          )}
+                          {transport.guest && transport.guest.partySize === 1 && transport.guest.relationshipToFamily && (
+                            <div className="text-xs text-muted-foreground">
+                              {transport.guest.relationshipToFamily}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {getLegTypeIcon(transport.legType, transport.guest, transport.vehicleInfo)}
+                            <span className="text-sm">{transport.vehicleInfo || '-'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {transport.pickupDate ? (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="w-3 h-3 text-muted-foreground" />
+                              <span>{new Date(transport.pickupDate).toLocaleDateString()}</span>
+                              {transport.pickupTime && (
+                                <span className="text-muted-foreground ml-1">
+                                  {transport.pickupTime}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {transport.pickupFrom || transport.dropTo ? (
+                            <div className="flex items-center gap-1 text-sm max-w-[200px]">
+                              <MapPin className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{transport.pickupFrom || '?'}</span>
+                              <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{transport.dropTo || '?'}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            {transport.vehicleType && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <Truck className="w-3 h-3 text-cobalt-500" />
+                                <span className="capitalize">{transport.vehicleType}</span>
+                              </div>
+                            )}
+                            {transport.vehicleNumber && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Car className="w-3 h-3" />
+                                <span>{transport.vehicleNumber}</span>
+                                {(() => {
+                                  const vehicle = vehiclesList?.find(v => v.vehicleNumber === transport.vehicleNumber)
+                                  if (vehicle) {
+                                    return (
+                                      <span className={`ml-1 flex items-center gap-1 ${
+                                        vehicle.status === 'available' ? 'text-sage-600' :
+                                        vehicle.status === 'in_use' ? 'text-gold-600' :
+                                        'text-rose-600'
+                                      }`}>
+                                        <Circle className={`w-2 h-2 ${
+                                          vehicle.status === 'available' ? 'fill-sage-500' :
+                                          vehicle.status === 'in_use' ? 'fill-gold-500' :
+                                          'fill-rose-500'
+                                        }`} />
+                                        <span className="text-[10px]">{vehicle.availabilityMessage}</span>
+                                      </span>
+                                    )
+                                  }
+                                  return null
+                                })()}
+                              </div>
+                            )}
+                            {transport.driverPhone && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Phone className="w-3 h-3" />
+                                <span>{transport.driverPhone}</span>
+                              </div>
+                            )}
+                            {!transport.vehicleType && !transport.vehicleNumber && !transport.driverPhone && (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(transport.transportStatus)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(transport)}
+                              className="h-8 w-8 hover:bg-muted"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(transport.id)}
+                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
-              <p className="mb-2">{t('noTransportsYet') || 'No transport entries yet'}</p>
-              <p className="text-sm">
-                {t('noTransportsDescription') || 'Click "Sync from Guests" to import guests who need transport, or add manually.'}
-              </p>
-            </div>
-          ) : (
+            )
+          })()}
+        </CardContent>
+      </Card>
+
+      {/* Departures Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Plane className="w-5 h-5 text-rose-500 rotate-45" />
+            Departures ({transportList?.filter((t: any) => t.legType === 'departure').length || 0})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const departures = transportList?.filter((t: any) => t.legType === 'departure') || []
+            if (departures.length === 0) {
+              return (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Plane className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50 rotate-45" />
+                  <p className="text-sm">No departure transports yet</p>
+                </div>
+              )
+            }
+            return (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('guestName') || 'Guest'}</TableHead>
+                      <TableHead>Mode</TableHead>
+                      <TableHead>{t('pickupDate') || 'Date'}</TableHead>
+                      <TableHead>{t('route') || 'Route'}</TableHead>
+                      <TableHead>{t('vehicle') || 'Vehicle'}</TableHead>
+                      <TableHead>{tc('status') || 'Status'}</TableHead>
+                      <TableHead>{tc('actions')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {departures.map((transport: any) => (
+                      <TableRow key={transport.id}>
+                        <TableCell>
+                          <div className="font-medium">{transport.guestName}</div>
+                          {transport.guest && transport.guest.partySize > 1 && (
+                            <div className="text-xs text-muted-foreground">
+                              Party of {transport.guest.partySize} • {transport.guest.relationshipToFamily || 'Guest'}
+                            </div>
+                          )}
+                          {transport.guest && transport.guest.partySize === 1 && transport.guest.relationshipToFamily && (
+                            <div className="text-xs text-muted-foreground">
+                              {transport.guest.relationshipToFamily}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {getLegTypeIcon(transport.legType, transport.guest, transport.vehicleInfo)}
+                            <span className="text-sm">{transport.vehicleInfo || '-'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {transport.pickupDate ? (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="w-3 h-3 text-muted-foreground" />
+                              <span>{new Date(transport.pickupDate).toLocaleDateString()}</span>
+                              {transport.pickupTime && (
+                                <span className="text-muted-foreground ml-1">
+                                  {transport.pickupTime}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {transport.pickupFrom || transport.dropTo ? (
+                            <div className="flex items-center gap-1 text-sm max-w-[200px]">
+                              <MapPin className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{transport.pickupFrom || '?'}</span>
+                              <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{transport.dropTo || '?'}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            {transport.vehicleType && (
+                              <div className="flex items-center gap-1 text-xs">
+                                <Truck className="w-3 h-3 text-cobalt-500" />
+                                <span className="capitalize">{transport.vehicleType}</span>
+                              </div>
+                            )}
+                            {transport.vehicleNumber && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Car className="w-3 h-3" />
+                                <span>{transport.vehicleNumber}</span>
+                                {(() => {
+                                  const vehicle = vehiclesList?.find(v => v.vehicleNumber === transport.vehicleNumber)
+                                  if (vehicle) {
+                                    return (
+                                      <span className={`ml-1 flex items-center gap-1 ${
+                                        vehicle.status === 'available' ? 'text-sage-600' :
+                                        vehicle.status === 'in_use' ? 'text-gold-600' :
+                                        'text-rose-600'
+                                      }`}>
+                                        <Circle className={`w-2 h-2 ${
+                                          vehicle.status === 'available' ? 'fill-sage-500' :
+                                          vehicle.status === 'in_use' ? 'fill-gold-500' :
+                                          'fill-rose-500'
+                                        }`} />
+                                        <span className="text-[10px]">{vehicle.availabilityMessage}</span>
+                                      </span>
+                                    )
+                                  }
+                                  return null
+                                })()}
+                              </div>
+                            )}
+                            {transport.driverPhone && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Phone className="w-3 h-3" />
+                                <span>{transport.driverPhone}</span>
+                              </div>
+                            )}
+                            {!transport.vehicleType && !transport.vehicleNumber && !transport.driverPhone && (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(transport.transportStatus)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(transport)}
+                              className="h-8 w-8 hover:bg-muted"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(transport.id)}
+                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )
+          })()}
+        </CardContent>
+      </Card>
+
+      {/* Inter-Event Transfers Section */}
+      {transportList?.filter((t: any) => t.legType === 'inter_event').length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bus className="w-5 h-5 text-teal-500" />
+              Inter-Event Transfers ({transportList?.filter((t: any) => t.legType === 'inter_event').length || 0})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('guestName') || 'Guest'}</TableHead>
-                    <TableHead>{t('legType') || 'Type'}</TableHead>
+                    <TableHead>Mode</TableHead>
                     <TableHead>{t('pickupDate') || 'Date'}</TableHead>
                     <TableHead>{t('route') || 'Route'}</TableHead>
                     <TableHead>{t('vehicle') || 'Vehicle'}</TableHead>
@@ -391,25 +760,20 @@ export default function TransportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transportList?.map((transport: any) => (
+                  {transportList?.filter((t: any) => t.legType === 'inter_event').map((transport: any) => (
                     <TableRow key={transport.id}>
                       <TableCell>
                         <div className="font-medium">{transport.guestName}</div>
                         {transport.guest && transport.guest.partySize > 1 && (
                           <div className="text-xs text-muted-foreground">
-                            {t('partyOf', { size: transport.guest.partySize })} • {transport.guest.relationshipToFamily || 'Guest'}
-                          </div>
-                        )}
-                        {transport.guest && transport.guest.partySize === 1 && transport.guest.relationshipToFamily && (
-                          <div className="text-xs text-muted-foreground">
-                            {transport.guest.relationshipToFamily}
+                            Party of {transport.guest.partySize}
                           </div>
                         )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          {getLegTypeIcon(transport.legType)}
-                          <span className="text-sm">{getLegTypeLabel(transport.legType)}</span>
+                          <Bus className="w-4 h-4 text-teal-500" />
+                          <span className="text-sm">{transport.vehicleInfo || 'Transfer'}</span>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -418,9 +782,7 @@ export default function TransportPage() {
                             <Calendar className="w-3 h-3 text-muted-foreground" />
                             <span>{new Date(transport.pickupDate).toLocaleDateString()}</span>
                             {transport.pickupTime && (
-                              <span className="text-muted-foreground ml-1">
-                                {transport.pickupTime}
-                              </span>
+                              <span className="text-muted-foreground ml-1">{transport.pickupTime}</span>
                             )}
                           </div>
                         ) : (
@@ -440,34 +802,26 @@ export default function TransportPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {transport.vehicleInfo ? (
-                          <span className="text-sm">{transport.vehicleInfo}</span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                        <div className="space-y-1">
+                          {transport.vehicleNumber && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Car className="w-3 h-3" />
+                              <span>{transport.vehicleNumber}</span>
+                            </div>
+                          )}
+                          {!transport.vehicleNumber && <span className="text-muted-foreground">-</span>}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {getStatusBadge(transport.transportStatus)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(transport)}
-                            className="h-8 w-8 hover:bg-muted"
-                          >
+                          <Button variant="ghost" size="icon" onClick={() => handleEdit(transport)} className="h-8 w-8 hover:bg-muted">
                             <Edit className="w-4 h-4" />
-                            <span className="sr-only">{tc('edit')}</span>
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(transport.id)}
-                            className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
-                          >
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(transport.id)} className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive">
                             <Trash2 className="w-4 h-4" />
-                            <span className="sr-only">{tc('delete')}</span>
                           </Button>
                         </div>
                       </TableCell>
@@ -476,9 +830,9 @@ export default function TransportPage() {
                 </TableBody>
               </Table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add/Edit Dialog */}
       <Dialog
@@ -595,15 +949,71 @@ export default function TransportPage() {
               </div>
             </div>
 
-            {/* Vehicle Info */}
+            {/* Transport Info */}
             <div>
-              <Label htmlFor="vehicleInfo">{t('vehicleInfo') || 'Vehicle Info'}</Label>
+              <Label htmlFor="vehicleInfo">Transport Info</Label>
               <Input
                 id="vehicleInfo"
                 value={formData.vehicleInfo}
                 onChange={(e) => setFormData({ ...formData, vehicleInfo: e.target.value })}
-                placeholder={t('vehicleInfoPlaceholder') || 'e.g., Black SUV, License ABC-123'}
+                placeholder="e.g., Flight AI-302, Train 12345, Bus from Delhi"
               />
+            </div>
+
+            {/* Vehicle Details */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="vehicleType">Vehicle Type</Label>
+                <Select
+                  value={formData.vehicleType}
+                  onValueChange={(value) => setFormData({ ...formData, vehicleType: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select vehicle type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sedan">Sedan</SelectItem>
+                    <SelectItem value="suv">SUV</SelectItem>
+                    <SelectItem value="bus">Bus</SelectItem>
+                    <SelectItem value="van">Van</SelectItem>
+                    <SelectItem value="tempo">Tempo</SelectItem>
+                    <SelectItem value="minibus">Mini Bus</SelectItem>
+                    <SelectItem value="luxury">Luxury</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="vehicleNumber">Vehicle Number</Label>
+                <Input
+                  id="vehicleNumber"
+                  value={formData.vehicleNumber}
+                  onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value })}
+                  placeholder="e.g., MH-12-AB-1234"
+                />
+              </div>
+            </div>
+
+            {/* Driver & Coordinator */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="driverPhone">Driver Phone</Label>
+                <Input
+                  id="driverPhone"
+                  value={formData.driverPhone}
+                  onChange={(e) => setFormData({ ...formData, driverPhone: e.target.value })}
+                  placeholder="e.g., +91 98765 43210"
+                />
+              </div>
+              <div>
+                <Label htmlFor="coordinatorPhone">Coordinator Phone</Label>
+                <Input
+                  id="coordinatorPhone"
+                  value={formData.coordinatorPhone}
+                  onChange={(e) => setFormData({ ...formData, coordinatorPhone: e.target.value })}
+                  placeholder="e.g., +91 98765 43210"
+                />
+              </div>
             </div>
 
             {/* Notes */}

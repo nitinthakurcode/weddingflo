@@ -196,6 +196,7 @@ export default function HotelsPage() {
       await Promise.all([
         utils.hotels.getAllWithGuests.invalidate({ clientId }),
         utils.hotels.getStats.invalidate({ clientId }),
+        utils.accommodations.getAll.invalidate({ clientId }), // Refresh accommodations after auto-create
       ])
     },
     onError: (error) => {
@@ -203,16 +204,16 @@ export default function HotelsPage() {
     },
   })
 
-  const handleQuickAssign = (hotelId: string, guestName: string) => {
+  const handleQuickAssign = (hotelId: string, guestNames: string[]) => {
     if (!quickAssignData.hotelName || !quickAssignData.roomNumber) {
       toast({ title: 'Please select a hotel and enter a room number', variant: 'destructive' })
       return
     }
 
-    // Create room assignment for single guest
+    // Create room assignment with all guests in the group
     const roomAssignments = {
       [quickAssignData.roomNumber]: {
-        guests: [guestName],
+        guests: guestNames,
         roomType: '',
       }
     }
@@ -715,9 +716,11 @@ export default function HotelsPage() {
                                       className="h-8"
                                       value={quickAssignData.hotelName}
                                       onChange={(e) => setQuickAssignData(prev => ({ ...prev, hotelName: e.target.value }))}
-                                      placeholder="Hotel name"
+                                      placeholder="Enter hotel name"
+                                      autoFocus
                                     />
                                   )}
+                                  <p className="text-xs text-muted-foreground mt-1">Type a hotel name - it will be auto-created</p>
                                 </div>
                                 <div className="space-y-2">
                                   <Label className="text-xs">Room Number</Label>
@@ -731,7 +734,7 @@ export default function HotelsPage() {
                                 <Button
                                   size="sm"
                                   className="w-full"
-                                  onClick={() => handleQuickAssign(primaryHotel.id, group.guestNames[0])}
+                                  onClick={() => handleQuickAssign(primaryHotel.id, group.guestNames)}
                                   disabled={quickAssignMutation.isPending}
                                 >
                                   {quickAssignMutation.isPending ? (
@@ -746,10 +749,6 @@ export default function HotelsPage() {
                               </div>
                             </PopoverContent>
                           </Popover>
-                        ) : group.totalGuests > 1 ? (
-                          <div className="text-xs text-amber-600 dark:text-amber-400">
-                            Click Edit to assign rooms
-                          </div>
                         ) : (
                           <Popover
                             open={quickAssignHotelId === primaryHotel.id}
@@ -774,7 +773,9 @@ export default function HotelsPage() {
                             </PopoverTrigger>
                             <PopoverContent className="w-72 p-4" align="start">
                               <div className="space-y-3">
-                                <h4 className="font-medium text-sm">Assign Room for {group.guestNames[0]}</h4>
+                                <h4 className="font-medium text-sm">
+                                  Assign Room for {group.totalGuests > 1 ? `${group.guestNames.join(', ')} (${group.totalGuests} people)` : group.guestNames[0]}
+                                </h4>
                                 <div className="space-y-2">
                                   <Label className="text-xs">Hotel</Label>
                                   {availableHotels.length > 0 ? (
@@ -798,9 +799,11 @@ export default function HotelsPage() {
                                       className="h-8"
                                       value={quickAssignData.hotelName}
                                       onChange={(e) => setQuickAssignData(prev => ({ ...prev, hotelName: e.target.value }))}
-                                      placeholder="Hotel name"
+                                      placeholder="Enter hotel name"
+                                      autoFocus
                                     />
                                   )}
+                                  <p className="text-xs text-muted-foreground mt-1">Type a hotel name - it will be auto-created</p>
                                 </div>
                                 <div className="space-y-2">
                                   <Label className="text-xs">Room Number</Label>
@@ -814,7 +817,7 @@ export default function HotelsPage() {
                                 <Button
                                   size="sm"
                                   className="w-full"
-                                  onClick={() => handleQuickAssign(primaryHotel.id, group.guestNames[0])}
+                                  onClick={() => handleQuickAssign(primaryHotel.id, group.guestNames)}
                                   disabled={quickAssignMutation.isPending}
                                 >
                                   {quickAssignMutation.isPending ? (

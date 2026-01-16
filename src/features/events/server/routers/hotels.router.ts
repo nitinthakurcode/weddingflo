@@ -2,8 +2,8 @@ import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
-import { hotels, clients, guests, timeline } from '@/lib/db/schema'
-import { nanoid } from 'nanoid'
+import { hotels, clients, guests, timeline, accommodations } from '@/lib/db/schema'
+import { randomUUID } from 'crypto'
 
 /**
  * Hotels tRPC Router - Drizzle ORM Version
@@ -162,6 +162,68 @@ export const hotelsRouter = router({
         })
       }
 
+      // AUTO-CREATE ACCOMMODATION: If hotelName is provided, ensure accommodation exists
+      if (input.hotelName && input.hotelName.trim()) {
+        try {
+          const hotelName = input.hotelName.trim()
+          const clientIdStr = String(input.clientId) // Ensure string type for UUID
+
+          console.log(`[Accommodation] Creating - Checking for existing accommodation: "${hotelName}" for client: ${clientIdStr}`)
+
+          // Check if accommodation with this name exists for the client
+          const [existingAccommodation] = await ctx.db
+            .select({ id: accommodations.id })
+            .from(accommodations)
+            .where(
+              and(
+                eq(accommodations.clientId, clientIdStr),
+                eq(accommodations.name, hotelName),
+                isNull(accommodations.deletedAt)
+              )
+            )
+            .limit(1)
+
+          if (!existingAccommodation) {
+            console.log(`[Accommodation] No existing accommodation found, creating new one...`)
+            // Create new accommodation record
+            const [newAccommodation] = await ctx.db
+              .insert(accommodations)
+              .values({
+                clientId: clientIdStr,
+                name: hotelName,
+              })
+              .returning({ id: accommodations.id })
+
+            if (newAccommodation) {
+              // Update hotel record with accommodation link
+              await ctx.db
+                .update(hotels)
+                .set({ accommodationId: newAccommodation.id })
+                .where(eq(hotels.id, hotel.id))
+
+              console.log(`[Accommodation] Auto-created accommodation: ${hotelName} with id: ${newAccommodation.id}`)
+            } else {
+              console.warn(`[Accommodation] Insert returned no result for: ${hotelName}`)
+            }
+          } else {
+            // Link hotel to existing accommodation
+            await ctx.db
+              .update(hotels)
+              .set({ accommodationId: existingAccommodation.id })
+              .where(eq(hotels.id, hotel.id))
+
+            console.log(`[Accommodation] Linked hotel to existing accommodation: ${hotelName}`)
+          }
+        } catch (accommodationError: any) {
+          console.error('[Accommodation] Failed to auto-create/link accommodation:', {
+            error: accommodationError?.message || accommodationError,
+            hotelName: input.hotelName,
+            clientId: input.clientId,
+            stack: accommodationError?.stack
+          })
+        }
+      }
+
       // TIMELINE SYNC: Create timeline entry for check-in if date is provided
       if (effectiveCheckIn && hotel) {
         try {
@@ -170,7 +232,7 @@ export const hotelsRouter = router({
           checkInDateTime.setHours(15, 0, 0, 0)
 
           await ctx.db.insert(timeline).values({
-            id: nanoid(),
+            id: randomUUID(),
             clientId: input.clientId,
             title: `Hotel Check-in: ${input.guestName}`,
             description: input.hotelName ? `Check-in at ${input.hotelName}` : 'Guest hotel check-in',
@@ -257,6 +319,72 @@ export const hotelsRouter = router({
         })
       }
 
+      // AUTO-CREATE ACCOMMODATION: If hotelName is provided, ensure accommodation exists
+      if (input.data.hotelName && input.data.hotelName.trim()) {
+        try {
+          const hotelName = input.data.hotelName.trim()
+          const clientIdStr = String(hotel.clientId) // Ensure string type for UUID comparison
+
+          console.log(`[Accommodation] Checking for existing accommodation: "${hotelName}" for client: ${clientIdStr}`)
+
+          // Check if accommodation with this name exists for the client
+          const [existingAccommodation] = await ctx.db
+            .select({ id: accommodations.id })
+            .from(accommodations)
+            .where(
+              and(
+                eq(accommodations.clientId, clientIdStr),
+                eq(accommodations.name, hotelName),
+                isNull(accommodations.deletedAt)
+              )
+            )
+            .limit(1)
+
+          if (!existingAccommodation) {
+            console.log(`[Accommodation] No existing accommodation found, creating new one...`)
+            // Create new accommodation record
+            const [newAccommodation] = await ctx.db
+              .insert(accommodations)
+              .values({
+                clientId: clientIdStr,
+                name: hotelName,
+              })
+              .returning({ id: accommodations.id })
+
+            if (newAccommodation) {
+              // Update hotel record with accommodation link
+              await ctx.db
+                .update(hotels)
+                .set({ accommodationId: newAccommodation.id })
+                .where(eq(hotels.id, hotel.id))
+
+              console.log(`[Accommodation] Auto-created accommodation: ${hotelName} with id: ${newAccommodation.id}`)
+            } else {
+              console.warn(`[Accommodation] Insert returned no result for: ${hotelName}`)
+            }
+          } else {
+            // Link hotel to existing accommodation if not already linked
+            if (!hotel.accommodationId) {
+              await ctx.db
+                .update(hotels)
+                .set({ accommodationId: existingAccommodation.id })
+                .where(eq(hotels.id, hotel.id))
+
+              console.log(`[Accommodation] Linked hotel to existing accommodation: ${hotelName}`)
+            } else {
+              console.log(`[Accommodation] Hotel already linked to accommodation: ${hotelName}`)
+            }
+          }
+        } catch (accommodationError: any) {
+          console.error('[Accommodation] Failed to auto-create/link accommodation:', {
+            error: accommodationError?.message || accommodationError,
+            hotelName: input.data.hotelName,
+            clientId: hotel.clientId,
+            stack: accommodationError?.stack
+          })
+        }
+      }
+
       // TIMELINE SYNC: Update linked timeline entry using efficient DB query
       try {
         const hasCheckInDate = input.data.checkInDate !== undefined ? input.data.checkInDate : hotel.checkInDate
@@ -293,7 +421,7 @@ export const hotelsRouter = router({
           if (result.length === 0) {
             // No existing entry - create new one
             await ctx.db.insert(timeline).values({
-              id: nanoid(),
+              id: randomUUID(),
               clientId: hotel.clientId,
               ...timelineData,
               sourceModule: 'hotels',
