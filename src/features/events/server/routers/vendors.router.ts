@@ -2,7 +2,47 @@ import { router, adminProcedure, publicProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
-import { clients, vendors, clientVendors, events, vendorComments, budget, advancePayments, timeline } from '@/lib/db/schema'
+import { clients, vendors, clientVendors, events, vendorComments, vendorReviews, budget, advancePayments, timeline } from '@/lib/db/schema'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+
+/**
+ * Auto-link vendor to event by matching service date with event date.
+ * Called when vendor is created/updated with a serviceDate but no explicit eventId.
+ */
+async function autoLinkVendorToEvent(
+  db: PostgresJsDatabase<Record<string, unknown>>,
+  clientVendorId: string,
+  clientId: string,
+  serviceDate: string,
+  vendorId: string
+) {
+  // Extract just the date part (YYYY-MM-DD) from serviceDate
+  const serviceDateStr = serviceDate.split('T')[0];
+
+  // Find event on the same date
+  const [matchingEvent] = await db
+    .select({ id: events.id, title: events.title })
+    .from(events)
+    .where(and(eq(events.clientId, clientId), eq(events.eventDate, serviceDateStr)))
+    .limit(1);
+
+  if (matchingEvent) {
+    // Link vendor to the matching event
+    await db.update(clientVendors)
+      .set({ eventId: matchingEvent.id, updatedAt: new Date() })
+      .where(eq(clientVendors.id, clientVendorId));
+
+    // Also update linked budget item to match the event
+    await db.update(budget)
+      .set({ eventId: matchingEvent.id, category: matchingEvent.title, updatedAt: new Date() })
+      .where(eq(budget.vendorId, vendorId));
+
+    console.log(`[Vendor Auto-Link] Linked vendor ${vendorId} to event "${matchingEvent.title}" based on service date ${serviceDateStr}`);
+    return matchingEvent;
+  }
+
+  return null;
+}
 
 /**
  * Vendors tRPC Router - Drizzle ORM Version
@@ -119,7 +159,9 @@ export const vendorsRouter = router({
 
           // Sum advances per budget item
           advances.forEach(a => {
-            advancesByBudget[a.budgetItemId] = (advancesByBudget[a.budgetItemId] || 0) + Number(a.amount)
+            if (a.budgetItemId) {
+              advancesByBudget[a.budgetItemId] = (advancesByBudget[a.budgetItemId] || 0) + Number(a.amount)
+            }
           })
         }
       }
@@ -290,10 +332,11 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // First, create vendor in vendors table
+      // First, create vendor in vendors table (only valid fields for this table)
       const [vendor] = await ctx.db
         .insert(vendors)
         .values({
+          id: crypto.randomUUID(),
           companyId: ctx.companyId,
           name: input.vendorName,
           category: input.category as any,
@@ -303,8 +346,6 @@ export const vendorsRouter = router({
           website: input.website || null,
           contractSigned: input.contractSigned || false,
           contractDate: input.contractDate || null,
-          depositPaid: input.depositPaid || false,
-          paymentStatus: input.paymentStatus || 'pending',
           notes: input.notes || null,
           isPreferred: input.isPreferred || false,
         })
@@ -321,6 +362,7 @@ export const vendorsRouter = router({
       const [clientVendor] = await ctx.db
         .insert(clientVendors)
         .values({
+          id: crypto.randomUUID(),
           clientId: input.clientId,
           vendorId: vendor.id,
           contractAmount: input.cost ? String(input.cost) : null,
@@ -364,6 +406,7 @@ export const vendorsRouter = router({
         }
 
         await ctx.db.insert(budget).values({
+          id: crypto.randomUUID(),
           clientId: input.clientId,
           vendorId: vendor.id,
           eventId: input.eventId || null,
@@ -388,6 +431,7 @@ export const vendorsRouter = router({
         try {
           const serviceDateTime = new Date(input.serviceDate)
           await ctx.db.insert(timeline).values({
+            id: crypto.randomUUID(),
             clientId: input.clientId,
             title: `${input.vendorName} - ${input.category || 'Vendor Service'}`,
             description: `Vendor service: ${input.vendorName}`,
@@ -402,6 +446,21 @@ export const vendorsRouter = router({
           console.log(`[Timeline] Auto-created entry for vendor service: ${input.vendorName}`)
         } catch (timelineError) {
           console.warn('[Timeline] Failed to auto-create timeline entry for vendor:', timelineError)
+        }
+      }
+
+      // AUTO-LINK: If serviceDate is set but no eventId, try to auto-link to event on same date
+      if (input.serviceDate && !input.eventId && clientVendor) {
+        try {
+          await autoLinkVendorToEvent(
+            ctx.db as any,
+            clientVendor.id,
+            input.clientId,
+            input.serviceDate,
+            vendor.id
+          );
+        } catch (linkError) {
+          console.warn('[Vendor Auto-Link] Failed to auto-link vendor to event:', linkError);
         }
       }
 
@@ -564,6 +623,7 @@ export const vendorsRouter = router({
             if (result.length === 0) {
               // No existing entry - create new one
               await ctx.db.insert(timeline).values({
+                id: crypto.randomUUID(),
                 clientId: clientVendorRecord.clientId,
                 ...timelineData,
                 description: `Vendor service`,
@@ -574,6 +634,21 @@ export const vendorsRouter = router({
               console.log(`[Timeline] Created vendor service entry`)
             } else {
               console.log(`[Timeline] Updated vendor service entry`)
+            }
+
+            // AUTO-LINK: If serviceDate changed and no eventId set, try to auto-link
+            if (!input.data.eventId) {
+              try {
+                await autoLinkVendorToEvent(
+                  ctx.db as any,
+                  input.id,
+                  clientVendorRecord.clientId,
+                  input.data.serviceDate,
+                  clientVendorRecord.vendorId
+                );
+              } catch (linkError) {
+                console.warn('[Vendor Auto-Link] Failed to auto-link vendor to event:', linkError);
+              }
             }
           } else {
             // Service date cleared - delete timeline entry
@@ -696,13 +771,24 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
+      // Get vendorId from clientVendor record
+      const [clientVendor] = await ctx.db
+        .select({ vendorId: clientVendors.vendorId })
+        .from(clientVendors)
+        .where(eq(clientVendors.id, input.clientVendorId))
+        .limit(1)
+
+      if (!clientVendor) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Client vendor not found' })
+      }
+
       const [comment] = await ctx.db
         .insert(vendorComments)
         .values({
-          clientVendorId: input.clientVendorId,
+          id: crypto.randomUUID(),
+          vendorId: clientVendor.vendorId,
           userId: ctx.userId,
           content: input.comment,
-          isInternal: input.userType === 'planner',
         })
         .returning()
 
@@ -724,10 +810,21 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
+      // Get vendorId from clientVendor record
+      const [clientVendor] = await ctx.db
+        .select({ vendorId: clientVendors.vendorId })
+        .from(clientVendors)
+        .where(eq(clientVendors.id, input.clientVendorId))
+        .limit(1)
+
+      if (!clientVendor) {
+        return []
+      }
+
       const comments = await ctx.db
         .select()
         .from(vendorComments)
-        .where(eq(vendorComments.clientVendorId, input.clientVendorId))
+        .where(eq(vendorComments.vendorId, clientVendor.vendorId))
         .orderBy(desc(vendorComments.createdAt))
 
       return comments
@@ -1007,6 +1104,7 @@ export const vendorsRouter = router({
           const [vendor] = await ctx.db
             .insert(vendors)
             .values({
+              id: crypto.randomUUID(),
               companyId: ctx.companyId,
               name: vendorName,
               category: input.defaultCategory,
@@ -1019,6 +1117,7 @@ export const vendorsRouter = router({
             const [clientVendor] = await ctx.db
               .insert(clientVendors)
               .values({
+                id: crypto.randomUUID(),
                 clientId: input.clientId,
                 vendorId: vendor.id,
                 eventId: input.eventId || null,
@@ -1030,6 +1129,7 @@ export const vendorsRouter = router({
             // Auto-create budget item for this vendor (seamless module integration)
             try {
               await ctx.db.insert(budget).values({
+                id: crypto.randomUUID(),
                 clientId: input.clientId,
                 vendorId: vendor.id,
                 eventId: input.eventId || null,
@@ -1155,14 +1255,13 @@ export const vendorsRouter = router({
       const [advance] = await ctx.db
         .insert(advancePayments)
         .values({
+          id: crypto.randomUUID(),
           budgetItemId: budgetItem.id,
           amount: input.amount.toString(),
           paymentDate: input.paymentDate,
           paymentMode: input.paymentMode || null,
           paidBy: input.paidBy,
           notes: input.notes || null,
-          receiptUrl: input.receiptUrl || null,
-          receiptFileName: input.receiptFileName || null,
         })
         .returning()
 
@@ -1239,20 +1338,22 @@ export const vendorsRouter = router({
       }
 
       // Update budget's paidAmount to reflect total advances
-      const allAdvances = await ctx.db
-        .select({ amount: advancePayments.amount })
-        .from(advancePayments)
-        .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+      if (advance.budgetItemId) {
+        const allAdvances = await ctx.db
+          .select({ amount: advancePayments.amount })
+          .from(advancePayments)
+          .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
 
-      const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-      await ctx.db
-        .update(budget)
-        .set({
-          paidAmount: totalPaid.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(budget.id, advance.budgetItemId))
+        await ctx.db
+          .update(budget)
+          .set({
+            paidAmount: totalPaid.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(budget.id, advance.budgetItemId))
+      }
 
       return advance
     }),
@@ -1284,20 +1385,173 @@ export const vendorsRouter = router({
         .where(eq(advancePayments.id, input.id))
 
       // Update budget's paidAmount to reflect remaining advances
-      const remainingAdvances = await ctx.db
-        .select({ amount: advancePayments.amount })
-        .from(advancePayments)
-        .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+      if (advance.budgetItemId) {
+        const remainingAdvances = await ctx.db
+          .select({ amount: advancePayments.amount })
+          .from(advancePayments)
+          .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
 
-      const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+
+        await ctx.db
+          .update(budget)
+          .set({
+            paidAmount: totalPaid.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(budget.id, advance.budgetItemId))
+      }
+
+      return { success: true }
+    }),
+
+  // ============================================
+  // VENDOR RATING SYSTEM
+  // Add reviews and aggregate ratings
+  // ============================================
+
+  /**
+   * Add a review for a vendor (from company admin perspective)
+   * Automatically recalculates vendor rating and review count
+   */
+  addReview: adminProcedure
+    .input(z.object({
+      vendorId: z.string().uuid(),
+      clientId: z.string().uuid(),
+      rating: z.number().min(1).max(5),
+      reviewText: z.string().optional(),
+      serviceQuality: z.number().min(1).max(5).optional(),
+      communication: z.number().min(1).max(5).optional(),
+      valueForMoney: z.number().min(1).max(5).optional(),
+      wouldRecommend: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId || !ctx.userId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not authenticated' })
+      }
+
+      // Verify vendor belongs to this company
+      const [vendor] = await ctx.db
+        .select({ id: vendors.id })
+        .from(vendors)
+        .where(and(eq(vendors.id, input.vendorId), eq(vendors.companyId, ctx.companyId)))
+        .limit(1)
+
+      if (!vendor) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Vendor not found' })
+      }
+
+      // Create the review
+      const [review] = await ctx.db
+        .insert(vendorReviews)
+        .values({
+          id: crypto.randomUUID(),
+          vendorId: input.vendorId,
+          clientId: input.clientId,
+          userId: ctx.userId,
+          rating: input.rating,
+          reviewText: input.reviewText || null,
+          serviceQuality: input.serviceQuality || null,
+          communication: input.communication || null,
+          valueForMoney: input.valueForMoney || null,
+          wouldRecommend: input.wouldRecommend,
+        })
+        .returning()
+
+      if (!review) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to create review'
+        })
+      }
+
+      // Recalculate average rating and update vendor
+      const allReviews = await ctx.db
+        .select({ rating: vendorReviews.rating })
+        .from(vendorReviews)
+        .where(eq(vendorReviews.vendorId, input.vendorId))
+
+      const avgRating = Math.round(
+        allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length
+      )
 
       await ctx.db
-        .update(budget)
+        .update(vendors)
         .set({
-          paidAmount: totalPaid.toString(),
+          rating: avgRating,
+          reviewCount: allReviews.length,
           updatedAt: new Date(),
         })
-        .where(eq(budget.id, advance.budgetItemId))
+        .where(eq(vendors.id, input.vendorId))
+
+      console.log(`[Vendor Reviews] Added review for vendor ${input.vendorId}: rating=${input.rating}, avgRating=${avgRating}, totalReviews=${allReviews.length}`)
+
+      return review
+    }),
+
+  /**
+   * Get all reviews for a vendor
+   */
+  getReviews: adminProcedure
+    .input(z.object({ vendorId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not authenticated' })
+      }
+
+      const reviews = await ctx.db
+        .select()
+        .from(vendorReviews)
+        .where(eq(vendorReviews.vendorId, input.vendorId))
+        .orderBy(desc(vendorReviews.createdAt))
+
+      return reviews
+    }),
+
+  /**
+   * Delete a review and recalculate vendor rating
+   */
+  deleteReview: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not authenticated' })
+      }
+
+      // Get the review to know which vendor to update
+      const [review] = await ctx.db
+        .select({ vendorId: vendorReviews.vendorId })
+        .from(vendorReviews)
+        .where(eq(vendorReviews.id, input.id))
+        .limit(1)
+
+      if (!review) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Review not found' })
+      }
+
+      // Delete the review
+      await ctx.db
+        .delete(vendorReviews)
+        .where(eq(vendorReviews.id, input.id))
+
+      // Recalculate average rating and update vendor
+      const remainingReviews = await ctx.db
+        .select({ rating: vendorReviews.rating })
+        .from(vendorReviews)
+        .where(eq(vendorReviews.vendorId, review.vendorId))
+
+      const avgRating = remainingReviews.length > 0
+        ? Math.round(remainingReviews.reduce((sum, r) => sum + r.rating, 0) / remainingReviews.length)
+        : null
+
+      await ctx.db
+        .update(vendors)
+        .set({
+          rating: avgRating,
+          reviewCount: remainingReviews.length,
+          updatedAt: new Date(),
+        })
+        .where(eq(vendors.id, review.vendorId))
 
       return { success: true }
     }),

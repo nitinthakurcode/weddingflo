@@ -2,7 +2,51 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, sql } from 'drizzle-orm'
-import { guests, hotels, clients, guestTransport } from '@/lib/db/schema'
+import { guests, hotels, clients, guestTransport, budget } from '@/lib/db/schema'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+
+/**
+ * Sync per-guest budget items with confirmed RSVP count.
+ * Called when RSVP status changes to 'accepted' or 'declined'.
+ * Updates budget items marked as isPerGuestItem to reflect current guest count.
+ */
+async function syncBudgetWithRsvpCount(
+  db: PostgresJsDatabase<Record<string, unknown>>,
+  clientId: string
+) {
+  // Get confirmed guest count (including party sizes for each accepted guest)
+  const guestList = await db
+    .select({ partySize: guests.partySize })
+    .from(guests)
+    .where(and(eq(guests.clientId, clientId), eq(guests.rsvpStatus, 'accepted')));
+
+  // Sum up all party sizes (default to 1 if not set)
+  const confirmedCount = guestList.reduce((sum, g) => sum + (g.partySize || 1), 0);
+
+  // Get per-guest budget items for this client
+  const perGuestItems = await db
+    .select()
+    .from(budget)
+    .where(and(eq(budget.clientId, clientId), eq(budget.isPerGuestItem, true)));
+
+  // Update each per-guest item: estimatedCost = perGuestCost * confirmedCount
+  for (const item of perGuestItems) {
+    const perGuestCost = Number(item.perGuestCost || 0);
+    const newEstimatedCost = perGuestCost * confirmedCount;
+
+    await db
+      .update(budget)
+      .set({
+        estimatedCost: String(newEstimatedCost),
+        updatedAt: new Date(),
+      })
+      .where(eq(budget.id, item.id));
+  }
+
+  if (perGuestItems.length > 0) {
+    console.log(`[RSVP→Budget Sync] Updated ${perGuestItems.length} per-guest budget items for client ${clientId}: confirmedGuests=${confirmedCount}`);
+  }
+}
 
 /**
  * Guests tRPC Router - Drizzle ORM Version
@@ -55,21 +99,27 @@ export const guestsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Fetch guest with join to verify company access
-      const [guest] = await ctx.db
-        .select()
+      // SECURITY: Verify guest belongs to company via client join
+      const [result] = await ctx.db
+        .select({ guest: guests })
         .from(guests)
-        .where(eq(guests.id, input.id))
+        .innerJoin(clients, eq(guests.clientId, clients.id))
+        .where(
+          and(
+            eq(guests.id, input.id),
+            eq(clients.companyId, ctx.companyId)
+          )
+        )
         .limit(1)
 
-      if (!guest) {
+      if (!result) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Guest not found'
         })
       }
 
-      return guest
+      return result.guest
     }),
 
   create: adminProcedure
@@ -198,8 +248,7 @@ export const guestsRouter = router({
           transportPickupLocation: input.transportPickupLocation || null,
           transportPickupTime: input.transportPickupTime || null,
           transportNotes: input.transportNotes || null,
-          // Planner fields - Gift requirements
-          giftRequired: input.giftRequired,
+          // Planner fields - Gift info
           giftToGive: input.giftToGive || null,
         })
         .returning()
@@ -321,6 +370,26 @@ export const guestsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // SECURITY: Verify guest belongs to company via client join before update
+      const [existingGuest] = await ctx.db
+        .select({ guest: guests })
+        .from(guests)
+        .innerJoin(clients, eq(guests.clientId, clients.id))
+        .where(
+          and(
+            eq(guests.id, input.id),
+            eq(clients.companyId, ctx.companyId)
+          )
+        )
+        .limit(1)
+
+      if (!existingGuest) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Guest not found'
+        })
+      }
+
       // Build update object
       const updateData: Record<string, any> = {
         updatedAt: new Date(),
@@ -372,7 +441,7 @@ export const guestsRouter = router({
       // Metadata for party member requirements
       if (input.data.metadata !== undefined) updateData.metadata = input.data.metadata
 
-      // Update guest
+      // Update guest (already verified ownership)
       const [guest] = await ctx.db
         .update(guests)
         .set(updateData)
@@ -381,8 +450,8 @@ export const guestsRouter = router({
 
       if (!guest) {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Guest not found'
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to update guest'
         })
       }
 
@@ -638,7 +707,27 @@ export const guestsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Delete associated hotel entry first
+      // SECURITY: Verify guest belongs to company via client join before delete
+      const [existingGuest] = await ctx.db
+        .select({ guest: guests })
+        .from(guests)
+        .innerJoin(clients, eq(guests.clientId, clients.id))
+        .where(
+          and(
+            eq(guests.id, input.id),
+            eq(clients.companyId, ctx.companyId)
+          )
+        )
+        .limit(1)
+
+      if (!existingGuest) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Guest not found'
+        })
+      }
+
+      // Delete associated hotel entry first (already verified ownership)
       await ctx.db
         .delete(hotels)
         .where(eq(hotels.guestId, input.id))
@@ -919,6 +1008,16 @@ export const guestsRouter = router({
           code: 'NOT_FOUND',
           message: 'Guest not found'
         })
+      }
+
+      // RSVP→BUDGET SYNC: Update per-guest budget items when RSVP changes
+      if (input.rsvpStatus === 'accepted' || input.rsvpStatus === 'declined') {
+        try {
+          await syncBudgetWithRsvpCount(ctx.db as any, guest.clientId);
+        } catch (syncError) {
+          // Log but don't fail - RSVP update was successful
+          console.warn('[RSVP→Budget Sync] Failed to sync budget:', syncError);
+        }
       }
 
       return guest

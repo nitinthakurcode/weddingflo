@@ -89,6 +89,9 @@ export const budgetRouter = router({
       return itemsWithAdvances
     }),
 
+  /**
+   * SECURITY: Verifies budget item belongs to a client owned by the user's company
+   */
   getById: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -96,15 +99,25 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const [budgetItem] = await ctx.db
-        .select()
+      // Join with clients to verify company ownership
+      const [result] = await ctx.db
+        .select({ budgetItem: budget })
         .from(budget)
-        .where(eq(budget.id, input.id))
+        .innerJoin(clients, eq(budget.clientId, clients.id))
+        .where(
+          and(
+            eq(budget.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
         .limit(1)
 
-      if (!budgetItem) {
+      if (!result) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
+
+      const budgetItem = result.budgetItem
 
       // Get event info if eventId exists
       let eventInfo = null
@@ -153,6 +166,9 @@ export const budgetRouter = router({
       notes: z.string().optional(),
       clientVisible: z.boolean().default(true),
       isLumpSum: z.boolean().default(false),
+      // Per-guest cost tracking for RSVP→Budget sync
+      perGuestCost: z.number().optional(), // Cost per guest (e.g., catering per plate)
+      isPerGuestItem: z.boolean().default(false), // If true, auto-calculate estimatedCost from confirmed guests
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -180,6 +196,7 @@ export const budgetRouter = router({
       const [budgetItem] = await ctx.db
         .insert(budget)
         .values({
+          id: nanoid(),
           clientId: input.clientId,
           category: input.category,
           segment: input.segment,
@@ -195,6 +212,9 @@ export const budgetRouter = router({
           notes: input.notes || null,
           clientVisible: input.clientVisible,
           isLumpSum: input.isLumpSum,
+          // Per-guest cost tracking
+          perGuestCost: input.perGuestCost?.toString() || null,
+          isPerGuestItem: input.isPerGuestItem,
         })
         .returning()
 
@@ -236,6 +256,9 @@ export const budgetRouter = router({
       return budgetItem
     }),
 
+  /**
+   * SECURITY: Verifies budget item belongs to a client owned by the user's company
+   */
   update: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -254,11 +277,32 @@ export const budgetRouter = router({
         notes: z.string().optional(),
         clientVisible: z.boolean().optional(),
         isLumpSum: z.boolean().optional(),
+        // Per-guest cost tracking
+        perGuestCost: z.number().nullable().optional(),
+        isPerGuestItem: z.boolean().optional(),
       }),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify budget item belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: budget.id, clientId: budget.clientId })
+        .from(budget)
+        .innerJoin(clients, eq(budget.clientId, clients.id))
+        .where(
+          and(
+            eq(budget.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
 
       // Build update object
@@ -280,6 +324,9 @@ export const budgetRouter = router({
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
       if (input.data.clientVisible !== undefined) updateData.clientVisible = input.data.clientVisible
       if (input.data.isLumpSum !== undefined) updateData.isLumpSum = input.data.isLumpSum
+      // Per-guest cost tracking
+      if (input.data.perGuestCost !== undefined) updateData.perGuestCost = input.data.perGuestCost?.toString() || null
+      if (input.data.isPerGuestItem !== undefined) updateData.isPerGuestItem = input.data.isPerGuestItem
 
       // Update budget item
       const [budgetItem] = await ctx.db
@@ -406,11 +453,32 @@ export const budgetRouter = router({
       return budgetItem
     }),
 
+  /**
+   * SECURITY: Verifies budget item belongs to a client owned by the user's company
+   */
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify budget item belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: budget.id })
+        .from(budget)
+        .innerJoin(clients, eq(budget.clientId, clients.id))
+        .where(
+          and(
+            eq(budget.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
 
       await ctx.db
@@ -436,6 +504,9 @@ export const budgetRouter = router({
     }),
 
   // Advance Payment Operations
+  /**
+   * SECURITY: Verifies budget item belongs to a client owned by the user's company
+   */
   addAdvancePayment: adminProcedure
     .input(z.object({
       budgetItemId: z.string().uuid(),
@@ -450,21 +521,29 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Verify budget item exists
+      // Verify budget item belongs to a client owned by this company
       const [budgetItem] = await ctx.db
         .select({ id: budget.id, clientId: budget.clientId })
         .from(budget)
-        .where(eq(budget.id, input.budgetItemId))
+        .innerJoin(clients, eq(budget.clientId, clients.id))
+        .where(
+          and(
+            eq(budget.id, input.budgetItemId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
         .limit(1)
 
       if (!budgetItem) {
-        throw new TRPCError({ code: 'NOT_FOUND' })
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
 
       // Create advance payment
       const [advance] = await ctx.db
         .insert(advancePayments)
         .values({
+          id: nanoid(),
           budgetItemId: input.budgetItemId,
           amount: input.amount.toString(),
           paymentDate: input.paymentDate,
@@ -558,22 +637,29 @@ export const budgetRouter = router({
         })
       }
 
-      // Update budget's paidAmount to reflect total advances
-      const allAdvances = await ctx.db
-        .select({ amount: advancePayments.amount })
-        .from(advancePayments)
-        .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+      // Update budget's paidAmount to reflect total advances if budgetItemId exists
+      let totalPaid = 0
+      let updatedBudget: typeof budget.$inferSelect | null = null
 
-      const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+      if (advance.budgetItemId) {
+        const allAdvances = await ctx.db
+          .select({ amount: advancePayments.amount })
+          .from(advancePayments)
+          .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
 
-      const [updatedBudget] = await ctx.db
-        .update(budget)
-        .set({
-          paidAmount: totalPaid.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(budget.id, advance.budgetItemId))
-        .returning()
+        totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+
+        const [updated] = await ctx.db
+          .update(budget)
+          .set({
+            paidAmount: totalPaid.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(budget.id, advance.budgetItemId))
+          .returning()
+
+        updatedBudget = updated || null
+      }
 
       // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
       if (updatedBudget?.vendorId) {
@@ -617,36 +703,38 @@ export const budgetRouter = router({
         .delete(advancePayments)
         .where(eq(advancePayments.id, input.id))
 
-      // Update budget's paidAmount to reflect remaining advances
-      const remainingAdvances = await ctx.db
-        .select({ amount: advancePayments.amount })
-        .from(advancePayments)
-        .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+      // Update budget's paidAmount to reflect remaining advances if budgetItemId exists
+      if (advance.budgetItemId) {
+        const remainingAdvances = await ctx.db
+          .select({ amount: advancePayments.amount })
+          .from(advancePayments)
+          .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
 
-      const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-      const [updatedBudget] = await ctx.db
-        .update(budget)
-        .set({
-          paidAmount: totalPaid.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(budget.id, advance.budgetItemId))
-        .returning()
+        const [updatedBudget] = await ctx.db
+          .update(budget)
+          .set({
+            paidAmount: totalPaid.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(budget.id, advance.budgetItemId))
+          .returning()
 
-      // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
-      if (updatedBudget?.vendorId) {
-        try {
-          await ctx.db
-            .update(clientVendors)
-            .set({
-              depositAmount: totalPaid.toString(),
-              depositPaid: totalPaid > 0,
-              updatedAt: new Date(),
-            })
-            .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
-        } catch (syncError) {
-          console.warn('[Budget] Failed to sync advance payment deletion to vendor:', syncError)
+        // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+        if (updatedBudget?.vendorId) {
+          try {
+            await ctx.db
+              .update(clientVendors)
+              .set({
+                depositAmount: totalPaid.toString(),
+                depositPaid: totalPaid > 0,
+                updatedAt: new Date(),
+              })
+              .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
+          } catch (syncError) {
+            console.warn('[Budget] Failed to sync advance payment deletion to vendor:', syncError)
+          }
         }
       }
 
@@ -905,7 +993,9 @@ export const budgetRouter = router({
           .where(inArray(advancePayments.budgetItemId, budgetIds))
 
         advances.forEach(a => {
-          advancesMap[a.budgetItemId] = (advancesMap[a.budgetItemId] || 0) + Number(a.amount)
+          if (a.budgetItemId) {
+            advancesMap[a.budgetItemId] = (advancesMap[a.budgetItemId] || 0) + Number(a.amount)
+          }
         })
       }
 

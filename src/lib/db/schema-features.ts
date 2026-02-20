@@ -104,10 +104,10 @@ export const clientUsers = pgTable('client_users', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Guests
+// Guests - February 2026: Changed ID types to TEXT for consistency
 export const guests = pgTable('guests', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  clientId: uuid('client_id').notNull(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  clientId: text('client_id').notNull(),
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull().default(''),
   email: text('email'),
@@ -153,11 +153,11 @@ export const guests = pgTable('guests', {
   index('guests_rsvp_status_idx').on(table.rsvpStatus),
 ]);
 
-// Hotels (guest accommodation tracking)
+// Hotels (guest accommodation tracking) - February 2026: Changed IDs to TEXT
 export const hotels = pgTable('hotels', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: uuid('client_id').notNull(),
-  guestId: uuid('guest_id'),
+  clientId: text('client_id').notNull(),
+  guestId: text('guest_id'),
   guestName: text('guest_name').notNull(),
   accommodationId: uuid('accommodation_id'), // Links to accommodations table
   hotelName: text('hotel_name'),
@@ -190,9 +190,10 @@ export const transportLegTypeEnum = pgEnum('transport_leg_type', ['arrival', 'de
 export const vehicleStatusEnum = pgEnum('vehicle_status', ['available', 'in_use', 'maintenance']);
 
 // Fleet Vehicles - Track company vehicles for auto-availability
+// February 2026: Changed clientId to TEXT
 export const vehicles = pgTable('vehicles', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: uuid('client_id').notNull(),
+  clientId: text('client_id').notNull(),
   vehicleNumber: text('vehicle_number').notNull(),
   vehicleType: text('vehicle_type'), // sedan, suv, bus, van, tempo, etc.
   driverName: text('driver_name'),
@@ -210,11 +211,11 @@ export const vehicles = pgTable('vehicles', {
   index('vehicles_status_idx').on(table.status),
 ]);
 
-// Guest Transport
+// Guest Transport - February 2026: Changed clientId, guestId to TEXT
 export const guestTransport = pgTable('guest_transport', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: uuid('client_id').notNull(),
-  guestId: uuid('guest_id').notNull(),
+  clientId: text('client_id').notNull(),
+  guestId: text('guest_id'),  // Optional - transport can exist without linked guest
   guestName: text('guest_name').notNull(),
   pickupDate: text('pickup_date'),
   pickupTime: time('pickup_time'),
@@ -259,7 +260,9 @@ export const events = pgTable('events', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'),
-});
+}, (table) => [
+  index('events_client_id_idx').on(table.clientId),
+]);
 
 // Timeline - Cross-module synced entries for wedding day schedule
 export const timeline = pgTable('timeline', {
@@ -285,7 +288,30 @@ export const timeline = pgTable('timeline', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'), // Soft delete support
-});
+}, (table) => [
+  index('timeline_client_id_idx').on(table.clientId),
+  index('timeline_event_id_idx').on(table.eventId),
+]);
+
+// Timeline Templates - Company-customizable default templates for event types
+// January 2026 - Allows companies to customize auto-generated timeline items
+export const timelineTemplates = pgTable('timeline_templates', {
+  id: text('id').primaryKey(),
+  companyId: text('company_id').notNull(), // References companies.id
+  eventType: text('event_type').notNull(), // 'wedding', 'sangeet', 'mehendi', etc.
+  title: text('title').notNull(),
+  description: text('description'),
+  offsetMinutes: integer('offset_minutes').notNull(), // Minutes from event start time
+  durationMinutes: integer('duration_minutes').notNull(),
+  location: text('location'),
+  phase: text('phase').default('showtime'), // 'setup' | 'showtime' | 'wrapup'
+  sortOrder: integer('sort_order').default(0),
+  isActive: boolean('is_active').default(true), // Soft disable items without deleting
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('timeline_templates_company_event_idx').on(table.companyId, table.eventType),
+]);
 
 // Vendors
 export const vendors = pgTable('vendors', {
@@ -302,10 +328,13 @@ export const vendors = pgTable('vendors', {
   contractDate: text('contract_date'),
   notes: text('notes'),
   rating: integer('rating'),
+  reviewCount: integer('review_count').default(0), // Cached count of reviews
   isPreferred: boolean('is_preferred').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('vendors_company_id_idx').on(table.companyId),
+]);
 
 // Client Vendors (relationship) - Links vendors to clients with contract/payment details
 export const clientVendors = pgTable('client_vendors', {
@@ -335,7 +364,10 @@ export const clientVendors = pgTable('client_vendors', {
   notes: text('notes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('client_vendors_client_id_idx').on(table.clientId),
+  index('client_vendors_vendor_id_idx').on(table.vendorId),
+]);
 
 // Vendor Comments
 export const vendorComments = pgTable('vendor_comments', {
@@ -346,6 +378,25 @@ export const vendorComments = pgTable('vendor_comments', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+// Vendor Reviews - For rating system with aggregation
+export const vendorReviews = pgTable('vendor_reviews', {
+  id: text('id').primaryKey(),
+  vendorId: text('vendor_id').notNull(), // References vendors(id) ON DELETE CASCADE
+  clientId: text('client_id').notNull(),
+  userId: text('user_id').notNull(),
+  rating: integer('rating').notNull(), // 1-5 overall rating
+  reviewText: text('review_text'),
+  serviceQuality: integer('service_quality'), // 1-5 optional sub-rating
+  communication: integer('communication'), // 1-5 optional sub-rating
+  valueForMoney: integer('value_for_money'), // 1-5 optional sub-rating
+  wouldRecommend: boolean('would_recommend').default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('vendor_reviews_vendor_id_idx').on(table.vendorId),
+  index('vendor_reviews_client_id_idx').on(table.clientId),
+]);
 
 // Budget - Linked to vendors for seamless bidirectional sync
 export const budget = pgTable('budget', {
@@ -366,10 +417,15 @@ export const budget = pgTable('budget', {
   paymentDate: timestamp('payment_date'),
   clientVisible: boolean('client_visible').default(true),
   isLumpSum: boolean('is_lump_sum').default(false),
+  // Per-guest cost tracking for RSVP→Budget sync
+  perGuestCost: text('per_guest_cost'), // Cost per guest (e.g., catering per plate)
+  isPerGuestItem: boolean('is_per_guest_item').default(false), // If true, estimatedCost = perGuestCost * confirmedGuestCount
   notes: text('notes'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('budget_client_id_idx').on(table.clientId),
+]);
 
 // Advance Payments - Linked to budget items for payment tracking
 export const advancePayments = pgTable('advance_payments', {
@@ -385,7 +441,9 @@ export const advancePayments = pgTable('advance_payments', {
   date: timestamp('date'), // Legacy field
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('advance_payments_budget_item_id_idx').on(table.budgetItemId),
+]);
 
 // Documents
 export const documents = pgTable('documents', {
@@ -397,7 +455,9 @@ export const documents = pgTable('documents', {
   size: integer('size'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('documents_client_id_idx').on(table.clientId),
+]);
 
 // Calendar Sync Settings
 export const calendarSyncSettings = pgTable('calendar_sync_settings', {
@@ -530,34 +590,48 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
 
 // Floor Plans
 export const floorPlans = pgTable('floor_plans', {
-  id: text('id').primaryKey(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   clientId: text('client_id').notNull(),
   eventId: text('event_id'),
   name: text('name').notNull(),
+  width: integer('width').default(1200),
+  height: integer('height').default(800),
+  backgroundImage: text('background_image'),
   layout: jsonb('layout'),
+  metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('floor_plans_client_id_idx').on(table.clientId),
+]);
 
 // Floor Plan Tables
 export const floorPlanTables = pgTable('floor_plan_tables', {
-  id: text('id').primaryKey(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   floorPlanId: text('floor_plan_id').notNull(),
-  name: text('name').notNull(),
+  tableNumber: integer('table_number').notNull().default(1),
+  tableName: text('table_name'),
   shape: text('shape').default('round'),
   capacity: integer('capacity').default(8),
-  x: real('x'),
-  y: real('y'),
+  x: integer('x').notNull().default(0),
+  y: integer('y').notNull().default(0),
+  width: integer('width').default(100),
+  height: integer('height').default(100),
+  rotation: integer('rotation').default(0),
+  metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // Floor Plan Guests
 export const floorPlanGuests = pgTable('floor_plan_guests', {
-  id: text('id').primaryKey(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  floorPlanId: text('floor_plan_id').notNull(),
   tableId: text('table_id').notNull(),
-  guestId: text('guest_id').notNull(),
+  guestId: text('guest_id'),
   seatNumber: integer('seat_number'),
+  x: integer('x'),
+  y: integer('y'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -572,7 +646,9 @@ export const gifts = pgTable('gifts', {
   status: text('status').default('received'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('gifts_client_id_idx').on(table.clientId),
+]);
 
 // Gifts Enhanced
 export const giftsEnhanced = pgTable('gifts_enhanced', {
@@ -585,7 +661,9 @@ export const giftsEnhanced = pgTable('gifts_enhanced', {
   thankYouSent: boolean('thank_you_sent').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('gifts_enhanced_client_id_idx').on(table.clientId),
+]);
 
 // Gift Categories
 export const giftCategories = pgTable('gift_categories', {
@@ -632,7 +710,9 @@ export const creativeJobs = pgTable('creative_jobs', {
   data: jsonb('data'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('creative_jobs_client_id_idx').on(table.clientId),
+]);
 
 // Website Builder
 export const websiteBuilderLayouts = pgTable('website_builder_layouts', {
@@ -668,22 +748,32 @@ export const qrCodes = pgTable('qr_codes', {
   code: text('code').notNull().unique(),
   scannedAt: timestamp('scanned_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('qr_codes_client_id_idx').on(table.clientId),
+]);
 
 // Messages
 export const messages = pgTable('messages', {
-  id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text('company_id').notNull(),
+  clientId: text('client_id'),
   guestId: text('guest_id'),
-  senderId: text('sender_id'),
+  senderId: text('sender_id').notNull(),
   receiverId: text('receiver_id'),
-  content: text('content'),
+  subject: text('subject'),
+  content: text('content').notNull(),
+  messageType: text('message_type').default('direct'),
   type: text('type').default('text'),
   isRead: boolean('is_read').default(false),
   readAt: timestamp('read_at'),
+  parentId: text('parent_id'),
+  metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('messages_company_id_idx').on(table.companyId),
+]);
 
 // Payments
 export const payments = pgTable('payments', {
@@ -694,14 +784,20 @@ export const payments = pgTable('payments', {
   stripeId: text('stripe_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('payments_client_id_idx').on(table.clientId),
+]);
 
 // Stripe Connect Accounts
 export const stripeConnectAccounts = pgTable('stripe_connect_accounts', {
-  id: text('id').primaryKey(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull(),
   stripeAccountId: text('stripe_account_id').notNull(),
+  type: text('type').default('standard'),
   status: text('status').default('pending'),
+  chargesEnabled: boolean('charges_enabled').default(false),
+  payoutsEnabled: boolean('payouts_enabled').default(false),
+  detailsSubmitted: boolean('details_submitted').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -770,7 +866,10 @@ export const activity = pgTable('activity', {
   data: jsonb('data'),
   read: boolean('read').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => [
+  index('activity_client_id_idx').on(table.clientId),
+  index('activity_user_id_idx').on(table.userId),
+]);
 
 // iCal Feed Tokens
 export const icalFeedTokens = pgTable('ical_feed_tokens', {
@@ -852,8 +951,14 @@ export const seatingVersions = pgTable('seating_versions', {
 
 // SMS Preferences
 export const smsPreferences = pgTable('sms_preferences', {
-  id: text('id').primaryKey(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull(),
+  smsEnabled: boolean('sms_enabled').default(true),
+  marketingSms: boolean('marketing_sms').default(false),
+  transactionalSms: boolean('transactional_sms').default(true),
+  reminderSms: boolean('reminder_sms').default(true),
+  phoneNumber: text('phone_number'),
+  // Legacy fields for backwards compatibility
   enabled: boolean('enabled').default(true),
   rsvpUpdates: boolean('rsvp_updates').default(true),
   reminders: boolean('reminders').default(true),
@@ -861,13 +966,19 @@ export const smsPreferences = pgTable('sms_preferences', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Stripe Accounts (alias for stripeConnectAccounts for compatibility)
+// Stripe Accounts (company Stripe Connect accounts)
 export const stripeAccounts = pgTable('stripe_accounts', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text('company_id').notNull(),
   stripeAccountId: text('stripe_account_id').notNull(),
   type: text('type').default('express'),
   status: text('status').default('pending'),
+  country: text('country').default('US'),
+  defaultCurrency: text('default_currency').default('usd'),
+  chargesEnabled: boolean('charges_enabled').default(false),
+  payoutsEnabled: boolean('payouts_enabled').default(false),
+  detailsSubmitted: boolean('details_submitted').default(false),
+  businessProfile: jsonb('business_profile'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -884,21 +995,26 @@ export const teamClientAssignments = pgTable('team_client_assignments', {
 
 // Wedding Websites
 export const weddingWebsites = pgTable('wedding_websites', {
-  id: text('id').primaryKey(),
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   clientId: text('client_id').notNull(),
   subdomain: text('subdomain').unique(),
   customDomain: text('custom_domain'),
   theme: text('theme').default('classic'),
   settings: jsonb('settings'),
+  content: jsonb('content'),
   published: boolean('published').default(false),
+  password: text('password'),
+  isPasswordProtected: boolean('is_password_protected').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // Accommodations (Hotel Properties) - Stores hotel definitions for room allotment
+// February 2026: Changed clientId to TEXT
 export const accommodations = pgTable('accommodations', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: uuid('client_id').notNull(),
+  clientId: text('client_id').notNull(),
   name: text('name').notNull(),
   address: text('address'),
   city: text('city'),
@@ -916,4 +1032,42 @@ export const accommodations = pgTable('accommodations', {
   deletedAt: timestamp('deleted_at'),
 }, (table) => [
   index('accommodations_client_id_idx').on(table.clientId),
+]);
+
+// Notifications - User notifications for activity feed
+export const notifications = pgTable('notifications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: text('company_id').notNull(),
+  userId: text('user_id').notNull(), // User who should see this notification
+  type: text('type').notNull(), // lead_new, proposal_viewed, payment_received, etc.
+  title: text('title').notNull(),
+  message: text('message'),
+  metadata: jsonb('metadata'), // { entityType, entityId, link }
+  isRead: boolean('is_read').default(false),
+  readAt: timestamp('read_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('notifications_company_id_idx').on(table.companyId),
+  index('notifications_user_id_idx').on(table.userId),
+  index('notifications_is_read_idx').on(table.isRead),
+  index('notifications_created_at_idx').on(table.createdAt),
+]);
+
+// Job Queue - PostgreSQL-based job queue (no Redis needed)
+export const jobQueue = pgTable('job_queue', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: text('company_id'),
+  type: text('type').notNull(), // 'send_email', 'send_sms', 'workflow_step'
+  payload: jsonb('payload').notNull(), // Job data
+  status: text('status').default('pending'), // pending, processing, completed, failed
+  scheduledAt: timestamp('scheduled_at').defaultNow(),
+  attempts: integer('attempts').default(0),
+  maxAttempts: integer('max_attempts').default(3),
+  error: text('error'),
+  createdAt: timestamp('created_at').defaultNow(),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+}, (table) => [
+  index('job_queue_status_scheduled_idx').on(table.status, table.scheduledAt),
+  index('job_queue_company_id_idx').on(table.companyId),
 ]);
