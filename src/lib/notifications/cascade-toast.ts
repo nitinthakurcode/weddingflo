@@ -27,8 +27,63 @@ import { toast } from '@/hooks/use-toast'
 /**
  * Types of cascade actions
  */
-export type CascadeModule = 'hotel' | 'transport' | 'timeline' | 'budget' | 'guest' | 'vendor' | 'event'
+export type CascadeModule = 'hotel' | 'transport' | 'timeline' | 'budget' | 'guest' | 'vendor' | 'event' | 'accommodation' | 'vehicle'
 export type CascadeAction = 'created' | 'updated' | 'deleted' | 'synced'
+
+/**
+ * Cascade action result from mutations
+ * Used for frontend toast notifications
+ */
+export interface CascadeActionResult {
+  module: CascadeModule | string
+  action: CascadeAction
+  count: number
+  entityNames?: string[]
+}
+
+/**
+ * Standard mutation result with cascade actions
+ */
+export interface MutationResultWithCascade<T> {
+  data: T
+  cascadeActions: CascadeActionResult[]
+}
+
+/**
+ * Helper to process cascadeActions from mutation response and show appropriate toasts
+ *
+ * @param cascadeActions - Array of cascade action results from mutation
+ */
+export function processCascadeActions(cascadeActions: CascadeActionResult[]) {
+  if (!cascadeActions || cascadeActions.length === 0) return
+
+  // Convert to SyncCounts format
+  const counts: SyncCounts = {}
+
+  for (const action of cascadeActions) {
+    const module = action.module
+    if (module === 'hotel' || module === 'hotels' || module === 'accommodation') {
+      counts.hotels = (counts.hotels || 0) + action.count
+    } else if (module === 'transport' || module === 'vehicle') {
+      counts.transport = (counts.transport || 0) + action.count
+    } else if (module === 'timeline') {
+      counts.timeline = (counts.timeline || 0) + action.count
+    } else if (module === 'budget') {
+      counts.budget = (counts.budget || 0) + action.count
+    } else if (module === 'guest' || module === 'guests') {
+      counts.guests = (counts.guests || 0) + action.count
+    } else if (module === 'vendor' || module === 'vendors') {
+      counts.vendors = (counts.vendors || 0) + action.count
+    } else if (module === 'guestGifts') {
+      counts.guestGifts = (counts.guestGifts || 0) + action.count
+    }
+  }
+
+  // Determine action type (use first one, typically they're all the same)
+  const actionType = cascadeActions[0]?.action || 'created'
+
+  showSyncSummary(counts, actionType)
+}
 
 /**
  * Sync result counts for summary display
@@ -56,6 +111,8 @@ const moduleLabels: Record<CascadeModule, string> = {
   guest: 'Guest',
   vendor: 'Vendor',
   event: 'Event',
+  accommodation: 'Accommodation',
+  vehicle: 'Vehicle',
 }
 
 /**

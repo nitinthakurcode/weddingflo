@@ -5,6 +5,7 @@ import ExcelJS from 'exceljs'
 import { eq, and, isNull } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
 import { triggerBatchSync, type EntityType } from '@/lib/backup/auto-sync-trigger'
+import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts'])
@@ -36,11 +37,9 @@ export const importRouter = router({
 
       switch (input.module) {
         case 'guests':
+          // Guests table doesn't have deletedAt column
           existingData = await ctx.db.query.guests.findMany({
-            where: and(
-              eq(schema.guests.clientId, input.clientId),
-              isNull(schema.guests.deletedAt)
-            ),
+            where: eq(schema.guests.clientId, input.clientId),
           })
           break
         case 'vendors':
@@ -71,7 +70,8 @@ export const importRouter = router({
             const allAdvances = await ctx.db.query.advancePayments.findMany({})
             // Group advances by budget item and sum amounts
             for (const adv of allAdvances) {
-              if (budgetIds.includes(adv.budgetItemId)) {
+              // Skip if budgetItemId is null
+              if (adv.budgetItemId && budgetIds.includes(adv.budgetItemId)) {
                 const current = advancesByBudget.get(adv.budgetItemId) || 0
                 advancesByBudget.set(adv.budgetItemId, current + parseFloat(adv.amount || '0'))
               }
@@ -124,7 +124,7 @@ export const importRouter = router({
           existingData = await ctx.db.query.hotels.findMany({
             where: eq(schema.hotels.clientId, input.clientId),
             with: {
-              guests: {
+              guest: {
                 columns: {
                   email: true,
                   phone: true,
@@ -197,32 +197,24 @@ export const importRouter = router({
             .where(eq(schema.guestTransport.clientId, input.clientId))
           break
         case 'guestGifts':
-          // Guest gifts (gifts given TO guests) with guest and gift type info
+          // Guest gifts with guest details
+          // Schema has: id, clientId, guestId, name, type, quantity, createdAt, updatedAt
           existingData = await ctx.db
             .select({
               id: schema.guestGifts.id,
               guestId: schema.guestGifts.guestId,
-              giftTypeId: schema.guestGifts.giftTypeId,
-              giftName: schema.guestGifts.giftName,
+              giftName: schema.guestGifts.name,
+              giftType: schema.guestGifts.type,
               quantity: schema.guestGifts.quantity,
-              deliveryDate: schema.guestGifts.deliveryDate,
-              deliveryTime: schema.guestGifts.deliveryTime,
-              deliveryStatus: schema.guestGifts.deliveryStatus,
-              deliveredBy: schema.guestGifts.deliveredBy,
-              notes: schema.guestGifts.notes,
               // Guest details
               guestFirstName: schema.guests.firstName,
               guestLastName: schema.guests.lastName,
               guestEmail: schema.guests.email,
               guestPhone: schema.guests.phone,
               guestGroup: schema.guests.groupName,
-              // Gift type details
-              giftTypeName: schema.giftTypes.name,
-              giftTypeDescription: schema.giftTypes.description,
             })
             .from(schema.guestGifts)
             .leftJoin(schema.guests, eq(schema.guestGifts.guestId, schema.guests.id))
-            .leftJoin(schema.giftTypes, eq(schema.guestGifts.giftTypeId, schema.giftTypes.id))
             .where(eq(schema.guestGifts.clientId, input.clientId))
           break
       }
@@ -590,8 +582,8 @@ export const importRouter = router({
       }
     }),
 
-  // Upload and import data
-  importData: adminProcedure
+  // Pre-import validation - validate file structure before import
+  validateImport: adminProcedure
     .input(z.object({
       module: moduleTypes,
       clientId: z.string().uuid(),
@@ -607,6 +599,126 @@ export const importRouter = router({
         where: and(
           eq(schema.clients.id, input.clientId),
           eq(schema.clients.companyId, ctx.companyId)
+        ),
+      })
+
+      if (!client) throw new TRPCError({ code: 'FORBIDDEN' })
+
+      // Parse uploaded file
+      const buffer = Buffer.from(input.fileData, 'base64')
+      const workbook = new ExcelJS.Workbook()
+      await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength))
+
+      // Find the data worksheet (skip instructions sheet)
+      const worksheet = workbook.worksheets.find(ws =>
+        !ws.name.includes('INSTRUCTIONS') && !ws.name.includes('READ FIRST')
+      ) || workbook.worksheets.find(ws => ws.rowCount > 1) || workbook.worksheets[0]
+
+      if (!worksheet) {
+        return {
+          valid: false,
+          error: 'No worksheet found in the uploaded file',
+          rowCount: 0,
+          columns: [],
+        }
+      }
+
+      // Get headers from first row
+      const headers: string[] = []
+      const headerRow = worksheet.getRow(1)
+      headerRow.eachCell((cell) => {
+        const value = cell.value
+        if (value !== null && value !== undefined) {
+          headers.push(String(value).toLowerCase().replace(/[*\s()]/g, ''))
+        }
+      })
+
+      // Required columns per module (normalized - lowercase, no special chars)
+      const requiredColumns: Record<string, string[]> = {
+        guests: ['name', 'guestname', 'firstname'],
+        vendors: ['vendorname', 'name', 'category'],
+        budget: ['item', 'category', 'estimatedcost'],
+        gifts: ['giftname', 'name'],
+        hotels: ['guestname', 'name'],
+        transport: ['guestname', 'name'],
+        guestGifts: ['guestname', 'giftname'],
+      }
+
+      const required = requiredColumns[input.module] || []
+      const normalizedHeaders = headers.map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ''))
+
+      // Check if at least one required column pattern is present
+      const hasRequiredColumn = required.some(req =>
+        normalizedHeaders.some(h => h.includes(req))
+      )
+
+      if (!hasRequiredColumn && required.length > 0) {
+        return {
+          valid: false,
+          error: `Missing required column. Expected one of: ${required.join(', ')}. Found columns: ${headers.slice(0, 5).join(', ')}${headers.length > 5 ? '...' : ''}`,
+          rowCount: 0,
+          columns: headers,
+        }
+      }
+
+      // Count data rows (excluding header and optional hints row)
+      let dataRowCount = 0
+      let hintsRowDetected = false
+
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return // Skip header
+
+        if (rowNumber === 2) {
+          // Check if row 2 is a hints row
+          const firstCellValue = String(row.getCell(1).value || '').toLowerCase()
+          const hintsPatterns = ['do not modify', 'required', 'yyyy-mm-dd', 'hh:mm', 'true/false', 'numbers only', 'example']
+          hintsRowDetected = hintsPatterns.some(pattern => firstCellValue.includes(pattern))
+          if (!hintsRowDetected) {
+            dataRowCount++
+          }
+        } else {
+          // Check if row has any data
+          let hasData = false
+          row.eachCell((cell) => {
+            if (cell.value !== null && cell.value !== undefined && String(cell.value).trim() !== '') {
+              hasData = true
+            }
+          })
+          if (hasData) {
+            dataRowCount++
+          }
+        }
+      })
+
+      return {
+        valid: true,
+        rowCount: dataRowCount,
+        columns: headers,
+        hintsRowDetected,
+        message: `Ready to import ${dataRowCount} ${input.module} record${dataRowCount !== 1 ? 's' : ''}`,
+      }
+    }),
+
+  // Upload and import data
+  importData: adminProcedure
+    .input(z.object({
+      module: moduleTypes,
+      clientId: z.string().uuid(),
+      fileData: z.string(), // base64 encoded Excel/CSV
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
+      }
+
+      // Store companyId as non-null for use in transaction scope
+      const companyId = ctx.companyId
+
+      // Verify client access
+      const client = await ctx.db.query.clients.findFirst({
+        where: and(
+          eq(schema.clients.id, input.clientId),
+          eq(schema.clients.companyId, companyId)
         ),
       })
 
@@ -732,45 +844,65 @@ export const importRouter = router({
 
       console.log('[Import] Processed', jsonData.length, 'data rows', hintsRowSkipped ? '(hints row skipped)' : '')
 
-      // Import results
+      // Import results - will be populated inside transaction
       const results = {
         updated: 0,
         created: 0,
-        errors: [] as string[]
+        errors: [] as string[],
+        cascadeActions: [] as { module: string; action: string; count: number }[]
       }
 
-      // Process each row
-      for (const [index, row] of jsonData.entries()) {
-        const rowNum = index + 2 // Excel row (1-indexed + header)
+      // Execute entire import within a transaction for atomicity
+      // If import fails catastrophically, entire operation is rolled back
+      await withTransaction(async (tx) => {
+        // Track cascade actions for cross-module sync
+        let hotelsCreated = 0
+        let transportCreated = 0
 
-        try {
-          switch (input.module) {
-            case 'guests':
-              await importGuest(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
-            case 'vendors':
-              await importVendor(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
-            case 'budget':
-              await importBudget(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
-            case 'gifts':
-              await importGift(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
-            case 'hotels':
-              await importHotel(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
-            case 'transport':
-              await importTransport(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
-            case 'guestGifts':
-              await importGuestGift(ctx.db, ctx.companyId, input.clientId, row, results)
-              break
+        // Process each row within transaction
+        for (const [index, row] of jsonData.entries()) {
+          const rowNum = index + 2 // Excel row (1-indexed + header)
+
+          try {
+            switch (input.module) {
+              case 'guests':
+                await importGuest(tx, companyId, input.clientId, row, results)
+                break
+              case 'vendors':
+                await importVendor(tx, companyId, input.clientId, row, results)
+                break
+              case 'budget':
+                await importBudget(tx, companyId, input.clientId, row, results)
+                break
+              case 'gifts':
+                await importGift(tx, companyId, input.clientId, row, results)
+                break
+              case 'hotels':
+                await importHotel(tx, companyId, input.clientId, row, results)
+                break
+              case 'transport':
+                await importTransport(tx, companyId, input.clientId, row, results)
+                break
+              case 'guestGifts':
+                await importGuestGift(tx, companyId, input.clientId, row, results)
+                break
+            }
+          } catch (error: any) {
+            results.errors.push(`Row ${rowNum}: ${error.message}`)
+
+            // If more than 50% of rows have errors, abort the transaction
+            const errorThreshold = Math.ceil(jsonData.length * 0.5)
+            if (results.errors.length > errorThreshold) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: `Import aborted: Too many errors (${results.errors.length} errors in ${jsonData.length} rows). First error: ${results.errors[0]}. All changes have been rolled back.`
+              })
+            }
           }
-        } catch (error: any) {
-          results.errors.push(`Row ${rowNum}: ${error.message}`)
         }
-      }
+
+        console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.errors.length} errors`)
+      })
 
       // ===== TRIGGER GOOGLE SHEETS AUTO-SYNC =====
       // Sync changes to mastersheet if any records were updated or created
@@ -791,14 +923,8 @@ export const importRouter = router({
           if (entityType) {
             console.log(`[Import] Triggering Google Sheets sync for ${results.updated + results.created} ${input.module} records`)
 
-            // Create batch sync changes - one entry to trigger sync for this entity type
-            await triggerBatchSync(ctx.companyId, input.clientId, [
-              {
-                entityType,
-                entityId: input.clientId, // Use clientId as entity for batch sync
-                operation: 'update' as const,
-              },
-            ])
+            // Create batch sync changes - triggerBatchSync takes (entityType, ids[])
+            await triggerBatchSync(entityType, [input.clientId])
 
             console.log(`[Import] Google Sheets sync triggered successfully for ${input.module}`)
           }
@@ -1103,22 +1229,23 @@ async function importGuest(
       pickupTime = guestData.arrivalDatetime.toTimeString().slice(0, 5) // HH:MM
     }
 
-    // Build vehicle info
+    // Build vehicle info from arrival/departure modes
     const vehicleParts: string[] = []
-    if (guestData.transportType) vehicleParts.push(guestData.transportType)
-    if (guestData.arrivalMode) vehicleParts.push(`(${guestData.arrivalMode})`)
+    if (guestData.arrivalMode) vehicleParts.push(guestData.arrivalMode)
+    if (guestData.departureMode && guestData.departureMode !== guestData.arrivalMode) {
+      vehicleParts.push(`(Depart: ${guestData.departureMode})`)
+    }
     const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
 
     if (existingTransport) {
       // Update existing transport entry
+      // Note: pickupFrom and notes are not available in guest import data
       await db
         .update(schema.guestTransport)
         .set({
           guestName: guestFullName,
           pickupDate,
-          pickupFrom: guestData.transportPickupLocation || null,
           vehicleInfo,
-          notes: guestData.transportNotes || null,
           updatedAt: new Date(),
         })
         .where(eq(schema.guestTransport.id, existingTransport.id))
@@ -1131,10 +1258,8 @@ async function importGuest(
         legType: 'arrival',
         legSequence: 1,
         pickupDate,
-        pickupFrom: guestData.transportPickupLocation || null,
         vehicleInfo,
         transportStatus: 'scheduled',
-        notes: guestData.transportNotes || null,
       })
     }
   } else if (guestData.transportRequired === false) {
@@ -1977,29 +2102,15 @@ async function importGuestGift(
     return isNaN(num) || num < 1 ? 1 : num
   }
 
-  // Try to find gift type by name if provided
-  let giftTypeId: string | null = null
-  const giftTypeName = getRowValue(row, 'Gift Type', 'gift_type', 'GiftType', 'Type', 'Category')
-  if (giftTypeName) {
-    const giftType = await db.query.giftTypes.findFirst({
-      where: and(
-        eq(schema.giftTypes.clientId, clientId),
-        eq(schema.giftTypes.name, giftTypeName)
-      ),
-    })
-    giftTypeId = giftType?.id || null
-  }
+  // Get gift type name
+  const giftTypeName = getRowValue(row, 'Gift Type', 'gift_type', 'GiftType', 'Type', 'Category') || null
 
+  // Build guestGiftData matching actual schema: id, clientId, guestId, name, type, quantity
   const guestGiftData = {
     guestId: guestId || null,
-    giftTypeId,
-    giftName,
+    name: giftName,
+    type: giftTypeName,
     quantity: parseQuantity(getRowValue(row, 'Quantity', 'quantity', 'Qty', 'Count', 'Amount')),
-    deliveryDate: parseDate(getRowValue(row, 'Delivery Date', 'delivery_date', 'DeliveryDate', 'Date', 'Given Date')),
-    deliveryTime: parseTime(getRowValue(row, 'Delivery Time', 'delivery_time', 'DeliveryTime', 'Time')),
-    deliveryStatus: getRowValue(row, 'Delivery Status', 'delivery_status', 'DeliveryStatus', 'Status') || 'pending',
-    deliveredBy: getRowValue(row, 'Delivered By', 'delivered_by', 'DeliveredBy', 'Given By', 'By') || null,
-    notes: getRowValue(row, 'Notes', 'Special Notes', 'notes', 'Comments', 'Remarks') || null,
     updatedAt: new Date(),
   }
 
@@ -2016,13 +2127,13 @@ async function importGuestGift(
   }
 
   // If no ID or ID not found, try to match by gift name (case-insensitive)
-  // For guest gifts, we match by giftName since the same gift could go to multiple guests
+  // For guest gifts, we match by name since the same gift could go to multiple guests
   if (!existingGuestGift && giftName) {
     const allGuestGifts = await db.query.guestGifts.findMany({
       where: eq(schema.guestGifts.clientId, clientId),
     })
     existingGuestGift = allGuestGifts.find(
-      (g: any) => g.giftName.toLowerCase().trim() === giftName.toLowerCase().trim()
+      (g: any) => g.name?.toLowerCase().trim() === giftName.toLowerCase().trim()
     )
   }
 
@@ -2036,7 +2147,9 @@ async function importGuestGift(
     results.updated++
   } else {
     // Create new guest gift
+    const { nanoid } = await import('nanoid')
     await db.insert(schema.guestGifts).values({
+      id: nanoid(),
       ...guestGiftData,
       clientId,
     })

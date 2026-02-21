@@ -334,70 +334,72 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // First, create vendor in vendors table (only valid fields for this table)
-      const [vendor] = await ctx.db
-        .insert(vendors)
-        .values({
-          id: crypto.randomUUID(),
-          companyId: ctx.companyId,
-          name: input.vendorName,
-          category: input.category as any,
-          contactName: input.contactName || null,
-          email: input.email || null,
-          phone: input.phone || null,
-          website: input.website || null,
-          contractSigned: input.contractSigned || false,
-          contractDate: input.contractDate || null,
-          notes: input.notes || null,
-          isPreferred: input.isPreferred || false,
-        })
-        .returning()
+      // Execute all vendor creation operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      if (!vendor) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create vendor'
-        })
-      }
+        // 1. Create vendor in vendors table
+        const [vendor] = await tx
+          .insert(vendors)
+          .values({
+            id: crypto.randomUUID(),
+            companyId: ctx.companyId,
+            name: input.vendorName,
+            category: input.category as any,
+            contactName: input.contactName || null,
+            email: input.email || null,
+            phone: input.phone || null,
+            website: input.website || null,
+            contractSigned: input.contractSigned || false,
+            contractDate: input.contractDate || null,
+            notes: input.notes || null,
+            isPreferred: input.isPreferred || false,
+          })
+          .returning()
 
-      // Then create client_vendor relationship with enhanced fields
-      const [clientVendor] = await ctx.db
-        .insert(clientVendors)
-        .values({
-          id: crypto.randomUUID(),
-          clientId: input.clientId,
-          vendorId: vendor.id,
-          contractAmount: input.cost ? String(input.cost) : null,
-          depositAmount: input.depositAmount ? String(input.depositAmount) : null,
-          serviceDate: input.serviceDate || null,
-          depositPaid: input.depositPaid || false,
-          paymentStatus: (input.paymentStatus || 'pending') as any,
-          notes: input.notes || null,
-          // Enhanced fields
-          eventId: input.eventId || null,
-          venueAddress: input.venueAddress || null,
-          onsitePocName: input.onsitePocName || null,
-          onsitePocPhone: input.onsitePocPhone || null,
-          onsitePocNotes: input.onsitePocNotes || null,
-          deliverables: input.deliverables || null,
-          approvalStatus: 'pending' as any,
-        })
-        .returning()
+        if (!vendor) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create vendor'
+          })
+        }
 
-      if (!clientVendor) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create client vendor relationship'
-        })
-      }
+        // 2. Create client_vendor relationship with enhanced fields
+        const [clientVendor] = await tx
+          .insert(clientVendors)
+          .values({
+            id: crypto.randomUUID(),
+            clientId: input.clientId,
+            vendorId: vendor.id,
+            contractAmount: input.cost ? String(input.cost) : null,
+            depositAmount: input.depositAmount ? String(input.depositAmount) : null,
+            serviceDate: input.serviceDate || null,
+            depositPaid: input.depositPaid || false,
+            paymentStatus: (input.paymentStatus || 'pending') as any,
+            notes: input.notes || null,
+            // Enhanced fields
+            eventId: input.eventId || null,
+            venueAddress: input.venueAddress || null,
+            onsitePocName: input.onsitePocName || null,
+            onsitePocPhone: input.onsitePocPhone || null,
+            onsitePocNotes: input.onsitePocNotes || null,
+            deliverables: input.deliverables || null,
+            approvalStatus: 'pending' as any,
+          })
+          .returning()
 
-      // Auto-create budget item for this vendor (seamless module integration)
-      // Always create budget entry so vendors appear in budget, even without cost
-      try {
-        // Get event name for category (shows which event the vendor cost is for)
+        if (!clientVendor) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create client vendor relationship'
+          })
+        }
+
+        // 3. Auto-create budget item (within transaction - atomic)
         let budgetCategory = 'Unassigned'
         if (input.eventId) {
-          const [event] = await ctx.db
+          const [event] = await tx
             .select({ title: events.title })
             .from(events)
             .where(eq(events.id, input.eventId))
@@ -407,13 +409,13 @@ export const vendorsRouter = router({
           }
         }
 
-        await ctx.db.insert(budget).values({
+        await tx.insert(budget).values({
           id: crypto.randomUUID(),
           clientId: input.clientId,
           vendorId: vendor.id,
           eventId: input.eventId || null,
-          category: budgetCategory, // Event name as category for clarity
-          segment: 'vendors', // All vendor costs go to vendors segment
+          category: budgetCategory,
+          segment: 'vendors',
           item: input.vendorName,
           estimatedCost: input.cost ? String(input.cost) : '0',
           actualCost: null,
@@ -423,16 +425,12 @@ export const vendorsRouter = router({
           isLumpSum: false,
           notes: `Auto-created from vendor: ${input.vendorName}`,
         })
-      } catch (budgetError) {
-        // Log but don't fail - vendor was created successfully
-        console.warn('Failed to auto-create budget item for vendor:', budgetError)
-      }
+        cascadeActions.push({ module: 'budget', action: 'created', count: 1 })
 
-      // TIMELINE SYNC: Create timeline entry if service date is set
-      if (input.serviceDate) {
-        try {
+        // 4. TIMELINE SYNC: Create timeline entry if service date is set (within transaction)
+        if (input.serviceDate) {
           const serviceDateTime = new Date(input.serviceDate)
-          await ctx.db.insert(timeline).values({
+          await tx.insert(timeline).values({
             id: crypto.randomUUID(),
             clientId: input.clientId,
             title: `${input.vendorName} - ${input.category || 'Vendor Service'}`,
@@ -442,33 +440,56 @@ export const vendorsRouter = router({
             responsiblePerson: input.contactName || input.onsitePocName || null,
             notes: input.notes || null,
             sourceModule: 'vendors',
-            sourceId: clientVendor?.id || vendor.id,
+            sourceId: clientVendor.id,
             metadata: JSON.stringify({ category: input.category, vendorId: vendor.id }),
           })
+          cascadeActions.push({ module: 'timeline', action: 'created', count: 1 })
           console.log(`[Timeline] Auto-created entry for vendor service: ${input.vendorName}`)
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to auto-create timeline entry for vendor:', timelineError)
         }
-      }
 
-      // AUTO-LINK: If serviceDate is set but no eventId, try to auto-link to event on same date
-      if (input.serviceDate && !input.eventId && clientVendor) {
-        try {
-          await autoLinkVendorToEvent(
-            ctx.db as any,
-            clientVendor.id,
-            input.clientId,
-            input.serviceDate,
-            vendor.id
-          );
-        } catch (linkError) {
-          console.warn('[Vendor Auto-Link] Failed to auto-link vendor to event:', linkError);
+        // 5. AUTO-LINK: If serviceDate is set but no eventId, try to auto-link (within transaction)
+        let linkedEvent = null
+        if (input.serviceDate && !input.eventId) {
+          // Extract just the date part (YYYY-MM-DD) from serviceDate
+          const serviceDateStr = input.serviceDate.split('T')[0]
+
+          // Find event on the same date
+          const [matchingEvent] = await tx
+            .select({ id: events.id, title: events.title })
+            .from(events)
+            .where(and(eq(events.clientId, input.clientId), eq(events.eventDate, serviceDateStr)))
+            .limit(1)
+
+          if (matchingEvent) {
+            // Link vendor to the matching event
+            await tx.update(clientVendors)
+              .set({ eventId: matchingEvent.id, updatedAt: new Date() })
+              .where(eq(clientVendors.id, clientVendor.id))
+
+            // Also update linked budget item to match the event
+            await tx.update(budget)
+              .set({ eventId: matchingEvent.id, category: matchingEvent.title, updatedAt: new Date() })
+              .where(eq(budget.vendorId, vendor.id))
+
+            linkedEvent = matchingEvent
+            console.log(`[Vendor Auto-Link] Linked vendor ${vendor.id} to event "${matchingEvent.title}" based on service date ${serviceDateStr}`)
+          }
         }
-      }
+
+        return {
+          vendor,
+          clientVendor,
+          linkedEvent,
+          cascadeActions,
+        }
+      })
+
+      console.log(`[Vendor Create] Created vendor ${result.vendor.id} with cascade:`, result.cascadeActions)
 
       return {
-        ...clientVendor,
-        ...vendor
+        ...result.clientVendor,
+        ...result.vendor,
+        cascadeActions: result.cascadeActions,
       }
     }),
 

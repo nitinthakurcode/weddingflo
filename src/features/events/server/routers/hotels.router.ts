@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
 import { hotels, clients, guests, timeline, accommodations } from '@/lib/db/schema'
 import { randomUUID } from 'crypto'
+import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 
 /**
  * Hotels tRPC Router - Drizzle ORM Version
@@ -46,6 +47,9 @@ export const hotelsRouter = router({
       return hotelList
     }),
 
+  /**
+   * SECURITY: Verifies hotel belongs to a client owned by the user's company
+   */
   getById: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -53,17 +57,25 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const [hotel] = await ctx.db
-        .select()
+      // Join with clients to verify company ownership
+      const [result] = await ctx.db
+        .select({ hotel: hotels })
         .from(hotels)
-        .where(eq(hotels.id, input.id))
+        .innerJoin(clients, eq(hotels.clientId, clients.id))
+        .where(
+          and(
+            eq(hotels.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
         .limit(1)
 
-      if (!hotel) {
+      if (!result) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      return hotel
+      return result.hotel
     }),
 
   create: adminProcedure
@@ -134,44 +146,48 @@ export const hotelsRouter = router({
         }
       }
 
-      // Create hotel record
-      const [hotel] = await ctx.db
-        .insert(hotels)
-        .values({
-          clientId: input.clientId,
-          guestId: input.guestId || null,
-          guestName: input.guestName,
-          partySize: input.partySize || 1,
-          guestNamesInRoom: input.guestNamesInRoom || null,
-          roomAssignments: input.roomAssignments || {},
-          hotelName: input.hotelName || null,
-          roomNumber: input.roomNumber || null,
-          roomType: input.roomType || null,
-          checkInDate: effectiveCheckIn,
-          checkOutDate: effectiveCheckOut,
-          accommodationNeeded: input.accommodationNeeded,
-          cost: input.cost?.toString() || null,
-          notes: input.notes || null,
-        })
-        .returning()
+      // Execute all hotel creation operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      if (!hotel) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create hotel record'
-        })
-      }
+        // 1. Create hotel record
+        const [hotel] = await tx
+          .insert(hotels)
+          .values({
+            clientId: input.clientId,
+            guestId: input.guestId || null,
+            guestName: input.guestName,
+            partySize: input.partySize || 1,
+            guestNamesInRoom: input.guestNamesInRoom || null,
+            roomAssignments: input.roomAssignments || {},
+            hotelName: input.hotelName || null,
+            roomNumber: input.roomNumber || null,
+            roomType: input.roomType || null,
+            checkInDate: effectiveCheckIn,
+            checkOutDate: effectiveCheckOut,
+            accommodationNeeded: input.accommodationNeeded,
+            cost: input.cost?.toString() || null,
+            notes: input.notes || null,
+          })
+          .returning()
 
-      // AUTO-CREATE ACCOMMODATION: If hotelName is provided, ensure accommodation exists
-      if (input.hotelName && input.hotelName.trim()) {
-        try {
+        if (!hotel) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create hotel record'
+          })
+        }
+
+        // 2. AUTO-CREATE ACCOMMODATION (within transaction - atomic)
+        if (input.hotelName && input.hotelName.trim()) {
           const hotelName = input.hotelName.trim()
-          const clientIdStr = String(input.clientId) // Ensure string type for UUID
+          const clientIdStr = String(input.clientId)
 
           console.log(`[Accommodation] Creating - Checking for existing accommodation: "${hotelName}" for client: ${clientIdStr}`)
 
           // Check if accommodation with this name exists for the client
-          const [existingAccommodation] = await ctx.db
+          const [existingAccommodation] = await tx
             .select({ id: accommodations.id })
             .from(accommodations)
             .where(
@@ -186,7 +202,7 @@ export const hotelsRouter = router({
           if (!existingAccommodation) {
             console.log(`[Accommodation] No existing accommodation found, creating new one...`)
             // Create new accommodation record
-            const [newAccommodation] = await ctx.db
+            const [newAccommodation] = await tx
               .insert(accommodations)
               .values({
                 clientId: clientIdStr,
@@ -196,42 +212,32 @@ export const hotelsRouter = router({
 
             if (newAccommodation) {
               // Update hotel record with accommodation link
-              await ctx.db
+              await tx
                 .update(hotels)
                 .set({ accommodationId: newAccommodation.id })
                 .where(eq(hotels.id, hotel.id))
 
+              cascadeActions.push({ module: 'accommodation', action: 'created', count: 1 })
               console.log(`[Accommodation] Auto-created accommodation: ${hotelName} with id: ${newAccommodation.id}`)
-            } else {
-              console.warn(`[Accommodation] Insert returned no result for: ${hotelName}`)
             }
           } else {
             // Link hotel to existing accommodation
-            await ctx.db
+            await tx
               .update(hotels)
               .set({ accommodationId: existingAccommodation.id })
               .where(eq(hotels.id, hotel.id))
 
             console.log(`[Accommodation] Linked hotel to existing accommodation: ${hotelName}`)
           }
-        } catch (accommodationError: any) {
-          console.error('[Accommodation] Failed to auto-create/link accommodation:', {
-            error: accommodationError?.message || accommodationError,
-            hotelName: input.hotelName,
-            clientId: input.clientId,
-            stack: accommodationError?.stack
-          })
         }
-      }
 
-      // TIMELINE SYNC: Create timeline entry for check-in if date is provided
-      if (effectiveCheckIn && hotel) {
-        try {
+        // 3. TIMELINE SYNC: Create timeline entry for check-in (within transaction)
+        if (effectiveCheckIn) {
           const checkInDateTime = new Date(effectiveCheckIn)
           // Default check-in time is 3 PM
           checkInDateTime.setHours(15, 0, 0, 0)
 
-          await ctx.db.insert(timeline).values({
+          await tx.insert(timeline).values({
             id: randomUUID(),
             clientId: input.clientId,
             title: `Hotel Check-in: ${input.guestName}`,
@@ -246,15 +252,24 @@ export const hotelsRouter = router({
               type: 'check-in',
             }),
           })
+          cascadeActions.push({ module: 'timeline', action: 'created', count: 1 })
           console.log(`[Timeline] Created hotel check-in entry: ${input.guestName}`)
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to create timeline entry for hotel:', timelineError)
         }
-      }
 
-      return hotel
+        return { hotel, cascadeActions }
+      })
+
+      console.log(`[Hotel Create] Created hotel ${result.hotel.id} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.hotel,
+        cascadeActions: result.cascadeActions,
+      }
     }),
 
+  /**
+   * SECURITY: Verifies hotel belongs to a client owned by the user's company
+   */
   update: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -282,6 +297,24 @@ export const hotelsRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify hotel belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: hotels.id, clientId: hotels.clientId })
+        .from(hotels)
+        .innerJoin(clients, eq(hotels.clientId, clients.id))
+        .where(
+          and(
+            eq(hotels.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
 
       // Build update object
@@ -454,11 +487,32 @@ export const hotelsRouter = router({
       return hotel
     }),
 
+  /**
+   * SECURITY: Verifies hotel belongs to a client owned by the user's company
+   */
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify hotel belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: hotels.id })
+        .from(hotels)
+        .innerJoin(clients, eq(hotels.clientId, clients.id))
+        .where(
+          and(
+            eq(hotels.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
 
       await ctx.db
@@ -483,11 +537,32 @@ export const hotelsRouter = router({
       return { success: true }
     }),
 
+  /**
+   * SECURITY: Verifies hotel belongs to a client owned by the user's company
+   */
   checkIn: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify hotel belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: hotels.id })
+        .from(hotels)
+        .innerJoin(clients, eq(hotels.clientId, clients.id))
+        .where(
+          and(
+            eq(hotels.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
 
       const [hotel] = await ctx.db
@@ -498,13 +573,6 @@ export const hotelsRouter = router({
         })
         .where(eq(hotels.id, input.id))
         .returning()
-
-      if (!hotel) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Hotel record not found'
-        })
-      }
 
       return hotel
     }),

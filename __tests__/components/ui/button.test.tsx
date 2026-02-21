@@ -41,29 +41,29 @@ describe('Button', () => {
   it('should render with default variant', () => {
     render(<Button>Click me</Button>)
     const button = screen.getByRole('button', { name: /click me/i })
-    // Default variant uses gradient from primary to secondary
-    expect(button).toHaveClass('bg-gradient-to-r')
+    // Default variant uses bg-primary
+    expect(button).toHaveClass('bg-primary')
   })
 
   it('should render with destructive variant', () => {
     render(<Button variant="destructive">Delete</Button>)
     const button = screen.getByRole('button', { name: /delete/i })
-    // Destructive variant uses gradient from destructive
-    expect(button).toHaveClass('from-destructive')
+    // Destructive variant uses bg-destructive
+    expect(button).toHaveClass('bg-destructive')
   })
 
   it('should render with outline variant', () => {
     render(<Button variant="outline">Cancel</Button>)
     const button = screen.getByRole('button', { name: /cancel/i })
-    // Outline variant uses border-2
-    expect(button).toHaveClass('border-2')
+    // Outline variant uses border
+    expect(button).toHaveClass('border')
   })
 
   it('should render with secondary variant', () => {
     render(<Button variant="secondary">Secondary</Button>)
     const button = screen.getByRole('button', { name: /secondary/i })
-    // Secondary variant uses gradient from secondary to accent
-    expect(button).toHaveClass('from-secondary')
+    // Secondary variant uses bg-secondary
+    expect(button).toHaveClass('bg-secondary')
   })
 
   it('should render with ghost variant', () => {
@@ -88,14 +88,14 @@ describe('Button', () => {
   it('should render with large size', () => {
     render(<Button size="lg">Large</Button>)
     const button = screen.getByRole('button', { name: /large/i })
-    expect(button).toHaveClass('h-10')
+    expect(button).toHaveClass('h-11')
   })
 
   it('should render with icon size', () => {
     render(<Button size="icon" aria-label="icon button">X</Button>)
     const button = screen.getByRole('button', { name: /icon button/i })
-    expect(button).toHaveClass('h-9')
-    expect(button).toHaveClass('w-9')
+    expect(button).toHaveClass('h-10')
+    expect(button).toHaveClass('w-10')
   })
 
   it('should accept custom className', () => {

@@ -12,6 +12,7 @@ import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, or, lte } from 'drizzle-orm'
 import { guestTransport, guests, clients, timeline, vehicles } from '@/lib/db/schema'
 import { nanoid } from 'nanoid'
+import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 
 // Vehicle types available for selection
 const VEHICLE_TYPES = ['sedan', 'suv', 'bus', 'van', 'tempo', 'minibus', 'luxury', 'other'] as const
@@ -113,88 +114,93 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      let vehicleId: string | null = null
+      // Execute all transport creation operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
+        let vehicleId: string | null = null
 
-      // VEHICLE TRACKING: Auto-create or update vehicle record if vehicle number is provided
-      if (input.vehicleNumber) {
-        const [existingVehicle] = await ctx.db
-          .select()
-          .from(vehicles)
-          .where(
-            and(
-              eq(vehicles.clientId, input.clientId),
-              eq(vehicles.vehicleNumber, input.vehicleNumber)
+        // 1. VEHICLE TRACKING: Auto-create or update vehicle record if vehicle number is provided (within transaction)
+        if (input.vehicleNumber) {
+          const [existingVehicle] = await tx
+            .select()
+            .from(vehicles)
+            .where(
+              and(
+                eq(vehicles.clientId, input.clientId),
+                eq(vehicles.vehicleNumber, input.vehicleNumber)
+              )
             )
-          )
-          .limit(1)
+            .limit(1)
 
-        const availableAt = calculateAvailableAt(input.pickupDate || null, input.pickupTime || null)
+          const availableAt = calculateAvailableAt(input.pickupDate || null, input.pickupTime || null)
 
-        if (existingVehicle) {
-          // Update existing vehicle
-          vehicleId = existingVehicle.id
-          await ctx.db
-            .update(vehicles)
-            .set({
-              vehicleType: input.vehicleType || existingVehicle.vehicleType,
-              driverPhone: input.driverPhone || existingVehicle.driverPhone,
-              coordinatorPhone: input.coordinatorPhone || existingVehicle.coordinatorPhone,
-              status: 'in_use',
-              availableAt,
-              updatedAt: new Date(),
-            })
-            .where(eq(vehicles.id, existingVehicle.id))
-        } else {
-          // Create new vehicle record
-          const [newVehicle] = await ctx.db
-            .insert(vehicles)
-            .values({
-              clientId: input.clientId,
-              vehicleNumber: input.vehicleNumber,
-              vehicleType: input.vehicleType || null,
-              driverPhone: input.driverPhone || null,
-              coordinatorPhone: input.coordinatorPhone || null,
-              status: 'in_use',
-              availableAt,
-            })
-            .returning()
-          vehicleId = newVehicle.id
+          if (existingVehicle) {
+            // Update existing vehicle
+            vehicleId = existingVehicle.id
+            await tx
+              .update(vehicles)
+              .set({
+                vehicleType: input.vehicleType || existingVehicle.vehicleType,
+                driverPhone: input.driverPhone || existingVehicle.driverPhone,
+                coordinatorPhone: input.coordinatorPhone || existingVehicle.coordinatorPhone,
+                status: 'in_use',
+                availableAt,
+                updatedAt: new Date(),
+              })
+              .where(eq(vehicles.id, existingVehicle.id))
+          } else {
+            // Create new vehicle record
+            const [newVehicle] = await tx
+              .insert(vehicles)
+              .values({
+                clientId: input.clientId,
+                vehicleNumber: input.vehicleNumber,
+                vehicleType: input.vehicleType || null,
+                driverPhone: input.driverPhone || null,
+                coordinatorPhone: input.coordinatorPhone || null,
+                status: 'in_use',
+                availableAt,
+              })
+              .returning()
+            vehicleId = newVehicle.id
+            cascadeActions.push({ module: 'vehicle', action: 'created', count: 1 })
+          }
         }
-      }
 
-      const [transport] = await ctx.db
-        .insert(guestTransport)
-        .values({
-          clientId: input.clientId,
-          guestId: input.guestId || null,
-          guestName: input.guestName,
-          pickupDate: input.pickupDate || null,
-          pickupFrom: input.pickupFrom || null,
-          dropTo: input.dropTo || null,
-          vehicleInfo: input.vehicleInfo || null,
-          vehicleType: input.vehicleType || null,
-          vehicleNumber: input.vehicleNumber || null,
-          vehicleId,
-          driverPhone: input.driverPhone || null,
-          coordinatorPhone: input.coordinatorPhone || null,
-          legType: input.legType,
-          legSequence: 1,
-          transportStatus: 'scheduled',
-          notes: input.notes || null,
-        })
-        .returning()
+        // 2. Create transport record (within transaction)
+        const [transport] = await tx
+          .insert(guestTransport)
+          .values({
+            clientId: input.clientId,
+            guestId: input.guestId || null,
+            guestName: input.guestName,
+            pickupDate: input.pickupDate || null,
+            pickupFrom: input.pickupFrom || null,
+            dropTo: input.dropTo || null,
+            vehicleInfo: input.vehicleInfo || null,
+            vehicleType: input.vehicleType || null,
+            vehicleNumber: input.vehicleNumber || null,
+            vehicleId,
+            driverPhone: input.driverPhone || null,
+            coordinatorPhone: input.coordinatorPhone || null,
+            legType: input.legType,
+            legSequence: 1,
+            transportStatus: 'scheduled',
+            notes: input.notes || null,
+          })
+          .returning()
 
-      // Update vehicle with current transport ID
-      if (vehicleId && transport) {
-        await ctx.db
-          .update(vehicles)
-          .set({ currentTransportId: transport.id })
-          .where(eq(vehicles.id, vehicleId))
-      }
+        // 3. Update vehicle with current transport ID (within transaction)
+        if (vehicleId && transport) {
+          await tx
+            .update(vehicles)
+            .set({ currentTransportId: transport.id })
+            .where(eq(vehicles.id, vehicleId))
+        }
 
-      // TIMELINE SYNC: Create timeline entry if pickupDate is provided
-      if (input.pickupDate && transport) {
-        try {
+        // 4. TIMELINE SYNC: Create timeline entry if pickupDate is provided (within transaction)
+        if (input.pickupDate && transport) {
           const legTypeLabels: Record<string, string> = {
             arrival: 'Arrival',
             departure: 'Departure',
@@ -215,7 +221,7 @@ export const guestTransportRouter = router({
           if (input.dropTo) locationParts.push(`To: ${input.dropTo}`)
           const location = locationParts.join(' → ') || null
 
-          await ctx.db.insert(timeline).values({
+          await tx.insert(timeline).values({
             id: nanoid(),
             clientId: input.clientId,
             title: `${legLabel}: ${input.guestName}`,
@@ -227,13 +233,19 @@ export const guestTransportRouter = router({
             sourceId: transport.id,
             metadata: JSON.stringify({ guestId: input.guestId, legType: input.legType }),
           })
+          cascadeActions.push({ module: 'timeline', action: 'created', count: 1 })
           console.log(`[Timeline] Created transport entry: ${legLabel} - ${input.guestName}`)
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to create timeline entry for transport:', timelineError)
         }
-      }
 
-      return transport
+        return { transport, cascadeActions }
+      })
+
+      console.log(`[Transport Create] Created transport ${result.transport.id} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.transport,
+        cascadeActions: result.cascadeActions,
+      }
     }),
 
   // Update transport entry
