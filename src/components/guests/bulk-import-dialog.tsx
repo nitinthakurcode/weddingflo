@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Upload, FileText, Download } from 'lucide-react';
+import { Upload, FileText, Download, AlertCircle, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BulkImportRow } from '@/types/guest';
 import { trpc } from '@/lib/trpc/client';
@@ -30,6 +30,7 @@ export function BulkImportDialog({
   const { toast } = useToast();
   const [isImporting, setIsImporting] = useState(false);
   const [previewData, setPreviewData] = useState<BulkImportRow[]>([]);
+  const [importErrors, setImportErrors] = useState<Array<{ row: number; name: string; error: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
 
@@ -50,14 +51,23 @@ export function BulkImportDialog({
     },
   });
 
-  const bulkImportGuests = async (guests: any[]) => {
-    const results = { created: 0, updated: 0 };
+  interface ImportResult {
+    created: number;
+    updated: number;
+    errors: Array<{ row: number; name: string; error: string }>;
+  }
 
-    for (const guest of guests) {
+  const bulkImportGuests = async (guests: any[]): Promise<ImportResult> => {
+    const results: ImportResult = { created: 0, updated: 0, errors: [] };
+
+    for (let i = 0; i < guests.length; i++) {
+      const guest = guests[i];
+      const guestName = `${guest.first_name} ${guest.last_name || ''}`.trim();
+
       // Check if guest exists by matching name, email, or phone
       const existing = existingGuests?.find((g: any) => {
         const existingFullName = `${g.first_name} ${g.last_name || ''}`.trim().toLowerCase();
-        const guestFullName = `${guest.first_name} ${guest.last_name || ''}`.trim().toLowerCase();
+        const guestFullName = guestName.toLowerCase();
         return existingFullName === guestFullName ||
           (g.email && guest.email && g.email === guest.email) ||
           (g.phone && guest.phone && g.phone === guest.phone);
@@ -77,7 +87,13 @@ export function BulkImportDialog({
           results.created++;
         }
       } catch (error) {
-        console.error('Error importing guest:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        results.errors.push({
+          row: i + 2, // +2 because row 1 is header, and array is 0-indexed
+          name: guestName || `Row ${i + 2}`,
+          error: errorMessage,
+        });
+        console.error(`Error importing guest at row ${i + 2}:`, error);
       }
     }
 
@@ -245,16 +261,46 @@ Mary Smith,+1234567891,mary@example.com,1,,2024-12-14 18:00,Car,2024-12-19 12:00
       if (result.updated > 0) {
         messages.push(`Updated ${result.updated} existing guest${result.updated > 1 ? 's' : ''}`);
       }
+      if (result.errors.length > 0) {
+        messages.push(`${result.errors.length} failed`);
+      }
 
-      toast({
-        title: 'Import Complete',
-        description: messages.length > 0
-          ? messages.join('. ') + '.'
-          : 'No changes made',
-      });
+      // Show appropriate toast based on results
+      if (result.errors.length > 0) {
+        // Show warning with error details
+        const errorDetails = result.errors.slice(0, 3).map(e => `Row ${e.row}: ${e.name}`).join(', ');
+        const moreErrors = result.errors.length > 3 ? ` and ${result.errors.length - 3} more` : '';
+        toast({
+          title: 'Import completed with errors',
+          description: `${messages.join('. ')}. Failed: ${errorDetails}${moreErrors}`,
+          variant: 'warning',
+        });
 
-      setPreviewData([]);
-      onOpenChange(false);
+        // Log full error details to console for debugging
+        console.group('Import Errors');
+        result.errors.forEach(e => {
+          console.error(`Row ${e.row} (${e.name}): ${e.error}`);
+        });
+        console.groupEnd();
+      } else {
+        toast({
+          title: 'Import Complete',
+          description: messages.length > 0
+            ? messages.join('. ') + '.'
+            : 'No changes made',
+          variant: 'success',
+        });
+      }
+
+      // Store errors for display
+      setImportErrors(result.errors);
+
+      // Only close dialog if no errors, otherwise let user retry
+      if (result.errors.length === 0) {
+        setPreviewData([]);
+        setImportErrors([]);
+        onOpenChange(false);
+      }
     } catch (error) {
       console.error('Import error:', error);
       toast({
@@ -404,6 +450,53 @@ Mary Smith,+1234567891,mary@example.com,1,,2024-12-14 18:00,Car,2024-12-19 12:00
               >
                 {isImporting ? 'Importing...' : `Import ${previewData.length} Guests`}
               </Button>
+            </div>
+          )}
+
+          {/* Import Error Display */}
+          {importErrors.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    {importErrors.length} row{importErrors.length > 1 ? 's' : ''} failed to import
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setImportErrors([])}
+                  className="h-6 px-2"
+                >
+                  <XCircle className="h-3 w-3" />
+                </Button>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto border border-rose-200 dark:border-rose-800 rounded-md bg-rose-50 dark:bg-rose-950/30">
+                <table className="w-full text-sm">
+                  <thead className="bg-rose-100 dark:bg-rose-900/50 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-1 text-left text-rose-700 dark:text-rose-300">Row</th>
+                      <th className="px-2 py-1 text-left text-rose-700 dark:text-rose-300">Guest</th>
+                      <th className="px-2 py-1 text-left text-rose-700 dark:text-rose-300">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importErrors.map((err, index) => (
+                      <tr key={index} className="border-t border-rose-200 dark:border-rose-800">
+                        <td className="px-2 py-1 text-rose-600 dark:text-rose-400 font-mono">{err.row}</td>
+                        <td className="px-2 py-1">{err.name}</td>
+                        <td className="px-2 py-1 text-rose-600 dark:text-rose-400 text-xs">{err.error}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Fix the errors in your CSV file and re-upload, or remove the problematic rows.
+              </p>
             </div>
           )}
         </div>

@@ -2,8 +2,16 @@ import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, ilike, or } from 'drizzle-orm';
-import { clients, users, companies, events, clientUsers, budget, timeline, vendors, clientVendors } from '@/lib/db/schema';
-import type { UserRole, SubscriptionTier, SubscriptionStatus, WeddingType, BudgetSegment } from '@/lib/db/schema/enums';
+import {
+  clients, users, companies, events, clientUsers, budget, timeline, vendors, clientVendors,
+  guests, hotels, guestTransport, documents, floorPlans, floorPlanTables, floorPlanGuests,
+  gifts, giftsEnhanced, guestGifts, messages, payments, weddingWebsites, activity
+} from '@/lib/db/schema';
+import type { UserRole, SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
+import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
+
+// Budget category segment type (different from BudgetSegment which is budget tier)
+type BudgetCategorySegment = 'vendors' | 'artists' | 'creatives' | 'travel' | 'accommodation' | 'other';
 
 /**
  * Budget category templates by wedding type
@@ -12,7 +20,7 @@ import type { UserRole, SubscriptionTier, SubscriptionStatus, WeddingType, Budge
 const BUDGET_TEMPLATES: Record<WeddingType, Array<{
   category: string;
   item: string;
-  segment: BudgetSegment;
+  segment: BudgetCategorySegment;
   percentage: number;
 }>> = {
   traditional: [
@@ -73,6 +81,58 @@ const BUDGET_TEMPLATES: Record<WeddingType, Array<{
     { category: 'attire', item: 'Traditional Attire & Jewelry', segment: 'other', percentage: 10 },
     { category: 'cultural', item: 'Cultural Ceremonies & Rituals', segment: 'vendors', percentage: 8 },
     { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
+  ],
+  modern: [
+    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 35 },
+    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 25 },
+    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 12 },
+    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 6 },
+    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
+    { category: 'music', item: 'DJ & Entertainment', segment: 'artists', percentage: 5 },
+    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 5 },
+    { category: 'stationery', item: 'Digital Invitations', segment: 'creatives', percentage: 4 },
+  ],
+  rustic: [
+    { category: 'venue', item: 'Barn/Farm Venue', segment: 'vendors', percentage: 30 },
+    { category: 'catering', item: 'Farm-to-Table Catering', segment: 'vendors', percentage: 25 },
+    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 12 },
+    { category: 'florals', item: 'Wildflowers & Natural Decor', segment: 'vendors', percentage: 10 },
+    { category: 'music', item: 'Live Band/Music', segment: 'artists', percentage: 8 },
+    { category: 'rentals', item: 'Rustic Rentals & Props', segment: 'vendors', percentage: 8 },
+    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 4 },
+    { category: 'stationery', item: 'Handcrafted Invitations', segment: 'creatives', percentage: 3 },
+  ],
+  bohemian: [
+    { category: 'venue', item: 'Outdoor/Unique Venue', segment: 'vendors', percentage: 25 },
+    { category: 'catering', item: 'Organic Catering', segment: 'vendors', percentage: 22 },
+    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 15 },
+    { category: 'florals', item: 'Boho Florals & Greenery', segment: 'vendors', percentage: 12 },
+    { category: 'decor', item: 'Macrame & Boho Decor', segment: 'vendors', percentage: 10 },
+    { category: 'music', item: 'Acoustic Music', segment: 'artists', percentage: 6 },
+    { category: 'attire', item: 'Boho Attire', segment: 'other', percentage: 6 },
+    { category: 'stationery', item: 'Earthy Invitations', segment: 'creatives', percentage: 4 },
+  ],
+  religious: [
+    { category: 'venue', item: 'Ceremony & Reception Venues', segment: 'vendors', percentage: 30 },
+    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 22 },
+    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 10 },
+    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 5 },
+    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
+    { category: 'music', item: 'Music & Choir', segment: 'artists', percentage: 6 },
+    { category: 'religious', item: 'Religious Services & Officiant', segment: 'vendors', percentage: 8 },
+    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 6 },
+    { category: 'stationery', item: 'Invitations', segment: 'creatives', percentage: 5 },
+  ],
+  luxury: [
+    { category: 'venue', item: 'Premium Venue', segment: 'vendors', percentage: 30 },
+    { category: 'catering', item: 'Gourmet Catering & Fine Wines', segment: 'vendors', percentage: 20 },
+    { category: 'photography', item: 'High-End Photography', segment: 'vendors', percentage: 10 },
+    { category: 'videography', item: 'Cinematic Videography', segment: 'vendors', percentage: 8 },
+    { category: 'florals', item: 'Luxury Florals & Design', segment: 'vendors', percentage: 12 },
+    { category: 'music', item: 'Live Orchestra/Band', segment: 'artists', percentage: 8 },
+    { category: 'attire', item: 'Designer Attire & Jewelry', segment: 'other', percentage: 7 },
+    { category: 'stationery', item: 'Custom Invitations', segment: 'creatives', percentage: 3 },
+    { category: 'planner', item: 'Wedding Planner', segment: 'vendors', percentage: 2 },
   ],
 };
 
@@ -160,6 +220,43 @@ function generateDefaultTimeline(weddingDate: string, weddingType: WeddingType, 
       { title: 'Reception Ceremony', description: 'Evening celebration ceremony', startTime: createTime(18, 30), durationMinutes: 60, location: venue || undefined },
       { title: 'Reception & Dinner', description: 'Celebration dinner', startTime: createTime(19, 30), durationMinutes: 180, location: venue || undefined },
       { title: 'Cultural Performances', description: 'Traditional music and dance', startTime: createTime(22, 30), durationMinutes: 90, location: venue || undefined },
+    ],
+    modern: [
+      { title: 'Getting Ready', description: 'Hair, makeup, and styling', startTime: createTime(10, 0), durationMinutes: 180, location: 'Bridal Suite' },
+      { title: 'First Look & Photos', description: 'Modern photo session', startTime: createTime(14, 0), durationMinutes: 90, location: venue || undefined },
+      { title: 'Ceremony', description: 'Contemporary ceremony', startTime: createTime(16, 0), durationMinutes: 30, location: venue || undefined },
+      { title: 'Cocktail Hour', description: 'Specialty cocktails', startTime: createTime(16, 30), durationMinutes: 90, location: venue || undefined },
+      { title: 'Reception', description: 'Dinner and celebration', startTime: createTime(18, 0), durationMinutes: 240, location: venue || undefined },
+    ],
+    rustic: [
+      { title: 'Morning Preparation', description: 'Getting ready in rustic setting', startTime: createTime(10, 0), durationMinutes: 180, location: 'Farmhouse' },
+      { title: 'Outdoor Photos', description: 'Natural setting photography', startTime: createTime(14, 0), durationMinutes: 90, location: venue || undefined },
+      { title: 'Ceremony', description: 'Outdoor barn ceremony', startTime: createTime(16, 0), durationMinutes: 45, location: venue || undefined },
+      { title: 'Cocktails & Lawn Games', description: 'Outdoor reception start', startTime: createTime(17, 0), durationMinutes: 90, location: venue || undefined },
+      { title: 'Barn Reception', description: 'Dinner and dancing', startTime: createTime(18, 30), durationMinutes: 270, location: venue || undefined },
+    ],
+    bohemian: [
+      { title: 'Relaxed Morning', description: 'Boho-style preparation', startTime: createTime(10, 0), durationMinutes: 180 },
+      { title: 'Creative Photo Session', description: 'Artistic photography', startTime: createTime(14, 0), durationMinutes: 120, location: venue || undefined },
+      { title: 'Free-Spirit Ceremony', description: 'Outdoor ceremony with nature', startTime: createTime(16, 30), durationMinutes: 30, location: venue || undefined },
+      { title: 'Bohemian Reception', description: 'Dinner and celebration', startTime: createTime(17, 30), durationMinutes: 300, location: venue || undefined },
+    ],
+    religious: [
+      { title: 'Pre-Ceremony Preparation', description: 'Spiritual preparation', startTime: createTime(9, 0), durationMinutes: 120 },
+      { title: 'Religious Ceremony', description: 'Church/Temple ceremony', startTime: createTime(11, 0), durationMinutes: 90, location: 'Place of Worship' },
+      { title: 'Family Photos', description: 'Post-ceremony photos', startTime: createTime(12, 30), durationMinutes: 60 },
+      { title: 'Reception Lunch', description: 'Celebratory meal', startTime: createTime(14, 0), durationMinutes: 180, location: venue || undefined },
+      { title: 'Evening Blessing', description: 'Optional evening ceremony', startTime: createTime(18, 0), durationMinutes: 60 },
+      { title: 'Dinner Reception', description: 'Formal dinner', startTime: createTime(19, 0), durationMinutes: 240, location: venue || undefined },
+    ],
+    luxury: [
+      { title: 'VIP Preparation', description: 'Full glam squad service', startTime: createTime(9, 0), durationMinutes: 240, location: 'Luxury Suite' },
+      { title: 'First Look & Portraits', description: 'High-end photography', startTime: createTime(14, 0), durationMinutes: 120, location: venue || undefined },
+      { title: 'Ceremony', description: 'Elegant ceremony', startTime: createTime(17, 0), durationMinutes: 45, location: venue || undefined },
+      { title: 'Champagne Hour', description: 'Premium cocktails', startTime: createTime(18, 0), durationMinutes: 60, location: venue || undefined },
+      { title: 'Grand Entrance', description: 'Spectacular reception entrance', startTime: createTime(19, 0), durationMinutes: 15, location: venue || undefined },
+      { title: 'Gourmet Dinner', description: 'Multi-course dining', startTime: createTime(19, 15), durationMinutes: 150, location: venue || undefined },
+      { title: 'Entertainment & Dancing', description: 'Live band performance', startTime: createTime(21, 45), durationMinutes: 180, location: venue || undefined },
     ],
   };
 
@@ -375,7 +472,9 @@ export const clientsRouter = router({
         // Determine role from session or default
         const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
         const isSuperAdmin = email === superAdminEmail;
-        const role: UserRole = (sessionUser as any).role || (isSuperAdmin ? 'super_admin' : 'company_admin');
+        // Session user role is properly typed via BetterAuth additionalFields
+        const sessionRole = (sessionUser as { role?: string }).role;
+        const role: UserRole = sessionRole as UserRole || (isSuperAdmin ? 'super_admin' : 'company_admin');
 
         // Check if company_id from session claims exists
         if (effectiveCompanyId) {
@@ -422,6 +521,7 @@ export const clientsRouter = router({
         await ctx.db
           .insert(users)
           .values({
+            id: crypto.randomUUID(),
             authId: ctx.userId, // BetterAuth user ID
             email,
             firstName: firstName,
@@ -455,6 +555,7 @@ export const clientsRouter = router({
       const [data] = await ctx.db
         .insert(clients)
         .values({
+          id: crypto.randomUUID(),
           companyId: effectiveCompanyId,
           partner1FirstName: input.partner1_first_name,
           partner1LastName: input.partner1_last_name || null,
@@ -504,6 +605,7 @@ export const clientsRouter = router({
           const [createdEvent] = await ctx.db
             .insert(events)
             .values({
+              id: crypto.randomUUID(),
               clientId: data.id,
               title: eventTitle,
               eventType: 'Wedding',
@@ -533,6 +635,7 @@ export const clientsRouter = router({
 
         try {
           const budgetItems = budgetTemplate.map((item, index) => ({
+            id: crypto.randomUUID(),
             clientId: data.id,
             category: item.category,
             segment: item.segment,
@@ -646,6 +749,7 @@ export const clientsRouter = router({
               const [vendor] = await ctx.db
                 .insert(vendors)
                 .values({
+                  id: crypto.randomUUID(),
                   companyId: effectiveCompanyId,
                   name: vendorName,
                   category: category,
@@ -658,6 +762,7 @@ export const clientsRouter = router({
                 await ctx.db
                   .insert(clientVendors)
                   .values({
+                    id: crypto.randomUUID(),
                     clientId: data.id,
                     vendorId: vendor.id,
                     eventId: mainEventId,
@@ -667,6 +772,7 @@ export const clientsRouter = router({
 
                 // Auto-create budget item for this vendor (seamless module integration)
                 await ctx.db.insert(budget).values({
+                  id: crypto.randomUUID(),
                   clientId: data.id,
                   vendorId: vendor.id,
                   eventId: mainEventId,
@@ -870,6 +976,7 @@ export const clientsRouter = router({
             await ctx.db
               .insert(events)
               .values({
+                id: crypto.randomUUID(),
                 clientId: input.id,
                 title: eventTitle,
                 eventType: 'Wedding',
@@ -891,11 +998,15 @@ export const clientsRouter = router({
     }),
 
   /**
-   * Delete a client (soft delete).
+   * Delete a client with comprehensive cascade cleanup (soft delete).
+   *
+   * This operation runs in a transaction to ensure atomic cleanup of:
+   * - Client record (soft delete)
+   * - All related module data (timeline, events, guests, hotels, transport, etc.)
    *
    * @requires adminProcedure - User must be company_admin or super_admin
    * @param id - Client UUID
-   * @returns Success status
+   * @returns Success status with deletion counts
    * @throws NOT_FOUND if client doesn't exist or doesn't belong to user's company
    */
   delete: adminProcedure
@@ -932,18 +1043,189 @@ export const clientsRouter = router({
         });
       }
 
-      // Soft delete: Set deleted_at timestamp
-      await ctx.db
-        .update(clients)
-        .set({ deletedAt: new Date() })
-        .where(
-          and(
-            eq(clients.id, input.id),
-            eq(clients.companyId, ctx.companyId)
-          )
-        );
+      // Execute cascade deletion in a transaction for atomicity
+      const result = await withTransaction(async (tx) => {
+        const deletionCounts = {
+          floorPlanGuests: 0,
+          floorPlanTables: 0,
+          floorPlans: 0,
+          timeline: 0,
+          hotels: 0,
+          guestTransport: 0,
+          guestGifts: 0,
+          guests: 0,
+          clientVendors: 0,
+          budget: 0,
+          events: 0,
+          documents: 0,
+          gifts: 0,
+          giftsEnhanced: 0,
+          messages: 0,
+          payments: 0,
+          weddingWebsites: 0,
+          activity: 0,
+          clientUsers: 0,
+        };
 
-      return { success: true };
+        // 1. Get floor plan IDs for this client
+        const clientFloorPlans = await tx
+          .select({ id: floorPlans.id })
+          .from(floorPlans)
+          .where(eq(floorPlans.clientId, input.id));
+
+        // 2. Delete floor plan guests and tables for each floor plan
+        for (const fp of clientFloorPlans) {
+          // Delete floor plan guests
+          const guestsResult = await tx
+            .delete(floorPlanGuests)
+            .where(eq(floorPlanGuests.floorPlanId, fp.id))
+            .returning({ id: floorPlanGuests.id });
+          deletionCounts.floorPlanGuests += guestsResult.length;
+
+          // Delete floor plan tables
+          const tablesResult = await tx
+            .delete(floorPlanTables)
+            .where(eq(floorPlanTables.floorPlanId, fp.id))
+            .returning({ id: floorPlanTables.id });
+          deletionCounts.floorPlanTables += tablesResult.length;
+        }
+
+        // 3. Delete floor plans
+        const floorPlansResult = await tx
+          .delete(floorPlans)
+          .where(eq(floorPlans.clientId, input.id))
+          .returning({ id: floorPlans.id });
+        deletionCounts.floorPlans = floorPlansResult.length;
+
+        // 4. Delete timeline entries
+        const timelineResult = await tx
+          .delete(timeline)
+          .where(eq(timeline.clientId, input.id))
+          .returning({ id: timeline.id });
+        deletionCounts.timeline = timelineResult.length;
+
+        // 5. Delete hotel records
+        const hotelsResult = await tx
+          .delete(hotels)
+          .where(eq(hotels.clientId, input.id))
+          .returning({ id: hotels.id });
+        deletionCounts.hotels = hotelsResult.length;
+
+        // 6. Delete transport records
+        const transportResult = await tx
+          .delete(guestTransport)
+          .where(eq(guestTransport.clientId, input.id))
+          .returning({ id: guestTransport.id });
+        deletionCounts.guestTransport = transportResult.length;
+
+        // 7. Delete guest gifts
+        const guestGiftsResult = await tx
+          .delete(guestGifts)
+          .where(eq(guestGifts.clientId, input.id))
+          .returning({ id: guestGifts.id });
+        deletionCounts.guestGifts = guestGiftsResult.length;
+
+        // 8. Delete guests (after dependent records)
+        const guestsResult = await tx
+          .delete(guests)
+          .where(eq(guests.clientId, input.id))
+          .returning({ id: guests.id });
+        deletionCounts.guests = guestsResult.length;
+
+        // 9. Delete client-vendor relationships
+        const clientVendorsResult = await tx
+          .delete(clientVendors)
+          .where(eq(clientVendors.clientId, input.id))
+          .returning({ id: clientVendors.id });
+        deletionCounts.clientVendors = clientVendorsResult.length;
+
+        // 10. Delete budget items
+        const budgetResult = await tx
+          .delete(budget)
+          .where(eq(budget.clientId, input.id))
+          .returning({ id: budget.id });
+        deletionCounts.budget = budgetResult.length;
+
+        // 11. Delete events
+        const eventsResult = await tx
+          .delete(events)
+          .where(eq(events.clientId, input.id))
+          .returning({ id: events.id });
+        deletionCounts.events = eventsResult.length;
+
+        // 12. Delete documents
+        const documentsResult = await tx
+          .delete(documents)
+          .where(eq(documents.clientId, input.id))
+          .returning({ id: documents.id });
+        deletionCounts.documents = documentsResult.length;
+
+        // 13. Delete gifts
+        const giftsResult = await tx
+          .delete(gifts)
+          .where(eq(gifts.clientId, input.id))
+          .returning({ id: gifts.id });
+        deletionCounts.gifts = giftsResult.length;
+
+        // 14. Delete enhanced gifts
+        const giftsEnhancedResult = await tx
+          .delete(giftsEnhanced)
+          .where(eq(giftsEnhanced.clientId, input.id))
+          .returning({ id: giftsEnhanced.id });
+        deletionCounts.giftsEnhanced = giftsEnhancedResult.length;
+
+        // 15. Delete messages
+        const messagesResult = await tx
+          .delete(messages)
+          .where(eq(messages.clientId, input.id))
+          .returning({ id: messages.id });
+        deletionCounts.messages = messagesResult.length;
+
+        // 16. Delete payments
+        const paymentsResult = await tx
+          .delete(payments)
+          .where(eq(payments.clientId, input.id))
+          .returning({ id: payments.id });
+        deletionCounts.payments = paymentsResult.length;
+
+        // 17. Delete wedding websites
+        const websitesResult = await tx
+          .delete(weddingWebsites)
+          .where(eq(weddingWebsites.clientId, input.id))
+          .returning({ id: weddingWebsites.id });
+        deletionCounts.weddingWebsites = websitesResult.length;
+
+        // 18. Delete activity logs
+        const activityResult = await tx
+          .delete(activity)
+          .where(eq(activity.clientId, input.id))
+          .returning({ id: activity.id });
+        deletionCounts.activity = activityResult.length;
+
+        // 19. Delete client-user relationships
+        const clientUsersResult = await tx
+          .delete(clientUsers)
+          .where(eq(clientUsers.clientId, input.id))
+          .returning({ id: clientUsers.id });
+        deletionCounts.clientUsers = clientUsersResult.length;
+
+        // 20. Finally, soft delete the client
+        // Note: ctx.companyId is verified non-null above, use ! assertion
+        await tx
+          .update(clients)
+          .set({ deletedAt: new Date() })
+          .where(
+            and(
+              eq(clients.id, input.id),
+              eq(clients.companyId, ctx.companyId!)
+            )
+          );
+
+        console.log(`[Client Delete] Client ${input.id} deleted with cascade:`, deletionCounts);
+        return deletionCounts;
+      });
+
+      return { success: true, deleted: result };
     }),
 
   /**
@@ -983,85 +1265,64 @@ export const clientsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      // Get user record
-      const [user] = await ctx.db
+      // OPTIMIZED: Single query with JOINs instead of 3 sequential queries
+      const [result] = await ctx.db
         .select({
-          id: users.id,
-          authId: users.authId,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          avatarUrl: users.avatarUrl,
-          role: users.role,
-          preferredLanguage: users.preferredLanguage,
-          timezone: users.timezone,
+          // User fields
+          userId: users.id,
+          userEmail: users.email,
+          userFirstName: users.firstName,
+          userLastName: users.lastName,
+          userAvatarUrl: users.avatarUrl,
+          userPreferredLanguage: users.preferredLanguage,
+          userTimezone: users.timezone,
+          // Client user relationship fields
+          cuRelationship: clientUsers.relationship,
+          cuIsPrimary: clientUsers.isPrimary,
+          // Client fields
+          clientWeddingDate: clients.weddingDate,
+          clientVenue: clients.venue,
+          clientGuestCount: clients.guestCount,
+          clientPartner1FirstName: clients.partner1FirstName,
+          clientPartner1LastName: clients.partner1LastName,
+          clientPartner1Email: clients.partner1Email,
+          clientPartner2FirstName: clients.partner2FirstName,
+          clientPartner2LastName: clients.partner2LastName,
+          clientPartner2Email: clients.partner2Email,
         })
         .from(users)
+        .leftJoin(clientUsers, eq(clientUsers.userId, users.id))
+        .leftJoin(clients, eq(clients.id, clientUsers.clientId))
         .where(eq(users.authId, ctx.userId))
         .limit(1);
 
-      if (!user) {
+      if (!result) {
         return null;
       }
 
-      // Get client_user relationship
-      const [clientUserLink] = await ctx.db
-        .select({
-          clientId: clientUsers.clientId,
-          relationship: clientUsers.relationship,
-          isPrimary: clientUsers.isPrimary,
-        })
-        .from(clientUsers)
-        .where(eq(clientUsers.userId, user.id))
-        .limit(1);
-
-      if (!clientUserLink) {
-        return {
-          user: {
-            id: user.id,
-            email: user.email,
-            first_name: user.firstName,
-            last_name: user.lastName,
-            avatar_url: user.avatarUrl,
-            preferred_language: user.preferredLanguage,
-            timezone: user.timezone,
-          },
-          client: null,
-          relationship: null,
-          isPrimary: false,
-        };
-      }
-
-      // Get client details
-      const [client] = await ctx.db
-        .select()
-        .from(clients)
-        .where(eq(clients.id, clientUserLink.clientId))
-        .limit(1);
-
       return {
         user: {
-          id: user.id,
-          email: user.email,
-          first_name: user.firstName,
-          last_name: user.lastName,
-          avatar_url: user.avatarUrl,
-          preferred_language: user.preferredLanguage,
-          timezone: user.timezone,
+          id: result.userId,
+          email: result.userEmail,
+          first_name: result.userFirstName,
+          last_name: result.userLastName,
+          avatar_url: result.userAvatarUrl,
+          preferred_language: result.userPreferredLanguage,
+          timezone: result.userTimezone,
         },
-        client: client ? {
-          wedding_date: client.weddingDate,
-          venue: client.venue,
-          guest_count: client.guestCount,
-          partner1_first_name: client.partner1FirstName,
-          partner1_last_name: client.partner1LastName,
-          partner1_email: client.partner1Email,
-          partner2_first_name: client.partner2FirstName,
-          partner2_last_name: client.partner2LastName,
-          partner2_email: client.partner2Email,
+        client: result.clientWeddingDate !== null || result.clientVenue !== null ? {
+          wedding_date: result.clientWeddingDate,
+          venue: result.clientVenue,
+          guest_count: result.clientGuestCount,
+          partner1_first_name: result.clientPartner1FirstName,
+          partner1_last_name: result.clientPartner1LastName,
+          partner1_email: result.clientPartner1Email,
+          partner2_first_name: result.clientPartner2FirstName,
+          partner2_last_name: result.clientPartner2LastName,
+          partner2_email: result.clientPartner2Email,
         } : null,
-        relationship: clientUserLink.relationship,
-        isPrimary: clientUserLink.isPrimary,
+        relationship: result.cuRelationship,
+        isPrimary: result.cuIsPrimary ?? false,
       };
     }),
 });

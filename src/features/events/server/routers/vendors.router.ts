@@ -1,9 +1,10 @@
-import { router, adminProcedure, publicProcedure } from '@/server/trpc/trpc'
+import { router, adminProcedure, protectedProcedure, publicProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
 import { clients, vendors, clientVendors, events, vendorComments, vendorReviews, budget, advancePayments, timeline } from '@/lib/db/schema'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 
 /**
  * Auto-link vendor to event by matching service date with event date.
@@ -51,7 +52,8 @@ async function autoLinkVendorToEvent(
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const vendorsRouter = router({
-  getAll: adminProcedure
+  // Changed from adminProcedure to protectedProcedure - staff should be able to view vendors
+  getAll: protectedProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -598,9 +600,23 @@ export const vendorsRouter = router({
       if (input.data.serviceDate !== undefined) {
         try {
           if (input.data.serviceDate) {
+            // Fetch the actual vendor name if not provided in update
+            let vendorName = input.data.vendorName
+            let category = ''
+            if (!vendorName) {
+              const [vendorInfo] = await ctx.db
+                .select({ name: vendors.name, category: vendors.category })
+                .from(vendors)
+                .where(eq(vendors.id, clientVendorRecord.vendorId))
+                .limit(1)
+              vendorName = vendorInfo?.name || 'Vendor'
+              category = vendorInfo?.category || ''
+            }
+
             const serviceDateTime = new Date(input.data.serviceDate)
             const timelineData = {
-              title: `${input.data.vendorName || 'Vendor'} - Service`,
+              title: `${vendorName}${category ? ` (${category})` : ''}`,
+              description: `Vendor service date`,
               startTime: serviceDateTime,
               location: input.data.venueAddress || null,
               responsiblePerson: input.data.contactName || input.data.onsitePocName || null,
@@ -626,14 +642,13 @@ export const vendorsRouter = router({
                 id: crypto.randomUUID(),
                 clientId: clientVendorRecord.clientId,
                 ...timelineData,
-                description: `Vendor service`,
                 sourceModule: 'vendors',
                 sourceId: input.id,
-                metadata: JSON.stringify({ vendorId: clientVendorRecord.vendorId }),
+                metadata: JSON.stringify({ vendorId: clientVendorRecord.vendorId, category }),
               })
-              console.log(`[Timeline] Created vendor service entry`)
+              console.log(`[Timeline] Created vendor service entry: ${vendorName}`)
             } else {
-              console.log(`[Timeline] Updated vendor service entry`)
+              console.log(`[Timeline] Updated vendor service entry: ${vendorName}`)
             }
 
             // AUTO-LINK: If serviceDate changed and no eventId set, try to auto-link
@@ -670,6 +685,10 @@ export const vendorsRouter = router({
       return { success: true }
     }),
 
+  /**
+   * Delete vendor with cascade cleanup (transaction-wrapped).
+   * Deletes: client-vendor relationship, budget item, timeline entry
+   */
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -677,32 +696,39 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Get vendor ID and client ID before deleting client_vendor relationship
-      const [clientVendorRecord] = await ctx.db
-        .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
-        .from(clientVendors)
-        .where(eq(clientVendors.id, input.id))
-        .limit(1)
+      // Execute cascade deletion in a transaction for atomicity
+      const result = await withTransaction(async (tx) => {
+        const deletionCounts = {
+          clientVendors: 0,
+          budget: 0,
+          timeline: 0,
+        }
 
-      // Delete from client_vendors (vendor remains in vendors table for reuse)
-      await ctx.db
-        .delete(clientVendors)
-        .where(eq(clientVendors.id, input.id))
+        // Get vendor ID before deleting client_vendor relationship
+        const [clientVendorRecord] = await tx
+          .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
+          .from(clientVendors)
+          .where(eq(clientVendors.id, input.id))
+          .limit(1)
 
-      // Also delete the corresponding budget entry
-      if (clientVendorRecord?.vendorId) {
-        try {
-          await ctx.db
+        // 1. Delete from client_vendors (vendor remains in vendors table for reuse)
+        const cvResult = await tx
+          .delete(clientVendors)
+          .where(eq(clientVendors.id, input.id))
+          .returning({ id: clientVendors.id })
+        deletionCounts.clientVendors = cvResult.length
+
+        // 2. Delete the corresponding budget entry
+        if (clientVendorRecord?.vendorId) {
+          const budgetResult = await tx
             .delete(budget)
             .where(eq(budget.vendorId, clientVendorRecord.vendorId))
-        } catch (budgetError) {
-          console.warn('Failed to delete budget item for vendor:', budgetError)
+            .returning({ id: budget.id })
+          deletionCounts.budget = budgetResult.length
         }
-      }
 
-      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
-      try {
-        await ctx.db
+        // 3. Delete linked timeline entry
+        const timelineResult = await tx
           .delete(timeline)
           .where(
             and(
@@ -710,12 +736,14 @@ export const vendorsRouter = router({
               eq(timeline.sourceId, input.id)
             )
           )
-        console.log(`[Timeline] Deleted vendor service entry`)
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to delete timeline entry for vendor:', timelineError)
-      }
+          .returning({ id: timeline.id })
+        deletionCounts.timeline = timelineResult.length
 
-      return { success: true }
+        console.log(`[Vendor Delete] Vendor ${input.id} deleted with cascade:`, deletionCounts)
+        return deletionCounts
+      })
+
+      return { success: true, deleted: result }
     }),
 
   // Approval workflow

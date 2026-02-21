@@ -4,9 +4,46 @@ import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid, numeric,
  * Feature Schema
  *
  * December 2025 - Additional tables for WeddingFlo features
+ * February 2026 - Comprehensive audit and documentation update
+ *
+ * ============================================
+ * ID TYPE CONVENTION (IMPORTANT)
+ * ============================================
+ *
+ * This codebase uses TWO ID type patterns:
+ *
+ * 1. UUID (uuid type) - Used for:
+ *    - companies.id (historical, UUID for uniqueness across tenants)
+ *    - Some newer tables like guestTransport, vehicles
+ *
+ * 2. TEXT (text type with UUID values) - Used for:
+ *    - BetterAuth user.id (TEXT for compatibility)
+ *    - All client-related tables: clients, guests, events, timeline, etc.
+ *    - All companyId foreign keys (TEXT to avoid type mismatches)
+ *
+ * WHY TEXT FOR companyId FKs:
+ * - BetterAuth generates TEXT user IDs
+ * - Most tables use TEXT IDs for consistency
+ * - Cross-table joins work without casting
+ * - FK constraints added via migration (0021_add_foreign_key_constraints.sql)
+ *
+ * Note: companies.id is UUID but referenced as TEXT in FK columns.
+ * This is intentional - PostgreSQL allows UUID→TEXT implicit casting.
+ * ============================================
  */
 
-// Custom Users table (extends BetterAuth user table)
+/**
+ * @deprecated Use `user` table from schema.ts instead (BetterAuth source of truth).
+ *
+ * This table was created before BetterAuth integration. The `user` table
+ * in schema.ts is now the authoritative user table. This table may be
+ * removed in a future migration.
+ *
+ * Migration path:
+ * 1. Ensure all user data is in `user` table
+ * 2. Update any remaining `users` references to `user`
+ * 3. Remove this table via migration
+ */
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
   authId: text('auth_id').unique(), // BetterAuth user ID reference
@@ -25,9 +62,18 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Companies table - synced with database schema
+/**
+ * Companies table - Multi-tenant organization records.
+ *
+ * Note: companies.id is UUID while most other tables use TEXT IDs.
+ * This is historical - companies was created before the TEXT ID convention.
+ * The companyId FK columns in other tables are TEXT to match BetterAuth user.id.
+ * PostgreSQL handles UUID→TEXT casting implicitly for joins.
+ *
+ * See ID TYPE CONVENTION comment at top of file for details.
+ */
 export const companies = pgTable('companies', {
-  id: uuid('id').primaryKey().defaultRandom(),
+  id: uuid('id').primaryKey().defaultRandom(), // UUID for historical reasons
   name: text('name').notNull(),
   subdomain: text('subdomain').unique(),
   logoUrl: text('logo_url'),
@@ -234,7 +280,7 @@ export const guestTransport = pgTable('guest_transport', {
   updatedAt: timestamp('updated_at').defaultNow(),
   legType: transportLegTypeEnum('leg_type').default('arrival'),
   legSequence: integer('leg_sequence').default(1),
-  eventId: uuid('event_id'),
+  eventId: text('event_id'), // Changed from uuid to text to match events.id type
 }, (table) => [
   index('guest_transport_client_id_idx').on(table.clientId),
   index('guest_transport_guest_id_idx').on(table.guestId),
@@ -341,7 +387,7 @@ export const clientVendors = pgTable('client_vendors', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
   vendorId: text('vendor_id').notNull(),
-  eventId: uuid('event_id'), // Links vendor to specific event
+  eventId: text('event_id'), // Links vendor to specific event (text to match events.id)
   status: text('status').default('active'),
   // Contract & Payment Details
   contractAmount: text('contract_amount'), // Total contract value
@@ -403,7 +449,7 @@ export const budget = pgTable('budget', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
   vendorId: text('vendor_id'), // Links to vendors table for sync
-  eventId: uuid('event_id'), // Links to events table
+  eventId: text('event_id'), // Links to events table (text to match events.id)
   category: text('category').notNull(),
   segment: text('segment'), // vendors, travel, creatives, artists, accommodation, other
   item: text('item'),
@@ -857,18 +903,24 @@ export const guestConflicts = pgTable('guest_conflicts', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-// Activity (for activity feed)
+// Activity (for activity feed and auth event logging)
 export const activity = pgTable('activity', {
   id: text('id').primaryKey(),
   userId: text('user_id'),
+  companyId: text('company_id'), // Added Feb 2026 for auth logging
   clientId: text('client_id'),
   type: text('type').notNull(),
+  action: text('action'), // Added Feb 2026: 'sign_in', 'sign_out', 'sign_up', etc.
   data: jsonb('data'),
+  ipAddress: text('ip_address'), // Added Feb 2026 for auth logging
+  userAgent: text('user_agent'), // Added Feb 2026 for auth logging
   read: boolean('read').default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => [
   index('activity_client_id_idx').on(table.clientId),
   index('activity_user_id_idx').on(table.userId),
+  index('activity_company_id_idx').on(table.companyId), // Added Feb 2026
+  index('activity_type_action_idx').on(table.type, table.action), // Added Feb 2026
 ]);
 
 // iCal Feed Tokens
