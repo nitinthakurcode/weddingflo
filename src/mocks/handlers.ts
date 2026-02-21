@@ -88,7 +88,7 @@ export const handlers = [
     })
   }),
 
-  // Mock OpenAI endpoint (DeepSeek API)
+  // Mock OpenAI endpoint
   http.post('https://api.openai.com/v1/chat/completions', () => {
     return HttpResponse.json({
       id: 'chatcmpl-123',

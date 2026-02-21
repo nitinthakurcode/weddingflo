@@ -671,3 +671,190 @@ export async function getExcelSheetNames(file: File): Promise<string[]> {
 
   return sheetNames;
 }
+
+/**
+ * Import Timeline from Excel
+ * January 2026 - Full round-trip import support
+ *
+ * Supports:
+ * - Creating new timeline items (empty ID)
+ * - Updating existing items (with ID)
+ * - Deleting items (DELETE in Notes column)
+ */
+export interface TimelineImportItem {
+  id?: string;
+  eventId?: string;
+  eventName?: string;
+  title: string;
+  description?: string;
+  phase?: 'setup' | 'showtime' | 'wrapup' | null;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  durationMinutes?: number;
+  location?: string;
+  participants?: string[];
+  responsiblePerson?: string;
+  completed?: boolean;
+  sortOrder?: number;
+  notes?: string;
+  _action?: 'create' | 'update' | 'delete';
+}
+
+export async function importTimelineExcel(
+  file: File,
+  events: Array<{ id: string; title: string }>
+): Promise<CSVParseResult<TimelineImportItem>> {
+  // Parse the Excel file
+  const rawData = await parseExcelFile(file, {
+    sheetName: 'Timeline',
+    hasHeaders: true,
+    skipEmptyLines: true,
+  });
+
+  // Create event name to ID map for matching
+  const eventNameToId = new Map<string, string>();
+  events.forEach((e) => {
+    eventNameToId.set(e.title.toLowerCase().trim(), e.id);
+  });
+
+  const data: TimelineImportItem[] = [];
+  const errors: Array<{ row: number; field: string; message: string }> = [];
+
+  // Helper to parse boolean
+  const parseBoolean = (value: any): boolean | undefined => {
+    if (value === undefined || value === null || value === '') return undefined;
+    const strVal = String(value).toLowerCase().trim();
+    if (strVal === 'true' || strVal === 'yes' || strVal === '1') return true;
+    if (strVal === 'false' || strVal === 'no' || strVal === '0') return false;
+    return undefined;
+  };
+
+  // Helper to parse time string
+  const parseTime = (value: any): string | undefined => {
+    if (!value) return undefined;
+    const strVal = String(value).trim();
+    // Handle HH:MM format
+    if (/^\d{1,2}:\d{2}$/.test(strVal)) return strVal.padStart(5, '0');
+    // Handle Excel date/time objects
+    if (value instanceof Date) {
+      return value.toTimeString().slice(0, 5);
+    }
+    return strVal;
+  };
+
+  // Helper to parse date string
+  const parseDate = (value: any): string | undefined => {
+    if (!value) return undefined;
+    if (value instanceof Date) return value.toISOString().split('T')[0];
+    const strVal = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(strVal)) return strVal;
+    // Try parsing
+    const parsed = new Date(strVal);
+    return isNaN(parsed.getTime()) ? undefined : parsed.toISOString().split('T')[0];
+  };
+
+  // Process each row
+  rawData.forEach((row, rowIndex) => {
+    // Skip hints row
+    const firstValue = String(Object.values(row)[0] || '').toLowerCase();
+    if (firstValue.includes('do not modify') || firstValue.includes('required')) {
+      return;
+    }
+
+    // Get values case-insensitively
+    const getValue = (key: string): any => {
+      const lowerKey = key.toLowerCase();
+      const matchingKey = Object.keys(row).find((k) => k.toLowerCase().trim() === lowerKey);
+      return matchingKey ? row[matchingKey] : undefined;
+    };
+
+    const id = getValue('id') ? String(getValue('id')).trim() : undefined;
+    const title = getValue('title') ? String(getValue('title')).trim() : '';
+    const notes = getValue('notes') ? String(getValue('notes')).trim() : undefined;
+
+    // Check for delete action
+    if (notes?.toUpperCase() === 'DELETE' && id) {
+      data.push({
+        id,
+        title: title || 'Deleted Item',
+        _action: 'delete',
+      });
+      return;
+    }
+
+    // Validate required fields
+    if (!title) {
+      errors.push({
+        row: rowIndex + 3, // +3 for header, hints row, 0-index
+        field: 'Title',
+        message: 'Title is required',
+      });
+      return;
+    }
+
+    // Get event ID - prefer explicit eventId, fallback to matching by name
+    let eventId = getValue('event id') ? String(getValue('event id')).trim() : undefined;
+    if (!eventId) {
+      const eventName = getValue('event name') ? String(getValue('event name')).trim().toLowerCase() : '';
+      if (eventName && eventNameToId.has(eventName)) {
+        eventId = eventNameToId.get(eventName);
+      }
+    }
+
+    // Parse participants
+    const participantsStr = getValue('participants') ? String(getValue('participants')).trim() : '';
+    const participants = participantsStr
+      ? participantsStr.split(',').map((p) => p.trim()).filter(Boolean)
+      : undefined;
+
+    // Parse phase - validate and cast to union type
+    const rawPhase = getValue('phase') ? String(getValue('phase')).toLowerCase().trim() : undefined;
+    const phase: 'setup' | 'showtime' | 'wrapup' | undefined =
+      rawPhase && ['setup', 'showtime', 'wrapup'].includes(rawPhase)
+        ? (rawPhase as 'setup' | 'showtime' | 'wrapup')
+        : rawPhase ? 'showtime' : undefined;
+
+    // Parse duration
+    const durationVal = getValue('duration (min)') || getValue('durationminutes');
+    const durationMinutes = durationVal
+      ? (typeof durationVal === 'number' ? durationVal : parseInt(String(durationVal), 10))
+      : undefined;
+
+    // Parse sort order
+    const sortOrderVal = getValue('sort order') || getValue('sortorder');
+    const sortOrder = sortOrderVal !== undefined && sortOrderVal !== ''
+      ? (typeof sortOrderVal === 'number' ? sortOrderVal : parseInt(String(sortOrderVal), 10))
+      : undefined;
+
+    const item: TimelineImportItem = {
+      id: id || undefined,
+      eventId,
+      title,
+      description: getValue('description') ? String(getValue('description')).trim() : undefined,
+      phase,
+      date: parseDate(getValue('date')),
+      startTime: parseTime(getValue('start time') || getValue('starttime')),
+      endTime: parseTime(getValue('end time') || getValue('endtime')),
+      durationMinutes: isNaN(durationMinutes as number) ? undefined : durationMinutes,
+      location: getValue('location') ? String(getValue('location')).trim() : undefined,
+      participants,
+      responsiblePerson: getValue('responsible person') || getValue('responsibleperson')
+        ? String(getValue('responsible person') || getValue('responsibleperson')).trim()
+        : undefined,
+      completed: parseBoolean(getValue('completed')),
+      sortOrder: isNaN(sortOrder as number) ? undefined : sortOrder,
+      notes,
+      _action: id ? 'update' : 'create',
+    };
+
+    data.push(item);
+  });
+
+  return {
+    data,
+    errors,
+    totalRows: rawData.length,
+    validRows: data.length,
+  };
+}

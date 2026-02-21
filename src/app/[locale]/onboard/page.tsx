@@ -3,13 +3,15 @@
 import { useAuth } from '@/lib/auth-client';
 import { trpc } from '@/lib/trpc/client';
 import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useParams } from 'next/navigation';
 import { useRouter } from '@/lib/navigation';
 import { PageLoader } from '@/components/ui/loading-spinner';
 
 export default function OnboardPage() {
   const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
   const searchParams = useSearchParams();
   const role = searchParams.get('role') || 'company_admin'; // Default to company_admin
   const [error, setError] = useState<string | null>(null);
@@ -30,18 +32,18 @@ export default function OnboardPage() {
       if (isAuthLoading) return;
 
       if (!user || !isAuthenticated) {
-        router.push('/en/sign-in');
+        router.push('/sign-in');
         return;
       }
 
       // If user already exists, check if they have a role before redirecting
       if (existingUser) {
-        const userRole = (user as any).role;
+        const userRole = user.role;
 
         if (userRole) {
           console.log('✅ User already exists with role:', userRole, '- redirecting to dashboard');
           // Force hard refresh to clear React Query cache
-          window.location.href = '/en/dashboard';
+          window.location.href = `/${locale}/dashboard`;
           return;
         }
 
@@ -51,7 +53,7 @@ export default function OnboardPage() {
         console.log('ℹ️ Forcing hard refresh to reload session with updated role');
 
         // MUST use window.location.href (not router.push) for full page reload
-        window.location.href = '/en/dashboard';
+        window.location.href = `/${locale}/dashboard`;
         return;
       }
 
@@ -105,8 +107,8 @@ export default function OnboardPage() {
         console.log('⏳ Waiting for database to update...');
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Redirect based on role
-        const redirectPath = role === 'super_admin' ? '/en/admin' : '/en/dashboard';
+        // Redirect based on role (use dynamic locale)
+        const redirectPath = role === 'super_admin' ? `/${locale}/admin` : `/${locale}/dashboard`;
 
         // Force a hard refresh to ensure query cache is cleared and session is reloaded
         console.log('🚀 Redirecting to:', redirectPath);

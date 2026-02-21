@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, eq } from '@/lib/db';
-import { users, companies } from '@/lib/db/schema';
+import { companies, user as userTable } from '@/lib/db/schema';
 
 type SubscriptionTier = 'free' | 'starter' | 'professional' | 'enterprise';
 type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'paused';
 
+/**
+ * Onboard API Route - February 2026
+ *
+ * Single Source of Truth: BetterAuth user table
+ * This route updates ONLY the BetterAuth user table.
+ * The app `users` table is deprecated and will be removed.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -28,31 +35,29 @@ export async function POST(request: NextRequest) {
     const firstName = nameParts[0] || null;
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
 
-    // Check if user already exists (webhook may have created them) using Drizzle
-    const existingUserResult = await db
+    // Check if BetterAuth user already has company assigned
+    const [existingUser] = await db
       .select({
-        id: users.id,
-        companyId: users.companyId,
-        role: users.role,
+        id: userTable.id,
+        companyId: userTable.companyId,
+        role: userTable.role,
       })
-      .from(users)
-      .where(eq(users.authId, authId))
+      .from(userTable)
+      .where(eq(userTable.id, authId))
       .limit(1);
 
-    const existingUser = existingUserResult[0] || null;
+    if (!existingUser) {
+      return NextResponse.json(
+        { error: 'User not found. Please sign up first.' },
+        { status: 404 }
+      );
+    }
 
-    let userId;
-    let companyId: string | null = null;
-    let finalRole = userRole;
+    let companyId = existingUser.companyId;
+    let finalRole = existingUser.role || userRole;
 
-    if (existingUser) {
-      // User already exists (created by webhook), get their data
-      console.log('[API] User already exists (webhook created):', existingUser.id);
-      userId = existingUser.id;
-      companyId = existingUser.companyId;
-      finalRole = existingUser.role || userRole; // Use the role from DB (webhook may have set it)
-    } else {
-      // Create a company for this user first (webhook fallback)
+    // If user doesn't have a company, create one (for company_admin role)
+    if (!companyId && userRole === 'company_admin') {
       console.log('[API] Creating company for user:', authId);
       const companyName = `${firstName || 'User'}'s Company`;
       const subdomain = `company${authId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase()}`;
@@ -78,52 +83,45 @@ export async function POST(request: NextRequest) {
         if (newCompanyResult[0]) {
           companyId = newCompanyResult[0].id;
           console.log('[API] Created company:', companyId);
+
+          // Mark company onboarding as complete to prevent redirect loop
+          await db
+            .update(companies)
+            .set({ onboardingCompleted: true })
+            .where(eq(companies.id, companyId));
         }
       } catch (createCompanyError) {
         console.error('[API] Error creating company:', createCompanyError);
         // Continue without company - can be assigned later
       }
-
-      // Create user using Drizzle
-      try {
-        const newUserResult = await db
-          .insert(users)
-          .values({
-            authId: authId,
-            email: email,
-            firstName: firstName,
-            lastName: lastName,
-            avatarUrl: avatarUrl || null,
-            role: finalRole,
-            companyId: companyId,
-            isActive: true,
-          })
-          .returning({ id: users.id });
-
-        if (!newUserResult[0]) {
-          return NextResponse.json(
-            { error: 'Failed to create user' },
-            { status: 500 }
-          );
-        }
-
-        userId = newUserResult[0].id;
-        console.log('[API] User created via onboard:', userId);
-      } catch (userError) {
-        console.error('[API] Error creating user:', userError);
-        return NextResponse.json(
-          { error: userError instanceof Error ? userError.message : 'Failed to create user' },
-          { status: 500 }
-        );
-      }
     }
 
-    console.log('[API] User onboarded successfully:', userId);
+    // Update BetterAuth user table (SINGLE SOURCE OF TRUTH)
+    try {
+      await db
+        .update(userTable)
+        .set({
+          companyId: companyId,
+          role: finalRole,
+          firstName: firstName,
+          lastName: lastName,
+          avatarUrl: avatarUrl || null,
+          isActive: true,
+          onboardingCompleted: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(userTable.id, authId));
+      console.log('[API] BetterAuth user table updated for session data');
+    } catch (updateError) {
+      console.error('[API] Error updating BetterAuth user table:', updateError);
+      return NextResponse.json(
+        { error: 'Failed to update user profile' },
+        { status: 500 }
+      );
+    }
 
-    // BetterAuth stores user data directly in the database
-    // No external sync needed - role and company_id already stored in users table
-
-    return NextResponse.json({ success: true, userId });
+    console.log('[API] User onboarded successfully:', authId);
+    return NextResponse.json({ success: true, userId: authId });
   } catch (error) {
     console.error('[API] Onboarding error:', error);
     return NextResponse.json(

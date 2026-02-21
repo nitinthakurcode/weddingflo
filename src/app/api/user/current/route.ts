@@ -15,12 +15,14 @@ export async function GET() {
     }
 
     // Return user data directly from session
+    // Note: firstName/lastName may not be in session - derive from name if needed
+    const nameParts = user.name?.split(' ') || [];
     const userData = {
       id: user.id,
       email: user.email,
       name: user.name,
-      first_name: user.firstName,
-      last_name: user.lastName,
+      first_name: nameParts[0] || null,
+      last_name: nameParts.slice(1).join(' ') || null,
       avatar_url: user.image,
       role: user.role,
       company_id: user.companyId,

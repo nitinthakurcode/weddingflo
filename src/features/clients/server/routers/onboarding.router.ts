@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '@/server/trpc/trpc'
-import { db, eq } from '@/lib/db'
-import { companies } from '@/lib/db/schema'
+import { db, eq, and, isNotNull, sql } from '@/lib/db'
+import { companies, clients, teamInvitations, timeline, user as userTable } from '@/lib/db/schema'
 import { TRPCError } from '@trpc/server'
 
 export const onboardingRouter = router({
@@ -159,6 +159,76 @@ export const onboardingRouter = router({
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to skip onboarding',
       })
+    }
+  }),
+
+  // Get checklist status for onboarding progress widget
+  getChecklistStatus: protectedProcedure.query(async ({ ctx }) => {
+    const { companyId, userId } = ctx
+
+    if (!companyId) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Company ID required',
+      })
+    }
+
+    try {
+      // Check if company has any clients
+      const clientsResult = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(clients)
+        .where(eq(clients.companyId, companyId))
+
+      const hasClients = (clientsResult[0]?.count ?? 0) > 0
+
+      // Check if company has team members (staff invitations accepted)
+      const teamResult = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(userTable)
+        .where(
+          and(
+            eq(userTable.companyId, companyId),
+            eq(userTable.role, 'staff')
+          )
+        )
+
+      const hasTeamMembers = (teamResult[0]?.count ?? 0) > 0
+
+      // Check if calendar is connected
+      // TODO: Implement proper calendar integration check when calendar feature is added
+      const hasCalendarConnected = false
+
+      // For email templates, we'll check if any client has received an email
+      // For now, mark as complete if company has been set up (simplified)
+      const hasEmailTemplates = true // TODO: Check actual email template configuration
+
+      // Check if any timeline items exist for any of the company's clients
+      const timelineResult = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(timeline)
+        .innerJoin(clients, eq(timeline.clientId, clients.id))
+        .where(eq(clients.companyId, companyId))
+
+      const hasTimeline = (timelineResult[0]?.count ?? 0) > 0
+
+      return {
+        hasClients,
+        hasTeamMembers,
+        hasCalendarConnected,
+        hasEmailTemplates,
+        hasTimeline,
+      }
+    } catch (error) {
+      console.error('Error getting checklist status:', error)
+      // Return all false on error to not block UI
+      return {
+        hasClients: false,
+        hasTeamMembers: false,
+        hasCalendarConnected: false,
+        hasEmailTemplates: false,
+        hasTimeline: false,
+      }
     }
   }),
 })

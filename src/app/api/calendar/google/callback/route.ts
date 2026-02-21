@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { GoogleCalendarOAuth } from '@/lib/calendar/google-oauth';
 import { GoogleCalendarSync } from '@/lib/calendar/google-calendar-sync';
 import { db, eq, sql } from '@/lib/db';
 import { users } from '@/lib/db/schema';
+
+// Helper to extract locale from referer or default to 'en'
+function getLocaleFromRequest(request: NextRequest): string {
+  const referer = request.headers.get('referer') || '';
+  const localeMatch = referer.match(/\/([a-z]{2})\//);
+  return localeMatch ? localeMatch[1] : 'en';
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const state = searchParams.get('state'); // userId
   const error = searchParams.get('error');
+  const locale = getLocaleFromRequest(request);
 
   if (error || !code || !state) {
     return NextResponse.redirect(
-      new URL('/dashboard/settings/calendar?error=oauth_failed', request.url)
+      new URL(`/${locale}/dashboard/settings/calendar?error=oauth_failed`, request.url)
     );
   }
 
@@ -69,12 +78,12 @@ export async function GET(request: NextRequest) {
     `);
 
     return NextResponse.redirect(
-      new URL('/dashboard/settings/calendar?success=true', request.url)
+      new URL(`/${locale}/dashboard/settings/calendar?success=true`, request.url)
     );
   } catch (error) {
     console.error('OAuth callback error:', error);
     return NextResponse.redirect(
-      new URL('/dashboard/settings/calendar?error=oauth_failed', request.url)
+      new URL(`/${locale}/dashboard/settings/calendar?error=oauth_failed`, request.url)
     );
   }
 }

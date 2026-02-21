@@ -231,12 +231,14 @@ export class PushNotificationSender {
         };
       }
 
-      // Create payloads for each user
-      const payloads: PushNotificationPayload[] = companyUsers.map((user) => ({
-        ...payload,
-        userId: user.authId,
-        companyId,
-      }));
+      // Create payloads for each user (filter out users without authId)
+      const payloads: PushNotificationPayload[] = companyUsers
+        .filter((user): user is typeof user & { authId: string } => !!user.authId)
+        .map((user) => ({
+          ...payload,
+          userId: user.authId,
+          companyId,
+        }));
 
       // Send bulk
       return await this.sendBulk(payloads);
@@ -272,7 +274,7 @@ export class PushNotificationSender {
         LIMIT 1
       `);
 
-      const prefs = result.rows[0] as unknown as PushNotificationPreferences | undefined;
+      const prefs = result[0] as unknown as PushNotificationPreferences | undefined;
 
       // If no preferences, allow by default
       if (!prefs) {
@@ -334,13 +336,12 @@ export class PushNotificationSender {
     userId: string
   ): Promise<PushSubscription[]> {
     try {
+      // Schema: id, userId, endpoint, keys, createdAt, updatedAt
+      // No isActive field - all existing subscriptions are considered active
       const result = await db
         .select()
         .from(pushSubscriptions)
-        .where(and(
-          eq(pushSubscriptions.userId, userId),
-          eq(pushSubscriptions.isActive, true)
-        ));
+        .where(eq(pushSubscriptions.userId, userId));
 
       return result as unknown as PushSubscription[];
     } catch (error) {
@@ -444,17 +445,14 @@ export class PushNotificationSender {
     reason: string
   ): Promise<void> {
     try {
+      // Schema has no isActive field - delete the subscription instead
       await db
-        .update(pushSubscriptions)
-        .set({
-          isActive: false,
-          updatedAt: new Date(),
-        })
+        .delete(pushSubscriptions)
         .where(eq(pushSubscriptions.id, subscriptionId));
 
-      console.log(`Deactivated subscription ${subscriptionId}: ${reason}`);
+      console.log(`Removed subscription ${subscriptionId}: ${reason}`);
     } catch (error) {
-      console.error('Error deactivating subscription:', error);
+      console.error('Error removing subscription:', error);
       // Don't throw - cleanup failure shouldn't fail the notification
     }
   }
@@ -523,7 +521,7 @@ export class PushNotificationSender {
           AND created_at >= ${startDate.toISOString()}
       `);
 
-      const stats = result.rows[0] as {
+      const stats = result[0] as {
         total: number;
         sent: number;
         failed: number;

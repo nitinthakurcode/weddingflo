@@ -23,7 +23,7 @@ export const googleSheetsRouter = router({
     .input(z.object({
       clientId: z.string(),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }): Promise<{ success: boolean; spreadsheetUrl?: string }> => {
       // TODO: Implement full Google Sheets sync
       // For now, return a helpful message
       throw new TRPCError({

@@ -282,15 +282,20 @@ export async function getWebhookStatistics(
       return [];
     }
 
-    const stats = await getWebhookStats(provider, hours);
+    // getWebhookStats expects object: { provider?: WebhookProvider; since?: Date }
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const stats = await getWebhookStats({ provider, since });
+
+    // Stats returns: { total, processed, failed, pending }
+    const successRate = stats.total > 0 ? (stats.processed / stats.total) * 100 : 0;
 
     return [{
-      provider: stats.provider,
-      total_webhooks: stats.total_events,
+      provider: provider,
+      total_webhooks: stats.total,
       processed_webhooks: stats.processed,
       failed_webhooks: stats.failed,
       pending_webhooks: stats.pending,
-      success_rate: stats.success_rate,
+      success_rate: successRate,
       avg_processing_time_ms: 0, // Not tracked in current implementation
     }];
   } catch (error) {

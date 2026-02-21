@@ -392,45 +392,32 @@ export default function DocumentsPage() {
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
                 >
                   <div className="flex items-center gap-4 flex-1">
-                    {getFileIcon(doc.fileType || '')}
+                    {getFileIcon(doc.type || '')}
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold">{doc.name}</h3>
                         <span className="text-xs bg-cobalt-100 dark:bg-cobalt-900 text-cobalt-700 dark:text-cobalt-300 px-2 py-1 rounded">
-                          {doc.fileType}
+                          {doc.type}
                         </span>
                       </div>
                       <div className="text-sm text-muted-foreground space-y-1">
-                        {doc.description && <p>{doc.description}</p>}
-                        {doc.fileSize && (
-                          <p>{t('size')}: {(doc.fileSize / 1024 / 1024).toFixed(2)} MB</p>
+                        {doc.size && (
+                          <p>{t('size')}: {(doc.size / 1024 / 1024).toFixed(2)} MB</p>
                         )}
                         {doc.createdAt && (
                           <p>
                             {t('uploaded')}: {new Date(doc.createdAt).toLocaleDateString()}
                           </p>
                         )}
-                        {doc.metadata && (doc.metadata as any).tags && (doc.metadata as any).tags.length > 0 && (
-                          <div className="flex gap-1 flex-wrap">
-                            {((doc.metadata as any).tags as string[]).map((tag: string, idx: number) => (
-                              <span
-                                key={idx}
-                                className="text-xs bg-mocha-100 dark:bg-mocha-900 text-mocha-700 dark:text-mocha-300 px-2 py-1 rounded"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    {doc.fileUrl && (
+                    {doc.url && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => window.open(doc.fileUrl, '_blank')}
+                        onClick={() => window.open(doc.url!, '_blank')}
                         className="h-8 w-8 hover:bg-muted"
                       >
                         <Download className="w-4 h-4" />

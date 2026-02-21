@@ -32,6 +32,7 @@ import { Separator } from '@/components/ui/separator'
 import { Plus, Trash2, Edit, Eye, MessageSquare, Users, Calendar, TrendingUp, ChevronDown, ChevronUp, Clock } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslations } from 'next-intl'
+import { NoClientsEmptyState } from '@/components/ui/empty-state'
 
 // Event brief type for dynamic event creation
 interface EventBrief {
@@ -650,11 +651,7 @@ export default function ClientsPage() {
         <h2 className="text-xl font-semibold mb-4">{t('allClients')}</h2>
         {clients?.length === 0 ? (
           <Card variant="glass" className="border border-primary-200/50 dark:border-primary-800/30 shadow-lg">
-            <CardContent className="pt-6">
-              <div className="text-center py-8 text-muted-foreground">
-                {t('noClientsYet')}
-              </div>
-            </CardContent>
+            <NoClientsEmptyState onAction={() => setIsAddDialogOpen(true)} />
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

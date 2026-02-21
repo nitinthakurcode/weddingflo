@@ -43,6 +43,8 @@ import { useRouter } from '@/lib/navigation';
 import { LoadingShimmer, SlideUpItem } from '@/components/ui/micro-interactions';
 import { RevenueWidget } from '@/components/dashboard/revenue-widget';
 import { RecentBookingsWidget } from '@/components/dashboard/recent-bookings-widget';
+import { DashboardTourTrigger } from '@/components/onboarding/tour-trigger';
+import { OnboardingChecklist } from '@/components/onboarding/onboarding-checklist';
 
 interface CreateClientForm {
   wedding_name?: string; // Title/Wedding Name
@@ -203,7 +205,7 @@ export default function DashboardPage() {
         return 'warning'; // Gold - energy, action
       case 'completed':
         return 'confirmed'; // Sage green - achievement
-      case 'canceled':
+      case 'cancelled':
         return 'destructive'; // Rose red - attention
       default:
         return 'secondary';
@@ -291,6 +293,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 p-4 sm:p-6 pb-24 sm:pb-6">
+      {/* Tour Trigger - auto-starts after onboarding */}
+      <DashboardTourTrigger />
+
+      {/* Onboarding Checklist - shows until all items complete */}
+      <OnboardingChecklist className="mb-2" />
+
       {/* Header - Mobile Optimized */}
       <SlideUpItem delay={0}>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -741,10 +749,10 @@ export default function DashboardPage() {
                       <TableCell>{client.venue || t('notSet')}</TableCell>
                       <TableCell>
                         <Badge
-                          variant={getStatusVariant(client.status)}
+                          variant={getStatusVariant((client.status || 'draft') as EventStatus)}
                           className="capitalize transition-spring hover:scale-105"
                         >
-                          {client.status.replace('_', ' ')}
+                          {(client.status || 'draft').replace('_', ' ')}
                         </Badge>
                       </TableCell>
                       <TableCell>

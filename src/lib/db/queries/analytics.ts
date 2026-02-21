@@ -57,11 +57,19 @@ export async function getGuestRsvpFunnel(clientId: string) {
   };
 }
 
-export async function getMonthlyRevenueTrend(companyId: string, months: number = 12) {
+export async function getMonthlyRevenueTrend(
+  companyId: string,
+  months: number = 12
+): Promise<Array<{ month: string; revenue: number; transaction_count: number; change: number }>> {
+  // Return typed empty array
   return [];
 }
 
-export async function getNotificationStats(companyId: string) {
+export async function getNotificationStats(
+  companyId: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<{ sent: number; delivered: number; opened: number; clicked: number }> {
   return {
     sent: 0,
     delivered: 0,
@@ -70,12 +78,17 @@ export async function getNotificationStats(companyId: string) {
   };
 }
 
-export async function getPaymentStatusBreakdown(clientId: string) {
-  return {
-    paid: 0,
-    pending: 0,
-    overdue: 0,
-  };
+export async function getPaymentStatusBreakdown(
+  companyId: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<Array<{ status: string; count: number; total_amount: number }>> {
+  // Return array format expected by router and PaymentStatusChart
+  return [
+    { status: 'succeeded', count: 0, total_amount: 0 },
+    { status: 'pending', count: 0, total_amount: 0 },
+    { status: 'failed', count: 0, total_amount: 0 },
+  ];
 }
 
 export async function getPeriodComparison(companyId: string, period: string) {
@@ -86,7 +99,16 @@ export async function getPeriodComparison(companyId: string, period: string) {
   };
 }
 
-export async function getRevenueAnalytics(companyId: string) {
+export async function getRevenueAnalytics(
+  companyId: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<{
+  total: number;
+  byMonth: Array<{ date: string; revenue: number; transaction_count: number }>;
+  byClient: Array<{ clientId: string; clientName: string; revenue: number }>;
+}> {
+  // Return typed object with properly typed arrays
   return {
     total: 0,
     byMonth: [],
@@ -103,7 +125,20 @@ export async function getTaskAnalytics(companyId: string) {
   };
 }
 
-export async function getTopRevenueClients(companyId: string, limit: number = 10) {
+export async function getTopRevenueClients(
+  companyId: string,
+  limit: number = 10
+): Promise<Array<{
+  client_id: string;
+  partner1_first_name: string;
+  partner1_last_name: string;
+  partner2_first_name?: string | null;
+  partner2_last_name?: string | null;
+  wedding_date?: string | null;
+  total_revenue: number;
+  payment_count: number;
+}>> {
+  // Return typed empty array
   return [];
 }
 

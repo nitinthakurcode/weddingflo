@@ -1,16 +1,41 @@
+/**
+ * Creative Jobs Router
+ * Simplified to match actual schema:
+ * - creativeJobs: id, clientId, name, type, status, data (JSONB), createdAt, updatedAt
+ * All extra fields are stored in the data JSONB field
+ */
+
 import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, isNull } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
-import { budget } from '@/lib/db/schema'
+
+interface CreativeJobData {
+  description?: string
+  quantity?: number
+  jobStartDate?: string
+  dueDate?: string
+  assignedTo?: string
+  priority?: string
+  notes?: string
+  fileUrl?: string
+  clientVisible?: boolean
+  approvalStatus?: string
+  estimatedCost?: number
+  currency?: string
+  approvalComments?: string
+  approvedBy?: string
+  approvedAt?: string
+  revisionCount?: number
+}
 
 export const creativesRouter = router({
   getAll: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
       }
 
       // Verify client belongs to company
@@ -27,34 +52,50 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Fetch creative jobs
       const creativeJobs = await ctx.db
         .select()
         .from(schema.creativeJobs)
         .where(eq(schema.creativeJobs.clientId, input.clientId))
         .orderBy(desc(schema.creativeJobs.createdAt))
 
-      return creativeJobs
+      return creativeJobs.map(job => ({
+        ...job,
+        ...(job.data as CreativeJobData || {}),
+      }))
     }),
 
+  /**
+   * SECURITY: Verifies creative job belongs to a client owned by the user's company
+   */
   getById: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      const [creativeJob] = await ctx.db
-        .select()
+      // Join with clients to verify company ownership
+      const [result] = await ctx.db
+        .select({ creativeJob: schema.creativeJobs })
         .from(schema.creativeJobs)
-        .where(eq(schema.creativeJobs.id, input.id))
+        .innerJoin(schema.clients, eq(schema.creativeJobs.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.creativeJobs.id, input.id),
+            eq(schema.clients.companyId, ctx.companyId),
+            isNull(schema.clients.deletedAt)
+          )
+        )
         .limit(1)
 
-      if (!creativeJob) {
+      if (!result) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      return creativeJob
+      return {
+        ...result.creativeJob,
+        ...(result.creativeJob.data as CreativeJobData || {}),
+      }
     }),
 
   create: adminProcedure
@@ -72,15 +113,14 @@ export const creativesRouter = router({
       notes: z.string().optional(),
       fileUrl: z.string().url().optional(),
       clientVisible: z.boolean().default(true),
-      estimatedCost: z.number().optional(), // For budget integration
+      estimatedCost: z.number().optional(),
       currency: z.string().length(3).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Verify client
       const [client] = await ctx.db
         .select({ id: schema.clients.id })
         .from(schema.clients)
@@ -94,52 +134,42 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
+      const data: CreativeJobData = {
+        description: input.description,
+        quantity: input.quantity,
+        jobStartDate: input.jobStartDate,
+        dueDate: input.dueDate,
+        assignedTo: input.assignedTo,
+        priority: input.priority || 'medium',
+        notes: input.notes,
+        fileUrl: input.fileUrl,
+        clientVisible: input.clientVisible,
+        approvalStatus: 'pending',
+        estimatedCost: input.estimatedCost,
+        currency: input.currency || 'USD',
+      }
+
       const [creativeJob] = await ctx.db
         .insert(schema.creativeJobs)
         .values({
+          id: crypto.randomUUID(),
           clientId: input.clientId,
-          jobType: input.jobType,
-          title: input.title,
-          description: input.description,
-          quantity: input.quantity,
-          jobStartDate: input.jobStartDate,
-          dueDate: input.dueDate,
+          name: input.title,
+          type: input.jobType,
           status: input.status || 'requested',
-          assignedTo: input.assignedTo,
-          priority: input.priority || 'medium',
-          notes: input.notes,
-          fileUrl: input.fileUrl,
-          clientVisible: input.clientVisible,
-          approvalStatus: 'pending',
-          estimatedCost: input.estimatedCost ? String(input.estimatedCost) : null,
-          currency: input.currency || 'USD',
+          data,
         })
         .returning()
 
-      // Auto-create budget item for this creative job (seamless module integration)
-      if (input.estimatedCost && input.estimatedCost > 0) {
-        try {
-          await ctx.db.insert(budget).values({
-            clientId: input.clientId,
-            category: input.jobType, // video, photo, graphic, invitation, other
-            segment: 'creatives', // All creative costs go to creatives segment
-            item: input.title,
-            estimatedCost: String(input.estimatedCost),
-            currency: input.currency || 'USD',
-            paymentStatus: 'pending',
-            clientVisible: input.clientVisible,
-            isLumpSum: false,
-            notes: `Auto-created from creative job: ${input.title}`,
-          })
-        } catch (budgetError) {
-          // Log but don't fail - creative job was created successfully
-          console.warn('Failed to auto-create budget item for creative job:', budgetError)
-        }
+      return {
+        ...creativeJob,
+        ...data,
       }
-
-      return creativeJob
     }),
 
+  /**
+   * SECURITY: Verifies creative job belongs to a client owned by the user's company
+   */
   update: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -163,47 +193,90 @@ export const creativesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      const updateData: Partial<typeof schema.creativeJobs.$inferInsert> = {
-        updatedAt: new Date(),
-      }
+      // Verify creative job belongs to a client owned by this company
+      const [result] = await ctx.db
+        .select({ creativeJob: schema.creativeJobs })
+        .from(schema.creativeJobs)
+        .innerJoin(schema.clients, eq(schema.creativeJobs.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.creativeJobs.id, input.id),
+            eq(schema.clients.companyId, ctx.companyId),
+            isNull(schema.clients.deletedAt)
+          )
+        )
+        .limit(1)
 
-      if (input.data.jobType !== undefined) updateData.jobType = input.data.jobType
-      if (input.data.title !== undefined) updateData.title = input.data.title
-      if (input.data.description !== undefined) updateData.description = input.data.description
-      if (input.data.quantity !== undefined) updateData.quantity = input.data.quantity
-      if (input.data.jobStartDate !== undefined) updateData.jobStartDate = input.data.jobStartDate
-      if (input.data.dueDate !== undefined) updateData.dueDate = input.data.dueDate
-      if (input.data.status !== undefined) updateData.status = input.data.status
-      if (input.data.assignedTo !== undefined) updateData.assignedTo = input.data.assignedTo
-      if (input.data.priority !== undefined) updateData.priority = input.data.priority
-      if (input.data.notes !== undefined) updateData.notes = input.data.notes
-      if (input.data.fileUrl !== undefined) updateData.fileUrl = input.data.fileUrl
-      if (input.data.clientVisible !== undefined) updateData.clientVisible = input.data.clientVisible
-      if (input.data.approvalStatus !== undefined) updateData.approvalStatus = input.data.approvalStatus
-      if (input.data.estimatedCost !== undefined) updateData.estimatedCost = String(input.data.estimatedCost)
-      if (input.data.currency !== undefined) updateData.currency = input.data.currency
-
-      const [creativeJob] = await ctx.db
-        .update(schema.creativeJobs)
-        .set(updateData)
-        .where(eq(schema.creativeJobs.id, input.id))
-        .returning()
-
-      if (!creativeJob) {
+      if (!result) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      return creativeJob
+      const existing = result.creativeJob
+
+      const existingData = (existing.data as CreativeJobData) || {}
+      const newData: CreativeJobData = {
+        ...existingData,
+        ...(input.data.description !== undefined && { description: input.data.description }),
+        ...(input.data.quantity !== undefined && { quantity: input.data.quantity }),
+        ...(input.data.jobStartDate !== undefined && { jobStartDate: input.data.jobStartDate }),
+        ...(input.data.dueDate !== undefined && { dueDate: input.data.dueDate }),
+        ...(input.data.assignedTo !== undefined && { assignedTo: input.data.assignedTo }),
+        ...(input.data.priority !== undefined && { priority: input.data.priority }),
+        ...(input.data.notes !== undefined && { notes: input.data.notes }),
+        ...(input.data.fileUrl !== undefined && { fileUrl: input.data.fileUrl }),
+        ...(input.data.clientVisible !== undefined && { clientVisible: input.data.clientVisible }),
+        ...(input.data.approvalStatus !== undefined && { approvalStatus: input.data.approvalStatus }),
+        ...(input.data.estimatedCost !== undefined && { estimatedCost: input.data.estimatedCost }),
+        ...(input.data.currency !== undefined && { currency: input.data.currency }),
+      }
+
+      const [creativeJob] = await ctx.db
+        .update(schema.creativeJobs)
+        .set({
+          name: input.data.title || existing.name,
+          type: input.data.jobType || existing.type,
+          status: input.data.status || existing.status,
+          data: newData,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.creativeJobs.id, input.id))
+        .returning()
+
+      return {
+        ...creativeJob,
+        ...newData,
+      }
     }),
 
+  /**
+   * SECURITY: Verifies creative job belongs to a client owned by the user's company
+   */
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
+      }
+
+      // Verify creative job belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: schema.creativeJobs.id })
+        .from(schema.creativeJobs)
+        .innerJoin(schema.clients, eq(schema.creativeJobs.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.creativeJobs.id, input.id),
+            eq(schema.clients.companyId, ctx.companyId),
+            isNull(schema.clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
       await ctx.db
@@ -213,6 +286,9 @@ export const creativesRouter = router({
       return { success: true }
     }),
 
+  /**
+   * SECURITY: Verifies creative job belongs to a client owned by the user's company
+   */
   updateStatus: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -220,7 +296,25 @@ export const creativesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
+      }
+
+      // Verify creative job belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: schema.creativeJobs.id })
+        .from(schema.creativeJobs)
+        .innerJoin(schema.clients, eq(schema.creativeJobs.clientId, schema.clients.id))
+        .where(
+          and(
+            eq(schema.creativeJobs.id, input.id),
+            eq(schema.clients.companyId, ctx.companyId),
+            isNull(schema.clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
       const [creativeJob] = await ctx.db
@@ -232,10 +326,6 @@ export const creativesRouter = router({
         .where(eq(schema.creativeJobs.id, input.id))
         .returning()
 
-      if (!creativeJob) {
-        throw new TRPCError({ code: 'NOT_FOUND' })
-      }
-
       return creativeJob
     }),
 
@@ -243,10 +333,9 @@ export const creativesRouter = router({
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Verify client
       const [client] = await ctx.db
         .select({ id: schema.clients.id })
         .from(schema.clients)
@@ -260,7 +349,6 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Get all creative jobs
       const creativeJobs = await ctx.db
         .select()
         .from(schema.creativeJobs)
@@ -271,28 +359,25 @@ export const creativesRouter = router({
       const requested = creativeJobs.filter(j => j.status === 'requested').length
       const inProgress = creativeJobs.filter(j => j.status === 'in_progress').length
       const inReview = creativeJobs.filter(j => j.status === 'review').length
-      const approved = creativeJobs.filter(j => j.approvalStatus === 'approved').length
       const completed = creativeJobs.filter(j => j.status === 'completed').length
-      const pendingApproval = creativeJobs.filter(j => j.approvalStatus === 'pending' && j.status === 'review').length
-      const revisionRequested = creativeJobs.filter(j => j.approvalStatus === 'revision_requested').length
 
       const overdue = creativeJobs.filter(j => {
-        if (!j.dueDate || j.status === 'completed') return false
-        const dueDate = new Date(j.dueDate).getTime()
-        return dueDate < now
+        const data = j.data as CreativeJobData
+        if (!data?.dueDate || j.status === 'completed') return false
+        return new Date(data.dueDate).getTime() < now
       }).length
 
-      const highPriority = creativeJobs.filter(j => j.priority === 'high' && j.status !== 'completed').length
+      const highPriority = creativeJobs.filter(j => {
+        const data = j.data as CreativeJobData
+        return data?.priority === 'high' && j.status !== 'completed'
+      }).length
 
       return {
         total,
         requested,
         inProgress,
         inReview,
-        approved,
         completed,
-        pendingApproval,
-        revisionRequested,
         overdue,
         highPriority,
       }
@@ -306,7 +391,6 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get user's internal ID from auth ID
       const [user] = await ctx.db
         .select({ id: schema.users.id })
         .from(schema.users)
@@ -314,10 +398,9 @@ export const creativesRouter = router({
         .limit(1)
 
       if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Verify user has access to this client
       const [clientAccess] = await ctx.db
         .select({ id: schema.clientUsers.id })
         .from(schema.clientUsers)
@@ -328,20 +411,25 @@ export const creativesRouter = router({
         .limit(1)
 
       if (!clientAccess) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'No access to this client' })
+        throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Fetch only client-visible creative jobs
       const creativeJobs = await ctx.db
         .select()
         .from(schema.creativeJobs)
-        .where(and(
-          eq(schema.creativeJobs.clientId, input.clientId),
-          eq(schema.creativeJobs.clientVisible, true)
-        ))
+        .where(eq(schema.creativeJobs.clientId, input.clientId))
         .orderBy(desc(schema.creativeJobs.createdAt))
 
+      // Filter for client-visible jobs
       return creativeJobs
+        .filter(job => {
+          const data = job.data as CreativeJobData
+          return data?.clientVisible !== false
+        })
+        .map(job => ({
+          ...job,
+          ...(job.data as CreativeJobData || {}),
+        }))
     }),
 
   // Client approval action
@@ -356,7 +444,6 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get user's internal ID from auth ID
       const [user] = await ctx.db
         .select({ id: schema.users.id })
         .from(schema.users)
@@ -364,70 +451,68 @@ export const creativesRouter = router({
         .limit(1)
 
       if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get the creative job to check client access
       const [creativeJob] = await ctx.db
-        .select({
-          clientId: schema.creativeJobs.clientId,
-          clientVisible: schema.creativeJobs.clientVisible
-        })
+        .select()
         .from(schema.creativeJobs)
         .where(eq(schema.creativeJobs.id, input.id))
         .limit(1)
 
-      if (!creativeJob || !creativeJob.clientVisible) {
+      if (!creativeJob) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      // Verify user has access to this client
       const [clientAccess] = await ctx.db
         .select({ id: schema.clientUsers.id })
         .from(schema.clientUsers)
         .where(and(
-          eq(schema.clientUsers.clientId, creativeJob.clientId),
+          eq(schema.clientUsers.clientId, creativeJob.clientId!),
           eq(schema.clientUsers.userId, user.id)
         ))
         .limit(1)
 
       if (!clientAccess) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'No access to this client' })
+        throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Update approval status
+      const existingData = (creativeJob.data as CreativeJobData) || {}
+      const newData: CreativeJobData = {
+        ...existingData,
+        approvalStatus: input.approved ? 'approved' : 'rejected',
+        approvalComments: input.comments,
+        approvedBy: user.id,
+        approvedAt: new Date().toISOString(),
+      }
+
       const [updatedJob] = await ctx.db
         .update(schema.creativeJobs)
         .set({
-          approvalStatus: input.approved ? 'approved' : 'rejected',
-          approvalComments: input.comments || null,
-          approvedBy: user.id,
-          approvedAt: new Date(),
           status: input.approved ? 'approved' : 'review',
-          updatedAt: new Date()
+          data: newData,
+          updatedAt: new Date(),
         })
         .where(eq(schema.creativeJobs.id, input.id))
         .returning()
 
-      if (!updatedJob) {
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' })
+      return {
+        ...updatedJob,
+        ...newData,
       }
-
-      return updatedJob
     }),
 
   // Client request revision
   clientRequestRevision: protectedProcedure
     .input(z.object({
       id: z.string().uuid(),
-      comments: z.string().min(1, 'Please provide feedback for the revision'),
+      comments: z.string().min(1, 'Please provide feedback'),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.userId) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get user's internal ID from auth ID
       const [user] = await ctx.db
         .select({ id: schema.users.id })
         .from(schema.users)
@@ -435,57 +520,55 @@ export const creativesRouter = router({
         .limit(1)
 
       if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' })
+        throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get the creative job
       const [creativeJob] = await ctx.db
-        .select({
-          clientId: schema.creativeJobs.clientId,
-          clientVisible: schema.creativeJobs.clientVisible,
-          revisionCount: schema.creativeJobs.revisionCount
-        })
+        .select()
         .from(schema.creativeJobs)
         .where(eq(schema.creativeJobs.id, input.id))
         .limit(1)
 
-      if (!creativeJob || !creativeJob.clientVisible) {
+      if (!creativeJob) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      // Verify user has access to this client
       const [clientAccess] = await ctx.db
         .select({ id: schema.clientUsers.id })
         .from(schema.clientUsers)
         .where(and(
-          eq(schema.clientUsers.clientId, creativeJob.clientId),
+          eq(schema.clientUsers.clientId, creativeJob.clientId!),
           eq(schema.clientUsers.userId, user.id)
         ))
         .limit(1)
 
       if (!clientAccess) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'No access to this client' })
+        throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Update with revision request
+      const existingData = (creativeJob.data as CreativeJobData) || {}
+      const newData: CreativeJobData = {
+        ...existingData,
+        approvalStatus: 'revision_requested',
+        approvalComments: input.comments,
+        approvedBy: user.id,
+        approvedAt: new Date().toISOString(),
+        revisionCount: (existingData.revisionCount || 0) + 1,
+      }
+
       const [updatedJob] = await ctx.db
         .update(schema.creativeJobs)
         .set({
-          approvalStatus: 'revision_requested',
-          approvalComments: input.comments,
-          approvedBy: user.id,
-          approvedAt: new Date(),
           status: 'in_progress',
-          revisionCount: (creativeJob.revisionCount || 0) + 1,
-          updatedAt: new Date()
+          data: newData,
+          updatedAt: new Date(),
         })
         .where(eq(schema.creativeJobs.id, input.id))
         .returning()
 
-      if (!updatedJob) {
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' })
+      return {
+        ...updatedJob,
+        ...newData,
       }
-
-      return updatedJob
     }),
 })

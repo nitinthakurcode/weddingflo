@@ -254,34 +254,8 @@ export default function EventsPage() {
         </Button>
       </ClientModuleHeader>
 
-      {/* Pipeline Sync Indicator */}
-      {client?.pipelineStage && (
-        <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-teal-50 to-cobalt-50 dark:from-teal-950/30 dark:to-cobalt-950/30 border border-teal-200/50 dark:border-teal-800/50">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-teal-100 dark:bg-teal-900/50 rounded-lg">
-              <Zap className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-foreground">{t('pipelineSync') || 'Pipeline Sync'}</span>
-                <Badge className={`${PIPELINE_LABELS[client.pipelineStage]?.color || 'bg-mocha-500'} text-white text-xs`}>
-                  {PIPELINE_LABELS[client.pipelineStage]?.label || client.pipelineStage}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {t('pipelineSyncDescription') || 'Event statuses automatically sync with sales pipeline stage'}
-              </p>
-            </div>
-          </div>
-          <Link
-            href="/dashboard/pipeline"
-            className="flex items-center gap-1 text-sm text-teal-600 dark:text-teal-400 hover:underline"
-          >
-            {tc('viewPipeline') || 'View Pipeline'}
-            <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
-      )}
+      {/* Pipeline Sync Indicator - Will be enabled when Pipeline CRM is implemented */}
+      {/* {(client as any)?.pipelineStage && (...)} */}
 
       {/* Stats - Sub-events only (main wedding is shown as header) */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">

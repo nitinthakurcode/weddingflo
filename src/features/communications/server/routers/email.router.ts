@@ -11,7 +11,6 @@ import { PaymentReceiptEmail } from '@/lib/email/templates/payment-receipt-email
 import { VendorCommunicationEmail } from '@/lib/email/templates/vendor-communication-email';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 // Database email types use snake_case
 type DatabaseEmailType = 'client_invite' | 'wedding_reminder' | 'rsvp_confirmation' | 'payment_reminder' | 'payment_receipt' | 'vendor_communication' | 'general';
@@ -42,7 +41,7 @@ async function logEmail({
   metadata,
   locale = 'en',
 }: {
-  db: NodePgDatabase<typeof schema>;
+  db: any; // Drizzle database instance
   companyId: string;
   clientId?: string;
   templateType: DatabaseEmailType;
@@ -56,18 +55,23 @@ async function logEmail({
   locale?: string;
 }) {
   try {
+    const { nanoid } = await import('nanoid');
+    // Schema has: id, clientId, userId, to, subject, body, status, createdAt
+    // Store extra info in body as JSON for now
     const [log] = await db.insert(schema.emailLogs).values({
-      companyId,
+      id: nanoid(),
       clientId: clientId || undefined,
-      emailType: templateType,
-      recipientEmail: toEmail,
-      recipientName: recipientName || undefined,
+      to: toEmail,
       subject,
-      locale,
+      body: JSON.stringify({
+        templateType,
+        recipientName,
+        locale,
+        resendId,
+        errorMessage,
+        metadata,
+      }),
       status,
-      resendId: resendId || undefined,
-      errorMessage: errorMessage || undefined,
-      metadata: metadata || {},
     }).returning();
 
     return log;
@@ -99,6 +103,23 @@ export const emailRouter = router({
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session claims',
+        });
+      }
+
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
         });
       }
 
@@ -186,6 +207,23 @@ export const emailRouter = router({
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session claims',
+        });
+      }
+
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
         });
       }
 
@@ -279,6 +317,23 @@ export const emailRouter = router({
         throw new TRPCError({
           code: 'UNAUTHORIZED',
           message: 'Company ID not found in session claims',
+        });
+      }
+
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
         });
       }
 
@@ -502,6 +557,23 @@ export const emailRouter = router({
         });
       }
 
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
+        });
+      }
+
       try {
         // Get email subject with variables
         const subject = getEmailSubject('paymentReceipt', locale, { amount });
@@ -714,33 +786,107 @@ export const emailRouter = router({
         });
       }
 
-      // Build conditions
-      const conditions = [eq(schema.emailLogs.companyId, companyId)];
-
-      if (templateType) {
-        conditions.push(eq(schema.emailLogs.emailType, templateType));
-      }
+      // SECURITY: Filter by company via client join
+      // Build base query with company filtering
+      const conditions: any[] = [];
 
       if (status) {
         conditions.push(eq(schema.emailLogs.status, status));
       }
 
       if (clientId) {
+        // If specific clientId provided, verify it belongs to company first
+        const [client] = await db
+          .select({ id: schema.clients.id })
+          .from(schema.clients)
+          .where(and(
+            eq(schema.clients.id, clientId),
+            eq(schema.clients.companyId, companyId)
+          ))
+          .limit(1);
+
+        if (!client) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Client not found or access denied',
+          });
+        }
         conditions.push(eq(schema.emailLogs.clientId, clientId));
+
+        // Fetch logs for specific client
+        const logs = await db.query.emailLogs.findMany({
+          where: and(...conditions),
+          orderBy: [desc(schema.emailLogs.createdAt)],
+          limit,
+          offset,
+        });
+
+        const [countResult] = await db.select({ count: count() })
+          .from(schema.emailLogs)
+          .where(and(...conditions));
+
+        const total = countResult?.count || 0;
+
+        return {
+          logs,
+          total,
+          hasMore: total > offset + limit,
+        };
       }
 
-      // Fetch logs with pagination
-      const logs = await db.query.emailLogs.findMany({
-        where: and(...conditions),
-        orderBy: [desc(schema.emailLogs.createdAt)],
-        limit,
-        offset,
-      });
+      // Get all client IDs for this company for filtering
+      const companyClients = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(eq(schema.clients.companyId, companyId));
 
-      // Get total count
-      const [countResult] = await db.select({ count: count() })
+      const clientIds = companyClients.map(c => c.id);
+
+      if (clientIds.length === 0) {
+        return {
+          logs: [],
+          total: 0,
+          hasMore: false,
+        };
+      }
+
+      // Fetch logs for company's clients using innerJoin
+      const logsQuery = db
+        .select({
+          id: schema.emailLogs.id,
+          clientId: schema.emailLogs.clientId,
+          userId: schema.emailLogs.userId,
+          to: schema.emailLogs.to,
+          subject: schema.emailLogs.subject,
+          body: schema.emailLogs.body,
+          status: schema.emailLogs.status,
+          createdAt: schema.emailLogs.createdAt,
+        })
         .from(schema.emailLogs)
-        .where(and(...conditions));
+        .leftJoin(schema.clients, eq(schema.emailLogs.clientId, schema.clients.id))
+        .where(
+          and(
+            sql`(${schema.emailLogs.clientId} IS NULL OR ${schema.clients.companyId} = ${companyId})`,
+            ...(status ? [eq(schema.emailLogs.status, status)] : [])
+          )
+        )
+        .orderBy(desc(schema.emailLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      const logs = await logsQuery;
+
+      // Get total count with same filtering
+      const [countResult] = await db
+        .select({ count: count() })
+        .from(schema.emailLogs)
+        .leftJoin(schema.clients, eq(schema.emailLogs.clientId, schema.clients.id))
+        .where(
+          and(
+            sql`(${schema.emailLogs.clientId} IS NULL OR ${schema.clients.companyId} = ${companyId})`,
+            ...(status ? [eq(schema.emailLogs.status, status)] : [])
+          )
+        );
 
       const total = countResult?.count || 0;
 
@@ -773,14 +919,18 @@ export const emailRouter = router({
       const daysAgo = new Date();
       daysAgo.setDate(daysAgo.getDate() - days);
 
-      // Get email stats using Drizzle
-      const logs = await db.query.emailLogs.findMany({
-        where: and(
-          eq(schema.emailLogs.companyId, companyId),
-          sql`${schema.emailLogs.createdAt} >= ${daysAgo}`
-        ),
-        columns: { status: true },
-      });
+      // SECURITY: Get email stats filtered by company via client join
+      // Filter to only include logs that belong to this company's clients
+      const logs = await db
+        .select({ status: schema.emailLogs.status })
+        .from(schema.emailLogs)
+        .leftJoin(schema.clients, eq(schema.emailLogs.clientId, schema.clients.id))
+        .where(
+          and(
+            sql`${schema.emailLogs.createdAt} >= ${daysAgo}`,
+            sql`(${schema.emailLogs.clientId} IS NULL OR ${schema.clients.companyId} = ${companyId})`
+          )
+        );
 
       const total_emails = logs.length;
       const sent_emails = logs.filter(l => l.status === 'sent').length;
@@ -802,6 +952,7 @@ export const emailRouter = router({
     }),
 
   // Get user email preferences
+  // Schema has: id, userId, marketing, updates, createdAt, updatedAt
   getEmailPreferences: protectedProcedure.query(async ({ ctx }) => {
     const { db, userId } = ctx;
 
@@ -809,29 +960,24 @@ export const emailRouter = router({
       where: eq(schema.emailPreferences.userId, userId),
     });
 
-    // Return default preferences if none exist
+    // Return default preferences if none exist (matching schema shape)
     return preferences || {
-      marketingEmails: false,
-      transactionalEmails: true,
-      reminderEmails: true,
-      weeklyDigest: false,
-      clientUpdates: true,
-      taskReminders: true,
-      eventReminders: true,
+      id: '',
+      userId: userId,
+      marketing: false,
+      updates: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
   }),
 
   // Update user email preferences
+  // Schema has: id, userId, marketing, updates, createdAt, updatedAt
   updateEmailPreferences: protectedProcedure
     .input(
       z.object({
-        marketingEmails: z.boolean().optional(),
-        transactionalEmails: z.boolean().optional(),
-        reminderEmails: z.boolean().optional(),
-        weeklyDigest: z.boolean().optional(),
-        clientUpdates: z.boolean().optional(),
-        taskReminders: z.boolean().optional(),
-        eventReminders: z.boolean().optional(),
+        marketing: z.boolean().optional(),
+        updates: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -858,9 +1004,11 @@ export const emailRouter = router({
         preferences = updated;
       } else {
         // Insert new preferences
+        const { nanoid } = await import('nanoid');
         const [created] = await db
           .insert(schema.emailPreferences)
           .values({
+            id: nanoid(),
             userId,
             ...input,
           })

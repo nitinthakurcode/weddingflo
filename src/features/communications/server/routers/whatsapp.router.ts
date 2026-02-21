@@ -24,18 +24,12 @@ const getLogsSchema = z.object({
 // Create template schema
 const createTemplateSchema = z.object({
   name: z.string().min(1),
-  language: z.string().default('en'),
-  category: z.enum(['MARKETING', 'UTILITY', 'AUTHENTICATION']),
-  templateBody: z.string().min(1),
-  variables: z.array(z.string()).optional(),
-  headerText: z.string().optional(),
-  footerText: z.string().optional(),
-  buttonText: z.string().optional(),
-  buttonUrl: z.string().url().optional(),
+  content: z.string().min(1),
 });
 
 export const whatsappRouter = router({
   // Send WhatsApp message
+  // whatsappLogs schema: id, clientId, to, message, status, createdAt
   sendMessage: protectedProcedure
     .input(sendWhatsAppMessageSchema)
     .mutation(async ({ ctx, input }) => {
@@ -48,6 +42,25 @@ export const whatsappRouter = router({
         });
       }
 
+      // SECURITY: Verify clientId belongs to company if provided
+      if (input.clientId) {
+        const [client] = await db
+          .select({ id: schema.clients.id })
+          .from(schema.clients)
+          .where(and(
+            eq(schema.clients.id, input.clientId),
+            eq(schema.clients.companyId, companyId)
+          ))
+          .limit(1);
+
+        if (!client) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Client not found or access denied',
+          });
+        }
+      }
+
       try {
         // Validate phone number
         if (!isValidWhatsAppNumber(input.toNumber)) {
@@ -58,7 +71,6 @@ export const whatsappRouter = router({
         }
 
         const formattedNumber = formatWhatsAppNumber(input.toNumber);
-        const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER || '';
 
         // Send WhatsApp message via Twilio
         const result = await sendWhatsAppMessage({
@@ -77,14 +89,11 @@ export const whatsappRouter = router({
         // Log the message to database
         try {
           await db.insert(schema.whatsappLogs).values({
-            companyId,
+            id: crypto.randomUUID(),
             clientId: input.clientId || undefined,
-            toPhone: formattedNumber,
-            fromPhone: fromNumber || undefined,
-            content: input.message,
+            to: formattedNumber,
+            message: input.message,
             status: result.status || 'queued',
-            twilioSid: result.sid || undefined,
-            metadata: { mediaUrl: input.mediaUrl || null },
           });
         } catch (insertError) {
           console.error('Error logging WhatsApp message:', insertError);
@@ -122,8 +131,11 @@ export const whatsappRouter = router({
       }
 
       try {
-        // Build conditions
-        const conditions = [eq(schema.whatsappLogs.companyId, companyId)];
+        // SECURITY: Filter by company through clients table join
+        // Build conditions with company isolation
+        const conditions: any[] = [
+          eq(schema.clients.companyId, companyId),
+        ];
 
         if (input.clientId) {
           conditions.push(eq(schema.whatsappLogs.clientId, input.clientId));
@@ -133,21 +145,28 @@ export const whatsappRouter = router({
           conditions.push(eq(schema.whatsappLogs.status, input.status));
         }
 
-        // Get logs with client info
-        const logs = await db.query.whatsappLogs.findMany({
-          where: and(...conditions),
-          orderBy: [desc(schema.whatsappLogs.createdAt)],
-          limit: input.limit,
-          offset: input.offset,
-          with: {
-            client: true,
-          },
-        });
+        // Get logs with inner join to ensure company isolation
+        const logs = await db
+          .select({
+            id: schema.whatsappLogs.id,
+            clientId: schema.whatsappLogs.clientId,
+            to: schema.whatsappLogs.to,
+            message: schema.whatsappLogs.message,
+            status: schema.whatsappLogs.status,
+            createdAt: schema.whatsappLogs.createdAt,
+          })
+          .from(schema.whatsappLogs)
+          .innerJoin(schema.clients, eq(schema.whatsappLogs.clientId, schema.clients.id))
+          .where(and(...conditions))
+          .orderBy(desc(schema.whatsappLogs.createdAt))
+          .limit(input.limit)
+          .offset(input.offset);
 
-        // Get total count
+        // Get total count with same conditions
         const [countResult] = await db
           .select({ count: count() })
           .from(schema.whatsappLogs)
+          .innerJoin(schema.clients, eq(schema.whatsappLogs.clientId, schema.clients.id))
           .where(and(...conditions));
 
         const total = countResult?.count || 0;
@@ -185,19 +204,18 @@ export const whatsappRouter = router({
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - input.days);
 
-        // Get counts by status
+        // SECURITY: Filter by company through clients table join
         const statsResult = await db
           .select({
             status: schema.whatsappLogs.status,
             count: count(),
           })
           .from(schema.whatsappLogs)
-          .where(
-            and(
-              eq(schema.whatsappLogs.companyId, companyId),
-              gte(schema.whatsappLogs.createdAt, startDate)
-            )
-          )
+          .innerJoin(schema.clients, eq(schema.whatsappLogs.clientId, schema.clients.id))
+          .where(and(
+            eq(schema.clients.companyId, companyId),
+            gte(schema.whatsappLogs.createdAt, startDate)
+          ))
           .groupBy(schema.whatsappLogs.status);
 
         // Calculate totals
@@ -239,6 +257,7 @@ export const whatsappRouter = router({
     }),
 
   // Create WhatsApp template
+  // whatsappTemplates schema: id, companyId, name, content, createdAt, updatedAt
   createTemplate: protectedProcedure
     .input(createTemplateSchema)
     .mutation(async ({ ctx, input }) => {
@@ -255,26 +274,23 @@ export const whatsappRouter = router({
         const [template] = await db
           .insert(schema.whatsappTemplates)
           .values({
+            id: crypto.randomUUID(),
             companyId,
             name: input.name,
-            language: input.language,
-            category: input.category.toLowerCase(),
-            content: input.templateBody,
-            variables: input.variables || [],
-            status: 'pending',
+            content: input.content,
           })
           .returning();
 
         return {
           success: true,
           template,
-          message: 'Template created. Submit to Twilio for approval.',
+          message: 'Template created successfully',
         };
       } catch (error: any) {
         if (error?.code === '23505') {
           throw new TRPCError({
             code: 'CONFLICT',
-            message: 'Template with this name and language already exists',
+            message: 'Template with this name already exists',
           });
         }
 

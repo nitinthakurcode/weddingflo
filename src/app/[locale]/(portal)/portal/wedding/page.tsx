@@ -15,7 +15,7 @@ export default async function PortalWeddingPage() {
   const { userId, user } = await getServerSession();
 
   if (!userId) {
-    redirect('/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
   // Fetch user role from database using Drizzle
@@ -29,7 +29,7 @@ export default async function PortalWeddingPage() {
 
   // Verify client access
   if (!currentUser || currentUser.role !== 'client_user') {
-    redirect('/dashboard');
+    redirect(`/${locale}/dashboard`);
   }
 
   if (!currentUser?.companyId) {

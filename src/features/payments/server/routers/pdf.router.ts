@@ -33,7 +33,7 @@ export const pdfRouter = router({
       }
 
       try {
-        // Fetch payment data with related info
+        // Fetch payment data with related info (verify through client's companyId)
         const [result] = await db
           .select({
             payment: schema.payments,
@@ -41,11 +41,11 @@ export const pdfRouter = router({
             company: schema.companies,
           })
           .from(schema.payments)
-          .leftJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
-          .leftJoin(schema.companies, eq(schema.payments.companyId, schema.companies.id))
+          .innerJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
+          .innerJoin(schema.companies, eq(schema.clients.companyId, schema.companies.id))
           .where(and(
             eq(schema.payments.id, input.paymentId),
-            eq(schema.payments.companyId, companyId)
+            eq(schema.clients.companyId, companyId)
           ))
           .limit(1);
 
@@ -58,14 +58,13 @@ export const pdfRouter = router({
 
         const { payment, client, company } = result;
 
-        // Fetch invoice items (if you have a separate items table)
-        // For now, we'll create a single item from payment
+        // Create invoice item from payment (simplified schema)
         const items = [
           {
-            description: payment.description || 'Wedding Planning Services',
+            description: 'Wedding Planning Services',
             quantity: 1,
-            unit_price: parseFloat(payment.amount || '0'),
-            total: parseFloat(payment.amount || '0'),
+            unit_price: payment.amount || 0,
+            total: payment.amount || 0,
           },
         ];
 
@@ -83,7 +82,7 @@ export const pdfRouter = router({
           : 'Client';
 
         const invoiceData = {
-          invoiceNumber: payment.stripePaymentIntentId?.slice(-8).toUpperCase() ||
+          invoiceNumber: payment.stripeId?.slice(-8).toUpperCase() ||
                          payment.id.slice(-8).toUpperCase(),
           invoiceDate: payment.createdAt.toISOString(),
           dueDate: payment.createdAt.toISOString(), // Same as created for immediate payment
@@ -93,15 +92,15 @@ export const pdfRouter = router({
           companyEmail: undefined,
           companyPhone: undefined,
           clientName: clientName.trim() || 'Client',
-          clientEmail: client?.partner1Email,
+          clientEmail: client?.partner1Email || undefined,
           clientPhone: undefined,
           clientAddress: undefined,
           items,
-          subtotal: parseFloat(payment.amount || '0'),
+          subtotal: payment.amount || 0,
           tax: 0,
           discount: 0,
-          total: parseFloat(payment.amount || '0'),
-          currency: payment.currency || 'USD',
+          total: payment.amount || 0,
+          currency: 'USD',
           notes: 'Thank you for choosing our wedding planning services!',
           paymentTerms: 'Payment due upon receipt. All payments are processed securely through Stripe.',
         };
@@ -216,7 +215,7 @@ export const pdfRouter = router({
           companyEmail: undefined,
           companyPhone: undefined,
           clientName: clientName.trim() || 'Client',
-          clientEmail: client.partner1Email,
+          clientEmail: client.partner1Email || undefined,
           clientPhone: undefined,
           clientAddress: undefined,
           items: input.items,

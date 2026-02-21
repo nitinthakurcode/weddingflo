@@ -44,7 +44,7 @@ npm run dev
 | **Database** | PostgreSQL (Hetzner) + Drizzle ORM |
 | **Auth** | BetterAuth (self-hosted, cookie-based) |
 | **Storage** | S3-compatible (Hetzner Object Storage) |
-| **AI** | DeepSeek V3 (primary) + OpenAI (fallback) |
+| **AI** | OpenAI GPT-4o-mini (primary) + GPT-4o (fallback) |
 | **Email** | Resend |
 | **SMS** | Twilio |
 | **Payments** | Stripe |

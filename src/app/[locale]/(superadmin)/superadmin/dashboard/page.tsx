@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq, sql, desc } from '@/lib/db';
 import { users, companies, clients } from '@/lib/db/schema';
@@ -11,16 +12,22 @@ export default async function SuperAdminDashboardPage() {
   // Get BetterAuth session
   const { userId, user } = await getServerSession();
 
+  // Get locale from headers for proper redirects
+  const headersList = await headers();
+  const url = headersList.get('x-url') || headersList.get('referer') || '';
+  const localeMatch = url.match(/\/([a-z]{2})\//);
+  const locale = localeMatch ? localeMatch[1] : 'en';
+
   if (!userId || !user) {
-    redirect('/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
-  // Get role from BetterAuth user object
-  const role = (user as any).role as string | undefined;
+  // Get role from BetterAuth user object (properly typed)
+  const role = user.role ?? undefined;
 
   // Verify super admin access
   if (role !== 'super_admin') {
-    redirect('/dashboard');
+    redirect(`/${locale}/dashboard`);
   }
 
   // Fetch platform statistics using Drizzle
@@ -44,9 +51,9 @@ export default async function SuperAdminDashboardPage() {
       .limit(10),
   ]);
 
-  const totalCompanies = (companiesCountResult.rows[0] as { count: number })?.count || 0;
-  const totalUsers = (usersCountResult.rows[0] as { count: number })?.count || 0;
-  const totalClients = (clientsCountResult.rows[0] as { count: number })?.count || 0;
+  const totalCompanies = (companiesCountResult[0] as { count: number })?.count || 0;
+  const totalUsers = (usersCountResult[0] as { count: number })?.count || 0;
+  const totalClients = (clientsCountResult[0] as { count: number })?.count || 0;
   const recentUsers = recentUsersResult.map(u => ({
     id: u.id,
     full_name: [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Unnamed User',

@@ -38,32 +38,33 @@ import { Badge } from '@/components/ui/badge'
 import { ExportButton } from '@/components/export/export-button'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
 
+// Matches router output: schema fields + spread JSONB data
 type CreativeJob = {
   id: string
-  client_id: string
-  job_type: string
-  title: string
-  description: string | null
-  quantity: number | null
-  job_start_date: string | null
-  job_end_date: string | null
-  due_date: string | null
+  clientId: string | null
+  name: string
+  type: string
   status: string
-  assigned_to: string | null
-  priority: string
-  notes: string | null
-  file_url: string | null
-  client_visible: boolean | null
-  approval_status: string | null
-  approval_comments: string | null
-  approved_by: string | null
-  approved_at: string | null
-  rejection_reason: string | null
-  revision_count: number | null
-  versions: unknown
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
+  data: unknown
+  createdAt: Date | string
+  updatedAt: Date | string
+  // JSONB data fields (spread by router)
+  description?: string
+  quantity?: number
+  jobStartDate?: string
+  dueDate?: string
+  assignedTo?: string
+  priority?: string
+  notes?: string
+  fileUrl?: string
+  clientVisible?: boolean
+  approvalStatus?: string
+  approvalComments?: string
+  approvedBy?: string
+  approvedAt?: string
+  revisionCount?: number
+  estimatedCost?: number
+  currency?: string
 }
 
 export default function CreativesPage() {
@@ -205,18 +206,18 @@ export default function CreativesPage() {
   const handleEdit = (creative: CreativeJob) => {
     setEditingCreative(creative)
     setFormData({
-      title: creative.title || '',
-      jobType: creative.job_type as typeof formData.jobType,
+      title: creative.name || '',
+      jobType: creative.type as typeof formData.jobType,
       quantity: creative.quantity || 1,
-      jobStartDate: creative.job_start_date || '',
-      dueDate: creative.due_date || '',
+      jobStartDate: creative.jobStartDate || '',
+      dueDate: creative.dueDate || '',
       status: creative.status as typeof formData.status,
       description: creative.description || '',
-      assignedTo: creative.assigned_to || '',
-      priority: creative.priority as typeof formData.priority,
+      assignedTo: creative.assignedTo || '',
+      priority: (creative.priority || 'medium') as typeof formData.priority,
       notes: creative.notes || '',
-      fileUrl: creative.file_url || '',
-      clientVisible: creative.client_visible ?? true,
+      fileUrl: creative.fileUrl || '',
+      clientVisible: creative.clientVisible ?? true,
     })
   }
 
@@ -238,7 +239,7 @@ export default function CreativesPage() {
     return <Badge className={variant.className}>{t(variant.labelKey)}</Badge>
   }
 
-  const getApprovalBadge = (status: string | null) => {
+  const getApprovalBadge = (status: string | null | undefined) => {
     const variants: Record<string, { labelKey: string; className: string }> = {
       pending: { labelKey: 'approvalPending', className: 'bg-mocha-400 dark:bg-mocha-500' },
       approved: { labelKey: 'approvalApproved', className: 'bg-sage-600 dark:bg-sage-700' },
@@ -249,13 +250,14 @@ export default function CreativesPage() {
     return <Badge className={variant.className}>{t(variant.labelKey)}</Badge>
   }
 
-  const getPriorityBadge = (priority: string) => {
+  const getPriorityBadge = (priority: string | undefined) => {
+    const p = priority || 'medium'
     const variants: Record<string, string> = {
       low: 'bg-mocha-400 dark:bg-mocha-500',
       medium: 'bg-cobalt-500 dark:bg-cobalt-600',
       high: 'bg-rose-500 dark:bg-rose-600',
     }
-    return <Badge className={variants[priority] || variants.medium}>{t(`priority${priority.charAt(0).toUpperCase() + priority.slice(1)}`)}</Badge>
+    return <Badge className={variants[p] || variants.medium}>{t(`priority${p.charAt(0).toUpperCase() + p.slice(1)}`)}</Badge>
   }
 
   const getJobTypeLabel = (type: string) => {
@@ -316,22 +318,22 @@ export default function CreativesPage() {
           color="text-cobalt-600 dark:text-cobalt-400"
         />
         <StatCard
-          title={t('pendingApproval')}
-          value={stats?.pendingApproval || 0}
+          title={t('inReview')}
+          value={stats?.inReview || 0}
           icon={<Clock className="w-4 h-4" />}
           color="text-gold-600 dark:text-gold-400"
         />
         <StatCard
-          title={t('approved')}
-          value={stats?.approved || 0}
+          title={t('completed')}
+          value={stats?.completed || 0}
           icon={<CheckCircle className="w-4 h-4" />}
           color="text-sage-600 dark:text-sage-400"
         />
         <StatCard
-          title={t('revisionRequested')}
-          value={stats?.revisionRequested || 0}
+          title={t('overdue')}
+          value={stats?.overdue || 0}
           icon={<AlertTriangle className="w-4 h-4" />}
-          color="text-gold-600 dark:text-gold-400"
+          color="text-red-600 dark:text-red-400"
         />
       </div>
 
@@ -371,25 +373,25 @@ export default function CreativesPage() {
                   {(creatives as CreativeJob[] | undefined)?.map((creative) => (
                     <TableRow key={creative.id}>
                       <TableCell>
-                        <div className="font-medium">{creative.title}</div>
+                        <div className="font-medium">{creative.name}</div>
                         {creative.description && (
                           <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                             {creative.description}
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>{getJobTypeLabel(creative.job_type)}</TableCell>
-                      <TableCell>{creative.quantity}</TableCell>
+                      <TableCell>{getJobTypeLabel(creative.type)}</TableCell>
+                      <TableCell>{creative.quantity || 1}</TableCell>
                       <TableCell>
-                        {creative.job_start_date ? (
-                          new Date(creative.job_start_date).toLocaleDateString()
+                        {creative.jobStartDate ? (
+                          new Date(creative.jobStartDate).toLocaleDateString()
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        {creative.due_date ? (
-                          new Date(creative.due_date).toLocaleDateString()
+                        {creative.dueDate ? (
+                          new Date(creative.dueDate).toLocaleDateString()
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
@@ -397,8 +399,8 @@ export default function CreativesPage() {
                       <TableCell>{getStatusBadge(creative.status)}</TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {getApprovalBadge(creative.approval_status)}
-                          {creative.approval_comments && (
+                          {getApprovalBadge(creative.approvalStatus)}
+                          {creative.approvalComments && (
                             <MessageSquare className="w-3 h-3 text-muted-foreground" />
                           )}
                         </div>
@@ -681,28 +683,28 @@ export default function CreativesPage() {
             <div className="space-y-4">
               <div>
                 <Label className="text-muted-foreground">{t('creativeName')}</Label>
-                <p className="font-medium">{viewingCreative.title}</p>
+                <p className="font-medium">{viewingCreative.name}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">{t('type')}</Label>
-                  <p>{getJobTypeLabel(viewingCreative.job_type)}</p>
+                  <p>{getJobTypeLabel(viewingCreative.type)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t('quantity')}</Label>
-                  <p>{viewingCreative.quantity}</p>
+                  <p>{viewingCreative.quantity || 1}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">{t('startDate')}</Label>
-                  <p>{viewingCreative.job_start_date ? new Date(viewingCreative.job_start_date).toLocaleDateString() : '-'}</p>
+                  <p>{viewingCreative.jobStartDate ? new Date(viewingCreative.jobStartDate).toLocaleDateString() : '-'}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t('endDate')}</Label>
-                  <p>{viewingCreative.due_date ? new Date(viewingCreative.due_date).toLocaleDateString() : '-'}</p>
+                  <p>{viewingCreative.dueDate ? new Date(viewingCreative.dueDate).toLocaleDateString() : '-'}</p>
                 </div>
               </div>
 
@@ -713,7 +715,7 @@ export default function CreativesPage() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t('approval')}</Label>
-                  <div className="mt-1">{getApprovalBadge(viewingCreative.approval_status)}</div>
+                  <div className="mt-1">{getApprovalBadge(viewingCreative.approvalStatus)}</div>
                 </div>
               </div>
 
@@ -724,30 +726,30 @@ export default function CreativesPage() {
                 </div>
               )}
 
-              {viewingCreative.approval_comments && (
+              {viewingCreative.approvalComments && (
                 <div className="p-3 bg-muted rounded-lg">
                   <Label className="text-muted-foreground">{t('clientComments')}</Label>
-                  <p className="text-sm mt-1">{viewingCreative.approval_comments}</p>
-                  {viewingCreative.approved_at && (
+                  <p className="text-sm mt-1">{viewingCreative.approvalComments}</p>
+                  {viewingCreative.approvedAt && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(viewingCreative.approved_at).toLocaleString()}
+                      {new Date(viewingCreative.approvedAt).toLocaleString()}
                     </p>
                   )}
                 </div>
               )}
 
-              {(viewingCreative.revision_count ?? 0) > 0 && (
+              {(viewingCreative.revisionCount ?? 0) > 0 && (
                 <div>
                   <Label className="text-muted-foreground">{t('revisions')}</Label>
-                  <p>{t('revisionsRequested', { count: viewingCreative.revision_count ?? 0 })}</p>
+                  <p>{t('revisionsRequested', { count: viewingCreative.revisionCount ?? 0 })}</p>
                 </div>
               )}
 
-              {viewingCreative.file_url && (
+              {viewingCreative.fileUrl && (
                 <div>
                   <Label className="text-muted-foreground">{t('file')}</Label>
                   <a
-                    href={viewingCreative.file_url}
+                    href={viewingCreative.fileUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-cobalt-600 dark:text-cobalt-400 hover:underline flex items-center gap-1"

@@ -2086,3 +2086,184 @@ export async function exportMasterPlanningExcel(
 
   await downloadExcel(workbook, filename);
 }
+
+/**
+ * Export Timeline to Excel with comprehensive fields for offline editing
+ * January 2026 - Full round-trip import/export support
+ *
+ * Includes all fields needed to fully edit timeline offline and re-import
+ */
+export async function exportTimelineExcel(
+  items: Array<{
+    id: string;
+    clientId?: string;
+    eventId?: string | null;
+    title: string;
+    description?: string | null;
+    phase?: string | null;
+    startTime: Date | string;
+    endTime?: Date | string | null;
+    durationMinutes?: number | null;
+    location?: string | null;
+    participants?: string[] | null;
+    responsiblePerson?: string | null;
+    completed?: boolean | null;
+    sortOrder?: number | null;
+    notes?: string | null;
+    sourceModule?: string | null;
+    sourceId?: string | null;
+  }>,
+  events: Array<{
+    id: string;
+    title: string;
+    eventDate?: string | null;
+  }>,
+  options: ExcelOptions = {}
+): Promise<void> {
+  // Create event lookup map for human-readable names
+  const eventMap = new Map(events.map(e => [e.id, e]));
+
+  // Columns designed for complete offline editing
+  const columns: ExcelColumn[] = [
+    { header: 'ID', key: 'id', width: 38, hint: 'Do not modify - used for updates' },
+    { header: 'Event Name', key: 'eventName', width: 25, hint: 'Select from events list' },
+    { header: 'Event ID', key: 'eventId', width: 38, hint: 'Do not modify - auto-filled' },
+    { header: 'Title', key: 'title', width: 30, hint: 'Required - Activity name' },
+    { header: 'Description', key: 'description', width: 40, hint: 'Details about the activity' },
+    { header: 'Phase', key: 'phase', width: 12, hint: 'setup/showtime/wrapup', validation: { type: 'list', options: ['setup', 'showtime', 'wrapup'] } },
+    { header: 'Date', key: 'date', width: 12, hint: 'YYYY-MM-DD' },
+    { header: 'Start Time', key: 'startTime', width: 12, hint: 'HH:MM (24hr)' },
+    { header: 'End Time', key: 'endTime', width: 12, hint: 'HH:MM (24hr)' },
+    { header: 'Duration (min)', key: 'durationMinutes', width: 14, hint: 'Numbers only' },
+    { header: 'Location', key: 'location', width: 25, hint: 'Venue/room name' },
+    { header: 'Participants', key: 'participants', width: 30, hint: 'Comma-separated names' },
+    { header: 'Responsible Person', key: 'responsiblePerson', width: 20, hint: 'Person in charge' },
+    { header: 'Completed', key: 'completed', width: 12, hint: 'Yes/No', validation: { type: 'boolean' } },
+    { header: 'Sort Order', key: 'sortOrder', width: 12, hint: 'Numbers (0, 1, 2...)' },
+    { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+    { header: 'Source', key: 'sourceModule', width: 15, hint: 'Read-only - Auto-generated items' },
+  ];
+
+  // Format data for export
+  const data = items.map((item) => {
+    // Parse start/end times
+    const startDate = item.startTime ? new Date(item.startTime) : null;
+    const endDate = item.endTime ? new Date(item.endTime) : null;
+
+    // Format date and time separately for easy editing
+    const dateStr = startDate ? startDate.toISOString().split('T')[0] : '';
+    const startTimeStr = startDate ? startDate.toTimeString().slice(0, 5) : '';
+    const endTimeStr = endDate ? endDate.toTimeString().slice(0, 5) : '';
+
+    // Get event info
+    const event = item.eventId ? eventMap.get(item.eventId) : null;
+
+    return {
+      id: item.id,
+      eventName: event?.title || '',
+      eventId: item.eventId || '',
+      title: item.title,
+      description: item.description || '',
+      phase: item.phase || 'showtime',
+      date: dateStr,
+      startTime: startTimeStr,
+      endTime: endTimeStr,
+      durationMinutes: item.durationMinutes ?? '',
+      location: item.location || '',
+      participants: item.participants?.join(', ') || '',
+      responsiblePerson: item.responsiblePerson || '',
+      completed: item.completed ? 'Yes' : 'No',
+      sortOrder: item.sortOrder ?? 0,
+      notes: item.notes || '',
+      sourceModule: item.sourceModule || '',
+    };
+  });
+
+  // Generate workbook with hints
+  const workbook = generateExcelWithHints(columns, data, {
+    sheetName: 'Timeline',
+    includeHints: true,
+    autoFilter: true,
+    freezeRows: 2,
+  });
+
+  // Add Events reference sheet for dropdown validation
+  const eventsSheet = workbook.addWorksheet('Events (Reference)');
+  eventsSheet.columns = [
+    { header: 'Event Name', key: 'title', width: 30 },
+    { header: 'Event ID', key: 'id', width: 40 },
+    { header: 'Event Date', key: 'date', width: 15 },
+  ];
+  eventsSheet.getRow(1).font = { bold: true };
+  eventsSheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF4472C4' },
+  };
+  eventsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+  events.forEach((event) => {
+    eventsSheet.addRow({
+      title: event.title,
+      id: event.id,
+      date: event.eventDate || '',
+    });
+  });
+
+  // Add instructions sheet
+  const instructionsSheet = workbook.addWorksheet('Instructions');
+  instructionsSheet.columns = [{ header: 'Instructions', key: 'text', width: 100 }];
+  instructionsSheet.getRow(1).font = { bold: true, size: 14 };
+  instructionsSheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF4472C4' },
+  };
+  instructionsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+  const instructions = [
+    'TIMELINE IMPORT/EXPORT INSTRUCTIONS',
+    '',
+    '1. EDITING EXISTING ITEMS:',
+    '   - Keep the ID column unchanged - it links to existing records',
+    '   - Modify any other fields as needed',
+    '   - Leave ID blank for new items',
+    '',
+    '2. ADDING NEW ITEMS:',
+    '   - Leave the ID column empty',
+    '   - Fill in Title (required) and other fields',
+    '   - Copy Event ID from "Events (Reference)" sheet or leave blank for general items',
+    '',
+    '3. DELETING ITEMS:',
+    '   - Remove the entire row from the spreadsheet',
+    '   - Or mark for deletion by adding "DELETE" in the Notes column',
+    '',
+    '4. FIELD FORMATS:',
+    '   - Date: YYYY-MM-DD (e.g., 2026-03-15)',
+    '   - Times: HH:MM in 24-hour format (e.g., 14:30)',
+    '   - Phase: setup, showtime, or wrapup',
+    '   - Completed: Yes or No',
+    '   - Participants: Comma-separated names',
+    '',
+    '5. EVENTS:',
+    '   - See "Events (Reference)" sheet for valid event names and IDs',
+    '   - Use Event Name for readability, Event ID is auto-matched on import',
+    '',
+    '6. AUTO-GENERATED ITEMS:',
+    '   - Items with Source column filled are auto-generated from other modules',
+    '   - These can be edited but may be overwritten if source data changes',
+    '',
+    'After editing, save and import this file back into WeddingFlo.',
+  ];
+
+  instructions.forEach((text, index) => {
+    const row = instructionsSheet.addRow({ text });
+    if (index === 0) {
+      row.font = { bold: true, size: 12 };
+    }
+  });
+
+  // Download
+  const filename = options.filename || `timeline-${new Date().toISOString().split('T')[0]}.xlsx`;
+  await downloadExcel(workbook, filename);
+}

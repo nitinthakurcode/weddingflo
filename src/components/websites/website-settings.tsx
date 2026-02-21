@@ -21,14 +21,14 @@ interface Website {
   subdomain: string | null;
   customDomain: string | null;
   theme: string | null;
-  isPublished: boolean | null;
+  published: boolean | null;
   password: string | null;
   isPasswordProtected: boolean | null;
   settings: unknown;
-  content: unknown;
+  content?: unknown;
   createdAt: Date;
   updatedAt: Date;
-  deletedAt: Date | null;
+  deletedAt?: Date | null;
 }
 
 interface WebsiteSettings {

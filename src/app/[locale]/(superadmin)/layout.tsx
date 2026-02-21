@@ -1,5 +1,6 @@
 import { Link } from '@/lib/navigation';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getServerSession } from '@/lib/auth/server';
 import { LayoutDashboard, Building2, Users, Settings } from 'lucide-react';
 import { UserMenu } from '@/components/auth/user-menu';
@@ -11,14 +12,20 @@ export default async function SuperAdminLayout({
 }) {
   const { userId, user } = await getServerSession();
 
+  // Get locale from headers for proper redirects
+  const headersList = await headers();
+  const url = headersList.get('x-url') || headersList.get('referer') || '';
+  const localeMatch = url.match(/\/([a-z]{2})\//);
+  const locale = localeMatch ? localeMatch[1] : 'en';
+
   if (!userId || !user) {
-    redirect('/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
-  const role = (user as any).role as string | undefined;
+  const role = user.role ?? undefined;
 
   if (role !== 'super_admin') {
-    redirect('/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
   return (
@@ -72,7 +79,7 @@ export default async function SuperAdminLayout({
 
         {/* User Button */}
         <div className="p-4 border-t border-gray-800">
-          <UserMenu afterSignOutUrl="/sign-in" />
+          <UserMenu />
         </div>
       </aside>
 

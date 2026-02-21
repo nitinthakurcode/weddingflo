@@ -89,7 +89,7 @@ Respond ONLY with valid JSON in this exact format:
 }`;
 
   const response = await openai.chat.completions.create({
-    model: AI_MODELS.COMPLEX, // Use GPT-4o for complex scheduling
+    model: AI_MODELS.COMPLEX, // GPT-4o-mini handles complex scheduling efficiently
     messages: [
       {
         role: 'system',

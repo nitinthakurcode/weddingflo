@@ -26,7 +26,7 @@ export async function checkAIQuota(companyId: string): Promise<boolean> {
       SELECT check_ai_quota(${companyId}) as has_quota
     `)
 
-    return (result.rows[0] as { has_quota: boolean })?.has_quota === true
+    return (result[0] as { has_quota: boolean })?.has_quota === true
   } catch (error) {
     console.error('Error checking AI quota:', error)
     return false

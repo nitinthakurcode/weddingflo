@@ -44,12 +44,13 @@ export interface ActivityLogData {
 
 /**
  * Hook to log activity via tRPC
+ * Note: Uses activity.create procedure which is for notifications
  */
 export function useLogActivity() {
   const utils = trpc.useUtils();
-  const recordActivity = trpc.activity.recordActivity.useMutation({
+  const createNotification = trpc.activity.create.useMutation({
     onSuccess: () => {
-      utils.activity.getFeed.invalidate();
+      utils.activity.getRecent.invalidate();
     },
   });
 
@@ -59,15 +60,18 @@ export function useLogActivity() {
       const userAgent = typeof window !== 'undefined' ? navigator.userAgent : undefined;
       const deviceType = getDeviceType(userAgent);
 
-      await recordActivity.mutateAsync({
-        clientId: data.clientId,
-        activityType: `${data.entityType}_${data.action}`,
+      // Note: This maps to the notification system, not a dedicated activity log
+      // The activity router's create procedure expects notification-style input
+      await createNotification.mutateAsync({
+        userId: '', // Will be filled by the procedure context
+        type: 'system' as const,
         title: `${data.action.charAt(0).toUpperCase() + data.action.slice(1)} ${data.entityType}`,
-        description: data.changes ? JSON.stringify(data.changes) : undefined,
-        entityType: data.entityType,
-        entityId: data.entityId,
+        message: data.changes ? JSON.stringify(data.changes) : undefined,
         metadata: {
           action: data.action,
+          entityType: data.entityType,
+          entityId: data.entityId,
+          clientId: data.clientId,
           previousValue: data.previousValue,
           newValue: data.newValue,
           changes: data.changes,

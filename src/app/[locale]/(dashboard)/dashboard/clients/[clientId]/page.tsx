@@ -50,7 +50,7 @@ export default function ClientDetailPage() {
   // Queries for Master Export - only fetch when needed
   const guestsQuery = trpc.guests.getAll.useQuery({ clientId }, { enabled: false })
   const hotelsQuery = trpc.hotels.getAllWithGuests.useQuery({ clientId }, { enabled: false })
-  const guestGiftsQuery = trpc.guestGifts.getAll.useQuery({ clientId }, { enabled: false })
+  const guestGiftsQuery = trpc.guestGifts.list.useQuery({ clientId }, { enabled: false })
   const eventsQuery = trpc.events.getAll.useQuery({ clientId }, { enabled: false })
   const timelineQuery = trpc.timeline.getAll.useQuery({ clientId }, { enabled: false })
   const budgetQuery = trpc.budget.getAll.useQuery({ clientId }, { enabled: false })

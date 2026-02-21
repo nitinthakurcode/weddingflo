@@ -2,13 +2,14 @@ import { router, protectedProcedure, superAdminProcedure } from '@/server/trpc/t
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { eq, desc } from 'drizzle-orm';
-import { users, companies } from '@/lib/db/schema';
+import { user as userTable, companies } from '@/lib/db/schema';
 
 /**
- * Users Router - Drizzle ORM Version
+ * Users Router - February 2026
  *
+ * Single Source of Truth: BetterAuth user table
  * Uses session claims for authorization (NO database queries for auth checks)
- * Migrated from Supabase to Drizzle - December 2025
+ * All user data now comes from BetterAuth user table
  */
 // Shared procedure for getting current user
 const getCurrentUserProcedure = protectedProcedure.query(async ({ ctx }) => {
@@ -21,23 +22,25 @@ const getCurrentUserProcedure = protectedProcedure.query(async ({ ctx }) => {
 
   const [user] = await ctx.db
     .select({
-      id: users.id,
-      authId: users.authId,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      avatarUrl: users.avatarUrl,
-      role: users.role,
-      companyId: users.companyId,
-      preferredLanguage: users.preferredLanguage,
-      preferredCurrency: users.preferredCurrency,
-      timezone: users.timezone,
-      autoDetectLocale: users.autoDetectLocale,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
+      id: userTable.id,
+      email: userTable.email,
+      name: userTable.name,
+      firstName: userTable.firstName,
+      lastName: userTable.lastName,
+      avatarUrl: userTable.avatarUrl,
+      image: userTable.image,
+      role: userTable.role,
+      companyId: userTable.companyId,
+      preferredLanguage: userTable.preferredLanguage,
+      preferredCurrency: userTable.preferredCurrency,
+      timezone: userTable.timezone,
+      autoDetectLocale: userTable.autoDetectLocale,
+      isActive: userTable.isActive,
+      createdAt: userTable.createdAt,
+      updatedAt: userTable.updatedAt,
     })
-    .from(users)
-    .where(eq(users.authId, ctx.userId))
+    .from(userTable)
+    .where(eq(userTable.id, ctx.userId))
     .limit(1);
 
   if (!user) {
@@ -48,22 +51,23 @@ const getCurrentUserProcedure = protectedProcedure.query(async ({ ctx }) => {
   }
 
   // Construct full name
-  const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || 'User';
+  const name = user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || 'User';
 
   return {
     id: user.id,
-    auth_id: user.authId,
+    auth_id: user.id, // Same as id for BetterAuth user table
     name,
     first_name: user.firstName,
     last_name: user.lastName,
     email: user.email,
-    avatar_url: user.avatarUrl,
+    avatar_url: user.avatarUrl || user.image,
     role: user.role,
     company_id: user.companyId,
     preferred_language: user.preferredLanguage,
     preferred_currency: user.preferredCurrency,
     timezone: user.timezone,
     auto_detect_locale: user.autoDetectLocale,
+    is_active: user.isActive ?? true,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -88,13 +92,13 @@ export const usersRouter = router({
 
       const [data] = await ctx.db
         .select({
-          preferredCurrency: users.preferredCurrency,
-          preferredLanguage: users.preferredLanguage,
-          timezone: users.timezone,
-          autoDetectLocale: users.autoDetectLocale,
+          preferredCurrency: userTable.preferredCurrency,
+          preferredLanguage: userTable.preferredLanguage,
+          timezone: userTable.timezone,
+          autoDetectLocale: userTable.autoDetectLocale,
         })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .from(userTable)
+        .where(eq(userTable.id, ctx.userId))
         .limit(1);
 
       if (!data) {
@@ -137,9 +141,9 @@ export const usersRouter = router({
       if (input.auto_detect_locale !== undefined) updateData.autoDetectLocale = input.auto_detect_locale;
 
       await ctx.db
-        .update(users)
+        .update(userTable)
         .set(updateData)
-        .where(eq(users.authId, ctx.userId));
+        .where(eq(userTable.id, ctx.userId));
 
       return { success: true };
     }),
@@ -157,12 +161,12 @@ export const usersRouter = router({
       }
 
       await ctx.db
-        .update(users)
+        .update(userTable)
         .set({
           preferredLanguage: input.language,
           updatedAt: new Date(),
         })
-        .where(eq(users.authId, ctx.userId));
+        .where(eq(userTable.id, ctx.userId));
 
       return { success: true };
     }),
@@ -189,10 +193,23 @@ export const usersRouter = router({
       if (input.last_name !== undefined) updateData.lastName = input.last_name;
       if (input.avatar_url !== undefined) updateData.avatarUrl = input.avatar_url;
 
+      // Also update the combined name
+      if (input.first_name !== undefined || input.last_name !== undefined) {
+        const [currentUser] = await ctx.db
+          .select({ firstName: userTable.firstName, lastName: userTable.lastName })
+          .from(userTable)
+          .where(eq(userTable.id, ctx.userId))
+          .limit(1);
+
+        const firstName = input.first_name ?? currentUser?.firstName ?? '';
+        const lastName = input.last_name ?? currentUser?.lastName ?? '';
+        updateData.name = [firstName, lastName].filter(Boolean).join(' ') || 'User';
+      }
+
       await ctx.db
-        .update(users)
+        .update(userTable)
         .set(updateData)
-        .where(eq(users.authId, ctx.userId));
+        .where(eq(userTable.id, ctx.userId));
 
       return { success: true };
     }),
@@ -206,20 +223,21 @@ export const usersRouter = router({
       // Fetch all users with their company info
       const allUsers = await ctx.db
         .select({
-          id: users.id,
-          authId: users.authId,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          avatarUrl: users.avatarUrl,
-          role: users.role,
-          companyId: users.companyId,
-          isActive: users.isActive,
-          createdAt: users.createdAt,
-          updatedAt: users.updatedAt,
+          id: userTable.id,
+          email: userTable.email,
+          name: userTable.name,
+          firstName: userTable.firstName,
+          lastName: userTable.lastName,
+          avatarUrl: userTable.avatarUrl,
+          image: userTable.image,
+          role: userTable.role,
+          companyId: userTable.companyId,
+          isActive: userTable.isActive,
+          createdAt: userTable.createdAt,
+          updatedAt: userTable.updatedAt,
         })
-        .from(users)
-        .orderBy(desc(users.createdAt));
+        .from(userTable)
+        .orderBy(desc(userTable.createdAt));
 
       // Get company info for users with company_id
       const companyIds = [...new Set(allUsers.filter(u => u.companyId).map(u => u.companyId!))] as string[];
@@ -244,7 +262,7 @@ export const usersRouter = router({
         first_name: u.firstName,
         last_name: u.lastName,
         role: u.role,
-        avatar_url: u.avatarUrl,
+        avatar_url: u.avatarUrl || u.image,
         created_at: u.createdAt?.toISOString() || new Date().toISOString(),
         is_active: u.isActive ?? true,
         companies: u.companyId ? companyMap.get(u.companyId) || null : null,
@@ -263,19 +281,20 @@ export const usersRouter = router({
       // Get user data with company info
       const [userData] = await ctx.db
         .select({
-          id: users.id,
-          authId: users.authId,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          avatarUrl: users.avatarUrl,
-          role: users.role,
-          companyId: users.companyId,
-          preferredLanguage: users.preferredLanguage,
-          timezone: users.timezone,
+          id: userTable.id,
+          email: userTable.email,
+          name: userTable.name,
+          firstName: userTable.firstName,
+          lastName: userTable.lastName,
+          avatarUrl: userTable.avatarUrl,
+          image: userTable.image,
+          role: userTable.role,
+          companyId: userTable.companyId,
+          preferredLanguage: userTable.preferredLanguage,
+          timezone: userTable.timezone,
         })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .from(userTable)
+        .where(eq(userTable.id, ctx.userId))
         .limit(1);
 
       if (!userData) {
@@ -284,11 +303,11 @@ export const usersRouter = router({
 
       return {
         id: userData.id,
-        auth_id: userData.authId,
+        auth_id: userData.id,
         email: userData.email,
         first_name: userData.firstName,
         last_name: userData.lastName,
-        avatar_url: userData.avatarUrl,
+        avatar_url: userData.avatarUrl || userData.image,
         role: userData.role,
         company_id: userData.companyId,
         preferred_language: userData.preferredLanguage,

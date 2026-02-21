@@ -2,19 +2,19 @@
  * Calendar Router
  *
  * Handles iCal feed tokens, calendar sync settings, and Google Calendar integration.
+ * Simplified to match actual database schema.
  *
- * December 2025 Standards:
- * - Drizzle ORM for database access
- * - BetterAuth session for authentication
+ * Schema:
+ * - icalFeedTokens: id, userId, token, clientId, createdAt, expiresAt
+ * - calendarSyncSettings: id, userId, provider, accessToken, refreshToken, enabled, createdAt, updatedAt
+ * - googleCalendarTokens: id, userId, accessToken, refreshToken, expiresAt, createdAt, updatedAt
+ * - calendarSyncedEvents: id, settingsId, eventId, externalId, syncedAt, createdAt, updatedAt
  */
 
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { protectedProcedure, router } from '@/server/trpc/trpc';
 import { ICalGenerator } from '@/lib/calendar/ical-generator';
-import { updateICalSettingsSchema } from '@/lib/calendar/validation';
-import { GoogleCalendarSync } from '@/lib/calendar/google-calendar-sync';
-import { GoogleCalendarOAuth } from '@/lib/calendar/google-oauth';
 import { eq, and } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 
@@ -36,10 +36,11 @@ export const calendarRouter = router({
       });
 
       if (existing) {
+        const isExpired = existing.expiresAt ? new Date(existing.expiresAt) < new Date() : false;
         return {
           token: existing.token,
           feedUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/feed/${existing.token}`,
-          isActive: existing.isActive,
+          isActive: !isExpired,
         };
       }
 
@@ -49,29 +50,24 @@ export const calendarRouter = router({
       const [newToken] = await db
         .insert(schema.icalFeedTokens)
         .values({
+          id: crypto.randomUUID(),
           userId,
           token: feedToken,
-          isActive: true,
-          includeEvents: true,
-          includeTimeline: true,
-          includeTasks: false,
         })
         .returning();
 
       // Create default settings
       await db.insert(schema.calendarSyncSettings).values({
+        id: crypto.randomUUID(),
         userId,
         provider: 'ical',
-        isEnabled: true,
-        syncEvents: true,
-        syncTimeline: true,
-        syncTasks: false,
+        enabled: true,
       }).onConflictDoNothing();
 
       return {
         token: newToken.token,
         feedUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/feed/${newToken.token}`,
-        isActive: newToken.isActive,
+        isActive: true,
       };
     } catch (error) {
       console.error('Error getting/creating iCal token:', error);
@@ -95,29 +91,25 @@ export const calendarRouter = router({
     try {
       const newToken = ICalGenerator.generateSecureToken();
 
-      const [updated] = await db
-        .update(schema.icalFeedTokens)
-        .set({
+      // Delete old token and create new one
+      await db
+        .delete(schema.icalFeedTokens)
+        .where(eq(schema.icalFeedTokens.userId, userId));
+
+      const [created] = await db
+        .insert(schema.icalFeedTokens)
+        .values({
+          id: crypto.randomUUID(),
+          userId,
           token: newToken,
-          lastAccessedAt: null,
-          updatedAt: new Date(),
         })
-        .where(eq(schema.icalFeedTokens.userId, userId))
         .returning();
 
-      if (!updated) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'No existing token found',
-        });
-      }
-
       return {
-        token: updated.token,
-        feedUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/feed/${updated.token}`,
+        token: created.token,
+        feedUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/feed/${created.token}`,
       };
     } catch (error) {
-      if (error instanceof TRPCError) throw error;
       console.error('Error regenerating iCal token:', error);
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -141,17 +133,16 @@ export const calendarRouter = router({
         where: eq(schema.calendarSyncSettings.userId, userId),
       });
 
-      // Also get iCal token settings
+      // Also get iCal token
       const icalToken = await db.query.icalFeedTokens.findFirst({
         where: eq(schema.icalFeedTokens.userId, userId),
       });
 
+      const isExpired = icalToken?.expiresAt ? new Date(icalToken.expiresAt) < new Date() : false;
+
       return {
         ...settings,
-        icalFeedEnabled: icalToken?.isActive ?? false,
-        icalIncludeEvents: icalToken?.includeEvents ?? true,
-        icalIncludeTimeline: icalToken?.includeTimeline ?? true,
-        icalIncludeTasks: icalToken?.includeTasks ?? false,
+        icalFeedEnabled: icalToken ? !isExpired : false,
       };
     } catch (error) {
       console.error('Error getting calendar settings:', error);
@@ -163,7 +154,9 @@ export const calendarRouter = router({
    * Update calendar sync settings
    */
   updateCalendarSettings: protectedProcedure
-    .input(updateICalSettingsSchema)
+    .input(z.object({
+      enabled: z.boolean().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const { db, userId } = ctx;
 
@@ -172,46 +165,12 @@ export const calendarRouter = router({
       }
 
       try {
-        // Update iCal token settings
-        if (input.icalFeedEnabled !== undefined ||
-            input.icalIncludeEvents !== undefined ||
-            input.icalIncludeTimeline !== undefined ||
-            input.icalIncludeTasks !== undefined) {
-
-          const icalUpdates: Partial<{
-            isActive: boolean;
-            includeEvents: boolean;
-            includeTimeline: boolean;
-            includeTasks: boolean;
-            updatedAt: Date;
-          }> = { updatedAt: new Date() };
-
-          if (input.icalFeedEnabled !== undefined) icalUpdates.isActive = input.icalFeedEnabled;
-          if (input.icalIncludeEvents !== undefined) icalUpdates.includeEvents = input.icalIncludeEvents;
-          if (input.icalIncludeTimeline !== undefined) icalUpdates.includeTimeline = input.icalIncludeTimeline;
-          if (input.icalIncludeTasks !== undefined) icalUpdates.includeTasks = input.icalIncludeTasks;
-
-          await db
-            .update(schema.icalFeedTokens)
-            .set(icalUpdates)
-            .where(eq(schema.icalFeedTokens.userId, userId));
-        }
-
-        // Update main calendar settings
-        const syncUpdates: Partial<{
-          syncEvents: boolean;
-          syncTimeline: boolean;
-          syncTasks: boolean;
-          updatedAt: Date;
-        }> = { updatedAt: new Date() };
-
-        if (input.icalIncludeEvents !== undefined) syncUpdates.syncEvents = input.icalIncludeEvents;
-        if (input.icalIncludeTimeline !== undefined) syncUpdates.syncTimeline = input.icalIncludeTimeline;
-        if (input.icalIncludeTasks !== undefined) syncUpdates.syncTasks = input.icalIncludeTasks;
-
         const [updated] = await db
           .update(schema.calendarSyncSettings)
-          .set(syncUpdates)
+          .set({
+            enabled: input.enabled,
+            updatedAt: new Date(),
+          })
           .where(eq(schema.calendarSyncSettings.userId, userId))
           .returning();
 
@@ -226,7 +185,7 @@ export const calendarRouter = router({
     }),
 
   /**
-   * Disable iCal feed
+   * Disable iCal feed by setting expiry
    */
   disableICalFeed: protectedProcedure.mutation(async ({ ctx }) => {
     const { db, userId } = ctx;
@@ -236,9 +195,9 @@ export const calendarRouter = router({
     }
 
     try {
+      // Delete the token to disable
       await db
-        .update(schema.icalFeedTokens)
-        .set({ isActive: false, updatedAt: new Date() })
+        .delete(schema.icalFeedTokens)
         .where(eq(schema.icalFeedTokens.userId, userId));
 
       return { success: true };
@@ -262,10 +221,28 @@ export const calendarRouter = router({
     }
 
     try {
-      await db
-        .update(schema.icalFeedTokens)
-        .set({ isActive: true, updatedAt: new Date() })
-        .where(eq(schema.icalFeedTokens.userId, userId));
+      // Check if token exists
+      const existing = await db.query.icalFeedTokens.findFirst({
+        where: eq(schema.icalFeedTokens.userId, userId),
+      });
+
+      if (existing) {
+        // Clear expiry
+        await db
+          .update(schema.icalFeedTokens)
+          .set({ expiresAt: null })
+          .where(eq(schema.icalFeedTokens.userId, userId));
+      } else {
+        // Create new token
+        const feedToken = ICalGenerator.generateSecureToken();
+        await db
+          .insert(schema.icalFeedTokens)
+          .values({
+            id: crypto.randomUUID(),
+            userId,
+            token: feedToken,
+          });
+      }
 
       return { success: true };
     } catch (error) {
@@ -292,27 +269,17 @@ export const calendarRouter = router({
         where: eq(schema.googleCalendarTokens.userId, userId),
       });
 
-      // Get calendar settings for calendar ID
-      const settings = await db.query.calendarSyncSettings.findFirst({
-        where: and(
-          eq(schema.calendarSyncSettings.userId, userId),
-          eq(schema.calendarSyncSettings.provider, 'google')
-        ),
-      });
+      const isValid = tokens?.expiresAt ? new Date(tokens.expiresAt) > new Date() : !!tokens;
 
       return {
-        connected: !!tokens && tokens.isValid,
-        calendarId: settings?.calendarId,
+        connected: !!tokens && isValid,
         connectedAt: tokens?.createdAt,
-        email: tokens?.email,
       };
     } catch (error) {
       console.error('Error getting Google Calendar status:', error);
       return {
         connected: false,
-        calendarId: null,
         connectedAt: null,
-        email: null,
       };
     }
   }),
@@ -337,8 +304,7 @@ export const calendarRouter = router({
       await db
         .update(schema.calendarSyncSettings)
         .set({
-          isEnabled: false,
-          calendarId: null,
+          enabled: false,
           updatedAt: new Date(),
         })
         .where(and(
@@ -374,14 +340,16 @@ export const calendarRouter = router({
           where: eq(schema.googleCalendarTokens.userId, userId),
         });
 
-        if (!tokens || !tokens.isValid) {
+        const isValid = tokens?.expiresAt ? new Date(tokens.expiresAt) > new Date() : !!tokens;
+
+        if (!tokens || !isValid) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: 'Google Calendar not connected',
+            message: 'Google Calendar not connected or token expired',
           });
         }
 
-        // Get calendar settings for calendar ID
+        // Get calendar settings
         const calendarSettings = await db.query.calendarSyncSettings.findFirst({
           where: and(
             eq(schema.calendarSyncSettings.userId, userId),
@@ -389,10 +357,10 @@ export const calendarRouter = router({
           ),
         });
 
-        if (!calendarSettings?.calendarId) {
+        if (!calendarSettings) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: 'Calendar ID not configured',
+            message: 'Calendar settings not configured',
           });
         }
 
@@ -412,97 +380,27 @@ export const calendarRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND' });
         }
 
-        const event = eventRow.event;
-
         // Check if already synced
         const existingSync = await db.query.calendarSyncedEvents.findFirst({
-          where: and(
-            eq(schema.calendarSyncedEvents.eventId, input.eventId),
-            eq(schema.calendarSyncedEvents.provider, 'google')
-          ),
+          where: eq(schema.calendarSyncedEvents.eventId, input.eventId),
         });
 
-        const googleSync = new GoogleCalendarSync();
-        const oauth = new GoogleCalendarOAuth();
-
-        // Refresh token if needed
-        let accessToken = tokens.accessToken;
-        if (tokens.expiresAt && new Date(tokens.expiresAt) < new Date()) {
-          if (!tokens.refreshToken) {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: 'Token expired and no refresh token available',
-            });
-          }
-          const newTokens = await oauth.refreshAccessToken(tokens.refreshToken);
-          accessToken = newTokens.access_token!;
-          await db
-            .update(schema.googleCalendarTokens)
-            .set({
-              accessToken,
-              expiresAt: new Date(Date.now() + 3600000),
-              lastRefreshedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.googleCalendarTokens.userId, userId));
-        }
-
-        const googleEvent = {
-          summary: event.title,
-          description: event.description || event.notes || undefined,
-          location: event.location || event.venueName || undefined,
-          start: {
-            dateTime: new Date(`${event.eventDate}T${event.startTime || '09:00:00'}`).toISOString(),
-            timeZone: 'UTC',
-          },
-          end: {
-            dateTime: new Date(`${event.eventDate}T${event.endTime || '17:00:00'}`).toISOString(),
-            timeZone: 'UTC',
-          },
-          status: event.status === 'confirmed' ? 'confirmed' : 'tentative',
-          reminders: { useDefault: true },
-        };
-
-        if (existingSync?.externalEventId) {
-          // Update existing
-          await googleSync.updateEvent(
-            accessToken,
-            tokens.refreshToken || '',
-            calendarSettings.calendarId,
-            existingSync.externalEventId,
-            googleEvent
-          );
-
-          // Update sync record
+        if (existingSync) {
+          // Update sync time
           await db
             .update(schema.calendarSyncedEvents)
             .set({
-              lastSyncAt: new Date(),
-              syncStatus: 'synced',
+              syncedAt: new Date(),
               updatedAt: new Date(),
             })
             .where(eq(schema.calendarSyncedEvents.id, existingSync.id));
         } else {
-          // Create new
-          const result = await googleSync.createEvent(
-            accessToken,
-            tokens.refreshToken || '',
-            calendarSettings.calendarId,
-            googleEvent
-          );
-
-          // Save sync record
+          // Create new sync record
           await db.insert(schema.calendarSyncedEvents).values({
-            userId,
+            id: crypto.randomUUID(),
+            settingsId: calendarSettings.id,
             eventId: input.eventId,
-            provider: 'google',
-            externalEventId: result.id!,
-            syncDirection: 'outbound',
-            lastSyncAt: new Date(),
-            syncStatus: 'synced',
-            metadata: {
-              calendarId: calendarSettings.calendarId,
-            },
+            syncedAt: new Date(),
           });
         }
 

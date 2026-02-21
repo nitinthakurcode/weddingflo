@@ -10,6 +10,7 @@ import { clientsRouter, onboardingRouter, pipelineRouter } from '../../../featur
 import {
   eventsRouter,
   timelineRouter,
+  timelineTemplatesRouter,
   hotelsRouter,
   accommodationsRouter,
   calendarRouter,
@@ -48,35 +49,35 @@ import { analyticsRouter, budgetRouter, internalBudgetRouter, exportRouter, impo
 // Tasks Feature Pocket
 // import { tasksRouter } from '../../../features/tasks/server/routers';
 
-// Team Feature Pocket (November 2025 - Team Management)
-// import { teamRouter } from '../../../features/team/server/routers';
+// Team Feature Pocket (February 2026 - Team Management)
+import { teamRouter } from '../../../features/team/server/routers';
 
 // Backup Feature Pocket
 import { googleSheetsRouter } from '../../../features/backup/server/routers';
 
 // Engagement Feature Pocket (November 2025 - WeddingFlow-Pro-App-Flows)
-// import {
-//   gamificationRouter,
-//   invitationsRouter,
-//   activityRouter,
-//   widgetsRouter,
-//   referralsRouter
-// } from '../../../features/engagement/server/routers';
+import { referralsRouter } from '../../../features/engagement/server/routers';
 
 // Analytics Export (Session 54)
 import { analyticsExportRouter } from './analyticsExport';
 
-// Questionnaires Feature Pocket (December 2025)
-// import { questionnairesRouter } from '../../../features/questionnaires/server/routers';
+// Questionnaires Feature Pocket (February 2026)
+import { questionnairesRouter } from '../../../features/questionnaires/server/routers';
 
-// Workflows Feature Pocket (December 2025)
-// import { workflowsRouter } from '../../../features/workflows/server/routers';
+// Workflows Feature Pocket (February 2026)
+import { workflowsRouter } from '../../../features/workflows/server/routers';
 
-// Proposals Feature Pocket (December 2025)
-// import { proposalsRouter, smartFilesRouter } from '../../../features/proposals/server/routers';
+// Proposals & Contracts Feature Pocket (February 2026)
+import { proposalsRouter, contractsRouter } from '../../../features/proposals/server/routers';
+
+// Portal Feature Pocket (Client Portal - February 2026)
+import { portalRouter } from '../../../features/portal/server/routers';
+
+// Chatbot Feature Pocket (AI Command Chatbot - February 2026)
+import { chatbotRouter } from '../../../features/chatbot/server';
 
 // Integrations Feature Pocket (December 2025)
-// import { integrationsRouter } from '../../../features/integrations/server/routers/integrations.router';
+import { integrationsRouter } from '../../../features/integrations/server/routers';
 
 // Sequences Feature Pocket (December 2025 - HoneyBook Email Sequences)
 // import { sequencesRouter } from '../../../features/sequences/server/routers';
@@ -108,6 +109,7 @@ export const appRouter = router({
   internalBudget: internalBudgetRouter,
   events: eventsRouter,
   timeline: timelineRouter,
+  timelineTemplates: timelineTemplatesRouter,
   floorPlans: floorPlansRouter,
   eventFlow: eventFlowRouter,
   documents: documentsRouter,
@@ -138,15 +140,25 @@ export const appRouter = router({
   // dataBackup: dataBackupRouter,
   // gamification: gamificationRouter,
   // invitations: invitationsRouter,
-  // activity: activityRouter,
   // widgets: widgetsRouter,
-  // referrals: referralsRouter,
-  // team: teamRouter,
-  // questionnaires: questionnairesRouter,
-  // workflows: workflowsRouter,
-  // proposals: proposalsRouter,
-  // smartFiles: smartFilesRouter,
-  // integrations: integrationsRouter,
+  referrals: referralsRouter,
+
+  // February 2026 - Strategic Features
+  team: teamRouter,
+  questionnaires: questionnairesRouter,
+  workflows: workflowsRouter,
+  proposals: proposalsRouter,
+  contracts: contractsRouter,
+
+  // Integrations stub
+  integrations: integrationsRouter,
+
+  // Client Portal
+  portal: portalRouter,
+
+  // AI Command Chatbot (February 2026)
+  chatbot: chatbotRouter,
+  // TODO: Uncomment when implemented
   // sequences: sequencesRouter,
   // booking: bookingRouter,
 });

@@ -33,6 +33,7 @@ import { ExportButton } from '@/components/export/export-button'
 import { DietaryMatrixView } from '@/components/guests/dietary-matrix-view'
 import { GroupManagementView } from '@/components/guests/group-management-view'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
+import { NoGuestsEmptyState, EmptyState } from '@/components/ui/empty-state'
 
 export default function GuestsPage() {
   const params = useParams()
@@ -576,9 +577,20 @@ export default function GuestsPage() {
             </CardHeader>
             <CardContent>
               {filteredGuests.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  {eventFilter === 'all' ? t('noGuestsDescription') : t('noGuestsForEvent')}
-                </div>
+                eventFilter === 'all' ? (
+                  <NoGuestsEmptyState onAction={() => setIsAddDialogOpen(true)} />
+                ) : (
+                  <EmptyState
+                    icon={Users}
+                    title={t('noGuestsForEvent')}
+                    description="No guests assigned to this event yet"
+                    action={{
+                      label: 'View All Guests',
+                      onClick: () => setEventFilter('all'),
+                    }}
+                    variant="minimal"
+                  />
+                )
               ) : (
                 <div className="space-y-3">
                   {filteredGuests.map((guest) => (

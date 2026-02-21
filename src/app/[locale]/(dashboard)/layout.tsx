@@ -6,6 +6,7 @@ import { ServerThemeScript } from '@/components/theme/server-theme-script';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq } from '@/lib/db';
 import { user as userTable } from '@/lib/db/schema/auth';
+import { ChatToggle } from '@/features/chatbot/components/chat-toggle';
 
 // Force dynamic rendering for all dashboard pages
 export const dynamic = 'force-dynamic';
@@ -30,9 +31,9 @@ export default async function DashboardLayout({
     return null;
   }
 
-  // Get role and companyId from BetterAuth user object
-  let role = (user as any).role as string | undefined;
-  let companyId = (user as any).companyId as string | undefined;
+  // Get role and companyId from BetterAuth user object (properly typed)
+  let role = user.role ?? undefined;
+  let companyId = user.companyId ?? undefined;
 
   // Debug: Log what we're getting from session
   console.log('[Dashboard Layout] Session data:', {
@@ -55,7 +56,7 @@ export default async function DashboardLayout({
         .limit(1);
 
       if (dbUser) {
-        role = dbUser.role || undefined;
+        role = (dbUser.role as typeof role) || undefined;
         companyId = dbUser.companyId || undefined;
         console.log('[Dashboard Layout] Fresh DB data:', { role, companyId });
       }
@@ -94,12 +95,17 @@ export default async function DashboardLayout({
   // Onboarding check (only for company_admin)
   if (role === 'company_admin') {
     // Check if we're already on the onboarding page to prevent redirect loop
-    const pathname = headersList.get('x-invoke-path') || '';
+    // Try multiple headers since x-invoke-path may not always be set
+    const pathname = headersList.get('x-invoke-path')
+      || headersList.get('x-pathname')
+      || headersList.get('x-url')
+      || headersList.get('referer')
+      || '';
 
     if (!pathname.includes('/onboard')) {
       // First try session, then fall back to DB if session value is false/undefined
       // This handles stale session cache after onboarding completion
-      let onboardingCompleted = (user as any).onboardingCompleted;
+      let onboardingCompleted = user.onboardingCompleted;
 
       // If session says not completed, verify with DB (session might be stale)
       if (onboardingCompleted !== true && companyId) {
@@ -112,7 +118,7 @@ export default async function DashboardLayout({
             .limit(1);
 
           if (company) {
-            onboardingCompleted = company.onboardingCompleted;
+            onboardingCompleted = company.onboardingCompleted ?? false;
           }
         } catch (err) {
           console.error('[Dashboard Layout] Failed to check company onboarding status:', err);
@@ -169,6 +175,9 @@ export default async function DashboardLayout({
             </div>
           </main>
         </div>
+
+        {/* AI Command Chatbot (February 2026) */}
+        <ChatToggle />
       </div>
     </>
   );

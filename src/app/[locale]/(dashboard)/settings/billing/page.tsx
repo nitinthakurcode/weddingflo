@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Link } from '@/lib/navigation';
+import type { PlanTier } from '@/lib/stripe/plans';
 
 // Force dynamic rendering for this page
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,7 @@ export default function BillingPage() {
 
   // Build subscription from company data
   const subscription = company ? {
-    tier: company.subscriptionTier || 'free',
+    tier: (company.subscriptionTier || 'free') as PlanTier,
     status: company.subscriptionStatus || 'active',
     current_period_end: company.subscriptionEndsAt ? new Date(company.subscriptionEndsAt).getTime() : undefined,
     cancel_at_period_end: false,
@@ -51,8 +52,8 @@ export default function BillingPage() {
 
   // Build usage from dashboard stats
   const usage = dashboardStats ? {
-    guestsCount: dashboardStats.totalGuests || 0,
-    eventsCount: dashboardStats.upcomingWeddings || 0,
+    guestsCount: 0, // Not tracked in dashboard stats
+    eventsCount: dashboardStats.upcomingEvents || 0,
     usersCount: dashboardStats.activeClients || 0,
   } : null;
 

@@ -14,7 +14,7 @@ import * as schema from '@/lib/db/schema';
  * - ctx.db - Drizzle database client
  *
  * Schema uses:
- * - weddingWebsites table with: id, clientId, subdomain, customDomain, theme, isPublished, password, isPasswordProtected, settings (JSONB), content (JSONB)
+ * - weddingWebsites table with: id, clientId, subdomain, customDomain, theme, published, password, isPasswordProtected, settings (JSONB), content (JSONB)
  * - content JSONB: heroSection, ourStorySection, eventDetailsSection, travelSection, registrySection, photoGallery, weddingPartySection
  * - settings JSONB: themeColors, fonts, metaTitle, metaDescription, ogImageUrl, customDomainVerified, dnsVerificationToken, viewCount, publishedAt
  */
@@ -207,7 +207,7 @@ export const websitesRouter = router({
         .where(
           and(
             eq(schema.weddingWebsites.subdomain, input.subdomain),
-            eq(schema.weddingWebsites.isPublished, true),
+            eq(schema.weddingWebsites.published, true),
             isNull(schema.weddingWebsites.deletedAt)
           )
         )
@@ -484,7 +484,7 @@ export const websitesRouter = router({
     .input(z.object({
       websiteId: z.string().uuid().optional(),
       id: z.string().uuid().optional(),
-      isPublished: z.boolean(),
+      published: z.boolean(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
@@ -528,13 +528,13 @@ export const websitesRouter = router({
       const currentSettings = (website.wedding_websites.settings as WebsiteSettings) || {};
       const newSettings: WebsiteSettings = {
         ...currentSettings,
-        publishedAt: input.isPublished ? new Date().toISOString() : undefined,
+        publishedAt: input.published ? new Date().toISOString() : undefined,
       };
 
       const [updatedWebsite] = await db
         .update(schema.weddingWebsites)
         .set({
-          isPublished: input.isPublished,
+          published: input.published,
           settings: newSettings,
           updatedAt: new Date(),
         })

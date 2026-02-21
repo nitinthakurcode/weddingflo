@@ -55,22 +55,21 @@ const notificationTypeLabels: Record<string, string> = {
   system_notification: 'System',
 };
 
+// Interface matches Drizzle schema for pushNotificationLogs
 interface NotificationLog {
   id: string;
-  userId: string;
-  title: string;
+  userId: string | null;
+  title: string | null;
   body: string | null;
-  data: unknown;
   status: string | null;
-  fcmMessageId: string | null;
-  errorMessage: string | null;
-  clickedAt: Date | null;
+  subscriptionId: string | null;
+  error: string | null;
   createdAt: Date;
 }
 
 function NotificationLogItem({ log }: { log: NotificationLog }) {
-  // Try to get notification type from data field
-  const notificationType = (log.data as any)?.type || 'system_notification';
+  // Notification type is now determined by title pattern
+  const notificationType = 'system_notification';
   const icon = notificationTypeIcons[notificationType] || <Bell className="h-4 w-4" />;
   const label = notificationTypeLabels[notificationType] || 'Notification';
 
@@ -105,8 +104,8 @@ function NotificationLogItem({ log }: { log: NotificationLog }) {
           <span>
             {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
           </span>
-          {log.status === 'failed' && log.errorMessage && (
-            <span className="text-red-600">Error: {log.errorMessage}</span>
+          {log.status === 'failed' && log.error && (
+            <span className="text-red-600">Error: {log.error}</span>
           )}
         </div>
       </div>

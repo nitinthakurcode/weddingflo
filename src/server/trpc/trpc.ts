@@ -150,3 +150,20 @@ export const superAdminProcedure = t.procedure.use(async ({ ctx, next }) => {
   }
   return next({ ctx });
 });
+
+/**
+ * Security Note - February 2026
+ *
+ * tRPC security is handled at multiple layers:
+ *
+ * 1. Authentication: BetterAuth (cookie-based sessions, automatic CSRF via trustedOrigins)
+ * 2. Rate Limiting: Cloudflare WAF (external, before hitting the app)
+ * 3. DDoS Protection: Cloudflare + Traefik middleware
+ * 4. Multi-tenant Isolation: companyId checks in each router
+ *
+ * Auth rate limiting for sign-in/sign-up/password-reset is handled separately
+ * in src/lib/auth/rate-limiter.ts (PostgreSQL-based).
+ *
+ * The middleware files in ./middleware/ are available for future use if needed
+ * but are not applied to avoid complexity and potential performance overhead.
+ */

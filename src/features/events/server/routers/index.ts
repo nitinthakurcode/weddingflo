@@ -34,3 +34,4 @@ export { vendorsRouter } from './vendors.router';
 export { floorPlansRouter } from './floor-plans.router';
 export { eventFlowRouter } from './event-flow.router';
 export { accommodationsRouter } from './accommodations.router';
+export { timelineTemplatesRouter } from './timeline-templates.router';

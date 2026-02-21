@@ -52,3 +52,4 @@ supabase/.temp/
 
 # macOS
 .DS_Store
+*.bak

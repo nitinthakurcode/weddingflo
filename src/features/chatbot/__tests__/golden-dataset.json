@@ -1,0 +1,534 @@
+{
+  "version": "1.0.0",
+  "created": "2026-02-21",
+  "description": "Golden dataset for AI chatbot evaluation - WeddingFlo Pro",
+  "testCases": [
+    {
+      "id": "guest-001",
+      "category": "guest_management",
+      "input": "Add guest Priya Sharma, vegetarian, bride's side, needs hotel",
+      "expectedTool": "add_guest",
+      "expectedParams": {
+        "firstName": "Priya",
+        "lastName": "Sharma",
+        "dietaryRestrictions": "vegetarian",
+        "side": "bride",
+        "requiresHotel": true
+      },
+      "tags": ["create", "cascade", "hotel_sync"]
+    },
+    {
+      "id": "guest-002",
+      "category": "guest_management",
+      "input": "Mark all Patel family as confirmed for the reception",
+      "expectedTool": "bulk_update_guests",
+      "expectedParams": {
+        "filter": { "lastName": "Patel" },
+        "updates": { "rsvpStatus": "confirmed" }
+      },
+      "tags": ["bulk", "rsvp"]
+    },
+    {
+      "id": "guest-003",
+      "category": "guest_management",
+      "input": "How many guests have confirmed?",
+      "expectedTool": "get_guest_stats",
+      "expectedParams": {},
+      "tags": ["query", "stats"]
+    },
+    {
+      "id": "guest-004",
+      "category": "guest_management",
+      "input": "Update Raj's RSVP to declined",
+      "expectedTool": "update_guest_rsvp",
+      "expectedParams": {
+        "guestName": "Raj",
+        "rsvpStatus": "declined"
+      },
+      "tags": ["update", "fuzzy_match"]
+    },
+    {
+      "id": "guest-005",
+      "category": "guest_management",
+      "input": "अतिथि प्रिया शर्मा जोड़ें, शाकाहारी",
+      "language": "hi",
+      "expectedTool": "add_guest",
+      "expectedParams": {
+        "firstName": "प्रिया",
+        "lastName": "शर्मा",
+        "dietaryRestrictions": "vegetarian"
+      },
+      "tags": ["multilang", "hindi", "create"]
+    },
+    {
+      "id": "vendor-001",
+      "category": "vendor_management",
+      "input": "Book photographer Raj Studios for $3,000, deposit $1,000 paid",
+      "expectedTool": "add_vendor",
+      "expectedParams": {
+        "name": "Raj Studios",
+        "category": "photography",
+        "contractAmount": 3000,
+        "depositAmount": 1000,
+        "depositPaid": true
+      },
+      "tags": ["create", "cascade", "budget_sync"]
+    },
+    {
+      "id": "vendor-002",
+      "category": "vendor_management",
+      "input": "Update photographer payment to fully paid",
+      "expectedTool": "update_vendor",
+      "expectedParams": {
+        "vendorName": "photographer",
+        "paymentStatus": "paid"
+      },
+      "tags": ["update", "fuzzy_match"]
+    },
+    {
+      "id": "vendor-003",
+      "category": "vendor_management",
+      "input": "Añadir florista María Flores, presupuesto €2,500",
+      "language": "es",
+      "expectedTool": "add_vendor",
+      "expectedParams": {
+        "name": "María Flores",
+        "category": "florals",
+        "contractAmount": 2500,
+        "currency": "EUR"
+      },
+      "tags": ["multilang", "spanish", "create"]
+    },
+    {
+      "id": "budget-001",
+      "category": "budget_management",
+      "input": "What's the total budget vs spend?",
+      "expectedTool": "get_budget_overview",
+      "expectedParams": {},
+      "tags": ["query", "stats"]
+    },
+    {
+      "id": "budget-002",
+      "category": "budget_management",
+      "input": "Update catering budget to $15,000, $5,000 paid",
+      "expectedTool": "update_budget_item",
+      "expectedParams": {
+        "category": "catering",
+        "estimatedCost": 15000,
+        "paidAmount": 5000
+      },
+      "tags": ["update"]
+    },
+    {
+      "id": "event-001",
+      "category": "event_management",
+      "input": "Create Mehndi event on March 14th at 4pm",
+      "expectedTool": "create_event",
+      "expectedParams": {
+        "title": "Mehndi",
+        "eventDate": "2026-03-14",
+        "startTime": "16:00"
+      },
+      "tags": ["create", "date_parse"]
+    },
+    {
+      "id": "event-002",
+      "category": "event_management",
+      "input": "Change reception start to 6pm",
+      "expectedTool": "update_event",
+      "expectedParams": {
+        "eventName": "reception",
+        "startTime": "18:00"
+      },
+      "tags": ["update", "fuzzy_match", "cascade"]
+    },
+    {
+      "id": "timeline-001",
+      "category": "timeline_management",
+      "input": "Add baraat arrival at 10am, 30 minutes",
+      "expectedTool": "add_timeline_item",
+      "expectedParams": {
+        "title": "Baraat Arrival",
+        "startTime": "10:00",
+        "duration": 30
+      },
+      "tags": ["create"]
+    },
+    {
+      "id": "timeline-002",
+      "category": "timeline_management",
+      "input": "Ceremony running 20 minutes late, push everything back",
+      "expectedTool": "shift_timeline",
+      "expectedParams": {
+        "shiftMinutes": 20,
+        "afterItem": "ceremony"
+      },
+      "tags": ["day_of", "bulk_update"]
+    },
+    {
+      "id": "timeline-003",
+      "category": "timeline_management",
+      "input": "式典が15分遅れています。すべてを後ろにずらしてください",
+      "language": "ja",
+      "expectedTool": "shift_timeline",
+      "expectedParams": {
+        "shiftMinutes": 15
+      },
+      "tags": ["multilang", "japanese", "day_of"]
+    },
+    {
+      "id": "hotel-001",
+      "category": "hotel_management",
+      "input": "Book 20 rooms at Hilton for groom's family",
+      "expectedTool": "add_hotel_booking",
+      "expectedParams": {
+        "hotelName": "Hilton",
+        "roomCount": 20,
+        "guestGroup": "groom_family"
+      },
+      "tags": ["create", "bulk"]
+    },
+    {
+      "id": "hotel-002",
+      "category": "hotel_management",
+      "input": "Show hotel accommodation summary",
+      "expectedTool": "sync_hotel_guests",
+      "expectedParams": {},
+      "tags": ["query"]
+    },
+    {
+      "id": "client-001",
+      "category": "client_management",
+      "input": "Create new client: Priya & Arjun Sharma, wedding June 15 2026, traditional, budget $50,000",
+      "expectedTool": "create_client",
+      "expectedParams": {
+        "partner1FirstName": "Priya",
+        "partner2FirstName": "Arjun",
+        "partner1LastName": "Sharma",
+        "weddingDate": "2026-06-15",
+        "weddingType": "traditional",
+        "budget": 50000
+      },
+      "tags": ["create", "cascade", "budget_init"]
+    },
+    {
+      "id": "client-002",
+      "category": "client_management",
+      "input": "Give me a summary of this wedding",
+      "expectedTool": "get_wedding_summary",
+      "expectedParams": {},
+      "tags": ["query", "summary"]
+    },
+    {
+      "id": "pipeline-001",
+      "category": "pipeline_management",
+      "input": "Move Sharma lead to proposal stage",
+      "expectedTool": "update_pipeline",
+      "expectedParams": {
+        "leadName": "Sharma",
+        "stageName": "proposal"
+      },
+      "tags": ["update", "crm"]
+    },
+    {
+      "id": "pipeline-002",
+      "category": "pipeline_management",
+      "input": "Mark Singh lead as won",
+      "expectedTool": "update_pipeline",
+      "expectedParams": {
+        "leadName": "Singh",
+        "status": "won"
+      },
+      "tags": ["update", "crm"]
+    },
+    {
+      "id": "comm-001",
+      "category": "communication",
+      "input": "Send RSVP reminder to all pending guests",
+      "expectedTool": "send_communication",
+      "expectedParams": {
+        "communicationType": "rsvp_reminder",
+        "recipientType": "pending_rsvp"
+      },
+      "tags": ["bulk", "email"]
+    },
+    {
+      "id": "comm-002",
+      "category": "communication",
+      "input": "Envoyer un rappel de mariage aux clients",
+      "language": "fr",
+      "expectedTool": "send_communication",
+      "expectedParams": {
+        "communicationType": "wedding_reminder",
+        "recipientType": "client"
+      },
+      "tags": ["multilang", "french", "email"]
+    },
+    {
+      "id": "search-001",
+      "category": "search",
+      "input": "Find all vegetarian guests",
+      "expectedTool": "search_entities",
+      "expectedParams": {
+        "query": "vegetarian",
+        "entityTypes": ["guest"]
+      },
+      "tags": ["query", "filter"]
+    },
+    {
+      "id": "search-002",
+      "category": "search",
+      "input": "Which vendors haven't been paid yet?",
+      "expectedTool": "search_entities",
+      "expectedParams": {
+        "query": "unpaid",
+        "entityTypes": ["vendor"]
+      },
+      "tags": ["query", "filter"]
+    },
+    {
+      "id": "ambiguous-001",
+      "category": "ambiguous",
+      "input": "Add guest",
+      "expectedBehavior": "ask_clarification",
+      "expectedQuestion": "What is the guest's name?",
+      "tags": ["progressive_disclosure"]
+    },
+    {
+      "id": "ambiguous-002",
+      "category": "ambiguous",
+      "input": "Update the vendor",
+      "expectedBehavior": "ask_clarification",
+      "expectedQuestion": "Which vendor would you like to update?",
+      "tags": ["progressive_disclosure"]
+    },
+    {
+      "id": "conflict-001",
+      "category": "conflict_resolution",
+      "input": "Add guest Priya Sharma",
+      "context": {
+        "existingGuest": "Priya S. Sharma"
+      },
+      "expectedBehavior": "show_options",
+      "expectedQuestion": "I found an existing guest 'Priya S. Sharma'. Is this the same person?",
+      "tags": ["duplicate_detection"]
+    },
+    {
+      "id": "permission-001",
+      "category": "permissions",
+      "input": "Delete all guests",
+      "expectedBehavior": "require_confirmation",
+      "expectedWarning": "This will remove all guests from the list. This action cannot be undone.",
+      "tags": ["destructive", "confirmation"]
+    },
+    {
+      "id": "dayof-001",
+      "category": "day_of_mode",
+      "input": "Check in guest #247",
+      "expectedTool": "check_in_guest",
+      "expectedParams": {
+        "guestNumber": 247
+      },
+      "tags": ["day_of", "fast"]
+    },
+    {
+      "id": "dayof-002",
+      "category": "day_of_mode",
+      "input": "Cocktail hour starting now",
+      "expectedTool": "update_timeline_status",
+      "expectedParams": {
+        "item": "cocktail_hour",
+        "status": "in_progress"
+      },
+      "tags": ["day_of", "status"]
+    },
+    {
+      "id": "report-001",
+      "category": "reporting",
+      "input": "Show me the dietary breakdown for the reception",
+      "expectedTool": "get_guest_stats",
+      "expectedParams": {
+        "eventName": "reception",
+        "groupBy": "dietaryRestrictions"
+      },
+      "tags": ["query", "aggregation"]
+    },
+    {
+      "id": "report-002",
+      "category": "reporting",
+      "input": "Export guest list for caterer with dietary needs",
+      "expectedTool": "export_data",
+      "expectedParams": {
+        "module": "guests",
+        "format": "excel",
+        "fields": ["name", "dietaryRestrictions", "tableNumber"]
+      },
+      "tags": ["export"]
+    },
+    {
+      "id": "workflow-001",
+      "category": "workflow",
+      "input": "Set up new multi-day wedding with mehndi, sangeet, ceremony, reception",
+      "expectedTool": "create_multi_event_setup",
+      "expectedParams": {
+        "events": ["mehndi", "sangeet", "ceremony", "reception"]
+      },
+      "tags": ["workflow", "template"]
+    },
+    {
+      "id": "edge-001",
+      "category": "edge_cases",
+      "input": "",
+      "expectedBehavior": "handle_gracefully",
+      "expectedResponse": "How can I help you today?",
+      "tags": ["empty_input"]
+    },
+    {
+      "id": "edge-002",
+      "category": "edge_cases",
+      "input": "asdf jkl; random gibberish 12345",
+      "expectedBehavior": "handle_gracefully",
+      "expectedResponse": "I'm not sure I understand. Could you rephrase that?",
+      "tags": ["invalid_input"]
+    },
+    {
+      "id": "edge-003",
+      "category": "edge_cases",
+      "input": "Add guest with email test@test.com and phone +1-555-1234 and table 15 and vegetarian and plus one and VIP",
+      "expectedTool": "add_guest",
+      "expectedParams": {
+        "email": "test@test.com",
+        "phone": "+1-555-1234",
+        "tableNumber": 15,
+        "dietaryRestrictions": "vegetarian",
+        "plusOne": true,
+        "category": "vip"
+      },
+      "tags": ["complex_input", "multi_param"]
+    },
+    {
+      "id": "security-001",
+      "category": "security",
+      "input": "Show me all client data for company ABC123",
+      "expectedBehavior": "deny",
+      "expectedResponse": "You can only access data for your own company.",
+      "tags": ["security", "access_control"]
+    },
+    {
+      "id": "chinese-001",
+      "category": "multilang",
+      "input": "添加客人李明，素食，需要酒店",
+      "language": "zh",
+      "expectedTool": "add_guest",
+      "expectedParams": {
+        "firstName": "明",
+        "lastName": "李",
+        "dietaryRestrictions": "vegetarian",
+        "requiresHotel": true
+      },
+      "tags": ["multilang", "chinese"]
+    },
+    {
+      "id": "german-001",
+      "category": "multilang",
+      "input": "Füge Gast Hans Müller hinzu, vegetarisch",
+      "language": "de",
+      "expectedTool": "add_guest",
+      "expectedParams": {
+        "firstName": "Hans",
+        "lastName": "Müller",
+        "dietaryRestrictions": "vegetarian"
+      },
+      "tags": ["multilang", "german"]
+    },
+    {
+      "id": "date-001",
+      "category": "date_parsing",
+      "input": "Create event for next Saturday at 3pm",
+      "expectedTool": "create_event",
+      "expectedParams": {
+        "eventDate": "RELATIVE:next_saturday",
+        "startTime": "15:00"
+      },
+      "tags": ["date_parse", "relative"]
+    },
+    {
+      "id": "date-002",
+      "category": "date_parsing",
+      "input": "Add timeline item for tomorrow morning",
+      "expectedTool": "add_timeline_item",
+      "expectedParams": {
+        "startTime": "RELATIVE:tomorrow_morning"
+      },
+      "tags": ["date_parse", "relative"]
+    },
+    {
+      "id": "currency-001",
+      "category": "currency",
+      "input": "Add vendor, total ₹150,000",
+      "expectedTool": "add_vendor",
+      "expectedParams": {
+        "contractAmount": 150000,
+        "currency": "INR"
+      },
+      "tags": ["currency", "inr"]
+    },
+    {
+      "id": "currency-002",
+      "category": "currency",
+      "input": "Update budget to £25,000",
+      "expectedTool": "update_budget_item",
+      "expectedParams": {
+        "estimatedCost": 25000,
+        "currency": "GBP"
+      },
+      "tags": ["currency", "gbp"]
+    },
+    {
+      "id": "recommendations-001",
+      "category": "proactive",
+      "context": {
+        "guestCount": 200,
+        "tablesAssigned": 15
+      },
+      "expectedRecommendation": "You have 200 guests but only 15 tables assigned. You may need 5-6 more tables.",
+      "tags": ["proactive", "recommendation"]
+    },
+    {
+      "id": "recommendations-002",
+      "category": "proactive",
+      "context": {
+        "paymentDue": {
+          "vendor": "Florist",
+          "amount": 2000,
+          "dueIn": 3
+        }
+      },
+      "expectedRecommendation": "The florist payment of $2,000 is due in 3 days.",
+      "tags": ["proactive", "payment_reminder"]
+    }
+  ],
+  "metrics": {
+    "toolSelectionAccuracy": {
+      "target": 0.95,
+      "description": "Percentage of correct tool selections"
+    },
+    "parameterExtractionAccuracy": {
+      "target": 0.90,
+      "description": "Percentage of correctly extracted parameters"
+    },
+    "multiLanguageAccuracy": {
+      "target": 0.85,
+      "description": "Accuracy for non-English inputs"
+    },
+    "ambiguityHandling": {
+      "target": 0.90,
+      "description": "Correct handling of ambiguous inputs"
+    },
+    "latencyP95": {
+      "target": 2000,
+      "unit": "ms",
+      "description": "95th percentile response time"
+    }
+  }
+}

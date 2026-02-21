@@ -16,6 +16,13 @@ export default defineConfig({
   schema: [
     './src/lib/db/schema.ts',
     './src/lib/db/schema-features.ts',
+    './src/lib/db/schema-pipeline.ts',
+    './src/lib/db/schema-proposals.ts',
+    './src/lib/db/schema-workflows.ts',
+    './src/lib/db/schema-questionnaires.ts',
+    './src/lib/db/schema-chatbot.ts',
+    './src/lib/db/schema-invitations.ts',
+    './src/lib/db/schema-relations.ts', // Drizzle ORM relations - Feb 2026
   ],
 
   // Output directory for migrations

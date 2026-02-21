@@ -15,13 +15,16 @@ import { checkAIRateLimit, RateLimitError } from '@/lib/redis/rate-limiter'
  * @throws RateLimitError if limit exceeded
  */
 export async function checkRateLimit(userId: string): Promise<void> {
-  const result = await checkAIRateLimit(userId)
+  const result = await checkAIRateLimit({ userId })
 
   if (!result.allowed) {
+    // Calculate retryAfter from resetAt
+    const retryAfter = Math.ceil((result.resetAt.getTime() - Date.now()) / 1000)
     throw new RateLimitError(
-      `Rate limit exceeded. Please try again in ${result.retryAfter} seconds.`,
-      result.retryAfter || 60,
-      result.resetAt
+      `Rate limit exceeded. Please try again in ${retryAfter} seconds.`,
+      retryAfter,
+      100, // max AI requests per hour
+      result.remaining
     )
   }
 }

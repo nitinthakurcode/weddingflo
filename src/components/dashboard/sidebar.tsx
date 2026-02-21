@@ -89,11 +89,13 @@ export function Sidebar() {
       name: t('dashboard'),
       href: '/dashboard',
       icon: LayoutDashboard,
+      dataTour: 'sidebar-dashboard',
     },
     {
       name: t('clients'),
       href: '/dashboard/clients',
       icon: Users,
+      dataTour: 'sidebar-clients',
     },
     {
       name: t('pipeline'),
@@ -128,6 +130,7 @@ export function Sidebar() {
       name: t('chat'),
       href: '/dashboard/ai/chat',
       icon: Sparkles,
+      dataTour: 'sidebar-ai',
     },
     {
       name: t('budgetPrediction'),
@@ -148,11 +151,6 @@ export function Sidebar() {
 
   // Engagement navigation
   const engagementNavigation = [
-    {
-      name: t('gamification'),
-      href: '/dashboard/gamification',
-      icon: Trophy,
-    },
     {
       name: t('referrals'),
       href: '/dashboard/referrals',
@@ -244,6 +242,7 @@ export function Sidebar() {
           name: t('timeline'),
           href: `/dashboard/clients/${clientId}/timeline`,
           icon: Clock,
+          dataTour: 'sidebar-timeline',
         },
         {
           name: t('guests'),
@@ -350,6 +349,7 @@ export function Sidebar() {
       name: t('settings'),
       href: '/dashboard/settings',
       icon: Settings,
+      dataTour: 'sidebar-settings',
     },
   ]
 
@@ -370,7 +370,7 @@ export function Sidebar() {
     <aside className="relative hidden w-64 border-r border-mocha-200 bg-gradient-to-b from-cloud-50 via-white to-cloud-100 dark:from-mocha-950 dark:via-mocha-900 dark:to-mocha-950 dark:border-mocha-800 lg:block">
       <div className="flex h-full flex-col">
         {/* Logo - 2026 Teal & Gold Design */}
-        <div className="flex h-16 items-center border-b border-mocha-200/50 dark:border-mocha-800/50 px-6 bg-white/50 dark:bg-mocha-900/50 backdrop-blur-sm">
+        <div data-tour="dashboard-header" className="flex h-16 items-center border-b border-mocha-200/50 dark:border-mocha-800/50 px-6 bg-white/50 dark:bg-mocha-900/50 backdrop-blur-sm">
           <Link href="/dashboard" className="flex items-center space-x-3 group">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 via-teal-600 to-gold-500 shadow-lg shadow-teal-500/30 ring-2 ring-teal-200/50 dark:ring-teal-800/50 group-hover:scale-110 group-hover:shadow-teal-500/50 transition-all duration-300">
               <span className="text-xl font-black text-white">W</span>
@@ -400,6 +400,7 @@ export function Sidebar() {
                 <Link
                   key={item.name}
                   href={item.href}
+                  data-tour={item.dataTour}
                   className={cn(
                     'flex items-center space-x-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                     active
@@ -430,6 +431,7 @@ export function Sidebar() {
                   <Link
                     key={item.name}
                     href={item.href}
+                    data-tour={item.dataTour}
                     className={cn(
                       'flex items-center space-x-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                       active
@@ -587,6 +589,7 @@ export function Sidebar() {
                       <Link
                         key={item.href}
                         href={item.href}
+                        data-tour={item.dataTour}
                         className={cn(
                           'flex items-center space-x-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                           active
@@ -651,6 +654,7 @@ export function Sidebar() {
                 <Link
                   key={item.name}
                   href={item.href}
+                  data-tour={item.dataTour}
                   className={cn(
                     'flex items-center space-x-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
                     active

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from '@/lib/navigation';
 import { Heart, Calendar, Users, MessageSquare, Clock, MapPin } from 'lucide-react';
 import { getTranslations, getLocale } from 'next-intl/server';
+import { WeddingProgressBar } from '@/components/portal/wedding-progress-bar';
 
 export default async function PortalDashboardPage() {
   const t = await getTranslations('portal');
@@ -16,16 +17,16 @@ export default async function PortalDashboardPage() {
   const { userId, user } = await getServerSession();
 
   if (!userId || !user) {
-    redirect('/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
-  // Get role and company from BetterAuth user object
-  const role = (user as any).role as string | undefined;
-  const companyId = (user as any).companyId as string | undefined;
+  // Get role and company from BetterAuth user object (properly typed)
+  const role = user.role ?? undefined;
+  const companyId = user.companyId ?? undefined;
 
   // Verify client access
   if (role !== 'client_user') {
-    redirect('/dashboard');
+    redirect(`/${locale}/dashboard`);
   }
 
   // Fetch company info for display using Drizzle
@@ -89,7 +90,7 @@ export default async function PortalDashboardPage() {
     FROM guests
     WHERE company_id = ${portalUser.company_id}
   `);
-  const guestCount = (countResult.rows[0] as { count: number })?.count || 0;
+  const guestCount = (countResult[0] as { count: number })?.count || 0;
 
   // Calculate days until wedding
   let daysUntilWedding = null;
@@ -151,6 +152,11 @@ export default async function PortalDashboardPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Wedding Progress */}
+      {client && (
+        <WeddingProgressBar clientId={client.id} />
       )}
 
       {/* Quick Stats */}
@@ -283,6 +289,7 @@ export default async function PortalDashboardPage() {
           </div>
         </CardContent>
       </Card>
+
     </div>
   );
 }

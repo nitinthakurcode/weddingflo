@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Sparkles, Send, Loader2, X } from 'lucide-react';
+import { Sparkles, Send, Loader2, X, AlertCircle } from 'lucide-react';
+import { trpc } from '@/lib/trpc/client';
 
 interface AIAssistantPanelProps {
   clientId: string;
@@ -14,30 +15,41 @@ interface AIAssistantPanelProps {
 
 export function AIAssistantPanel({ clientId, companyId, onClose }: AIAssistantPanelProps) {
   const [prompt, setPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  // In a real implementation, this would call an AI API
+  // Use the real AI email generation endpoint
+  const generateEmail = trpc.ai.generateEmail.useMutation({
+    onSuccess: (result) => {
+      if (result.success && result.data) {
+        // data contains subject, body, suggestions
+        const suggestions: string[] = [];
+        if (result.data.subject) suggestions.push(result.data.subject);
+        if (result.data.body) suggestions.push(result.data.body);
+        if (result.data.suggestions) suggestions.push(...result.data.suggestions);
+        setSuggestions(suggestions.filter(Boolean));
+      }
+      setError(null);
+    },
+    onError: (err) => {
+      setError(err.message || 'Failed to generate response');
+      setSuggestions([]);
+    },
+  });
+
   const handleGenerateResponse = async () => {
     if (!prompt.trim()) return;
+    setError(null);
 
-    setIsGenerating(true);
-    try {
-      // Simulate AI generation delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Mock AI suggestions based on prompt
-      const mockSuggestions = [
-        'Thank you for reaching out! I\'d be happy to help you with your wedding planning.',
-        'I can assist you with vendor recommendations, budget management, and timeline planning.',
-        'Let me know if you have any specific questions about your upcoming events.',
-      ];
-
-      setSuggestions(mockSuggestions);
-    } finally {
-      setIsGenerating(false);
-    }
+    // Use the AI email generation for message suggestions
+    generateEmail.mutate({
+      emailType: 'custom',
+      tone: 'friendly',
+      customInstructions: prompt,
+    });
   };
+
+  const isGenerating = generateEmail.isPending;
 
   const handleUseSuggestion = (suggestion: string) => {
     // This would integrate with the message input
@@ -133,11 +145,26 @@ export function AIAssistantPanel({ clientId, companyId, onClose }: AIAssistantPa
           </CardContent>
         </Card>
 
+        {/* Error State */}
+        {error && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="pt-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm text-destructive font-medium">Unable to generate</p>
+                  <p className="text-xs text-muted-foreground mt-1">{error}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* AI Suggestions */}
         {suggestions.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Suggestions</CardTitle>
+              <CardTitle className="text-sm">AI Generated</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {suggestions.map((suggestion, index) => (

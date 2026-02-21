@@ -22,12 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import { Plus, Trash2, Edit, Gift, CheckCircle, Package, Clock } from 'lucide-react'
+import { Plus, Trash2, Edit, Gift, Package, Clock, DollarSign } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { ImportDialog } from '@/components/import/ImportDialog'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
 import { ExportButton } from '@/components/export/export-button'
+import { formatCurrency } from '@/lib/currency'
 
 export default function GiftsPage() {
   const params = useParams()
@@ -38,14 +38,9 @@ export default function GiftsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingGift, setEditingGift] = useState<any>(null)
   const [formData, setFormData] = useState({
-    giftName: '',
-    fromName: '',
-    fromEmail: '',
-    deliveryDate: '',
-    deliveryStatus: 'pending' as 'pending' | 'received' | 'returned',
-    thankYouSent: false,
-    thankYouSentDate: '',
-    notes: '',
+    name: '',
+    value: '',
+    status: 'received' as 'pending' | 'received' | 'returned',
   })
 
   const utils = trpc.useUtils()
@@ -103,29 +98,11 @@ export default function GiftsPage() {
     },
   })
 
-  const markThankYouSentMutation = trpc.gifts.markThankYouSent.useMutation({
-    onSuccess: async () => {
-      toast({ title: t('thankYouMarkedSent') })
-      await Promise.all([
-        utils.gifts.getAll.invalidate({ clientId }),
-        utils.gifts.getStats.invalidate({ clientId }),
-      ])
-    },
-    onError: (error) => {
-      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
-    },
-  })
-
   const resetForm = () => {
     setFormData({
-      giftName: '',
-      fromName: '',
-      fromEmail: '',
-      deliveryDate: '',
-      deliveryStatus: 'pending',
-      thankYouSent: false,
-      thankYouSentDate: '',
-      notes: '',
+      name: '',
+      value: '',
+      status: 'received',
     })
   }
 
@@ -135,12 +112,16 @@ export default function GiftsPage() {
     if (editingGift) {
       updateMutation.mutate({
         id: editingGift.id,
-        data: formData,
+        name: formData.name,
+        value: formData.value ? parseFloat(formData.value) : undefined,
+        status: formData.status,
       })
     } else {
       createMutation.mutate({
         clientId: clientId,
-        ...formData,
+        name: formData.name,
+        value: formData.value ? parseFloat(formData.value) : undefined,
+        status: formData.status,
       })
     }
   }
@@ -148,14 +129,9 @@ export default function GiftsPage() {
   const handleEdit = (gift: any) => {
     setEditingGift(gift)
     setFormData({
-      giftName: gift.gift_name || '',
-      fromName: gift.from_name || '',
-      fromEmail: gift.from_email || '',
-      deliveryDate: gift.delivery_date || '',
-      deliveryStatus: gift.delivery_status || 'pending',
-      thankYouSent: gift.thank_you_sent || false,
-      thankYouSentDate: gift.thank_you_sent_date || '',
-      notes: gift.notes || '',
+      name: gift.name || '',
+      value: gift.value?.toString() || '',
+      status: gift.status || 'received',
     })
   }
 
@@ -163,10 +139,6 @@ export default function GiftsPage() {
     if (confirm(t('confirmDelete'))) {
       deleteMutation.mutate({ id })
     }
-  }
-
-  const handleMarkThankYouSent = (id: string) => {
-    markThankYouSentMutation.mutate({ id })
   }
 
   if (!clientId) {
@@ -213,7 +185,7 @@ export default function GiftsPage() {
       </ClientModuleHeader>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
           title={t('totalGifts')}
           value={stats?.total || 0}
@@ -232,15 +204,11 @@ export default function GiftsPage() {
           color="text-gold-600"
         />
         <StatCard
-          title={t('thankYouSent')}
-          value={stats?.thankYouSent || 0}
-          icon={<CheckCircle className="w-4 h-4" />}
+          title={t('totalValue')}
+          value={formatCurrency(stats?.totalValue || 0)}
+          icon={<DollarSign className="w-4 h-4" />}
           color="text-cobalt-600"
-        />
-        <StatCard
-          title={t('thankYouPending')}
-          value={stats?.thankYouPending || 0}
-          color="text-gold-600"
+          isText
         />
       </div>
 
@@ -263,51 +231,25 @@ export default function GiftsPage() {
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">{gift.gift_name}</h3>
-                      {gift.delivery_status === 'received' && (
-                        <span className="text-xs bg-sage-100 text-sage-700 px-2 py-1 rounded">
-                          {t('received')}
-                        </span>
-                      )}
-                      {gift.thank_you_sent && (
-                        <span className="text-xs bg-cobalt-100 text-cobalt-700 px-2 py-1 rounded">
-                          {t('thankYouSent')}
-                        </span>
-                      )}
+                      <h3 className="font-semibold">{gift.name}</h3>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        gift.status === 'received' ? 'bg-sage-100 text-sage-700' :
+                        gift.status === 'returned' ? 'bg-rose-100 text-rose-700' :
+                        'bg-gold-100 text-gold-700'
+                      }`}>
+                        {t(`status${(gift.status || 'pending').charAt(0).toUpperCase() + (gift.status || 'pending').slice(1)}`)}
+                      </span>
                     </div>
                     <div className="text-sm text-muted-foreground space-y-1">
-                      {gift.from_name && <p>{t('from')}: {gift.from_name}</p>}
-                      {gift.from_email && <p>{tc('email')}: {gift.from_email}</p>}
-                      {gift.delivery_date && (
-                        <p>{t('delivered')}: {new Date(gift.delivery_date).toLocaleDateString()}</p>
+                      {gift.guest && (
+                        <p>{t('from')}: {gift.guest.firstName} {gift.guest.lastName}</p>
                       )}
-                      <p>
-                        {tc('status')}:{' '}
-                        <span
-                          className={
-                            gift.delivery_status === 'received'
-                              ? 'text-sage-600'
-                              : gift.delivery_status === 'returned'
-                              ? 'text-rose-600'
-                              : 'text-gold-600'
-                          }
-                        >
-                          {t(`status${(gift.delivery_status ?? 'pending').charAt(0).toUpperCase() + (gift.delivery_status ?? 'pending').slice(1)}`)}
-                        </span>
-                      </p>
+                      {gift.value && (
+                        <p>{t('value')}: {formatCurrency(gift.value)}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {gift.delivery_status === 'received' && !gift.thank_you_sent && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleMarkThankYouSent(gift.id)}
-                      >
-                        <CheckCircle className="w-4 h-4 mr-1" />
-                        {t('markSent')}
-                      </Button>
-                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -341,109 +283,54 @@ export default function GiftsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editingGift ? t('editGift') : t('addNewGift')}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="giftName">{t('giftName')} *</Label>
-                <Input
-                  id="giftName"
-                  value={formData.giftName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, giftName: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="fromName">{t('fromName')}</Label>
-                <Input
-                  id="fromName"
-                  value={formData.fromName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, fromName: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="fromEmail">{t('fromEmail')}</Label>
-                <Input
-                  id="fromEmail"
-                  type="email"
-                  value={formData.fromEmail}
-                  onChange={(e) =>
-                    setFormData({ ...formData, fromEmail: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="deliveryDate">{t('deliveryDate')}</Label>
-                <Input
-                  id="deliveryDate"
-                  type="date"
-                  value={formData.deliveryDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, deliveryDate: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <Label htmlFor="deliveryStatus">{t('deliveryStatus')}</Label>
-                <Select
-                  value={formData.deliveryStatus}
-                  onValueChange={(value: any) =>
-                    setFormData({ ...formData, deliveryStatus: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">{t('statusPending')}</SelectItem>
-                    <SelectItem value="received">{t('statusReceived')}</SelectItem>
-                    <SelectItem value="returned">{t('statusReturned')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="thankYouSentDate">{t('thankYouSentDate')}</Label>
-                <Input
-                  id="thankYouSentDate"
-                  type="date"
-                  value={formData.thankYouSentDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, thankYouSentDate: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="thankYouSent"
-                checked={formData.thankYouSent}
+            <div>
+              <Label htmlFor="name">{t('giftName')} *</Label>
+              <Input
+                id="name"
+                value={formData.name}
                 onChange={(e) =>
-                  setFormData({ ...formData, thankYouSent: e.target.checked })
+                  setFormData({ ...formData, name: e.target.value })
                 }
-                className="w-4 h-4"
+                required
               />
-              <Label htmlFor="thankYouSent">{t('thankYouSent')}</Label>
             </div>
             <div>
-              <Label htmlFor="notes">{tc('notes')}</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
+              <Label htmlFor="value">{t('value')}</Label>
+              <Input
+                id="value"
+                type="number"
+                step="0.01"
+                value={formData.value}
                 onChange={(e) =>
-                  setFormData({ ...formData, notes: e.target.value })
+                  setFormData({ ...formData, value: e.target.value })
                 }
-                rows={3}
+                placeholder="0.00"
               />
+            </div>
+            <div>
+              <Label htmlFor="status">{tc('status')}</Label>
+              <Select
+                value={formData.status}
+                onValueChange={(value: any) =>
+                  setFormData({ ...formData, status: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">{t('statusPending')}</SelectItem>
+                  <SelectItem value="received">{t('statusReceived')}</SelectItem>
+                  <SelectItem value="returned">{t('statusReturned')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <DialogFooter>
               <Button
@@ -473,11 +360,13 @@ function StatCard({
   value,
   icon,
   color = 'text-foreground',
+  isText = false,
 }: {
   title: string
-  value: number
+  value: number | string
   icon?: React.ReactNode
   color?: string
+  isText?: boolean
 }) {
   return (
     <Card>
@@ -485,7 +374,9 @@ function StatCard({
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-muted-foreground">{title}</p>
-            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+            <p className={`text-2xl font-bold ${color}`}>
+              {isText ? value : value}
+            </p>
           </div>
           {icon && <div className="text-muted-foreground">{icon}</div>}
         </div>

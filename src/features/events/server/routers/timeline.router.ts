@@ -50,6 +50,9 @@ export const timelineRouter = router({
       return timelineItems
     }),
 
+  /**
+   * SECURITY: Verifies timeline item belongs to a client owned by the user's company
+   */
   getById: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -57,17 +60,25 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      const [timelineItem] = await ctx.db
-        .select()
+      // Join with clients to verify company ownership
+      const [result] = await ctx.db
+        .select({ timelineItem: timeline })
         .from(timeline)
-        .where(eq(timeline.id, input.id))
+        .innerJoin(clients, eq(timeline.clientId, clients.id))
+        .where(
+          and(
+            eq(timeline.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
         .limit(1)
 
-      if (!timelineItem) {
+      if (!result) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
-      return timelineItem
+      return result.timelineItem
     }),
 
   create: adminProcedure
@@ -106,10 +117,14 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
+      // Generate UUID for new timeline item
+      const { v4: uuidv4 } = await import('uuid')
+
       // Create timeline item
       const [timelineItem] = await ctx.db
         .insert(timeline)
         .values({
+          id: uuidv4(),
           clientId: input.clientId,
           eventId: input.eventId || null, // Link to specific event if provided
           title: input.title,
@@ -134,6 +149,9 @@ export const timelineRouter = router({
       return timelineItem
     }),
 
+  /**
+   * SECURITY: Verifies timeline item belongs to a client owned by the user's company
+   */
   update: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -153,6 +171,24 @@ export const timelineRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify timeline item belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: timeline.id })
+        .from(timeline)
+        .innerJoin(clients, eq(timeline.clientId, clients.id))
+        .where(
+          and(
+            eq(timeline.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
       }
 
       // Build update object
@@ -178,21 +214,35 @@ export const timelineRouter = router({
         .where(eq(timeline.id, input.id))
         .returning()
 
-      if (!timelineItem) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Timeline item not found'
-        })
-      }
-
       return timelineItem
     }),
 
+  /**
+   * SECURITY: Verifies timeline item belongs to a client owned by the user's company
+   */
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify timeline item belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: timeline.id })
+        .from(timeline)
+        .innerJoin(clients, eq(timeline.clientId, clients.id))
+        .where(
+          and(
+            eq(timeline.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
       }
 
       await ctx.db
@@ -243,6 +293,9 @@ export const timelineRouter = router({
       return { success: true }
     }),
 
+  /**
+   * SECURITY: Verifies timeline item belongs to a client owned by the user's company
+   */
   markComplete: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -253,6 +306,24 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Verify timeline item belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: timeline.id })
+        .from(timeline)
+        .innerJoin(clients, eq(timeline.clientId, clients.id))
+        .where(
+          and(
+            eq(timeline.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
+      }
+
       const [timelineItem] = await ctx.db
         .update(timeline)
         .set({
@@ -261,13 +332,6 @@ export const timelineRouter = router({
         })
         .where(eq(timeline.id, input.id))
         .returning()
-
-      if (!timelineItem) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Timeline item not found'
-        })
-      }
 
       return timelineItem
     }),
@@ -466,6 +530,156 @@ export const timelineRouter = router({
    * Get timeline items grouped by event and date
    * Returns timeline items organized by date -> events -> items
    */
+  /**
+   * Bulk import timeline items from Excel
+   * Supports create, update, and delete operations
+   */
+  bulkImport: adminProcedure
+    .input(z.object({
+      clientId: z.string().uuid(),
+      items: z.array(z.object({
+        id: z.string().uuid().optional(),
+        eventId: z.string().uuid().optional().nullable(),
+        title: z.string().min(1),
+        description: z.string().optional().nullable(),
+        phase: z.enum(['setup', 'showtime', 'wrapup']).optional().nullable(),
+        date: z.string().optional().nullable(), // YYYY-MM-DD
+        startTime: z.string().optional().nullable(), // HH:MM
+        endTime: z.string().optional().nullable(), // HH:MM
+        durationMinutes: z.number().int().optional().nullable(),
+        location: z.string().optional().nullable(),
+        participants: z.array(z.string()).optional().nullable(),
+        responsiblePerson: z.string().optional().nullable(),
+        completed: z.boolean().optional().nullable(),
+        sortOrder: z.number().int().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        _action: z.enum(['create', 'update', 'delete']).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      const results = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        errors: [] as { item: string; error: string }[],
+      }
+
+      // Helper to combine date and time into timestamp
+      const combineDateTime = (date?: string | null, time?: string | null): Date | null => {
+        if (!date) return null
+        const baseDate = new Date(date)
+        if (time) {
+          const [hours, minutes] = time.split(':').map(Number)
+          baseDate.setHours(hours || 0, minutes || 0, 0, 0)
+        }
+        return baseDate
+      }
+
+      // Generate UUIDs for new items
+      const { v4: uuidv4 } = await import('uuid')
+
+      // Process each item
+      for (const item of input.items) {
+        try {
+          if (item._action === 'delete' && item.id) {
+            // Delete item (hard delete)
+            await ctx.db
+              .delete(timeline)
+              .where(
+                and(
+                  eq(timeline.id, item.id),
+                  eq(timeline.clientId, input.clientId)
+                )
+              )
+            results.deleted++
+          } else if (item._action === 'update' && item.id) {
+            // Update existing item
+            const startDateTime = combineDateTime(item.date, item.startTime)
+            const endDateTime = combineDateTime(item.date, item.endTime)
+
+            await ctx.db
+              .update(timeline)
+              .set({
+                eventId: item.eventId || null,
+                title: item.title,
+                description: item.description || null,
+                phase: item.phase || 'showtime',
+                startTime: startDateTime || new Date(),
+                endTime: endDateTime,
+                durationMinutes: item.durationMinutes || null,
+                location: item.location || null,
+                participants: item.participants || null,
+                responsiblePerson: item.responsiblePerson || null,
+                completed: item.completed ?? false,
+                sortOrder: item.sortOrder ?? 0,
+                notes: item.notes || null,
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(timeline.id, item.id),
+                  eq(timeline.clientId, input.clientId)
+                )
+              )
+            results.updated++
+          } else {
+            // Create new item
+            const startDateTime = combineDateTime(item.date, item.startTime)
+            const endDateTime = combineDateTime(item.date, item.endTime)
+
+            await ctx.db
+              .insert(timeline)
+              .values({
+                id: uuidv4(),
+                clientId: input.clientId,
+                eventId: item.eventId || null,
+                title: item.title,
+                description: item.description || null,
+                phase: item.phase || 'showtime',
+                startTime: startDateTime || new Date(),
+                endTime: endDateTime,
+                durationMinutes: item.durationMinutes || null,
+                location: item.location || null,
+                participants: item.participants || null,
+                responsiblePerson: item.responsiblePerson || null,
+                completed: item.completed ?? false,
+                sortOrder: item.sortOrder ?? 0,
+                notes: item.notes || null,
+              })
+            results.created++
+          }
+        } catch (error) {
+          results.errors.push({
+            item: item.title,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          })
+        }
+      }
+
+      return results
+    }),
+
   getGroupedByEvent: adminProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

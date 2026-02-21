@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getServerSession } from '@/lib/auth/server';
 import { BottomNav } from './_components/bottom-nav';
 import { UserMenu } from '@/components/auth/user-menu';
@@ -11,14 +12,27 @@ export default async function PortalLayout({
 }) {
   const { userId, user } = await getServerSession();
 
+  // Get locale from headers for proper redirects
+  const headersList = await headers();
+  const url = headersList.get('x-url') || headersList.get('referer') || '';
+  const localeMatch = url.match(/\/([a-z]{2})\//);
+  const locale = localeMatch ? localeMatch[1] : 'en';
+
   if (!userId || !user) {
-    redirect('/sign-in');
+    redirect(`/${locale}/portal/sign-in`);
   }
 
-  const role = (user as any).role as string | undefined;
+  const role = user.role ?? undefined;
 
+  // Redirect non-client_user roles to their appropriate dashboards
   if (role !== 'client_user') {
-    redirect('/sign-in');
+    if (role === 'super_admin') {
+      redirect(`/${locale}/superadmin`);
+    } else if (role === 'company_admin' || role === 'staff') {
+      redirect(`/${locale}/dashboard`);
+    } else {
+      redirect(`/${locale}/portal/sign-in`);
+    }
   }
 
   return (
@@ -50,7 +64,7 @@ export default async function PortalLayout({
           {/* User Menu */}
           <div className="flex-1 flex justify-end">
             <div className="scale-90 origin-right">
-              <UserMenu afterSignOutUrl="/sign-in" />
+              <UserMenu />
             </div>
           </div>
         </div>

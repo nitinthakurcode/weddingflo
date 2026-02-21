@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq, sql, desc } from '@/lib/db';
 import { companies, users, clients } from '@/lib/db/schema';
@@ -19,16 +20,22 @@ export default async function SuperAdminCompaniesPage() {
   // Get BetterAuth session
   const { userId, user } = await getServerSession();
 
+  // Get locale from headers for proper redirects
+  const headersList = await headers();
+  const url = headersList.get('x-url') || headersList.get('referer') || '';
+  const localeMatch = url.match(/\/([a-z]{2})\//);
+  const locale = localeMatch ? localeMatch[1] : 'en';
+
   if (!userId) {
-    redirect('/sign-in');
+    redirect(`/${locale}/sign-in`);
   }
 
-  // Get role from user object
-  const role = (user as any).role;
+  // Get role from user object (properly typed)
+  const role = user?.role;
 
   // Verify super admin access
   if (!role || role !== 'super_admin') {
-    redirect('/dashboard');
+    redirect(`/${locale}/dashboard`);
   }
 
   // Fetch all companies with counts using Drizzle
@@ -52,7 +59,7 @@ export default async function SuperAdminCompaniesPage() {
         db.execute(sql`SELECT email FROM users WHERE company_id = ${company.id} AND role = 'company_admin' LIMIT 1`),
       ]);
 
-      const adminEmail = (adminResult.rows[0] as { email: string } | undefined)?.email || null;
+      const adminEmail = (adminResult[0] as { email: string } | undefined)?.email || null;
 
       return {
         id: company.id,
@@ -61,8 +68,8 @@ export default async function SuperAdminCompaniesPage() {
         subscription_tier: company.subscriptionTier,
         subscription_status: company.subscriptionStatus,
         created_at: company.createdAt?.toISOString() || '',
-        userCount: (userCountResult.rows[0] as { count: number })?.count || 0,
-        clientCount: (clientCountResult.rows[0] as { count: number })?.count || 0,
+        userCount: (userCountResult[0] as { count: number })?.count || 0,
+        clientCount: (clientCountResult[0] as { count: number })?.count || 0,
       };
     })
   );

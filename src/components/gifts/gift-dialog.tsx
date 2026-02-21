@@ -28,22 +28,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { giftSchema, type GiftFormData } from '@/lib/validations/gift.schema';
 
 interface Gift {
   id: string;
-  giftName: string;
-  fromName?: string | null;
-  fromEmail?: string | null;
-  deliveryDate?: string | null;
-  deliveryStatus?: string | null;
-  thankYouSent?: boolean | null;
-  thankYouSentDate?: string | null;
-  notes?: string | null;
+  name: string;
+  value?: number | null;
+  status?: string | null;
 }
 
 interface GiftDialogProps {
@@ -65,26 +58,23 @@ export function GiftDialog({
   const createGift = trpc.gifts.create.useMutation({
     onSuccess: () => {
       utils.gifts.getAll.invalidate({ clientId });
+      utils.gifts.getStats.invalidate({ clientId });
     },
   });
 
   const updateGift = trpc.gifts.update.useMutation({
     onSuccess: () => {
       utils.gifts.getAll.invalidate({ clientId });
+      utils.gifts.getStats.invalidate({ clientId });
     },
   });
 
   const form = useForm<GiftFormData>({
     resolver: zodResolver(giftSchema),
     defaultValues: {
-      giftName: '',
-      fromName: '',
-      fromEmail: '',
-      deliveryDate: '',
-      deliveryStatus: 'pending',
-      thankYouSent: false,
-      thankYouSentDate: '',
-      notes: '',
+      name: '',
+      value: '',
+      status: 'received',
     },
   });
 
@@ -92,25 +82,15 @@ export function GiftDialog({
   useEffect(() => {
     if (gift) {
       form.reset({
-        giftName: gift.giftName || '',
-        fromName: gift.fromName || '',
-        fromEmail: gift.fromEmail || '',
-        deliveryDate: gift.deliveryDate || '',
-        deliveryStatus: (gift.deliveryStatus as GiftFormData['deliveryStatus']) || 'pending',
-        thankYouSent: gift.thankYouSent || false,
-        thankYouSentDate: gift.thankYouSentDate ? new Date(gift.thankYouSentDate).toISOString().split('T')[0] : '',
-        notes: gift.notes || '',
+        name: gift.name || '',
+        value: gift.value?.toString() || '',
+        status: (gift.status as GiftFormData['status']) || 'received',
       });
     } else {
       form.reset({
-        giftName: '',
-        fromName: '',
-        fromEmail: '',
-        deliveryDate: '',
-        deliveryStatus: 'pending',
-        thankYouSent: false,
-        thankYouSentDate: '',
-        notes: '',
+        name: '',
+        value: '',
+        status: 'received',
       });
     }
   }, [gift, form, open]);
@@ -118,34 +98,22 @@ export function GiftDialog({
   const onSubmit = async (data: GiftFormData) => {
     try {
       if (gift) {
-        // Update existing gift - use correct router structure
         await updateGift.mutateAsync({
           id: gift.id,
-          data: {
-            giftName: data.giftName,
-            fromName: data.fromName || undefined,
-            fromEmail: data.fromEmail || undefined,
-            deliveryDate: data.deliveryDate || undefined,
-            deliveryStatus: data.deliveryStatus,
-            thankYouSent: data.thankYouSent,
-            thankYouSentDate: data.thankYouSentDate || undefined,
-            notes: data.notes || undefined,
-          },
+          name: data.name,
+          value: data.value ? parseFloat(data.value) : undefined,
+          status: data.status,
         });
         toast({
           title: 'Success',
           description: 'Gift updated successfully',
         });
       } else {
-        // Create new gift
         await createGift.mutateAsync({
           clientId,
-          giftName: data.giftName,
-          fromName: data.fromName || undefined,
-          fromEmail: data.fromEmail || undefined,
-          deliveryDate: data.deliveryDate || undefined,
-          deliveryStatus: data.deliveryStatus,
-          notes: data.notes || undefined,
+          name: data.name,
+          value: data.value ? parseFloat(data.value) : undefined,
+          status: data.status,
         });
         toast({
           title: 'Success',
@@ -165,7 +133,7 @@ export function GiftDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{gift ? 'Edit Gift' : 'Add New Gift'}</DialogTitle>
           <DialogDescription>
@@ -179,7 +147,7 @@ export function GiftDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="giftName"
+              name="name"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Gift Name *</FormLabel>
@@ -191,125 +159,46 @@ export function GiftDialog({
               )}
             />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="fromName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>From (Name)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="John Doe" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="fromEmail"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>From (Email)</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="john@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="deliveryDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Delivery Date</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="deliveryStatus"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Delivery Status</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="received">Received</SelectItem>
-                        <SelectItem value="returned">Returned</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {gift && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                <FormField
-                  control={form.control}
-                  name="thankYouSent"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center space-x-2">
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormLabel className="!mt-0">Thank You Sent</FormLabel>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="thankYouSentDate"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Thank You Sent Date</FormLabel>
-                      <FormControl>
-                        <Input type="date" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            )}
-
             <FormField
               control={form.control}
-              name="notes"
+              name="value"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>Value</FormLabel>
                   <FormControl>
-                    <Textarea
-                      placeholder="Additional notes about the gift..."
-                      className="min-h-[80px]"
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
                       {...field}
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Status</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="received">Received</SelectItem>
+                      <SelectItem value="returned">Returned</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

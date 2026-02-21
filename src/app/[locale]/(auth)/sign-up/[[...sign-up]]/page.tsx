@@ -329,7 +329,7 @@ export default function SignUpPage() {
             <div className="text-sm text-center text-muted-foreground">
               Already have an account?{' '}
               <Link
-                href={`/${locale}/sign-in`}
+                href="/sign-in"
                 className="text-primary-600 hover:text-primary-700 font-semibold transition-colors"
               >
                 Sign in

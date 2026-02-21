@@ -54,14 +54,31 @@ export default function AnalyticsPage() {
 
   const { data: monthlyTrend, isLoading: trendLoading } = trpc.analytics.getMonthlyRevenueTrend.useQuery();
 
-  // Calculate stats
-  const totalRevenue = revenueData?.data.reduce((sum, item) => sum + Number(item.revenue), 0) || 0;
-  const totalTransactions = revenueData?.data.reduce((sum, item) => sum + Number(item.transaction_count), 0) || 0;
+  // Calculate stats - revenueData.data returns { total, byMonth, byClient }
+  const totalRevenue = revenueData?.data?.total || 0;
+  const byMonthData = revenueData?.data?.byMonth || [];
+  const totalTransactions = Array.isArray(byMonthData)
+    ? byMonthData.reduce((sum, item: { transaction_count?: number }) => sum + Number(item.transaction_count || 0), 0)
+    : 0;
   const averageOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-  const emailsSent = notificationStats?.find((s) => s.type === 'email')?.sent || 0;
-  const smsSent = notificationStats?.find((s) => s.type === 'sms')?.sent || 0;
+  // notificationStats returns { sent, delivered, opened, clicked } - use sent for total communications
+  const emailsSent = notificationStats?.sent || 0;
+  const smsSent = 0; // SMS stats not separate in current implementation
   const activeClients = topClients?.length || 0;
+
+  // Convert notificationStats to array format for NotificationStatsChart
+  const notificationStatsArray = notificationStats
+    ? [
+        {
+          type: 'email',
+          sent: notificationStats.sent || 0,
+          delivered: notificationStats.delivered || 0,
+          failed: 0,
+          opened: notificationStats.opened || 0,
+        },
+      ]
+    : [];
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
@@ -133,7 +150,7 @@ export default function AnalyticsPage() {
         {/* Revenue Tab */}
         <TabsContent value="revenue" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <RevenueChart data={revenueData?.data || []} isLoading={revenueLoading} />
+            <RevenueChart data={revenueData?.data?.byMonth || []} isLoading={revenueLoading} />
             <TopClientsChart data={topClients || []} isLoading={topClientsLoading} />
           </div>
         </TabsContent>
@@ -194,9 +211,9 @@ export default function AnalyticsPage() {
         {/* Notifications Tab */}
         <TabsContent value="notifications" className="space-y-4">
           <div className="grid gap-4">
-            <NotificationStatsChart data={notificationStats || []} isLoading={notificationLoading} />
+            <NotificationStatsChart data={notificationStatsArray} isLoading={notificationLoading} />
             <div className="grid gap-4 md:grid-cols-2">
-              {notificationStats?.map((stat) => (
+              {notificationStatsArray.map((stat) => (
                 <Card
                   key={stat.type}
                   variant="glass"
@@ -293,10 +310,7 @@ export default function AnalyticsPage() {
 
         {/* Tasks Tab */}
         <TabsContent value="tasks" className="space-y-4">
-          <TaskCompletionChart
-            startDate={dateRange.from.toISOString()}
-            endDate={dateRange.to.toISOString()}
-          />
+          <TaskCompletionChart dateRange={dateRange} />
         </TabsContent>
 
         {/* Guests Tab */}
@@ -316,7 +330,13 @@ export default function AnalyticsPage() {
 
         {/* Comparison Tab */}
         <TabsContent value="comparison" className="space-y-4">
-          <PeriodComparisonCard periodDays={30} />
+          <PeriodComparisonCard
+            title={t('metrics.revenue')}
+            currentValue={totalRevenue}
+            previousValue={0}
+            format="currency"
+            dateRange={dateRange}
+          />
         </TabsContent>
       </Tabs>
     </div>

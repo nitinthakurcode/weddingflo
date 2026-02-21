@@ -29,9 +29,9 @@ export default async function SyncLayout({
     redirect(`/${locale}/sign-in`);
   }
 
-  // Get role and companyId from BetterAuth user object
-  let role = (user as any).role as string | undefined;
-  let companyId = (user as any).companyId as string | undefined;
+  // Get role and companyId from BetterAuth user object (properly typed)
+  let role = user.role ?? undefined;
+  let companyId = user.companyId ?? undefined;
 
   console.log('[Sync Layout] Session data:', { role, companyId });
 
@@ -45,7 +45,7 @@ export default async function SyncLayout({
         .limit(1);
 
       if (dbUser) {
-        role = dbUser.role || undefined;
+        role = (dbUser.role as typeof role) || undefined;
         companyId = dbUser.companyId || undefined;
         console.log('[Sync Layout] Fresh DB data:', { role, companyId });
       }

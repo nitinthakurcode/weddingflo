@@ -23,3 +23,6 @@ export { DocumentSharedEmail } from './document-shared-email';
 export { WelcomeEmail } from './welcome-email';
 export { TeamInviteEmail } from './team-invite-email';
 export { TaskReminderEmail } from './task-reminder-email';
+
+// Digest Templates
+export { WeeklyDigestEmail } from './weekly-digest-email';

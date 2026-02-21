@@ -58,7 +58,7 @@ export async function verifyCustomDomain(
       LIMIT 1
     `);
 
-    const website = websiteResult.rows[0] as { dns_verification_token?: string; settings?: Record<string, any> } | undefined;
+    const website = websiteResult[0] as { dns_verification_token?: string; settings?: Record<string, any> } | undefined;
 
     // Try to get token from column or settings JSONB
     const verificationToken = website?.dns_verification_token || website?.settings?.dnsVerificationToken;
@@ -164,7 +164,7 @@ export async function checkDomainAvailability(domain: string): Promise<{
   `);
 
   return {
-    available: result.rows.length === 0,
+    available: result.length === 0,
     domain,
   };
 }

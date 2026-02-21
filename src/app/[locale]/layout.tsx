@@ -18,6 +18,7 @@ import { TRPCProvider } from '@/lib/trpc/Provider'
 import { OfflineIndicator } from '@/components/offline/offline-indicator'
 import { OfflineInit } from '@/components/offline/offline-init'
 import { FeedbackProvider } from '../providers/feedback-provider'
+import { TourProvider } from '@/components/onboarding/product-tour'
 import '../globals.css'
 
 // TODO: PostHogPageView temporarily disabled due to posthog-js Node module compatibility issue
@@ -155,12 +156,12 @@ export default async function LocaleLayout({
           email: user.email || '',
           name: user.name || null,
           image: user.image || null,
-          role: (user as any).role || null,
-          companyId: (user as any).companyId || null,
-          firstName: (user as any).firstName || null,
-          lastName: (user as any).lastName || null,
+          role: user.role || null,
+          companyId: user.companyId || null,
+          firstName: user.firstName || null,
+          lastName: user.lastName || null,
           // Don't default to false - let undefined flow through so dashboard can check DB
-          onboardingCompleted: (user as any).onboardingCompleted ?? undefined,
+          onboardingCompleted: user.onboardingCompleted ?? undefined,
         },
         session: null,
       };
@@ -193,10 +194,12 @@ export default async function LocaleLayout({
                     {/* <PostHogPageView /> - Temporarily disabled, see TODO above */}
                     {/* <PostHogIdentifier /> - Temporarily disabled */}
                     <PWAProvider>
-                      <FeedbackProvider>
-                        {children}
-                        <Toaster />
-                      </FeedbackProvider>
+                      <TourProvider>
+                        <FeedbackProvider>
+                          {children}
+                          <Toaster />
+                        </FeedbackProvider>
+                      </TourProvider>
                     </PWAProvider>
                   {/* </PHProvider> */}
                 </AnalyticsProvider>

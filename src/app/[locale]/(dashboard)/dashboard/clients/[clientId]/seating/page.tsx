@@ -20,6 +20,21 @@ import { Plus, LayoutGrid, Users, Table2, Trash2, Edit, Eye } from 'lucide-react
 import { useToast } from '@/hooks/use-toast'
 import { useRouter } from '@/lib/navigation'
 
+// Type for floor plan returned from API (matches Drizzle schema)
+interface FloorPlan {
+  id: string
+  clientId: string
+  eventId: string | null
+  name: string
+  layout: unknown
+  metadata: unknown
+  width: number | null
+  height: number | null
+  backgroundImage: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
 /**
  * Seating Page - Floor plans and guest seating arrangements
  *
@@ -198,7 +213,7 @@ export default function SeatingPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {floorPlans.map((plan) => (
+              {floorPlans.map((plan: FloorPlan) => (
                 <Card
                   key={plan.id}
                   className="group hover:shadow-md transition-shadow cursor-pointer"

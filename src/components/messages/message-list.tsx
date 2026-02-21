@@ -5,25 +5,28 @@ import { MessageBubble } from './message-bubble';
 import { Loader2 } from 'lucide-react';
 
 /**
- * Message interface - aligned with Drizzle schema (December 2025)
+ * Message interface - aligned with Drizzle schema (February 2026)
  * Uses 'unknown' for metadata since that's what Drizzle returns
+ * All optional fields match database nullable columns
  */
 interface Message {
   id: string;
   companyId: string;
   clientId: string | null;
+  guestId?: string | null;
   senderId: string;
   receiverId: string | null;
-  subject: string | null;
+  subject?: string | null;
   content: string;
-  messageType: string | null;
+  messageType?: string | null;
+  type?: string | null;
   isRead: boolean | null;
   readAt: Date | null;
-  parentId: string | null;
-  metadata: unknown;
+  parentId?: string | null;
+  metadata?: unknown;
   createdAt: Date;
   updatedAt: Date;
-  deletedAt: Date | null;
+  deletedAt?: Date | null;
 }
 
 interface MessageListProps {

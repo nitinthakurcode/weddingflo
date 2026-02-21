@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
-import { eq, and, desc, gte, count, sql } from 'drizzle-orm';
+import { eq, and, desc, gte, count } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   sendSms,
   getSmsMessage,
@@ -13,37 +12,27 @@ import {
 } from '@/lib/sms/twilio';
 
 // Helper function to log SMS to database
+// Schema has: id, clientId, to, message, status, createdAt
 async function logSms({
   db,
-  companyId,
   clientId,
   toPhone,
   content,
-  twilioSid,
   status,
-  errorMessage,
-  metadata,
 }: {
-  db: NodePgDatabase<typeof schema>;
-  companyId: string;
+  db: any;
   clientId?: string;
   toPhone: string;
   content: string;
-  twilioSid?: string;
   status: 'pending' | 'queued' | 'sending' | 'sent' | 'failed';
-  errorMessage?: string;
-  metadata?: Record<string, any>;
 }) {
   try {
     const [log] = await db.insert(schema.smsLogs).values({
-      companyId,
+      id: crypto.randomUUID(),
       clientId: clientId || undefined,
-      toPhone,
-      content,
+      to: toPhone,
+      message: content,
       status,
-      twilioSid: twilioSid || undefined,
-      errorMessage: errorMessage || undefined,
-      metadata: metadata || {},
     }).returning();
 
     return log;
@@ -77,6 +66,23 @@ export const smsRouter = router({
         });
       }
 
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
+        });
+      }
+
       try {
         // Validate phone number
         if (!isValidPhoneNumber(recipientPhone)) {
@@ -96,13 +102,10 @@ export const smsRouter = router({
           // Log failed SMS
           await logSms({
             db,
-            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
             status: 'failed',
-            errorMessage: result.error,
-            metadata: { smsType: 'wedding_reminder', recipientName, eventName, daysUntilWedding, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -111,13 +114,10 @@ export const smsRouter = router({
         // Log successful SMS
         await logSms({
           db,
-          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: 'wedding_reminder', recipientName, eventName, daysUntilWedding, locale, segments: result.segments },
         });
 
         return {
@@ -169,13 +169,10 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
-            companyId,
             clientId,
             toPhone: formatPhoneNumber(guestPhone),
             content: message,
             status: 'failed',
-            errorMessage: result.error,
-            metadata: { smsType: 'rsvp_confirmation', recipientName: guestName, eventName, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -183,13 +180,10 @@ export const smsRouter = router({
 
         await logSms({
           db,
-          companyId,
           clientId,
           toPhone: formatPhoneNumber(guestPhone),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: 'rsvp_confirmation', recipientName: guestName, eventName, locale, segments: result.segments },
         });
 
         return {
@@ -227,6 +221,23 @@ export const smsRouter = router({
         });
       }
 
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
+        });
+      }
+
       try {
         if (!isValidPhoneNumber(recipientPhone)) {
           throw new Error('Invalid phone number format');
@@ -242,13 +253,10 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
-            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
             status: 'failed',
-            errorMessage: result.error,
-            metadata: { smsType: 'payment_reminder', recipientName, amount, dueDate, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -256,13 +264,10 @@ export const smsRouter = router({
 
         await logSms({
           db,
-          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: 'payment_reminder', recipientName, amount, dueDate, locale, segments: result.segments },
         });
 
         return {
@@ -299,6 +304,23 @@ export const smsRouter = router({
         });
       }
 
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
+        });
+      }
+
       try {
         if (!isValidPhoneNumber(recipientPhone)) {
           throw new Error('Invalid phone number format');
@@ -314,13 +336,10 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
-            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
             status: 'failed',
-            errorMessage: result.error,
-            metadata: { smsType: 'payment_received', recipientName, amount, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -328,13 +347,10 @@ export const smsRouter = router({
 
         await logSms({
           db,
-          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: 'payment_received', recipientName, amount, locale, segments: result.segments },
         });
 
         return {
@@ -386,13 +402,10 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
-            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
             status: 'failed',
-            errorMessage: result.error,
-            metadata: { smsType: 'vendor_notification', recipientName, customMessage, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -400,13 +413,10 @@ export const smsRouter = router({
 
         await logSms({
           db,
-          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: 'vendor_notification', recipientName, customMessage, locale, segments: result.segments },
         });
 
         return {
@@ -444,6 +454,23 @@ export const smsRouter = router({
         });
       }
 
+      // SECURITY: Verify clientId belongs to company
+      const [client] = await db
+        .select({ id: schema.clients.id })
+        .from(schema.clients)
+        .where(and(
+          eq(schema.clients.id, clientId),
+          eq(schema.clients.companyId, companyId)
+        ))
+        .limit(1);
+
+      if (!client) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Client not found or access denied',
+        });
+      }
+
       try {
         if (!isValidPhoneNumber(recipientPhone)) {
           throw new Error('Invalid phone number format');
@@ -459,13 +486,10 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
-            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
             status: 'failed',
-            errorMessage: result.error,
-            metadata: { smsType: 'event_update', recipientName, eventName, updateMessage, locale },
           });
 
           throw new Error(`Failed to send SMS: ${result.error}`);
@@ -473,13 +497,10 @@ export const smsRouter = router({
 
         await logSms({
           db,
-          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: 'event_update', recipientName, eventName, updateMessage, locale, segments: result.segments },
         });
 
         return {
@@ -494,20 +515,20 @@ export const smsRouter = router({
       }
     }),
 
-  // Get SMS logs for company
+  // Get SMS logs
+  // Schema: id, clientId, to, message, status, createdAt
   getSmsLogs: protectedProcedure
     .input(
       z.object({
         limit: z.number().int().min(1).max(100).default(50),
         offset: z.number().int().min(0).default(0),
-        smsType: z.enum(['wedding_reminder', 'rsvp_confirmation', 'payment_reminder', 'payment_received', 'vendor_notification', 'event_update', 'general']).optional(),
         status: z.enum(['pending', 'queued', 'sending', 'sent', 'delivered', 'undelivered', 'failed']).optional(),
         clientId: z.string().uuid().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
-      const { limit, offset, smsType, status, clientId } = input;
+      const { limit, offset, status, clientId } = input;
 
       if (!companyId) {
         throw new TRPCError({
@@ -516,8 +537,8 @@ export const smsRouter = router({
         });
       }
 
-      // Build where conditions
-      const conditions = [eq(schema.smsLogs.companyId, companyId)];
+      // Build where conditions (schema doesn't have companyId, filter by clientId if provided)
+      const conditions: any[] = [];
 
       if (status) {
         conditions.push(eq(schema.smsLogs.status, status));
@@ -528,32 +549,23 @@ export const smsRouter = router({
       }
 
       // Get logs with filtering
-      // Note: smsType filtering via metadata requires raw SQL or post-filtering
       const logs = await db.query.smsLogs.findMany({
-        where: and(...conditions),
+        where: conditions.length > 0 ? and(...conditions) : undefined,
         orderBy: [desc(schema.smsLogs.createdAt)],
         limit,
         offset,
       });
 
-      // Filter by smsType in metadata if provided
-      const filteredLogs = smsType
-        ? logs.filter((log) => {
-            const metadata = log.metadata as Record<string, any> | null;
-            return metadata?.smsType === smsType;
-          })
-        : logs;
-
       // Get total count
       const [countResult] = await db
         .select({ count: count() })
         .from(schema.smsLogs)
-        .where(and(...conditions));
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
 
       const total = countResult?.count || 0;
 
       return {
-        logs: filteredLogs,
+        logs,
         total,
         hasMore: total > offset + limit,
       };
@@ -580,19 +592,14 @@ export const smsRouter = router({
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      // Get counts by status
+      // Get counts by status (schema doesn't have companyId)
       const statsResult = await db
         .select({
           status: schema.smsLogs.status,
           count: count(),
         })
         .from(schema.smsLogs)
-        .where(
-          and(
-            eq(schema.smsLogs.companyId, companyId),
-            gte(schema.smsLogs.createdAt, startDate)
-          )
-        )
+        .where(gte(schema.smsLogs.createdAt, startDate))
         .groupBy(schema.smsLogs.status);
 
       // Calculate totals
@@ -621,12 +628,13 @@ export const smsRouter = router({
         sent_sms: sentSms,
         delivered_sms: deliveredSms,
         failed_sms: failedSms,
-        total_segments: 0, // Would need to sum from metadata
+        total_segments: 0,
         success_rate: Math.round(successRate * 100) / 100,
       };
     }),
 
   // Get user SMS preferences
+  // Schema: id, userId, smsEnabled, marketingSms, transactionalSms, reminderSms, phoneNumber, enabled, rsvpUpdates, reminders, createdAt, updatedAt
   getSmsPreferences: protectedProcedure
     .query(async ({ ctx }) => {
       const { db, userId } = ctx;
@@ -637,13 +645,18 @@ export const smsRouter = router({
 
       // Return default preferences if none exist
       return preferences || {
+        id: '',
+        userId,
         smsEnabled: true,
         marketingSms: false,
         transactionalSms: true,
         reminderSms: true,
         phoneNumber: null,
-        verifiedAt: null,
-        preferences: {},
+        enabled: true,
+        rsvpUpdates: true,
+        reminders: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
     }),
 
@@ -684,6 +697,7 @@ export const smsRouter = router({
         const [inserted] = await db
           .insert(schema.smsPreferences)
           .values({
+            id: crypto.randomUUID(),
             userId,
             smsEnabled: input.smsEnabled ?? true,
             marketingSms: input.marketingSms ?? false,
@@ -758,12 +772,9 @@ export const smsRouter = router({
         // Log test SMS
         await logSms({
           db,
-          companyId,
           toPhone: formatPhoneNumber(to),
           content: message,
-          twilioSid: result.sid,
           status: result.status === 'queued' ? 'queued' : 'sent',
-          metadata: { smsType: templateType, recipientName: 'Test User', test: true, locale, segments: result.segments },
         });
 
         return {

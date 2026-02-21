@@ -24,17 +24,27 @@ import { Bell, BellOff, Loader2, CheckCircle2, AlertCircle, Smartphone, Monitor,
 import { pushNotificationManager, PushNotificationManager } from '@/lib/firebase/push-manager';
 import type { NotificationPermission as BrowserNotificationPermission } from '@/types/push-notifications';
 
+// Interface matches Drizzle schema - keys are stored as JSONB
+interface SubscriptionKeys {
+  p256dh?: string;
+  auth?: string;
+  fcmToken?: string;
+  deviceType?: string;
+  isActive?: boolean;
+}
+
 interface Subscription {
   id: string;
   userId: string;
   endpoint: string;
-  p256dh: string | null;
-  auth: string | null;
-  fcmToken: string | null;
-  deviceType: string | null;
-  isActive: boolean | null;
+  keys: SubscriptionKeys | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Helper to extract deviceType from keys
+function getDeviceType(sub: Subscription): string | null {
+  return sub.keys?.deviceType ?? null;
 }
 
 export function PushNotificationManagerComponent() {
@@ -292,17 +302,19 @@ export function PushNotificationManagerComponent() {
           <div className="space-y-2">
             <h4 className="text-sm font-medium">{t('activeDevices')}</h4>
             <div className="space-y-2">
-              {subscriptions.map((sub) => (
+              {subscriptions.map((sub) => {
+                const deviceType = getDeviceType(sub);
+                return (
                 <div
                   key={sub.id}
                   className="flex items-center justify-between rounded-lg border p-3"
                 >
                   <div className="flex items-center gap-3">
-                    {getDeviceIcon(sub.deviceType)}
+                    {getDeviceIcon(deviceType)}
                     <div>
                       <div className="text-sm font-medium">
-                        {sub.deviceType
-                          ? sub.deviceType.charAt(0).toUpperCase() + sub.deviceType.slice(1)
+                        {deviceType
+                          ? deviceType.charAt(0).toUpperCase() + deviceType.slice(1)
                           : t('unknownDevice')}
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -319,7 +331,8 @@ export function PushNotificationManagerComponent() {
                     {tCommon('remove')}
                   </Button>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         )}

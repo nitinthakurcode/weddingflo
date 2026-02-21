@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
@@ -22,6 +22,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from '@/components/ui/command'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -55,6 +69,10 @@ import {
   User,
   Truck,
   Circle,
+  Check,
+  ChevronsUpDown,
+  UserPlus,
+  Users,
 } from 'lucide-react'
 
 /**
@@ -76,6 +94,8 @@ export default function TransportPage() {
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingTransport, setEditingTransport] = useState<any>(null)
+  const [guestComboboxOpen, setGuestComboboxOpen] = useState(false)
+  const [guestSearchValue, setGuestSearchValue] = useState('')
   const [formData, setFormData] = useState({
     guestName: '',
     pickupDate: '',
@@ -107,6 +127,76 @@ export default function TransportPage() {
   const { data: vehiclesList } = trpc.guestTransport.getVehicles.useQuery({
     clientId,
   })
+
+  // Query for guests list (for dropdown selection)
+  const { data: guestsList } = trpc.guests.getAll.useQuery({
+    clientId,
+  })
+
+  // Compute available party members (excluding those with transport for current legType)
+  const availablePartyMembers = useMemo(() => {
+    if (!guestsList) return []
+
+    // Get names already assigned transport for the current leg type (arrival/departure)
+    const namesWithTransport = new Set<string>()
+    transportList?.forEach((transport: any) => {
+      if (transport.legType === formData.legType && transport.guestName) {
+        namesWithTransport.add(transport.guestName.toLowerCase())
+      }
+    })
+
+    // Build party groups with all members
+    const partyGroups: Array<{
+      partyId: string
+      partyLeadName: string
+      relationshipToFamily: string | null
+      members: Array<{
+        name: string
+        isLead: boolean
+        hasTransport: boolean
+      }>
+    }> = []
+
+    guestsList.forEach((guest: any) => {
+      const leadName = `${guest.firstName}${guest.lastName ? ' ' + guest.lastName : ''}`.trim()
+      const partyId = guest.id
+
+      const members: Array<{ name: string; isLead: boolean; hasTransport: boolean }> = []
+
+      // Add lead guest
+      members.push({
+        name: leadName,
+        isLead: true,
+        hasTransport: namesWithTransport.has(leadName.toLowerCase())
+      })
+
+      // Add additional party members
+      if (guest.additionalGuestNames && Array.isArray(guest.additionalGuestNames)) {
+        guest.additionalGuestNames.forEach((memberName: string) => {
+          if (memberName && memberName.trim()) {
+            members.push({
+              name: memberName.trim(),
+              isLead: false,
+              hasTransport: namesWithTransport.has(memberName.trim().toLowerCase())
+            })
+          }
+        })
+      }
+
+      // Only include party if it has at least one member without transport
+      const availableMembers = members.filter(m => !m.hasTransport)
+      if (availableMembers.length > 0 || members.length > 0) {
+        partyGroups.push({
+          partyId,
+          partyLeadName: leadName,
+          relationshipToFamily: guest.relationshipToFamily,
+          members
+        })
+      }
+    })
+
+    return partyGroups
+  }, [guestsList, transportList, formData.legType])
 
   // Mutations
   const syncMutation = trpc.guestTransport.syncWithGuests.useMutation({
@@ -199,6 +289,8 @@ export default function TransportPage() {
       transportStatus: 'scheduled',
       notes: '',
     })
+    setGuestSearchValue('')
+    setGuestComboboxOpen(false)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -737,7 +829,7 @@ export default function TransportPage() {
       </Card>
 
       {/* Inter-Event Transfers Section */}
-      {transportList?.filter((t: any) => t.legType === 'inter_event').length > 0 && (
+      {(transportList?.filter((t: any) => t.legType === 'inter_event').length ?? 0) > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -852,16 +944,159 @@ export default function TransportPage() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Guest Name */}
+            {/* Guest Name - Combobox with existing guests + new entry option */}
             <div>
               <Label htmlFor="guestName">{t('guestName') || 'Guest Name'} *</Label>
-              <Input
-                id="guestName"
-                value={formData.guestName}
-                onChange={(e) => setFormData({ ...formData, guestName: e.target.value })}
-                required
-                disabled={!!editingTransport}
-              />
+              {editingTransport ? (
+                <Input
+                  id="guestName"
+                  value={formData.guestName}
+                  disabled
+                />
+              ) : (
+                <Popover open={guestComboboxOpen} onOpenChange={setGuestComboboxOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={guestComboboxOpen}
+                      className="w-full justify-between font-normal"
+                    >
+                      {formData.guestName || "Select guest or type new name..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command>
+                      <CommandInput
+                        placeholder="Search guests or type new name..."
+                        value={guestSearchValue}
+                        onValueChange={setGuestSearchValue}
+                      />
+                      <CommandList className="max-h-[300px]">
+                        <CommandEmpty>
+                          {guestSearchValue ? (
+                            <div
+                              className="flex items-center gap-2 p-2 cursor-pointer hover:bg-accent rounded-sm mx-1"
+                              onClick={() => {
+                                setFormData({ ...formData, guestName: guestSearchValue })
+                                setGuestComboboxOpen(false)
+                                setGuestSearchValue('')
+                              }}
+                            >
+                              <UserPlus className="h-4 w-4 text-muted-foreground" />
+                              <span>Add &quot;{guestSearchValue}&quot; as new entry</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">No guests found. Type to add new.</span>
+                          )}
+                        </CommandEmpty>
+
+                        {/* Party-grouped guest members */}
+                        {availablePartyMembers.map((party, partyIndex) => {
+                          const availableMembers = party.members.filter(m => !m.hasTransport)
+                          const assignedMembers = party.members.filter(m => m.hasTransport)
+
+                          // Skip parties with no available members (unless searching)
+                          if (availableMembers.length === 0 && !guestSearchValue) return null
+
+                          return (
+                            <div key={party.partyId}>
+                              {partyIndex > 0 && <CommandSeparator />}
+                              <CommandGroup
+                                heading={
+                                  <div className="flex items-center gap-2">
+                                    <Users className="h-3 w-3" />
+                                    <span>{party.partyLeadName}&apos;s Party</span>
+                                    {party.relationshipToFamily && (
+                                      <Badge variant="outline" className="text-[10px] py-0 px-1">
+                                        {party.relationshipToFamily}
+                                      </Badge>
+                                    )}
+                                    <span className="text-[10px] text-muted-foreground ml-auto">
+                                      {availableMembers.length}/{party.members.length} need {formData.legType}
+                                    </span>
+                                  </div>
+                                }
+                              >
+                                {/* Available members first */}
+                                {availableMembers.map((member) => (
+                                  <CommandItem
+                                    key={`${party.partyId}-${member.name}`}
+                                    value={member.name}
+                                    onSelect={() => {
+                                      setFormData({ ...formData, guestName: member.name })
+                                      setGuestComboboxOpen(false)
+                                      setGuestSearchValue('')
+                                    }}
+                                    className="ml-2"
+                                  >
+                                    <Check
+                                      className={`mr-2 h-4 w-4 ${
+                                        formData.guestName === member.name ? 'opacity-100' : 'opacity-0'
+                                      }`}
+                                    />
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <span>{member.name}</span>
+                                      {member.isLead && (
+                                        <Badge variant="secondary" className="text-[10px] py-0 px-1">Lead</Badge>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline" className="text-[10px] py-0 px-1 text-amber-600 border-amber-300">
+                                      Needs {formData.legType}
+                                    </Badge>
+                                  </CommandItem>
+                                ))}
+
+                                {/* Assigned members (greyed out) */}
+                                {assignedMembers.length > 0 && (
+                                  <div className="ml-2 mt-1 border-t pt-1">
+                                    <div className="text-[10px] text-muted-foreground px-2 py-1">
+                                      Already assigned {formData.legType}:
+                                    </div>
+                                    {assignedMembers.map((member) => (
+                                      <div
+                                        key={`${party.partyId}-${member.name}-assigned`}
+                                        className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground opacity-50"
+                                      >
+                                        <CheckCircle className="h-4 w-4 text-sage-500" />
+                                        <span className="text-sm">{member.name}</span>
+                                        {member.isLead && (
+                                          <Badge variant="secondary" className="text-[10px] py-0 px-1">Lead</Badge>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </CommandGroup>
+                            </div>
+                          )
+                        })}
+
+                        {/* Add new option when searching */}
+                        {guestSearchValue && (
+                          <>
+                            <CommandSeparator />
+                            <CommandGroup heading="Add New Guest">
+                              <CommandItem
+                                value={`add-new-${guestSearchValue}`}
+                                onSelect={() => {
+                                  setFormData({ ...formData, guestName: guestSearchValue })
+                                  setGuestComboboxOpen(false)
+                                  setGuestSearchValue('')
+                                }}
+                              >
+                                <UserPlus className="mr-2 h-4 w-4" />
+                                Add &quot;{guestSearchValue}&quot; as new entry
+                              </CommandItem>
+                            </CommandGroup>
+                          </>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
 
             {/* Leg Type and Status */}

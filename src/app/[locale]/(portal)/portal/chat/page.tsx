@@ -1,5 +1,6 @@
 import { getServerSession } from '@/lib/auth/server'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { db, eq, and, inArray, asc } from '@/lib/db'
 import { users, clients, companies } from '@/lib/db/schema'
 import { ChatPage } from './ChatPage'
@@ -7,13 +8,19 @@ import { ChatPage } from './ChatPage'
 export default async function PortalChatPage() {
   const { userId, user } = await getServerSession()
 
+  // Get locale from headers for proper redirects
+  const headersList = await headers()
+  const url = headersList.get('x-url') || headersList.get('referer') || ''
+  const localeMatch = url.match(/\/([a-z]{2})\//)
+  const locale = localeMatch ? localeMatch[1] : 'en'
+
   if (!userId) {
-    redirect('/sign-in')
+    redirect(`/${locale}/sign-in`)
   }
 
   const role = user?.role
   if (role !== 'client_user') {
-    redirect('/sign-in')
+    redirect(`/${locale}/sign-in`)
   }
 
   // Get current user's database record using Drizzle
@@ -31,7 +38,7 @@ export default async function PortalChatPage() {
   const userData = userResult[0] || null;
 
   if (!userData || !userData.companyId) {
-    redirect('/sign-in')
+    redirect(`/${locale}/sign-in`)
   }
 
   // Get client record via company_id using Drizzle with join
@@ -50,7 +57,7 @@ export default async function PortalChatPage() {
   const client = clientResult[0] || null;
 
   if (!client) {
-    redirect('/portal')
+    redirect(`/${locale}/portal`)
   }
 
   // Get a planner from the company to chat with using Drizzle

@@ -28,14 +28,14 @@ interface Website {
   subdomain: string | null;
   customDomain: string | null;
   theme: string | null;
-  isPublished: boolean | null;
+  published: boolean | null;
   password: string | null;
   isPasswordProtected: boolean | null;
   settings: unknown;
-  content: unknown;
+  content?: unknown;
   createdAt: Date;
   updatedAt: Date;
-  deletedAt: Date | null;
+  deletedAt?: Date | null;
 }
 
 interface WebsiteSettings {
@@ -139,7 +139,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
               onClick={() =>
                 window.open(`https://${website.subdomain}.weddingflow.com`, '_blank')
               }
-              disabled={!website.isPublished}
+              disabled={!website.published}
             >
               <ExternalLink className="h-4 w-4 mr-2" />
               Visit

@@ -5,16 +5,31 @@ import { Badge } from '@/components/ui/badge'
 import { Utensils, Loader2, Leaf, CircleSlash, AlertTriangle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
+// Accept the actual API response format
 interface DietaryStats {
-  total: number
-  vegetarian: number
-  vegan: number
-  nonVegetarian: number
-  jain: number
-  glutenFree: number
-  nutFree: number
-  other: number
-  restrictions: { name: string; count: number }[]
+  totalMeals: number
+  mealCounts: {
+    veg: number
+    non_veg: number
+    vegan: number
+    jain: number
+    custom: number
+    unspecified: number
+  }
+  restrictions: Array<{
+    id: string
+    name: string
+    restriction: string
+    group: string | null
+  }>
+  byGroup: Record<string, {
+    veg: number
+    non_veg: number
+    vegan: number
+    jain: number
+    custom: number
+    unspecified: number
+  }>
 }
 
 interface DietaryMatrixViewProps {
@@ -45,50 +60,42 @@ export function DietaryMatrixView({ data, isLoading }: DietaryMatrixViewProps) {
     )
   }
 
+  const total = data.totalMeals
+  const counts = data.mealCounts
+
   const mealPreferences = [
     {
       label: t('vegetarian') || 'Vegetarian',
-      count: data.vegetarian,
+      count: counts.veg,
       icon: <Leaf className="w-4 h-4" />,
       color: 'bg-sage-100 text-sage-700 border-sage-200',
     },
     {
       label: t('vegan') || 'Vegan',
-      count: data.vegan,
+      count: counts.vegan,
       icon: <Leaf className="w-4 h-4" />,
       color: 'bg-teal-100 text-teal-700 border-teal-200',
     },
     {
       label: t('nonVegetarian') || 'Non-Vegetarian',
-      count: data.nonVegetarian,
+      count: counts.non_veg,
       icon: <Utensils className="w-4 h-4" />,
       color: 'bg-rose-100 text-rose-700 border-rose-200',
     },
     {
       label: t('jain') || 'Jain',
-      count: data.jain,
+      count: counts.jain,
       icon: <CircleSlash className="w-4 h-4" />,
       color: 'bg-gold-100 text-gold-700 border-gold-200',
     },
   ]
 
-  const restrictions = [
-    {
-      label: t('glutenFree') || 'Gluten-Free',
-      count: data.glutenFree,
-      icon: <AlertTriangle className="w-4 h-4" />,
-    },
-    {
-      label: t('nutFree') || 'Nut-Free',
-      count: data.nutFree,
-      icon: <AlertTriangle className="w-4 h-4" />,
-    },
-    {
-      label: t('other') || 'Other',
-      count: data.other,
-      icon: <Utensils className="w-4 h-4" />,
-    },
-  ]
+  // Group restrictions by type for display
+  const restrictionCounts = data.restrictions.reduce((acc, r) => {
+    const key = r.restriction || 'other'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
 
   return (
     <div className="space-y-6">
@@ -100,7 +107,7 @@ export function DietaryMatrixView({ data, isLoading }: DietaryMatrixViewProps) {
             {t('dietaryOverview') || 'Dietary Overview'}
           </CardTitle>
           <CardDescription>
-            {t('totalGuests') || 'Total Guests'}: {data.total}
+            {t('totalGuests') || 'Total Guests'}: {total}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -117,29 +124,28 @@ export function DietaryMatrixView({ data, isLoading }: DietaryMatrixViewProps) {
                 </div>
                 <p className="text-2xl font-bold">{pref.count}</p>
                 <p className="text-xs opacity-70">
-                  {data.total > 0 ? Math.round((pref.count / data.total) * 100) : 0}%
+                  {total > 0 ? Math.round((pref.count / total) * 100) : 0}%
                 </p>
               </div>
             ))}
           </div>
 
-          {/* Dietary Restrictions */}
+          {/* Custom/Unspecified */}
           <div className="border-t pt-4">
             <h4 className="font-semibold mb-3 text-sm text-muted-foreground">
-              {t('dietaryRestrictions') || 'Dietary Restrictions'}
+              {t('otherPreferences') || 'Other Preferences'}
             </h4>
             <div className="flex flex-wrap gap-2">
-              {restrictions.map((restriction) => (
-                <Badge
-                  key={restriction.label}
-                  variant="outline"
-                  className="flex items-center gap-1.5 px-3 py-1.5"
-                >
-                  {restriction.icon}
-                  <span>{restriction.label}</span>
-                  <span className="ml-1 font-bold">{restriction.count}</span>
-                </Badge>
-              ))}
+              <Badge variant="outline" className="flex items-center gap-1.5 px-3 py-1.5">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Custom</span>
+                <span className="ml-1 font-bold">{counts.custom}</span>
+              </Badge>
+              <Badge variant="outline" className="flex items-center gap-1.5 px-3 py-1.5">
+                <Utensils className="w-4 h-4" />
+                <span>Unspecified</span>
+                <span className="ml-1 font-bold">{counts.unspecified}</span>
+              </Badge>
             </div>
           </div>
 
@@ -150,14 +156,14 @@ export function DietaryMatrixView({ data, isLoading }: DietaryMatrixViewProps) {
                 {t('specificRestrictions') || 'Specific Restrictions'}
               </h4>
               <div className="flex flex-wrap gap-2">
-                {data.restrictions.map((restriction) => (
+                {Object.entries(restrictionCounts).map(([restriction, count]) => (
                   <Badge
-                    key={restriction.name}
+                    key={restriction}
                     variant="secondary"
                     className="flex items-center gap-1.5"
                   >
-                    <span>{restriction.name}</span>
-                    <span className="ml-1 font-bold text-primary">{restriction.count}</span>
+                    <span>{restriction}</span>
+                    <span className="ml-1 font-bold text-primary">{count}</span>
                   </Badge>
                 ))}
               </div>
@@ -173,32 +179,32 @@ export function DietaryMatrixView({ data, isLoading }: DietaryMatrixViewProps) {
         </CardHeader>
         <CardContent>
           <div className="h-8 rounded-full overflow-hidden flex bg-muted">
-            {data.vegetarian > 0 && (
+            {counts.veg > 0 && (
               <div
                 className="bg-sage-500 transition-all"
-                style={{ width: `${(data.vegetarian / data.total) * 100}%` }}
-                title={`${t('vegetarian') || 'Vegetarian'}: ${data.vegetarian}`}
+                style={{ width: `${(counts.veg / total) * 100}%` }}
+                title={`${t('vegetarian') || 'Vegetarian'}: ${counts.veg}`}
               />
             )}
-            {data.vegan > 0 && (
+            {counts.vegan > 0 && (
               <div
                 className="bg-teal-500 transition-all"
-                style={{ width: `${(data.vegan / data.total) * 100}%` }}
-                title={`${t('vegan') || 'Vegan'}: ${data.vegan}`}
+                style={{ width: `${(counts.vegan / total) * 100}%` }}
+                title={`${t('vegan') || 'Vegan'}: ${counts.vegan}`}
               />
             )}
-            {data.nonVegetarian > 0 && (
+            {counts.non_veg > 0 && (
               <div
                 className="bg-rose-500 transition-all"
-                style={{ width: `${(data.nonVegetarian / data.total) * 100}%` }}
-                title={`${t('nonVegetarian') || 'Non-Vegetarian'}: ${data.nonVegetarian}`}
+                style={{ width: `${(counts.non_veg / total) * 100}%` }}
+                title={`${t('nonVegetarian') || 'Non-Vegetarian'}: ${counts.non_veg}`}
               />
             )}
-            {data.jain > 0 && (
+            {counts.jain > 0 && (
               <div
                 className="bg-gold-500 transition-all"
-                style={{ width: `${(data.jain / data.total) * 100}%` }}
-                title={`${t('jain') || 'Jain'}: ${data.jain}`}
+                style={{ width: `${(counts.jain / total) * 100}%` }}
+                title={`${t('jain') || 'Jain'}: ${counts.jain}`}
               />
             )}
           </div>

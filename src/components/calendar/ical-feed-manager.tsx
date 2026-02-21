@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Copy, RefreshCw, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Copy, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export function ICalFeedManager() {
@@ -17,38 +17,11 @@ export function ICalFeedManager() {
   const utils = trpc.useUtils();
 
   const { data: tokenData } = trpc.calendar.getOrCreateICalToken.useQuery();
-  const { data: settings } = trpc.calendar.getCalendarSettings.useQuery();
 
   const regenerateMutation = trpc.calendar.regenerateICalToken.useMutation({
     onSuccess: () => {
       utils.calendar.getOrCreateICalToken.invalidate();
       toast({ title: 'Feed URL regenerated successfully' });
-    },
-  });
-
-  // Optimistic update for calendar settings
-  const updateSettingsMutation = trpc.calendar.updateCalendarSettings.useMutation({
-    onMutate: async (newData) => {
-      await utils.calendar.getCalendarSettings.cancel();
-      const previousSettings = utils.calendar.getCalendarSettings.getData();
-
-      // Optimistically update UI
-      utils.calendar.getCalendarSettings.setData(undefined, (old) => {
-        if (!old) return old;
-        return { ...old, ...newData };
-      });
-
-      return { previousSettings };
-    },
-    onError: (error, _newData, context) => {
-      // Rollback on error
-      if (context?.previousSettings) {
-        utils.calendar.getCalendarSettings.setData(undefined, context.previousSettings);
-      }
-      toast({ title: 'Failed to update settings', variant: 'destructive' });
-    },
-    onSettled: () => {
-      utils.calendar.getCalendarSettings.invalidate();
     },
   });
 
@@ -59,7 +32,7 @@ export function ICalFeedManager() {
       const previousToken = utils.calendar.getOrCreateICalToken.getData();
 
       // Optimistically update UI
-      utils.calendar.getOrCreateICalToken.setData(undefined, (old) => {
+      utils.calendar.getOrCreateICalToken.setData(undefined, (old: typeof previousToken) => {
         if (!old) return old;
         return { ...old, isActive: true };
       });
@@ -83,7 +56,7 @@ export function ICalFeedManager() {
       const previousToken = utils.calendar.getOrCreateICalToken.getData();
 
       // Optimistically update UI
-      utils.calendar.getOrCreateICalToken.setData(undefined, (old) => {
+      utils.calendar.getOrCreateICalToken.setData(undefined, (old: typeof previousToken) => {
         if (!old) return old;
         return { ...old, isActive: false };
       });
@@ -163,7 +136,7 @@ export function ICalFeedManager() {
             <div>
               <Label>Feed Status</Label>
               <p className="text-sm text-muted-foreground">
-                {tokenData.isActive ? 'Active' : 'Disabled'}
+                {tokenData.isActive ? 'Active - Calendar apps can sync events' : 'Disabled - Feed is not accessible'}
               </p>
             </div>
             <Switch
@@ -183,53 +156,6 @@ export function ICalFeedManager() {
               </ol>
             </AlertDescription>
           </Alert>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Feed Settings</CardTitle>
-          <CardDescription>Choose what to include in your calendar feed</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Include Events</Label>
-              <p className="text-sm text-muted-foreground">Wedding ceremonies, receptions, etc.</p>
-            </div>
-            <Switch
-              checked={settings?.icalIncludeEvents ?? true}
-              onCheckedChange={(checked) =>
-                updateSettingsMutation.mutate({ icalIncludeEvents: checked })
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Include Timeline Items</Label>
-              <p className="text-sm text-muted-foreground">Day-of schedule items</p>
-            </div>
-            <Switch
-              checked={settings?.icalIncludeTimeline ?? true}
-              onCheckedChange={(checked) =>
-                updateSettingsMutation.mutate({ icalIncludeTimeline: checked })
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Include Tasks</Label>
-              <p className="text-sm text-muted-foreground">Todo items with due dates</p>
-            </div>
-            <Switch
-              checked={settings?.icalIncludeTasks ?? false}
-              onCheckedChange={(checked) =>
-                updateSettingsMutation.mutate({ icalIncludeTasks: checked })
-              }
-            />
-          </div>
         </CardContent>
       </Card>
 

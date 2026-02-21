@@ -52,10 +52,10 @@ type BudgetSegment = 'vendors' | 'travel' | 'creatives' | 'artists' | 'accommoda
 
 type BudgetItem = {
   id: string
-  clientId: string
-  category: string
-  segment: BudgetSegment | null
-  item: string
+  clientId: string | null
+  category: string | null
+  segment: string | null
+  item: string | null
   expenseDetails: string | null
   estimatedCost: string | null
   actualCost: string | null
@@ -68,9 +68,21 @@ type BudgetItem = {
   clientVisible: boolean | null
   isLumpSum: boolean | null
   events: { id: string; title: string } | null
-  advancePayments: AdvancePayment[]
+  advancePayments: Array<{
+    id: string
+    budgetItemId: string | null
+    amount: string | null
+    date: Date | null
+    paidBy: string | null
+    notes: string | null
+    vendorId: string | null
+    createdAt: Date
+    updatedAt: Date
+  }>
   totalAdvance: number
   balanceRemaining: number
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 // Segment icon mapping
@@ -1087,7 +1099,7 @@ export default function BudgetPage() {
                         <div>
                           <p className="font-medium">${Number(advance.amount).toLocaleString()}</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(advance.paymentDate).toLocaleDateString()} • {t('paidBy')}: {advance.paidBy}
+                            {advance.date ? new Date(advance.date).toLocaleDateString() : '-'} • {t('paidBy')}: {advance.paidBy}
                           </p>
                           {advance.notes && (
                             <p className="text-xs text-muted-foreground mt-1">{advance.notes}</p>
@@ -1138,7 +1150,7 @@ export default function BudgetPage() {
           <DialogHeader>
             <DialogTitle>{t('addAdvancePayment')}</DialogTitle>
             <DialogDescription>
-              {advanceForItem && t('addingAdvanceFor', { item: advanceForItem.item })}
+              {advanceForItem && t('addingAdvanceFor', { item: advanceForItem.item || 'Item' })}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddAdvance} className="space-y-4">

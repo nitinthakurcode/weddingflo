@@ -44,16 +44,17 @@ export function useSubscription(companyId: string | undefined) {
   } : null;
 
   // Map dashboard stats to usage format
+  // Stats returns: totalClients, activeClients, totalRevenue, upcomingEvents
   const usage = dashboardStats ? {
-    guestsCount: dashboardStats.totalGuests || 0,
-    eventsCount: dashboardStats.upcomingWeddings || 0, // Using upcomingWeddings as event count proxy
-    usersCount: dashboardStats.activeClients || 0, // Using activeClients as user count proxy
+    guestsCount: 0, // Guests not tracked in dashboard stats - use 0 as default
+    eventsCount: dashboardStats.upcomingEvents || 0,
+    usersCount: dashboardStats.activeClients || 0,
   } : null;
 
   // Create usage checker with mapped tier (handles 'free' -> 'starter')
   const checker =
     subscription && usage
-      ? new UsageChecker(mapTierToPlanTier(subscription.tier), {
+      ? new UsageChecker(mapTierToPlanTier(subscription.tier || 'starter'), {
           guestsCount: usage.guestsCount,
           eventsCount: usage.eventsCount,
           usersCount: usage.usersCount,

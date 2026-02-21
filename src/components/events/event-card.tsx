@@ -48,23 +48,29 @@ export function EventCard({ event, onEdit, onDelete, onView, onConfirm }: EventC
   const eventDate = new Date(event.event_date);
 
   // Enable swipe-to-confirm only for draft events
-  const canConfirm = event.event_status === 'draft';
+  const canConfirmEvent = event.event_status === 'draft';
 
+  const confirmThreshold = 80; // percentage threshold
   const {
     handlers,
-    swipeOffset,
-    progress,
-    canConfirm: readyToConfirm,
-    isConfirming,
-  } = useSwipeToConfirm(
-    () => onConfirm?.(event.id),
-    { enabled: canConfirm && !!onConfirm, threshold: 100 }
-  );
+    swipeState,
+    isConfirmed,
+  } = useSwipeToConfirm({
+    onConfirm: () => onConfirm?.(event.id),
+    disabled: !canConfirmEvent || !onConfirm,
+    threshold: confirmThreshold,
+  });
+
+  // Derived values from swipeState
+  const progress = swipeState.swipePercentage / 100;
+  const readyToConfirm = swipeState.swipePercentage >= confirmThreshold;
+  const isConfirming = swipeState.swiping;
+  const swipeOffset = { x: (swipeState.swipePercentage / 100) * 150 }; // Scale to visual offset
 
   return (
     <div className="relative overflow-hidden rounded-xl">
       {/* Swipe-to-confirm background */}
-      {canConfirm && onConfirm && (
+      {canConfirmEvent && onConfirm && (
         <div
           className={cn(
             "absolute inset-0 flex items-center justify-start pl-6 transition-colors duration-200",
@@ -96,7 +102,7 @@ export function EventCard({ event, onEdit, onDelete, onView, onConfirm }: EventC
       <Card
         className={cn(
           "border-2 border-primary/20 hover:border-primary/40 hover:shadow-2xl transition-all bg-gradient-to-br from-primary/5 via-transparent to-transparent relative",
-          !canConfirm && "hover:scale-[1.02]",
+          !canConfirmEvent && "hover:scale-[1.02]",
           isConfirming && "scale-95 opacity-50"
         )}
         style={{

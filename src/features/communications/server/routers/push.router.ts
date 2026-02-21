@@ -29,6 +29,15 @@ const deviceTypeSchema = z.enum(['desktop', 'mobile', 'tablet']);
 // Notification status must match database CHECK constraint
 const notificationStatusSchema = z.enum(['pending', 'sent', 'failed', 'delivered']);
 
+// Keys JSONB structure for push subscriptions
+interface PushSubscriptionKeys {
+  p256dh?: string;
+  auth?: string;
+  fcmToken?: string;
+  deviceType?: string;
+  isActive?: boolean;
+}
+
 /**
  * Push Notifications Router
  */
@@ -60,6 +69,15 @@ export const pushRouter = router({
       const { db, userId } = ctx;
 
       try {
+        // Build keys JSONB object
+        const keys: PushSubscriptionKeys = {
+          p256dh: input.p256dh,
+          auth: input.auth,
+          fcmToken: input.fcmToken,
+          deviceType: input.deviceType,
+          isActive: true,
+        };
+
         // Check if subscription exists
         const existing = await db.query.pushSubscriptions.findFirst({
           where: and(
@@ -71,15 +89,19 @@ export const pushRouter = router({
         let subscription;
 
         if (existing) {
+          // Merge with existing keys
+          const existingKeys = (existing.keys as PushSubscriptionKeys) || {};
+          const mergedKeys: PushSubscriptionKeys = {
+            ...existingKeys,
+            ...keys,
+            isActive: true,
+          };
+
           // Update existing subscription
           const [updated] = await db
             .update(schema.pushSubscriptions)
             .set({
-              p256dh: input.p256dh || undefined,
-              auth: input.auth || undefined,
-              fcmToken: input.fcmToken || undefined,
-              deviceType: input.deviceType || undefined,
-              isActive: true,
+              keys: mergedKeys,
               updatedAt: new Date(),
             })
             .where(eq(schema.pushSubscriptions.id, existing.id))
@@ -90,31 +112,29 @@ export const pushRouter = router({
           const [created] = await db
             .insert(schema.pushSubscriptions)
             .values({
+              id: crypto.randomUUID(),
               userId,
               endpoint: input.endpoint,
-              p256dh: input.p256dh || undefined,
-              auth: input.auth || undefined,
-              fcmToken: input.fcmToken || undefined,
-              deviceType: input.deviceType || undefined,
-              isActive: true,
+              keys,
             })
             .returning();
           subscription = created;
         }
 
         // Create default preferences if they don't exist
+        // Schema: id, userId, enabled, rsvpUpdates, messages, reminders, createdAt, updatedAt
         const existingPrefs = await db.query.pushNotificationPreferences.findFirst({
           where: eq(schema.pushNotificationPreferences.userId, userId),
         });
 
         if (!existingPrefs) {
           await db.insert(schema.pushNotificationPreferences).values({
+            id: crypto.randomUUID(),
             userId,
-            pushEnabled: true,
-            taskReminders: true,
-            eventReminders: true,
-            clientUpdates: true,
-            systemAlerts: true,
+            enabled: true,
+            rsvpUpdates: true,
+            messages: true,
+            reminders: true,
           });
         }
 
@@ -149,18 +169,29 @@ export const pushRouter = router({
       const { db, userId } = ctx;
 
       try {
-        await db
-          .update(schema.pushSubscriptions)
-          .set({
+        // Get existing subscription to update keys
+        const existing = await db.query.pushSubscriptions.findFirst({
+          where: and(
+            eq(schema.pushSubscriptions.userId, userId),
+            eq(schema.pushSubscriptions.endpoint, input.endpoint)
+          ),
+        });
+
+        if (existing) {
+          const existingKeys = (existing.keys as PushSubscriptionKeys) || {};
+          const updatedKeys: PushSubscriptionKeys = {
+            ...existingKeys,
             isActive: false,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(schema.pushSubscriptions.userId, userId),
-              eq(schema.pushSubscriptions.endpoint, input.endpoint)
-            )
-          );
+          };
+
+          await db
+            .update(schema.pushSubscriptions)
+            .set({
+              keys: updatedKeys,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.pushSubscriptions.id, existing.id));
+        }
 
         return {
           success: true,
@@ -185,14 +216,17 @@ export const pushRouter = router({
 
     try {
       const subscriptions = await db.query.pushSubscriptions.findMany({
-        where: and(
-          eq(schema.pushSubscriptions.userId, userId),
-          eq(schema.pushSubscriptions.isActive, true)
-        ),
+        where: eq(schema.pushSubscriptions.userId, userId),
         orderBy: [desc(schema.pushSubscriptions.createdAt)],
       });
 
-      return subscriptions;
+      // Filter to active subscriptions (isActive is in keys JSONB)
+      const activeSubscriptions = subscriptions.filter((sub) => {
+        const keys = sub.keys as PushSubscriptionKeys | null;
+        return keys?.isActive !== false;
+      });
+
+      return activeSubscriptions;
     } catch (error) {
       console.error('Unexpected error in push.getSubscriptions:', error);
       throw new TRPCError({
@@ -217,16 +251,17 @@ export const pushRouter = router({
       });
 
       // If no preferences exist, create defaults
+      // Schema: id, userId, enabled, rsvpUpdates, messages, reminders, createdAt, updatedAt
       if (!preferences) {
         const [created] = await db
           .insert(schema.pushNotificationPreferences)
           .values({
+            id: crypto.randomUUID(),
             userId,
-            pushEnabled: true,
-            taskReminders: true,
-            eventReminders: true,
-            clientUpdates: true,
-            systemAlerts: true,
+            enabled: true,
+            rsvpUpdates: true,
+            messages: true,
+            reminders: true,
           })
           .returning();
 
@@ -248,18 +283,15 @@ export const pushRouter = router({
    *
    * Updates one or more preference settings.
    * Only provided fields are updated (partial update).
+   * Schema: enabled, rsvpUpdates, messages, reminders
    */
   updatePreferences: protectedProcedure
     .input(
       z.object({
-        pushEnabled: z.boolean().optional(),
-        taskReminders: z.boolean().optional(),
-        eventReminders: z.boolean().optional(),
-        clientUpdates: z.boolean().optional(),
-        systemAlerts: z.boolean().optional(),
-        quietHoursEnabled: z.boolean().optional(),
-        quietHoursStart: z.string().optional(),
-        quietHoursEnd: z.string().optional(),
+        enabled: z.boolean().optional(),
+        rsvpUpdates: z.boolean().optional(),
+        messages: z.boolean().optional(),
+        reminders: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

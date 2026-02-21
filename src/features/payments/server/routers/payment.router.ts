@@ -234,24 +234,15 @@ export const paymentRouter = router({
         const total = subtotal + taxAmount - discountAmount;
         const amountDue = total;
 
-        // Create invoice
+        // Create invoice (simplified schema: id, clientId, amount, status, dueDate, paidAt, stripeInvoiceId)
         const [invoice] = await db
           .insert(schema.invoices)
           .values({
-            companyId,
+            id: crypto.randomUUID(),
             clientId,
-            invoiceNumber,
-            currency: currency.toUpperCase(),
-            subtotal: subtotal.toString(),
-            taxAmount: taxAmount.toString(),
-            discountAmount: discountAmount.toString(),
-            total: total.toString(),
-            amountDue: amountDue.toString(),
+            amount: total,
             dueDate: dueDate ? new Date(dueDate) : null,
-            notes,
-            lineItems,
-            metadata: { description, billingDetails },
-            status: 'open',
+            status: 'pending',
           })
           .returning();
 
@@ -290,21 +281,21 @@ export const paymentRouter = router({
         });
       }
 
-      // Build conditions
-      const conditions = [
-        eq(schema.invoices.companyId, companyId),
-        isNull(schema.invoices.deletedAt)
+      // Build base conditions - join with clients to filter by company
+      const baseConditions = [
+        eq(schema.clients.companyId, companyId),
+        isNull(schema.clients.deletedAt)
       ];
 
       if (status) {
-        conditions.push(eq(schema.invoices.status, status));
+        baseConditions.push(eq(schema.invoices.status, status));
       }
 
       if (clientId) {
-        conditions.push(eq(schema.invoices.clientId, clientId));
+        baseConditions.push(eq(schema.invoices.clientId, clientId));
       }
 
-      // Get invoices with client info via join
+      // Get invoices with client info via join (filter by company through clients)
       const invoices = await db
         .select({
           invoice: schema.invoices,
@@ -317,8 +308,8 @@ export const paymentRouter = router({
           }
         })
         .from(schema.invoices)
-        .leftJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
-        .where(and(...conditions))
+        .innerJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
+        .where(and(...baseConditions))
         .orderBy(desc(schema.invoices.createdAt))
         .limit(limit)
         .offset(offset);
@@ -327,7 +318,8 @@ export const paymentRouter = router({
       const [countResult] = await db
         .select({ count: sql<number>`count(*)` })
         .from(schema.invoices)
-        .where(and(...conditions));
+        .innerJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
+        .where(and(...baseConditions));
 
       const total = Number(countResult?.count || 0);
 
@@ -362,22 +354,28 @@ export const paymentRouter = router({
       }
 
       try {
-        // Get invoice
-        const [invoice] = await db
-          .select()
+        // Get invoice (verify through client's companyId)
+        const [invoiceResult] = await db
+          .select({
+            invoice: schema.invoices,
+            clientCompanyId: schema.clients.companyId,
+          })
           .from(schema.invoices)
+          .innerJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
           .where(and(
             eq(schema.invoices.id, invoiceId),
-            eq(schema.invoices.companyId, companyId)
+            eq(schema.clients.companyId, companyId)
           ))
           .limit(1);
 
-        if (!invoice) {
+        if (!invoiceResult) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Invoice not found',
           });
         }
+
+        const invoice = invoiceResult.invoice;
 
         if (invoice.status === 'paid') {
           throw new TRPCError({
@@ -386,7 +384,7 @@ export const paymentRouter = router({
           });
         }
 
-        const amountDue = parseFloat(invoice.amountDue || '0');
+        const amountDue = invoice.amount || 0;
         if (!amountDue || amountDue <= 0) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -406,7 +404,7 @@ export const paymentRouter = router({
 
         // Calculate platform fee (10% by default)
         const platformFeePercent = parseInt(process.env.STRIPE_PLATFORM_FEE_PERCENT || '10');
-        const amountInCents = toStripeAmount(amountDue, (invoice.currency?.toLowerCase() || 'usd') as SupportedCurrency);
+        const amountInCents = toStripeAmount(amountDue, 'usd' as SupportedCurrency);
         const applicationFeeAmount = stripeAccount
           ? Math.round((amountInCents * platformFeePercent) / 100)
           : undefined;
@@ -414,35 +412,26 @@ export const paymentRouter = router({
         // Create payment intent
         const paymentIntent = await createPaymentIntent({
           amount: amountInCents,
-          currency: (invoice.currency?.toLowerCase() || 'usd') as SupportedCurrency,
+          currency: 'usd' as SupportedCurrency,
           customerId: stripeCustomerId,
           connectedAccountId: stripeAccount?.stripeAccountId,
           applicationFeeAmount,
           metadata: {
             invoice_id: invoiceId,
-            invoice_number: invoice.invoiceNumber,
             company_id: companyId,
             client_id: clientId,
           },
         });
 
-        // Save payment record
+        // Save payment record (simplified schema: id, clientId, amount, status, stripeId)
         const [payment] = await db
           .insert(schema.payments)
           .values({
-            companyId,
+            id: crypto.randomUUID(),
             clientId,
-            invoiceId,
-            stripePaymentIntentId: paymentIntent.id,
-            amount: amountDue.toString(),
-            currency: invoice.currency || 'USD',
+            amount: amountDue,
+            stripeId: paymentIntent.id,
             status: 'pending',
-            description: `Payment for invoice ${invoice.invoiceNumber}`,
-            metadata: {
-              stripeCustomerId,
-              clientSecret: paymentIntent.client_secret,
-              applicationFeeAmount: applicationFeeAmount || 0,
-            },
           })
           .returning();
 
@@ -484,8 +473,8 @@ export const paymentRouter = router({
         });
       }
 
-      // Build conditions
-      const conditions = [eq(schema.payments.companyId, companyId)];
+      // Build conditions - filter through clients for company scope
+      const conditions = [eq(schema.clients.companyId, companyId)];
 
       if (status) {
         conditions.push(eq(schema.payments.status, status));
@@ -495,13 +484,10 @@ export const paymentRouter = router({
         conditions.push(eq(schema.payments.clientId, clientId));
       }
 
-      // Get payments with joins
+      // Get payments with joins (simplified schema: id, clientId, amount, status, stripeId)
       const paymentsData = await db
         .select({
           payment: schema.payments,
-          invoice: {
-            invoiceNumber: schema.invoices.invoiceNumber,
-          },
           client: {
             partner1FirstName: schema.clients.partner1FirstName,
             partner1LastName: schema.clients.partner1LastName,
@@ -510,8 +496,7 @@ export const paymentRouter = router({
           }
         })
         .from(schema.payments)
-        .leftJoin(schema.invoices, eq(schema.payments.invoiceId, schema.invoices.id))
-        .leftJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
+        .innerJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
         .where(and(...conditions))
         .orderBy(desc(schema.payments.createdAt))
         .limit(limit)
@@ -521,6 +506,7 @@ export const paymentRouter = router({
       const [countResult] = await db
         .select({ count: sql<number>`count(*)` })
         .from(schema.payments)
+        .innerJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
         .where(and(...conditions));
 
       const total = Number(countResult?.count || 0);
@@ -528,7 +514,6 @@ export const paymentRouter = router({
       return {
         payments: paymentsData.map(row => ({
           ...row.payment,
-          invoice: row.invoice,
           client: row.client
         })),
         total,
@@ -558,22 +543,27 @@ export const paymentRouter = router({
       }
 
       try {
-        // Get payment
-        const [payment] = await db
-          .select()
+        // Get payment (verify through client's companyId)
+        const [paymentResult] = await db
+          .select({
+            payment: schema.payments,
+          })
           .from(schema.payments)
+          .innerJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
           .where(and(
             eq(schema.payments.id, paymentId),
-            eq(schema.payments.companyId, companyId)
+            eq(schema.clients.companyId, companyId)
           ))
           .limit(1);
 
-        if (!payment) {
+        if (!paymentResult) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Payment not found',
           });
         }
+
+        const payment = paymentResult.payment;
 
         if (payment.status !== 'paid') {
           throw new TRPCError({
@@ -582,7 +572,7 @@ export const paymentRouter = router({
           });
         }
 
-        if (!payment.stripePaymentIntentId) {
+        if (!payment.stripeId) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Payment does not have a Stripe payment intent ID',
@@ -590,30 +580,12 @@ export const paymentRouter = router({
         }
 
         // Create refund in Stripe
-        const refundAmount = amount ? toStripeAmount(amount, (payment.currency?.toLowerCase() || 'usd') as SupportedCurrency) : undefined;
+        const refundAmount = amount ? toStripeAmount(amount, 'usd' as SupportedCurrency) : undefined;
         const stripeRefund = await createRefund({
-          paymentIntentId: payment.stripePaymentIntentId,
+          paymentIntentId: payment.stripeId,
           amount: refundAmount,
           reason: reason === 'other' ? undefined : reason,
         });
-
-        // Save refund record
-        const [refund] = await db
-          .insert(schema.refunds)
-          .values({
-            paymentId,
-            stripeRefundId: stripeRefund.id,
-            amount: fromStripeAmount(stripeRefund.amount, (payment.currency?.toLowerCase() || 'usd') as SupportedCurrency).toString(),
-            currency: payment.currency || 'USD',
-            reason,
-            status: stripeRefund.status === 'succeeded' ? 'succeeded' : 'pending',
-            notes: description,
-            refundedBy: userId,
-            metadata: {
-              processedAt: stripeRefund.status === 'succeeded' ? new Date().toISOString() : null,
-            },
-          })
-          .returning();
 
         // Update payment status
         await db
@@ -626,7 +598,7 @@ export const paymentRouter = router({
 
         return {
           success: true,
-          refund,
+          refundId: stripeRefund.id,
           message: 'Refund processed successfully',
         };
       } catch (error) {
@@ -660,9 +632,9 @@ export const paymentRouter = router({
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      // Build conditions for payments query
+      // Build conditions for payments query (filter through clients for company)
       const paymentConditions = [
-        eq(schema.payments.companyId, companyId),
+        eq(schema.clients.companyId, companyId),
         sql`${schema.payments.createdAt} >= ${startDate}`
       ];
 
@@ -672,39 +644,22 @@ export const paymentRouter = router({
 
       // Get all payments in the date range
       const paymentsData = await db
-        .select()
+        .select({ payment: schema.payments })
         .from(schema.payments)
+        .innerJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
         .where(and(...paymentConditions));
 
-      // Get refunds - need to join with payments to filter by clientId
-      const refundsQuery = clientId
-        ? db
-            .select({ refund: schema.refunds })
-            .from(schema.refunds)
-            .innerJoin(schema.payments, eq(schema.refunds.paymentId, schema.payments.id))
-            .where(and(
-              sql`${schema.refunds.createdAt} >= ${startDate}`,
-              eq(schema.payments.clientId, clientId)
-            ))
-        : db
-            .select()
-            .from(schema.refunds)
-            .where(sql`${schema.refunds.createdAt} >= ${startDate}`);
-
-      const refundsData = clientId
-        ? (await refundsQuery).map((r: any) => r.refund)
-        : await refundsQuery;
-
-      // Calculate stats
-      const totalPayments = paymentsData.length;
-      const successfulPayments = paymentsData.filter(p => p.status === 'paid').length;
-      const failedPayments = paymentsData.filter(p => p.status === 'failed' || p.status === 'canceled').length;
-      const totalAmount = paymentsData
+      // Calculate stats (simplified - no refunds table in current schema)
+      const payments = paymentsData.map(p => p.payment);
+      const totalPayments = payments.length;
+      const successfulPayments = payments.filter(p => p.status === 'paid').length;
+      const failedPayments = payments.filter(p => p.status === 'failed' || p.status === 'canceled').length;
+      const totalAmount = payments
         .filter(p => p.status === 'paid')
-        .reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
-      const totalRefunded = refundsData
-        .filter(r => r.status === 'succeeded')
-        .reduce((sum, r) => sum + parseFloat(r.amount || '0'), 0);
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+      const totalRefunded = payments
+        .filter(p => p.status === 'refunded')
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
       const successRate = totalPayments > 0 ? (successfulPayments / totalPayments) * 100 : 0;
 
       return {
@@ -738,33 +693,33 @@ export const paymentRouter = router({
         });
       }
 
-      // Get current invoice
-      const [currentInvoice] = await db
-        .select({ total: schema.invoices.total, currency: schema.invoices.currency })
+      // Get invoice (verify through client's companyId)
+      const [invoiceResult] = await db
+        .select({ invoice: schema.invoices })
         .from(schema.invoices)
+        .innerJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
         .where(and(
           eq(schema.invoices.id, invoiceId),
-          eq(schema.invoices.companyId, companyId)
+          eq(schema.clients.companyId, companyId)
         ))
         .limit(1);
 
-      const updateData: Partial<typeof schema.invoices.$inferInsert> = {
-        status,
-        paidAt: status === 'paid' ? new Date() : null,
-        updatedAt: new Date()
-      };
-
-      if (status === 'paid') {
-        updateData.amountPaid = amountPaid?.toString() || currentInvoice?.total || '0';
+      if (!invoiceResult) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Invoice not found',
+        });
       }
 
+      // Update invoice (simplified schema: status, paidAt)
       const [invoice] = await db
         .update(schema.invoices)
-        .set(updateData)
-        .where(and(
-          eq(schema.invoices.id, invoiceId),
-          eq(schema.invoices.companyId, companyId)
-        ))
+        .set({
+          status,
+          paidAt: status === 'paid' ? new Date() : null,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.invoices.id, invoiceId))
         .returning();
 
       if (!invoice) {
@@ -798,31 +753,36 @@ export const paymentRouter = router({
         });
       }
 
-      // Check if invoice has payments
-      const [paymentExists] = await db
-        .select({ id: schema.payments.id })
-        .from(schema.payments)
+      // Verify invoice belongs to company through client
+      const [invoiceResult] = await db
+        .select({ invoice: schema.invoices })
+        .from(schema.invoices)
+        .innerJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
         .where(and(
-          eq(schema.payments.invoiceId, invoiceId),
-          eq(schema.payments.status, 'paid')
+          eq(schema.invoices.id, invoiceId),
+          eq(schema.clients.companyId, companyId)
         ))
         .limit(1);
 
-      if (paymentExists) {
+      if (!invoiceResult) {
         throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Cannot delete invoice with successful payments',
+          code: 'NOT_FOUND',
+          message: 'Invoice not found',
         });
       }
 
-      // Soft delete
+      // Cannot delete paid invoices
+      if (invoiceResult.invoice.status === 'paid') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot delete paid invoices',
+        });
+      }
+
+      // Hard delete (no deletedAt in schema)
       await db
-        .update(schema.invoices)
-        .set({ deletedAt: new Date() })
-        .where(and(
-          eq(schema.invoices.id, invoiceId),
-          eq(schema.invoices.companyId, companyId)
-        ));
+        .delete(schema.invoices)
+        .where(eq(schema.invoices.id, invoiceId));
 
       return {
         success: true,
@@ -848,17 +808,17 @@ export const paymentRouter = router({
         });
       }
 
-      // Get invoice with client
+      // Get invoice with client (verify through client's companyId)
       const [result] = await db
         .select({
           invoice: schema.invoices,
           client: schema.clients,
         })
         .from(schema.invoices)
-        .leftJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
+        .innerJoin(schema.clients, eq(schema.invoices.clientId, schema.clients.id))
         .where(and(
           eq(schema.invoices.id, invoiceId),
-          eq(schema.invoices.companyId, companyId)
+          eq(schema.clients.companyId, companyId)
         ))
         .limit(1);
 
@@ -869,16 +829,16 @@ export const paymentRouter = router({
         });
       }
 
-      // Get payments for this invoice
-      const invoicePayments = await db
+      // Get payments for this client (no invoiceId in payments schema)
+      const clientPayments = await db
         .select()
         .from(schema.payments)
-        .where(eq(schema.payments.invoiceId, invoiceId));
+        .where(eq(schema.payments.clientId, result.invoice.clientId));
 
       return {
         ...result.invoice,
         client: result.client,
-        payments: invoicePayments,
+        payments: clientPayments,
       };
     }),
 
@@ -900,19 +860,17 @@ export const paymentRouter = router({
         });
       }
 
-      // Get payment with relations
+      // Get payment with client (verify through client's companyId)
       const [result] = await db
         .select({
           payment: schema.payments,
-          invoice: schema.invoices,
           client: schema.clients,
         })
         .from(schema.payments)
-        .leftJoin(schema.invoices, eq(schema.payments.invoiceId, schema.invoices.id))
-        .leftJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
+        .innerJoin(schema.clients, eq(schema.payments.clientId, schema.clients.id))
         .where(and(
           eq(schema.payments.id, paymentId),
-          eq(schema.payments.companyId, companyId)
+          eq(schema.clients.companyId, companyId)
         ))
         .limit(1);
 
@@ -923,17 +881,9 @@ export const paymentRouter = router({
         });
       }
 
-      // Get refunds for this payment
-      const paymentRefunds = await db
-        .select()
-        .from(schema.refunds)
-        .where(eq(schema.refunds.paymentId, paymentId));
-
       return {
         ...result.payment,
-        invoice: result.invoice,
         client: result.client,
-        refunds: paymentRefunds,
       };
     }),
 
@@ -1011,23 +961,13 @@ export const paymentRouter = router({
         return []
       }
 
-      // Fetch payments for this client with invoice info
+      // Fetch payments for this client (simplified schema - no invoice link)
       const payments = await ctx.db
-        .select({
-          payment: schema.payments,
-          invoice: {
-            invoiceNumber: schema.invoices.invoiceNumber,
-            description: schema.invoices.notes,
-          },
-        })
+        .select()
         .from(schema.payments)
-        .leftJoin(schema.invoices, eq(schema.payments.invoiceId, schema.invoices.id))
         .where(eq(schema.payments.clientId, clientUser.clientId))
         .orderBy(desc(schema.payments.createdAt))
 
-      return payments.map(row => ({
-        ...row.payment,
-        invoice: row.invoice,
-      }))
+      return payments
     }),
 });

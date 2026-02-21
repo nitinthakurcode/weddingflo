@@ -1,15 +1,22 @@
-import { useSession } from '@/lib/auth-client';
+import { useAuth } from '@/lib/auth-client';
 import { type Permission, hasPermission, type Role } from './roles';
+
+/**
+ * Permission Hooks
+ *
+ * February 2026 - Fixed to use properly typed useAuth hook
+ * instead of raw useSession with `as any` casts
+ */
 
 /**
  * Hook to check if the current user has a specific permission
  */
 export function useCan(permission: Permission): boolean {
-  const { data: session, isPending } = useSession();
+  const { user, isLoading } = useAuth();
 
-  if (isPending || !session?.user) return false;
+  if (isLoading || !user) return false;
 
-  const role = (session.user as any).role as Role | undefined;
+  const role = user.role as Role | null;
   if (!role) return false;
 
   return hasPermission(role, permission);
@@ -19,11 +26,11 @@ export function useCan(permission: Permission): boolean {
  * Hook to check if the current user has any of the specified permissions
  */
 export function useCanAny(permissions: Permission[]): boolean {
-  const { data: session, isPending } = useSession();
+  const { user, isLoading } = useAuth();
 
-  if (isPending || !session?.user) return false;
+  if (isLoading || !user) return false;
 
-  const role = (session.user as any).role as Role | undefined;
+  const role = user.role as Role | null;
   if (!role) return false;
 
   return permissions.some((permission) => hasPermission(role, permission));
@@ -33,11 +40,11 @@ export function useCanAny(permissions: Permission[]): boolean {
  * Hook to check if the current user has all of the specified permissions
  */
 export function useCanAll(permissions: Permission[]): boolean {
-  const { data: session, isPending } = useSession();
+  const { user, isLoading } = useAuth();
 
-  if (isPending || !session?.user) return false;
+  if (isLoading || !user) return false;
 
-  const role = (session.user as any).role as Role | undefined;
+  const role = user.role as Role | null;
   if (!role) return false;
 
   return permissions.every((permission) => hasPermission(role, permission));
@@ -47,11 +54,11 @@ export function useCanAll(permissions: Permission[]): boolean {
  * Hook to get the current user's role
  */
 export function useUserRole(): Role | null {
-  const { data: session, isPending } = useSession();
+  const { user, isLoading } = useAuth();
 
-  if (isPending || !session?.user) return null;
+  if (isLoading || !user) return null;
 
-  return ((session.user as any).role as Role) || null;
+  return (user.role as Role) || null;
 }
 
 /**

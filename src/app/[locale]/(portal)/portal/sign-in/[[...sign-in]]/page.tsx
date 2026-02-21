@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Heart, Sparkles, Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { Link, useRouter } from '@/lib/navigation';
+import { useRouter } from '@/lib/navigation';
 import { signInWithEmail, signInWithGoogle } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -185,13 +185,7 @@ export default function PortalSignInPage() {
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <div className="text-sm text-center text-muted-foreground">
-              Don&apos;t have an account?{' '}
-              <Link
-                href={`/${locale}/sign-up`}
-                className="text-rose-600 hover:underline font-medium"
-              >
-                Sign up
-              </Link>
+              Don&apos;t have an account? Contact your wedding planner for an invitation link.
             </div>
           </CardFooter>
         </Card>

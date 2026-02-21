@@ -15,8 +15,8 @@ export async function ServerThemeScript() {
       return null;
     }
 
-    // Get companyId from BetterAuth user object
-    const companyId = (user as any).companyId;
+    // Get companyId from BetterAuth user object (properly typed)
+    const companyId = user.companyId;
 
     if (!companyId) {
       return null;

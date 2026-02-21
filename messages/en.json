@@ -3068,5 +3068,27 @@
     "guestsSynced": "Guests Synced",
     "noTransportsYet": "No transport entries yet",
     "noTransportsDescription": "Click \"Sync from Guests\" to import guests who need transport, or add manually."
+  },
+  "chatbot": {
+    "title": "AI Assistant",
+    "noClientSelected": "No wedding selected",
+    "welcomeTitle": "How can I help?",
+    "welcomeDescription": "Ask me to add guests, update budgets, create events, or anything else.",
+    "inputPlaceholder": "Type a command...",
+    "toggleLabel": "Toggle AI Assistant",
+    "open": "AI Assistant",
+    "close": "Close",
+    "confirmAction": "Confirm Action",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "executing": "Executing...",
+    "thinking": "Thinking...",
+    "changes": "Changes",
+    "alsoCreates": "This will also create:",
+    "warnings": "Warnings",
+    "confirmationRequired": "Confirmation Required",
+    "moreFields": "+{count} more fields",
+    "queries": "queries",
+    "actionCancelled": "Action cancelled. What else can I help you with?"
   }
 }

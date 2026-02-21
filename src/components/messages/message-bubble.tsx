@@ -3,18 +3,18 @@ import { Check, CheckCheck, User, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * Message interface - aligned with Drizzle schema (December 2025)
+ * Message interface - aligned with Drizzle schema (February 2026)
  * Uses 'unknown' for metadata since that's what Drizzle returns
  */
 interface MessageBubbleProps {
   message: {
     id: string;
     senderId: string;
-    content: string;
+    content: string | null;
     isRead: boolean | null;
     createdAt: Date;
     updatedAt: Date;
-    metadata: unknown;
+    metadata?: unknown;
   };
   isOwnMessage: boolean;
 }

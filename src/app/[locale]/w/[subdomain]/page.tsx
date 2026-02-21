@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: PageProps) {
     LIMIT 1
   `);
 
-  const website = websiteResult.rows[0] as any;
+  const website = websiteResult[0] as any;
 
   if (!website) {
     return {
@@ -76,7 +76,7 @@ export default async function PublicWebsitePage({ params, searchParams }: PagePr
     LIMIT 1
   `);
 
-  const website = websiteResult.rows[0] as any;
+  const website = websiteResult[0] as any;
 
   if (!website) {
     notFound();

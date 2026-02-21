@@ -61,7 +61,7 @@ export function BottomNav() {
                 {/* Notification badge with glow */}
                 {item.badge && (
                   <span className="absolute -top-0.5 -right-0.5">
-                    <PulsingDot color="bg-rose-500" size="sm" />
+                    <PulsingDot color="error" size="sm" />
                   </span>
                 )}
               </span>

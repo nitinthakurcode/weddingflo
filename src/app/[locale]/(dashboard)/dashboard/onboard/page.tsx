@@ -51,8 +51,11 @@ export default function OnboardingPage() {
     }
   }, [status, statusLoading, router])
 
+  // Total steps: Welcome(1), CompanyInfo(2), Preferences(3), FirstClient(4), Completion(5)
+  const TOTAL_STEPS = 5
+
   // Calculate progress percentage
-  const progressPercentage = (currentStep / 5) * 100
+  const progressPercentage = (currentStep / TOTAL_STEPS) * 100
 
   // Handle step navigation
   const handleNext = async (stepData?: any) => {
@@ -66,7 +69,7 @@ export default function OnboardingPage() {
     })
 
     // Move to next step
-    if (currentStep < 5) {
+    if (currentStep < TOTAL_STEPS) {
       setCurrentStep(currentStep + 1)
     }
   }
@@ -138,7 +141,11 @@ export default function OnboardingPage() {
   const handleComplete = async () => {
     try {
       await completeOnboarding.mutateAsync()
-      router.push('/dashboard/clients')
+
+      // Set flag to trigger product tour on dashboard
+      sessionStorage.setItem('weddingflo_just_onboarded', 'true')
+
+      router.push('/dashboard')
     } catch (error) {
       console.error('Failed to complete onboarding:', error)
     }
@@ -155,11 +162,11 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen bg-background py-12 px-4">
       {/* Progress bar */}
-      {currentStep > 1 && currentStep < 5 && (
+      {currentStep > 1 && currentStep < TOTAL_STEPS && (
         <div className="max-w-4xl mx-auto mb-8">
           <div className="space-y-2">
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Step {currentStep - 1} of 4</span>
+              <span>Step {currentStep - 1} of {TOTAL_STEPS - 2}</span>
               <span>{Math.round(progressPercentage)}% Complete</span>
             </div>
             <Progress value={progressPercentage} className="h-2" />
@@ -169,10 +176,12 @@ export default function OnboardingPage() {
 
       {/* Step content */}
       <div className="animate-in fade-in-50 duration-500">
+        {/* Step 1: Welcome */}
         {currentStep === 1 && (
           <WelcomeStep onNext={() => handleNext()} onSkip={handleSkip} />
         )}
 
+        {/* Step 2: Company Info */}
         {currentStep === 2 && (
           <CompanyInfoStep
             onNext={handleCompanyInfo}
@@ -181,6 +190,7 @@ export default function OnboardingPage() {
           />
         )}
 
+        {/* Step 3: Preferences */}
         {currentStep === 3 && (
           <PreferencesStep
             onNext={handlePreferences}
@@ -189,6 +199,7 @@ export default function OnboardingPage() {
           />
         )}
 
+        {/* Step 4: First Client */}
         {currentStep === 4 && (
           <FirstClientStep
             onNext={handleFirstClient}
@@ -197,6 +208,7 @@ export default function OnboardingPage() {
           />
         )}
 
+        {/* Step 5: Completion */}
         {currentStep === 5 && (
           <CompletionStep
             onComplete={handleComplete}

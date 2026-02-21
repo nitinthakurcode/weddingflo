@@ -58,6 +58,7 @@ export async function checkWebhookIdempotency(
 ): Promise<IdempotencyCheckResult> {
   try {
     // Use Drizzle query function for atomic idempotency check + insert
+    // Note: Current implementation returns { id: string } - no duplicate detection yet
     const result = await dbRecordWebhookEvent({
       provider,
       eventId,
@@ -65,11 +66,12 @@ export async function checkWebhookIdempotency(
       payload,
     });
 
+    // Since current implementation is a stub, treat all events as non-duplicate
     return {
-      isDuplicate: result.isDuplicate,
-      webhookId: result.eventId,
-      existingStatus: result.isDuplicate ? 'pending' as WebhookEventStatus : null,
-      shouldProcess: !result.isDuplicate, // Only process if not duplicate
+      isDuplicate: false,
+      webhookId: result.id,
+      existingStatus: null,
+      shouldProcess: true,
     };
   } catch (error) {
     // If it's already one of our custom errors, re-throw
@@ -116,7 +118,12 @@ export async function markWebhookProcessed(
   errorMessage?: string
 ): Promise<boolean> {
   try {
-    await dbMarkWebhookProcessed(webhookId, errorMessage ? { error: errorMessage, status } : { status });
+    // dbMarkWebhookProcessed expects: { eventId, provider, result? }
+    await dbMarkWebhookProcessed({
+      eventId: webhookId,
+      provider,
+      result: errorMessage ? { error: errorMessage, status } : { status },
+    });
     return true;
   } catch (error) {
     if (error instanceof DatabaseError) {
@@ -155,8 +162,12 @@ export async function incrementWebhookRetry(
   eventId: string
 ): Promise<number> {
   try {
-    await dbIncrementWebhookRetry(webhookId);
-    return 1; // Note: current impl doesn't return the new count
+    // dbIncrementWebhookRetry expects: { eventId, provider, error? }
+    const result = await dbIncrementWebhookRetry({
+      eventId: webhookId,
+      provider,
+    });
+    return result; // Returns new retry count
   } catch (error) {
     if (error instanceof DatabaseError) {
       throw error;
@@ -333,16 +344,17 @@ export async function getWebhookEvent(
   eventId: string
 ): Promise<{ id: string; status: WebhookEventStatus } | null> {
   try {
+    // Schema: id, provider, eventId, eventType, processed, processedAt, payload, error, createdAt
     const [event] = await db
       .select({
         id: webhookEvents.id,
-        status: webhookEvents.status,
+        processed: webhookEvents.processed,
       })
       .from(webhookEvents)
       .where(
         and(
-          eq(webhookEvents.source, provider),
-          eq(webhookEvents.eventType, eventId)
+          eq(webhookEvents.provider, provider),
+          eq(webhookEvents.eventId, eventId)
         )
       )
       .limit(1);
@@ -351,7 +363,9 @@ export async function getWebhookEvent(
       return null;
     }
 
-    return { id: event.id, status: event.status as WebhookEventStatus };
+    // Map boolean processed to status
+    const status: WebhookEventStatus = event.processed ? 'processed' : 'pending';
+    return { id: event.id, status };
   } catch (error) {
     throw new DatabaseError(
       `Failed to get webhook event: ${error instanceof Error ? error.message : 'Unknown error'}`,

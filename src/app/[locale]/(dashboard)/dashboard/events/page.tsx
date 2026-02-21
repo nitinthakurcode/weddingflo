@@ -72,7 +72,7 @@ export default function EventsPage() {
       clientName: client ? `${client.partner1FirstName} ${client.partner1LastName || ''}`.trim() : 'Unknown Client',
       event_name: evt.title,
       event_type: (evt.eventType || 'other') as EventType,
-      event_date: new Date(evt.eventDate).getTime(),
+      event_date: evt.eventDate ? new Date(evt.eventDate).getTime() : Date.now(),
       event_start_time: evt.startTime || '',
       event_end_time: evt.endTime || '',
       event_status: (evt.status || 'draft') as EventStatus,

@@ -1,23 +1,21 @@
 import OpenAI from 'openai'
 
 // =====================================================
-// DUAL AI PROVIDER ARCHITECTURE (November 2025)
+// OPENAI AI ARCHITECTURE (February 2026)
 // =====================================================
-// Primary: DeepSeek V3 (10x cheaper, $0.27/$1.10 per 1M tokens)
-// Fallback: OpenAI GPT-4o ($2.50/$10 per 1M tokens)
-// Auto-switching: Seamless failover for 100% uptime
-// Cost Savings: 85-90% reduction vs OpenAI-only
-// Lazy initialization: Clients created on first use (not at build time)
+// Primary: GPT-4o-mini ($0.15/$0.60 per 1M tokens)
+// Fallback: GPT-4o ($2.50/$10 per 1M tokens)
+// Error handling: Seamless failover for 100% uptime
+// Lazy initialization: Client created on first use (not at build time)
 // =====================================================
 
-// Lazy initialization - clients created on first use
+// Lazy initialization - client created on first use
 let openaiClient: OpenAI | null = null
-let deepseekClient: OpenAI | null = null
 
 function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
     if (!process.env.OPENAI_API_KEY) {
-      throw new Error('Missing OPENAI_API_KEY environment variable (required for fallback)')
+      throw new Error('Missing OPENAI_API_KEY environment variable')
     }
     openaiClient = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -26,19 +24,9 @@ function getOpenAIClient(): OpenAI {
   return openaiClient
 }
 
-function getDeepSeekClient(): OpenAI | null {
-  if (deepseekClient === null && process.env.DEEPSEEK_API_KEY) {
-    deepseekClient = new OpenAI({
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1',
-    })
-  }
-  return deepseekClient
-}
-
-// Export getter for primary client (DeepSeek if available, otherwise OpenAI)
+// Export getter for AI client (OpenAI)
 export function getAIClient(): OpenAI {
-  return getDeepSeekClient() || getOpenAIClient()
+  return getOpenAIClient()
 }
 
 // Legacy exports for backward compatibility
@@ -48,6 +36,7 @@ export const openai = new Proxy({} as OpenAI, {
   }
 })
 
+// Fallback AI client (same as primary, but uses gpt-4o for reliability)
 export const fallbackAI = new Proxy({} as OpenAI, {
   get(_, prop) {
     return (getOpenAIClient() as any)[prop]
@@ -56,45 +45,36 @@ export const fallbackAI = new Proxy({} as OpenAI, {
 
 // Export provider status (evaluated at runtime)
 export const AI_PROVIDER = {
-  get primary() { return process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'openai' },
-  get hasFallback() { return !!process.env.DEEPSEEK_API_KEY },
-  get isUsingDeepSeek() { return !!process.env.DEEPSEEK_API_KEY },
+  get primary() { return 'openai' as const },
+  get hasFallback() { return true },
+  get isUsingDeepSeek() { return false },
 } as const
 
 // Model configuration (evaluated at runtime)
 export const AI_CONFIG = {
   get model() {
-    return process.env.DEEPSEEK_API_KEY
-      ? (process.env.DEEPSEEK_MODEL || 'deepseek-chat')
-      : (process.env.OPENAI_MODEL || 'gpt-4o')
+    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   },
-  fallbackModel: process.env.OPENAI_MODEL || 'gpt-4o',
+  fallbackModel: 'gpt-4o',
   maxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '2000'),
   temperature: 0.7,
   get provider() { return AI_PROVIDER.primary },
 } as const
 
 // Cost calculation (per token)
-// Updated October 2025 pricing with DeepSeek
+// February 2026 pricing - OpenAI models
 const PRICING = {
-  // DeepSeek V3 (Primary - 85-90% cheaper)
-  'deepseek-chat': {
-    input: 0.00000027, // $0.27 per 1M tokens
-    output: 0.0000011, // $1.10 per 1M tokens
-  },
-  'deepseek-coder': {
-    input: 0.00000027, // $0.27 per 1M tokens
-    output: 0.0000011, // $1.10 per 1M tokens
-  },
-  // OpenAI (Fallback)
-  'gpt-4o': {
-    input: 0.0000025, // $2.50 per 1M tokens
-    output: 0.00001, // $10 per 1M tokens
-  },
+  // Primary model - cost effective
   'gpt-4o-mini': {
     input: 0.00000015, // $0.15 per 1M tokens
     output: 0.0000006, // $0.60 per 1M tokens
   },
+  // Fallback model - more capable
+  'gpt-4o': {
+    input: 0.0000025, // $2.50 per 1M tokens
+    output: 0.00001, // $10 per 1M tokens
+  },
+  // Legacy support
   'gpt-4-turbo': {
     input: 0.00001, // $10 per 1M tokens
     output: 0.00003, // $30 per 1M tokens
@@ -106,7 +86,7 @@ export function calculateAICost(
   completionTokens: number,
   model: string = AI_CONFIG.model
 ): number {
-  const pricing = PRICING[model as keyof typeof PRICING] || PRICING['gpt-4o']
+  const pricing = PRICING[model as keyof typeof PRICING] || PRICING['gpt-4o-mini']
 
   const inputCost = promptTokens * pricing.input
   const outputCost = completionTokens * pricing.output
@@ -129,18 +109,15 @@ export type AIFeatureType =
   | 'seating_optimization'
   | 'general_assistant'
 
-// Legacy exports for backward compatibility with existing API routes
+// Model constants for explicit model selection
 export const AI_MODELS = {
-  // DeepSeek models (Primary - use when available)
-  DEEPSEEK_CHAT: 'deepseek-chat',
-  DEEPSEEK_CODER: 'deepseek-coder',
-  // OpenAI models (Fallback)
+  // OpenAI models
   GPT4O: 'gpt-4o',
   GPT4O_MINI: 'gpt-4o-mini',
   GPT4_TURBO: 'gpt-4-turbo',
-  // Smart aliases (use primary provider)
-  COMPLEX: AI_CONFIG.model, // Uses DeepSeek if available, else GPT-4o
-  SIMPLE: AI_CONFIG.model, // Same model for all tasks (DeepSeek is cheap enough)
+  // Smart aliases (use primary model)
+  COMPLEX: 'gpt-4o-mini', // Mini handles most complex tasks well
+  SIMPLE: 'gpt-4o-mini', // Optimized for simple tasks
 } as const
 
 export const AI_DEFAULTS = {

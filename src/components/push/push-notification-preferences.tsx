@@ -80,7 +80,7 @@ export function PushNotificationPreferences() {
       const previousPreferences = utils.push.getPreferences.getData();
 
       // Optimistically update the cache
-      utils.push.getPreferences.setData(undefined, (old) => {
+      utils.push.getPreferences.setData(undefined, (old: typeof previousPreferences) => {
         if (!old) return old;
         return { ...old, ...newData };
       });
@@ -154,9 +154,9 @@ export function PushNotificationPreferences() {
             </div>
             <Switch
               id="push-enabled"
-              checked={preferences.pushEnabled ?? true}
+              checked={preferences.enabled ?? true}
               onCheckedChange={(checked) =>
-                handleUpdatePreference('pushEnabled', checked)
+                handleUpdatePreference('enabled', checked)
               }
               disabled={updateMutation.isPending}
             />
@@ -169,52 +169,39 @@ export function PushNotificationPreferences() {
         <div className="space-y-1">
           <PreferenceItem
             icon={<CheckSquare className="h-5 w-5" />}
-            label="Task Reminders"
-            description="Task due soon, overdue tasks, and task completions"
-            checked={preferences.taskReminders ?? true}
+            label="Reminders"
+            description="Task reminders, event reminders, and schedule updates"
+            checked={preferences.reminders ?? true}
             onCheckedChange={(checked) =>
-              handleUpdatePreference('taskReminders', checked)
+              handleUpdatePreference('reminders', checked)
             }
-            disabled={!preferences.pushEnabled || updateMutation.isPending}
-          />
-
-          <Separator />
-
-          <PreferenceItem
-            icon={<Calendar className="h-5 w-5" />}
-            label="Event Reminders"
-            description="Upcoming events, event changes, and schedule updates"
-            checked={preferences.eventReminders ?? true}
-            onCheckedChange={(checked) =>
-              handleUpdatePreference('eventReminders', checked)
-            }
-            disabled={!preferences.pushEnabled || updateMutation.isPending}
+            disabled={!preferences.enabled || updateMutation.isPending}
           />
 
           <Separator />
 
           <PreferenceItem
             icon={<Users className="h-5 w-5" />}
-            label="Client Updates"
-            description="Guest confirmations, cancellations, and client activity"
-            checked={preferences.clientUpdates ?? true}
+            label="RSVP Updates"
+            description="Guest confirmations, cancellations, and RSVP activity"
+            checked={preferences.rsvpUpdates ?? true}
             onCheckedChange={(checked) =>
-              handleUpdatePreference('clientUpdates', checked)
+              handleUpdatePreference('rsvpUpdates', checked)
             }
-            disabled={!preferences.pushEnabled || updateMutation.isPending}
+            disabled={!preferences.enabled || updateMutation.isPending}
           />
 
           <Separator />
 
           <PreferenceItem
             icon={<Info className="h-5 w-5" />}
-            label="System Alerts"
-            description="Important system updates and announcements"
-            checked={preferences.systemAlerts ?? true}
+            label="Messages"
+            description="Direct messages and system notifications"
+            checked={preferences.messages ?? true}
             onCheckedChange={(checked) =>
-              handleUpdatePreference('systemAlerts', checked)
+              handleUpdatePreference('messages', checked)
             }
-            disabled={!preferences.pushEnabled || updateMutation.isPending}
+            disabled={!preferences.enabled || updateMutation.isPending}
           />
         </div>
 

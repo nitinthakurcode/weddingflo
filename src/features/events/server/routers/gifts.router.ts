@@ -1,21 +1,24 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+/**
+ * Gifts tRPC Router
+ * Simplified to match actual schema:
+ * - gifts: id, clientId, guestId, name, value, status, createdAt, updatedAt
+ */
+
+import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc } from 'drizzle-orm'
-import { clients, gifts } from '@/lib/db/schema'
+import { clients, gifts, guests } from '@/lib/db/schema'
 
-/**
- * Gifts tRPC Router - Drizzle ORM Version
- *
- * Provides CRUD operations for wedding gifts with multi-tenant security.
- * Migrated from Supabase to Drizzle - December 2025
- */
 export const giftsRouter = router({
-  getAll: adminProcedure
-    .input(z.object({ clientId: z.string().uuid() }))
+  /**
+   * Get all gifts for a client
+   */
+  getAll: protectedProcedure
+    .input(z.object({ clientId: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
       }
 
       // Verify client belongs to company
@@ -32,69 +35,82 @@ export const giftsRouter = router({
         .limit(1)
 
       if (!client) {
-        throw new TRPCError({ code: 'FORBIDDEN' })
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Client not found' })
       }
 
-      // Fetch gifts
+      // Fetch gifts with guest info
       const giftList = await ctx.db
-        .select()
+        .select({
+          gift: gifts,
+          guest: {
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+          },
+        })
         .from(gifts)
+        .leftJoin(guests, eq(gifts.guestId, guests.id))
         .where(eq(gifts.clientId, input.clientId))
         .orderBy(desc(gifts.createdAt))
 
-      // Return with snake_case for backward compatibility
-      return giftList.map(g => ({
-        id: g.id,
-        client_id: g.clientId,
-        gift_name: g.giftName,
-        from_name: g.fromName,
-        from_email: g.fromEmail,
-        delivery_date: g.deliveryDate,
-        delivery_status: g.deliveryStatus,
-        thank_you_sent: g.thankYouSent,
-        thank_you_sent_date: g.thankYouSentDate,
-        notes: g.notes,
-        created_at: g.createdAt?.toISOString() || undefined,
-        updated_at: g.updatedAt?.toISOString() || undefined,
+      return giftList.map(row => ({
+        ...row.gift,
+        guest: row.guest?.firstName ? row.guest : null,
       }))
     }),
 
-  getById: adminProcedure
-    .input(z.object({ id: z.string().uuid() }))
+  /**
+   * Get gift by ID
+   * SECURITY: Verifies gift belongs to a client owned by the user's company
+   */
+  getById: protectedProcedure
+    .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
       }
 
-      const [gift] = await ctx.db
-        .select()
+      // Join with clients to verify company ownership
+      const [result] = await ctx.db
+        .select({
+          gift: gifts,
+          guest: guests,
+        })
         .from(gifts)
-        .where(eq(gifts.id, input.id))
+        .innerJoin(clients, eq(gifts.clientId, clients.id))
+        .leftJoin(guests, eq(gifts.guestId, guests.id))
+        .where(
+          and(
+            eq(gifts.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
         .limit(1)
 
-      if (!gift) {
-        throw new TRPCError({ code: 'NOT_FOUND' })
+      if (!result) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found' })
       }
 
-      return gift
+      return {
+        ...result.gift,
+        guest: result.guest,
+      }
     }),
 
+  /**
+   * Create gift
+   */
   create: adminProcedure
     .input(z.object({
-      clientId: z.string().uuid(),
-      giftName: z.string().min(1),
-      fromName: z.string().optional(),
-      fromEmail: z.preprocess(
-        (val) => (val === '' ? undefined : val),
-        z.string().email().optional()
-      ),
-      deliveryDate: z.string().optional(),
-      deliveryStatus: z.enum(['pending', 'received', 'returned']).default('pending'),
-      notes: z.string().optional(),
+      clientId: z.string(),
+      guestId: z.string().optional(),
+      name: z.string().min(1),
+      value: z.number().optional(),
+      status: z.enum(['pending', 'received', 'returned']).default('received'),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
       }
 
       // Verify client
@@ -111,88 +127,101 @@ export const giftsRouter = router({
         .limit(1)
 
       if (!client) {
-        throw new TRPCError({ code: 'FORBIDDEN' })
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Client not found' })
       }
 
-      // Create gift
       const [gift] = await ctx.db
         .insert(gifts)
         .values({
+          id: crypto.randomUUID(),
           clientId: input.clientId,
-          giftName: input.giftName,
-          fromName: input.fromName || null,
-          fromEmail: input.fromEmail || null,
-          deliveryDate: input.deliveryDate || null,
-          deliveryStatus: input.deliveryStatus as any,
-          notes: input.notes || null,
+          guestId: input.guestId || null,
+          name: input.name,
+          value: input.value || null,
+          status: input.status,
         })
         .returning()
-
-      if (!gift) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create gift'
-        })
-      }
 
       return gift
     }),
 
+  /**
+   * Update gift
+   * SECURITY: Verifies gift belongs to a client owned by the user's company
+   */
   update: adminProcedure
     .input(z.object({
-      id: z.string().uuid(),
-      data: z.object({
-        giftName: z.string().optional(),
-        fromName: z.string().optional(),
-        fromEmail: z.preprocess(
-          (val) => (val === '' ? undefined : val),
-          z.string().email().optional()
-        ),
-        deliveryDate: z.string().optional(),
-        deliveryStatus: z.enum(['pending', 'received', 'returned']).optional(),
-        thankYouSent: z.boolean().optional(),
-        thankYouSentDate: z.string().optional(),
-        notes: z.string().optional(),
-      }),
+      id: z.string(),
+      name: z.string().optional(),
+      guestId: z.string().optional(),
+      value: z.number().optional(),
+      status: z.enum(['pending', 'received', 'returned']).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
       }
 
-      // Build update object
-      const updateData: Record<string, any> = {
-        updatedAt: new Date(),
+      // Verify gift belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: gifts.id })
+        .from(gifts)
+        .innerJoin(clients, eq(gifts.clientId, clients.id))
+        .where(
+          and(
+            eq(gifts.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found' })
       }
 
-      if (input.data.giftName !== undefined) updateData.giftName = input.data.giftName
-      if (input.data.fromName !== undefined) updateData.fromName = input.data.fromName
-      if (input.data.fromEmail !== undefined) updateData.fromEmail = input.data.fromEmail
-      if (input.data.deliveryDate !== undefined) updateData.deliveryDate = input.data.deliveryDate
-      if (input.data.deliveryStatus !== undefined) updateData.deliveryStatus = input.data.deliveryStatus
-      if (input.data.thankYouSent !== undefined) updateData.thankYouSent = input.data.thankYouSent
-      if (input.data.thankYouSentDate !== undefined) updateData.thankYouSentDate = input.data.thankYouSentDate
-      if (input.data.notes !== undefined) updateData.notes = input.data.notes
+      const updates: Record<string, unknown> = { updatedAt: new Date() }
+      if (input.name !== undefined) updates.name = input.name
+      if (input.guestId !== undefined) updates.guestId = input.guestId
+      if (input.value !== undefined) updates.value = input.value
+      if (input.status !== undefined) updates.status = input.status
 
-      // Update gift
       const [gift] = await ctx.db
         .update(gifts)
-        .set(updateData)
+        .set(updates)
         .where(eq(gifts.id, input.id))
         .returning()
-
-      if (!gift) {
-        throw new TRPCError({ code: 'NOT_FOUND' })
-      }
 
       return gift
     }),
 
+  /**
+   * Delete gift
+   * SECURITY: Verifies gift belongs to a client owned by the user's company
+   */
   delete: adminProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
+      }
+
+      // Verify gift belongs to a client owned by this company
+      const [existing] = await ctx.db
+        .select({ id: gifts.id })
+        .from(gifts)
+        .innerJoin(clients, eq(gifts.clientId, clients.id))
+        .where(
+          and(
+            eq(gifts.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found' })
       }
 
       await ctx.db
@@ -202,38 +231,14 @@ export const giftsRouter = router({
       return { success: true }
     }),
 
-  markThankYouSent: adminProcedure
-    .input(z.object({
-      id: z.string().uuid(),
-      sentDate: z.string().optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-
-      const [gift] = await ctx.db
-        .update(gifts)
-        .set({
-          thankYouSent: true,
-          thankYouSentDate: input.sentDate || new Date().toISOString().split('T')[0],
-          updatedAt: new Date(),
-        })
-        .where(eq(gifts.id, input.id))
-        .returning()
-
-      if (!gift) {
-        throw new TRPCError({ code: 'NOT_FOUND' })
-      }
-
-      return gift
-    }),
-
-  getStats: adminProcedure
-    .input(z.object({ clientId: z.string().uuid() }))
+  /**
+   * Get gift statistics for a client
+   */
+  getStats: protectedProcedure
+    .input(z.object({ clientId: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found' })
       }
 
       // Verify client
@@ -250,27 +255,25 @@ export const giftsRouter = router({
         .limit(1)
 
       if (!client) {
-        throw new TRPCError({ code: 'FORBIDDEN' })
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Client not found' })
       }
 
-      // Get gifts
       const giftList = await ctx.db
         .select({
-          deliveryStatus: gifts.deliveryStatus,
-          thankYouSent: gifts.thankYouSent,
+          status: gifts.status,
+          value: gifts.value,
         })
         .from(gifts)
         .where(eq(gifts.clientId, input.clientId))
 
-      const stats = {
-        total: giftList.length,
-        received: giftList.filter(g => g.deliveryStatus === 'received').length,
-        pending: giftList.filter(g => g.deliveryStatus === 'pending').length,
-        returned: giftList.filter(g => g.deliveryStatus === 'returned').length,
-        thankYouSent: giftList.filter(g => g.thankYouSent).length,
-        thankYouPending: giftList.filter(g => g.deliveryStatus === 'received' && !g.thankYouSent).length,
-      }
+      const totalValue = giftList.reduce((sum, g) => sum + (g.value || 0), 0)
 
-      return stats
+      return {
+        total: giftList.length,
+        received: giftList.filter(g => g.status === 'received').length,
+        pending: giftList.filter(g => g.status === 'pending').length,
+        returned: giftList.filter(g => g.status === 'returned').length,
+        totalValue,
+      }
     }),
 })

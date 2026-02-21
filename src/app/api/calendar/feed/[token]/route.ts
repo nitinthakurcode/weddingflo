@@ -22,7 +22,7 @@ export async function GET(
       LIMIT 1
     `);
 
-    const tokenData = tokenResult.rows[0] as {
+    const tokenData = tokenResult[0] as {
       user_id: string;
       company_id: string;
       is_active: boolean;
@@ -44,7 +44,7 @@ export async function GET(
       LIMIT 1
     `);
 
-    const settings = settingsResult.rows[0] as {
+    const settings = settingsResult[0] as {
       ical_feed_enabled: boolean;
       ical_include_events: boolean;
       ical_include_timeline: boolean;
@@ -71,7 +71,7 @@ export async function GET(
         LIMIT 500
       `);
 
-      for (const event of eventsResult.rows as any[]) {
+      for (const event of eventsResult as any[]) {
         const startDate = new Date(`${event.event_date}T${event.start_time || '09:00:00'}`);
         const endDate = new Date(`${event.event_date}T${event.end_time || '17:00:00'}`);
 
@@ -101,7 +101,7 @@ export async function GET(
         LIMIT 500
       `);
 
-      for (const item of timelineResult.rows as any[]) {
+      for (const item of timelineResult as any[]) {
         const startDate = new Date(item.start_time);
         const endDate = item.end_time ? new Date(item.end_time) : new Date(startDate.getTime() + item.duration_minutes * 60000);
 
@@ -133,7 +133,7 @@ export async function GET(
         LIMIT 200
       `);
 
-      for (const task of tasksResult.rows as any[]) {
+      for (const task of tasksResult as any[]) {
         const dueDate = new Date(`${task.due_date}T09:00:00`);
         const endDate = new Date(`${task.due_date}T17:00:00`);
 

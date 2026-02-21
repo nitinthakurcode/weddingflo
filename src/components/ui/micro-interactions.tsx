@@ -52,3 +52,41 @@ export function PressEffect({ children, className }: { children: ReactNode; clas
     </div>
   );
 }
+
+interface PulsingDotProps {
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+  color?: 'default' | 'success' | 'warning' | 'error';
+}
+
+export function PulsingDot({ className, size = 'md', color = 'default' }: PulsingDotProps) {
+  const sizeClasses = {
+    sm: 'h-2 w-2',
+    md: 'h-3 w-3',
+    lg: 'h-4 w-4',
+  };
+
+  const colorClasses = {
+    default: 'bg-primary',
+    success: 'bg-green-500',
+    warning: 'bg-amber-500',
+    error: 'bg-red-500',
+  };
+
+  return (
+    <span className={cn('relative flex', sizeClasses[size], className)}>
+      <span
+        className={cn(
+          'absolute inline-flex h-full w-full animate-ping rounded-full opacity-75',
+          colorClasses[color]
+        )}
+      />
+      <span
+        className={cn(
+          'relative inline-flex h-full w-full rounded-full',
+          colorClasses[color]
+        )}
+      />
+    </span>
+  );
+}

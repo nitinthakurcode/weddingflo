@@ -120,7 +120,7 @@ export default function ProfileSettingsPage() {
           <div>
             <label className="text-sm font-medium">Role</label>
             <p className="text-sm text-muted-foreground capitalize">
-              {user.role.replace('_', ' ')}
+              {(user.role || 'user').replace('_', ' ')}
             </p>
           </div>
           <div>

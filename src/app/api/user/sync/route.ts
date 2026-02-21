@@ -1,16 +1,17 @@
 /**
- * API Route: Sync User Data
+ * API Route: Sync User Data - February 2026
  *
+ * Single Source of Truth: BetterAuth user table
  * Ensures user has role and companyId set.
  * Creates company for new users who don't have one.
- * Updates BetterAuth user record with company assignment.
+ * Updates ONLY BetterAuth user record (app users table deprecated).
  */
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq } from '@/lib/db';
 import { user as userTable } from '@/lib/db/schema/auth';
-import { companies, users } from '@/lib/db/schema';
+import { companies } from '@/lib/db/schema';
 import { randomUUID } from 'crypto';
 
 export async function POST() {
@@ -50,15 +51,16 @@ export async function POST() {
       : `Company ${user.email?.split('@')[0] || 'New'}`;
 
     try {
-      // Insert new company
+      // Insert new company with onboarding already complete
+      // (prevents redirect loop - user can optionally run guided setup later)
       await db.insert(companies).values({
         id: companyId,
         name: companyName,
         subscriptionTier: 'free',
         subscriptionStatus: 'trialing',
         trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial
-        onboardingCompleted: false,
-        onboardingStep: 0,
+        onboardingCompleted: true,
+        onboardingStep: 1,
       });
 
       console.log('[User Sync] Created company:', { companyId, companyName });
@@ -73,11 +75,22 @@ export async function POST() {
     const validAppRoles = ['super_admin', 'company_admin', 'staff', 'client_user'];
     const role = validAppRoles.includes(user.role || '') ? user.role : 'company_admin';
 
+    // Parse name for firstName/lastName
+    const nameParts = user.name?.split(' ') || [];
+    const firstName = nameParts[0] || null;
+    const lastName = nameParts.slice(1).join(' ') || null;
+
+    // Update BetterAuth user table (SINGLE SOURCE OF TRUTH)
     await db
       .update(userTable)
       .set({
         role: role,
         companyId: companyId,
+        firstName: firstName,
+        lastName: lastName,
+        avatarUrl: user.image || null,
+        isActive: true,
+        onboardingCompleted: true,
         updatedAt: new Date(),
       })
       .where(eq(userTable.id, user.id));
@@ -87,42 +100,6 @@ export async function POST() {
       role,
       companyId,
     });
-
-    // Also create/update record in app's users table
-    // This table is used by tRPC procedures (getCurrentUser, etc.)
-    try {
-      const nameParts = user.name?.split(' ') || [];
-      const firstName = nameParts[0] || null;
-      const lastName = nameParts.slice(1).join(' ') || null;
-
-      await db.insert(users).values({
-        authId: user.id,
-        email: user.email || '',
-        firstName,
-        lastName,
-        avatarUrl: user.image || null,
-        role: role as 'super_admin' | 'company_admin' | 'staff' | 'client_user',
-        companyId: companyId,
-        isActive: true,
-      }).onConflictDoUpdate({
-        target: users.authId,
-        set: {
-          role: role as 'super_admin' | 'company_admin' | 'staff' | 'client_user',
-          companyId: companyId,
-          updatedAt: new Date(),
-        },
-      });
-
-      console.log('[User Sync] Created/updated app users record:', {
-        authId: user.id,
-        email: user.email,
-        role,
-        companyId,
-      });
-    } catch (usersError) {
-      console.warn('[User Sync] App users table warning:', usersError);
-      // Continue even if this fails - BetterAuth user is the source of truth
-    }
 
     return NextResponse.json({
       success: true,

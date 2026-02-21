@@ -210,13 +210,11 @@ export const analyticsRouter = router({
           analyticsQueries.getTopRevenueClients(ctx.companyId, 5),
         ]);
 
-        // Calculate totals
-        const totalRevenue = revenueData.reduce(
-          (sum, item) => sum + Number(item.revenue || 0),
-          0
-        );
+        // Use pre-calculated total from getRevenueAnalytics
+        const totalRevenue = revenueData.total;
 
-        const totalTransactions = revenueData.reduce(
+        // Calculate transaction count from byMonth data
+        const totalTransactions = revenueData.byMonth.reduce(
           (sum, item) => sum + Number(item.transaction_count || 0),
           0
         );
@@ -225,7 +223,8 @@ export const analyticsRouter = router({
           revenue: {
             total: totalRevenue,
             transactionCount: totalTransactions,
-            data: revenueData,
+            byMonth: revenueData.byMonth,
+            byClient: revenueData.byClient,
           },
           payments: {
             breakdown: paymentBreakdown,
@@ -258,18 +257,10 @@ export const analyticsRouter = router({
       }
 
       try {
-        const startDate = input.startDate
-          ? new Date(input.startDate)
-          : subDays(new Date(), 30);
-        const endDate = input.endDate
-          ? new Date(input.endDate)
-          : new Date();
-
-        return await analyticsQueries.getTaskAnalytics(
-          ctx.companyId,
-          startDate,
-          endDate
-        );
+        // Note: getTaskAnalytics doesn't currently support date filtering
+        // The startDate/endDate from input are parsed but not passed since the
+        // underlying function only takes companyId
+        return await analyticsQueries.getTaskAnalytics(ctx.companyId);
       } catch (error) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -333,30 +324,28 @@ export const analyticsRouter = router({
       }
 
       try {
+        // getPeriodComparison currently only takes (companyId, period)
+        // Format period as date range string
+        const periodString = `${input.currentStart}_${input.currentEnd}`;
         const data = await analyticsQueries.getPeriodComparison(
           ctx.companyId,
-          new Date(input.currentStart),
-          new Date(input.currentEnd),
-          new Date(input.previousStart),
-          new Date(input.previousEnd)
+          periodString
         );
 
-        // Transform array into object keyed by metric name
+        // Since the function returns { current, previous, change }, build metrics object
         const metrics: Record<string, {
           current: number;
           previous: number;
           change: number;
           changePercentage: number | null;
-        }> = {};
-
-        data.forEach((row) => {
-          metrics[row.metric_name] = {
-            current: row.current_value,
-            previous: row.previous_value,
-            change: row.change_amount,
-            changePercentage: row.change_percentage,
-          };
-        });
+        }> = {
+          revenue: {
+            current: data.current,
+            previous: data.previous,
+            change: data.change,
+            changePercentage: data.previous > 0 ? ((data.current - data.previous) / data.previous) * 100 : null,
+          },
+        };
 
         return metrics;
       } catch (error) {

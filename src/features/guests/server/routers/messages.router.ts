@@ -379,8 +379,8 @@ export const messagesRouter = router({
         .leftJoin(schema.clients, eq(schema.teamClientAssignments.clientId, schema.clients.id))
         .where(
           and(
-            eq(schema.teamClientAssignments.userId, userId),
-            eq(schema.teamClientAssignments.companyId, companyId)
+            eq(schema.teamClientAssignments.teamMemberId, userId),
+            eq(schema.clients.companyId, companyId)
           )
         );
 
@@ -506,39 +506,34 @@ export const messagesRouter = router({
         conditions.push(lt(schema.messages.createdAt, cursorDate));
       }
 
-      const messages = await db
-        .select()
+      // OPTIMIZED: Single query with LEFT JOIN for sender info
+      const results = await db
+        .select({
+          message: schema.messages,
+          senderId: schema.users.id,
+          senderFirstName: schema.users.firstName,
+          senderLastName: schema.users.lastName,
+          senderAvatarUrl: schema.users.avatarUrl,
+        })
         .from(schema.messages)
+        .leftJoin(schema.users, eq(schema.messages.senderId, schema.users.id))
         .where(and(...conditions))
         .orderBy(desc(schema.messages.createdAt))
         .limit(input.limit);
 
-      // Get sender info
-      const senderIds = [...new Set(messages.map(m => m.senderId).filter(Boolean))];
-
-      let senderMap = new Map<string, { id: string; firstName: string | null; lastName: string | null; avatarUrl: string | null }>();
-      if (senderIds.length > 0) {
-        const users = await db
-          .select({
-            id: schema.users.id,
-            firstName: schema.users.firstName,
-            lastName: schema.users.lastName,
-            avatarUrl: schema.users.avatarUrl,
-          })
-          .from(schema.users)
-          .where(inArray(schema.users.id, senderIds));
-
-        senderMap = new Map(users.map(u => [u.id, u]));
-      }
-
-      const nextCursor = messages.length === input.limit
-        ? messages[messages.length - 1].id
+      const nextCursor = results.length === input.limit
+        ? results[results.length - 1].message.id
         : undefined;
 
       return {
-        messages: messages.map(m => ({
-          ...m,
-          sender: senderMap.get(m.senderId) || null,
+        messages: results.map(r => ({
+          ...r.message,
+          sender: r.senderId ? {
+            id: r.senderId,
+            firstName: r.senderFirstName,
+            lastName: r.senderLastName,
+            avatarUrl: r.senderAvatarUrl,
+          } : null,
         })),
         nextCursor,
       };

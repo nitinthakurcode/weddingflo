@@ -47,9 +47,11 @@ export function GoogleCalendarConnect() {
               <CheckCircle2 className="h-4 w-4" />
               Connected to Google Calendar
             </div>
-            <div className="text-sm text-muted-foreground">
-              Calendar ID: {status.calendarId}
-            </div>
+            {status.connectedAt && (
+              <div className="text-sm text-muted-foreground">
+                Connected: {new Date(status.connectedAt).toLocaleDateString()}
+              </div>
+            )}
             <Button
               variant="destructive"
               onClick={handleDisconnect}

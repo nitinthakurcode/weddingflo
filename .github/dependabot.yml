@@ -1,0 +1,92 @@
+# Dependabot Configuration
+# Security February 2026
+#
+# Automatically creates PRs for dependency updates
+# Prioritizes security patches
+
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+
+    # Group security updates together
+    groups:
+      security-patches:
+        applies-to: security-updates
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+    # Reviewers for security updates
+    reviewers:
+      - "nitinthakur"
+
+    # Labels for easier triage
+    labels:
+      - "dependencies"
+      - "security"
+
+    # Commit message format
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+
+    # Ignore specific packages if needed
+    ignore:
+      # Example: ignore major updates for specific packages
+      # - dependency-name: "some-package"
+      #   update-types: ["version-update:semver-major"]
+
+    # Allow specific package updates even if normally blocked
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "production"
+
+  # GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+
+    labels:
+      - "dependencies"
+      - "ci"
+
+    commit-message:
+      prefix: "ci(deps)"
+
+  # Docker updates (if using Docker)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+
+    labels:
+      - "dependencies"
+      - "docker"
+
+    commit-message:
+      prefix: "chore(docker)"

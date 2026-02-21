@@ -1,0 +1,133 @@
+# Docker Compose for WeddingFlo
+# Security February 2026
+#
+# Includes:
+# - PostgreSQL with security hardening
+# - PgBouncer for connection pooling
+# - Redis for caching (optional)
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: weddingflo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-weddingflo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-weddingflo}
+      # Security settings
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-weddingflo} -d ${POSTGRES_DB:-weddingflo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weddingflo-network
+    # Don't expose directly - use PgBouncer
+    # ports:
+    #   - "5432:5432"
+    command:
+      - "postgres"
+      # Connection limits
+      - "-c"
+      - "max_connections=100"
+      # Performance tuning
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      # Logging for security monitoring
+      - "-c"
+      - "log_statement=ddl"
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_disconnections=on"
+      - "-c"
+      - "log_checkpoints=on"
+      - "-c"
+      - "log_lock_waits=on"
+      # Security settings
+      - "-c"
+      - "ssl=off"  # Enable if you have certs
+
+  # PgBouncer Connection Pooler
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: weddingflo-pgbouncer
+    restart: unless-stopped
+    environment:
+      # Database configuration
+      DATABASE_URL: postgres://${POSTGRES_USER:-weddingflo}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-weddingflo}
+      # PgBouncer settings
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 3
+      MAX_DB_CONNECTIONS: 50
+      # Security
+      AUTH_TYPE: scram-sha-256
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      # Logging
+      LOG_CONNECTIONS: 1
+      LOG_DISCONNECTIONS: 1
+      LOG_POOLER_ERRORS: 1
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432", "-U", "${POSTGRES_USER:-weddingflo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weddingflo-network
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: weddingflo-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weddingflo-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  weddingflo-network:
+    driver: bridge

@@ -11,7 +11,10 @@ import { z } from 'zod';
 export const guestGiftsRouter = router({
   // Placeholder - returns empty array
   list: protectedProcedure
-    .input(z.object({ eventId: z.string().optional() }))
+    .input(z.object({
+      clientId: z.string().optional(),
+      eventId: z.string().optional()
+    }))
     .query(async () => {
       return [];
     }),

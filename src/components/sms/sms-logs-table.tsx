@@ -11,13 +11,21 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, Search, Filter, MessageSquare, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import type { SmsLog } from '@/types/sms';
+
+// Schema: id, clientId, to, message, status, createdAt
+interface SmsLog {
+  id: string;
+  clientId: string | null;
+  to: string;
+  message: string | null;
+  status: string | null;
+  createdAt: Date;
+}
 
 export function SmsLogsTable() {
   const t = useTranslations('smsLogs');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const pageSize = 20;
 
@@ -25,10 +33,9 @@ export function SmsLogsTable() {
     limit: pageSize,
     offset: page * pageSize,
     status: statusFilter === 'all' ? undefined : statusFilter as any,
-    smsType: typeFilter === 'all' ? undefined : typeFilter as any,
   });
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
     switch (status) {
       case 'sent':
       case 'delivered':
@@ -56,32 +63,16 @@ export function SmsLogsTable() {
           </Badge>
         );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge variant="outline">{status || 'unknown'}</Badge>;
     }
-  };
-
-  const getSmsTypeLabel = (type: string) => {
-    const key = type.replace(/_/g, '').replace(/([A-Z])/g, (match, p1, offset) =>
-      offset === 0 ? p1.toLowerCase() : p1.toLowerCase()
-    );
-
-    const mappedKey = type === 'wedding_reminder' ? 'weddingReminder' :
-                      type === 'rsvp_confirmation' ? 'rsvpConfirmation' :
-                      type === 'payment_reminder' ? 'paymentReminder' :
-                      type === 'payment_received' ? 'paymentReceived' :
-                      type === 'vendor_notification' ? 'vendorNotification' :
-                      type === 'event_update' ? 'eventUpdate' : 'general';
-
-    return t(`types.${mappedKey}`);
   };
 
   const filteredLogs = (data?.logs as SmsLog[] | undefined)?.filter((log) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (
-      log.recipient_phone.toLowerCase().includes(searchLower) ||
-      log.recipient_name?.toLowerCase().includes(searchLower) ||
-      log.message_body.toLowerCase().includes(searchLower)
+      log.to.toLowerCase().includes(searchLower) ||
+      log.message?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -118,21 +109,6 @@ export function SmsLogsTable() {
               <SelectItem value="queued">{t('status.queued')}</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-full sm:w-[200px]">
-              <MessageSquare className="mr-2 h-4 w-4" />
-              <SelectValue placeholder={t('filters.type')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('filters.allTypes')}</SelectItem>
-              <SelectItem value="wedding_reminder">{t('types.weddingReminder')}</SelectItem>
-              <SelectItem value="rsvp_confirmation">{t('types.rsvpConfirmation')}</SelectItem>
-              <SelectItem value="payment_reminder">{t('types.paymentReminder')}</SelectItem>
-              <SelectItem value="payment_received">{t('types.paymentReceived')}</SelectItem>
-              <SelectItem value="vendor_notification">{t('types.vendorNotification')}</SelectItem>
-              <SelectItem value="event_update">{t('types.eventUpdate')}</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Table */}
@@ -148,10 +124,7 @@ export function SmsLogsTable() {
                   <TableRow>
                     <TableHead>{t('table.recipient')}</TableHead>
                     <TableHead>{t('table.message')}</TableHead>
-                    <TableHead>{t('table.type')}</TableHead>
                     <TableHead>{t('table.status')}</TableHead>
-                    <TableHead>{t('table.segments')}</TableHead>
-                    <TableHead>{t('table.language')}</TableHead>
                     <TableHead>{t('table.sent')}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -159,19 +132,13 @@ export function SmsLogsTable() {
                   {filteredLogs.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell>
-                        <div>
-                          <div className="font-medium">{log.recipient_name || t('table.unknown')}</div>
-                          <div className="text-sm text-muted-foreground">{log.recipient_phone}</div>
-                        </div>
+                        <div className="font-medium">{log.to}</div>
                       </TableCell>
-                      <TableCell className="max-w-xs truncate">{log.message_body}</TableCell>
-                      <TableCell>{getSmsTypeLabel(log.sms_type)}</TableCell>
+                      <TableCell className="max-w-xs truncate">{log.message || '-'}</TableCell>
                       <TableCell>{getStatusBadge(log.status)}</TableCell>
-                      <TableCell>{log.segments}</TableCell>
-                      <TableCell className="uppercase">{log.locale}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {log.sent_at
-                          ? formatDistanceToNow(new Date(log.sent_at), { addSuffix: true })
+                        {log.createdAt
+                          ? formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })
                           : t('table.notSent')}
                       </TableCell>
                     </TableRow>
@@ -211,7 +178,7 @@ export function SmsLogsTable() {
             <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">{t('empty.title')}</h3>
             <p className="text-sm text-muted-foreground max-w-sm">
-              {search || statusFilter !== 'all' || typeFilter !== 'all'
+              {search || statusFilter !== 'all'
                 ? t('empty.description')
                 : t('empty.noSmsYet')}
             </p>

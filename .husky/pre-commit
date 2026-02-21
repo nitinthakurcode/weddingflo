@@ -1,0 +1,92 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Pre-commit Security Checks
+# Security February 2026
+#
+# This hook runs security checks before allowing commits.
+# Block commits with:
+# - High/Critical npm vulnerabilities
+# - Secrets in staged files
+
+echo "Running pre-commit security checks..."
+
+# Check 1: npm audit for high+ vulnerabilities
+echo "Checking for npm vulnerabilities..."
+if ! npm audit --audit-level=high --omit=dev 2>/dev/null; then
+  echo ""
+  echo "ERROR: npm audit found high or critical vulnerabilities."
+  echo "Please run 'npm audit fix' or update the affected packages."
+  echo ""
+  echo "To skip this check (NOT RECOMMENDED), use:"
+  echo "  git commit --no-verify"
+  exit 1
+fi
+
+# Check 2: Secret detection in staged files
+echo "Checking for secrets in staged files..."
+
+# Patterns to detect common secrets
+SECRET_PATTERNS=(
+  'AKIA[0-9A-Z]{16}'                    # AWS Access Key
+  'sk_live_[a-zA-Z0-9]{24,}'            # Stripe Live Key
+  'sk_test_[a-zA-Z0-9]{24,}'            # Stripe Test Key
+  'ghp_[a-zA-Z0-9]{36}'                 # GitHub Personal Token
+  'gho_[a-zA-Z0-9]{36}'                 # GitHub OAuth Token
+  'ghu_[a-zA-Z0-9]{36}'                 # GitHub User Token
+  'ghs_[a-zA-Z0-9]{36}'                 # GitHub Server Token
+  'github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}'  # GitHub Fine-grained PAT
+  'xox[baprs]-[a-zA-Z0-9-]+'            # Slack Token
+  'sq0csp-[a-zA-Z0-9_-]{43}'            # Square OAuth
+  'sq0atp-[a-zA-Z0-9_-]{22}'            # Square Access Token
+  'eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*'  # JWT (basic pattern)
+  'private_key'                          # Private key indicator
+  'BEGIN RSA PRIVATE KEY'               # RSA Private Key
+  'BEGIN OPENSSH PRIVATE KEY'           # OpenSSH Private Key
+  'BEGIN PGP PRIVATE KEY'               # PGP Private Key
+  'SG\.[a-zA-Z0-9]{22}\.[a-zA-Z0-9]{43}' # SendGrid API Key
+  're_[a-zA-Z0-9]{28}'                  # Resend API Key
+  'rk_live_[a-zA-Z0-9]{24,}'            # Stripe Restricted Key
+)
+
+# Get staged files (excluding certain types)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v -E '\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$' | grep -v 'package-lock.json')
+
+# Check each staged file for secrets
+SECRETS_FOUND=0
+for file in $STAGED_FILES; do
+  if [ -f "$file" ]; then
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+      if grep -qE "$pattern" "$file" 2>/dev/null; then
+        echo "WARNING: Potential secret found in $file matching pattern: $pattern"
+        SECRETS_FOUND=1
+      fi
+    done
+  fi
+done
+
+if [ $SECRETS_FOUND -eq 1 ]; then
+  echo ""
+  echo "ERROR: Potential secrets detected in staged files."
+  echo "Please review and remove any sensitive data before committing."
+  echo ""
+  echo "If this is a false positive, you can skip this check with:"
+  echo "  git commit --no-verify"
+  echo ""
+  echo "NOTE: Using --no-verify skips ALL pre-commit hooks. Use with caution."
+  exit 1
+fi
+
+# Check 3: Verify no .env files are being committed
+ENV_FILES=$(git diff --cached --name-only | grep -E '\.env(\..+)?$' | grep -v '\.example')
+if [ -n "$ENV_FILES" ]; then
+  echo ""
+  echo "ERROR: Attempting to commit .env files:"
+  echo "$ENV_FILES"
+  echo ""
+  echo "Remove these files from the commit:"
+  echo "  git reset HEAD <filename>"
+  exit 1
+fi
+
+echo "Pre-commit security checks passed!"

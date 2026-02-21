@@ -66,7 +66,7 @@ export default function WebsitePage() {
 
   const togglePublish = trpc.websites.togglePublish.useMutation({
     onSuccess: (data) => {
-      toast.success(data.isPublished ? 'Website published!' : 'Website unpublished');
+      toast.success(data.published ? 'Website published!' : 'Website unpublished');
       refetch();
     },
     onError: (error) => {
@@ -85,7 +85,7 @@ export default function WebsitePage() {
     if (!website) return;
     togglePublish.mutate({
       websiteId: website.id,
-      isPublished: !website.isPublished,
+      published: !website.published,
     });
   };
 
@@ -192,7 +192,7 @@ export default function WebsitePage() {
         <Button
           variant="outline"
           onClick={() => window.open(websiteUrl, '_blank')}
-          disabled={!website.isPublished}
+          disabled={!website.published}
         >
           <Eye className="h-4 w-4 mr-2" />
           Preview
@@ -201,9 +201,9 @@ export default function WebsitePage() {
         <Button
           onClick={handleTogglePublish}
           disabled={togglePublish.isPending}
-          variant={website.isPublished ? 'outline' : 'default'}
+          variant={website.published ? 'outline' : 'default'}
         >
-          {website.isPublished ? (
+          {website.published ? (
             <>
               <EyeOff className="h-4 w-4 mr-2" />
               Unpublish
@@ -219,10 +219,10 @@ export default function WebsitePage() {
 
       {/* Status Badges */}
       <div className="flex items-center gap-2 mb-6">
-        <Badge variant={website.isPublished ? 'default' : 'secondary'}>
-          {website.isPublished ? 'Published' : 'Draft'}
+        <Badge variant={website.published ? 'default' : 'secondary'}>
+          {website.published ? 'Published' : 'Draft'}
         </Badge>
-        {website.isPasswordProtected && (
+        {(website.settings as { isPasswordProtected?: boolean })?.isPasswordProtected && (
           <Badge variant="outline">
             <Lock className="h-3 w-3 mr-1" />
             Password Protected

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
 import { useParams } from 'next/navigation'
@@ -11,7 +11,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter
+  DialogFooter,
+  DialogDescription
 } from '@/components/ui/dialog'
 import {
   Collapsible,
@@ -21,10 +22,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Plus, Trash2, Edit, Clock, CheckCircle, AlertTriangle, ListChecks, ChevronDown, ChevronRight, Calendar, PartyPopper, Settings, Star, Flag } from 'lucide-react'
+import { Plus, Trash2, Edit, Clock, CheckCircle, AlertTriangle, ListChecks, ChevronDown, ChevronRight, Calendar, PartyPopper, Settings, Star, Flag, Upload, Download, FileSpreadsheet, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { ExportButton } from '@/components/export/export-button'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
+import { importTimelineExcel, type TimelineImportItem } from '@/lib/import/excel-parser'
+import { exportTimelineExcel } from '@/lib/export/excel-exporter'
 
 // Event type icons/emojis
 const eventTypeIcons: Record<string, string> = {
@@ -114,6 +117,17 @@ export default function TimelinePage() {
     notes: '',
   })
 
+  // Import state
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<{
+    items: TimelineImportItem[]
+    errors: Array<{ row: number; field: string; message: string }>
+    totalRows: number
+    validRows: number
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const utils = trpc.useUtils()
 
   // Queries
@@ -135,6 +149,11 @@ export default function TimelinePage() {
 
   // Get flat list for export
   const { data: timelineItems } = trpc.timeline.getAll.useQuery({
+    clientId: clientId,
+  })
+
+  // Get events for import/export
+  const { data: clientEvents } = trpc.events.getAll.useQuery({
     clientId: clientId,
   })
 
@@ -210,6 +229,24 @@ export default function TimelinePage() {
     },
   })
 
+  const bulkImportMutation = trpc.timeline.bulkImport.useMutation({
+    onSuccess: async (result) => {
+      const message = `Created: ${result.created}, Updated: ${result.updated}, Deleted: ${result.deleted}`
+      toast({ title: t('importComplete') || 'Import Complete', description: message })
+      setIsImportDialogOpen(false)
+      setImportPreview(null)
+      await Promise.all([
+        utils.timeline.getGroupedByEvent.invalidate({ clientId }),
+        utils.timeline.getAll.invalidate({ clientId }),
+        utils.timeline.getStats.invalidate({ clientId }),
+        utils.timeline.detectConflicts.invalidate({ clientId }),
+      ])
+    },
+    onError: (error) => {
+      toast({ title: tc('error'), description: error.message, variant: 'destructive' })
+    },
+  })
+
   const resetForm = () => {
     setFormData({
       title: '',
@@ -272,6 +309,63 @@ export default function TimelinePage() {
     markCompleteMutation.mutate({ id, completed: !completed })
   }
 
+  // Import handlers
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsImporting(true)
+    try {
+      const events = (clientEvents || []).map(ev => ({
+        id: ev.id,
+        title: ev.title,
+      }))
+      const result = await importTimelineExcel(file, events)
+      setImportPreview({
+        items: result.data,
+        errors: result.errors,
+        totalRows: result.totalRows,
+        validRows: result.validRows,
+      })
+    } catch (error) {
+      toast({
+        title: tc('error'),
+        description: error instanceof Error ? error.message : 'Failed to parse Excel file',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsImporting(false)
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleImportConfirm = () => {
+    if (!importPreview) return
+
+    bulkImportMutation.mutate({
+      clientId,
+      items: importPreview.items,
+    })
+  }
+
+  const handleExportToExcel = async () => {
+    if (!timelineItems || !clientEvents) return
+
+    const events = (clientEvents || []).map(ev => ({
+      id: ev.id,
+      title: ev.title,
+      eventDate: ev.eventDate || null,
+    }))
+
+    await exportTimelineExcel(timelineItems, events, {
+      filename: `timeline-${clientName}-${new Date().toISOString().split('T')[0]}.xlsx`,
+    })
+    toast({ title: t('timelineExported', { format: 'EXCEL' }) })
+  }
+
   const handleAddToEvent = (eventId: string) => {
     setSelectedEventId(eventId)
     setIsAddDialogOpen(true)
@@ -319,14 +413,34 @@ export default function TimelinePage() {
         title={t('weddingDayTimeline')}
         description={t('manageSchedule')}
       >
-        <ExportButton
-          data={timelineItems || []}
-          dataType="timeline"
-          clientName={clientName}
-          onExportComplete={(format) => {
-            toast({ title: t('timelineExported', { format: format.toUpperCase() }) })
-          }}
-        />
+        <div className="flex gap-2">
+          {/* Import Button */}
+          <Button
+            variant="outline"
+            onClick={() => setIsImportDialogOpen(true)}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
+          {/* Export Excel Button */}
+          <Button
+            variant="outline"
+            onClick={handleExportToExcel}
+            disabled={!timelineItems || timelineItems.length === 0}
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Export Excel
+          </Button>
+          {/* Legacy Export Button */}
+          <ExportButton
+            data={timelineItems || []}
+            dataType="timeline"
+            clientName={clientName}
+            onExportComplete={(format) => {
+              toast({ title: t('timelineExported', { format: format.toUpperCase() }) })
+            }}
+          />
+        </div>
       </ClientModuleHeader>
 
       {/* Stats */}
@@ -693,6 +807,195 @@ export default function TimelinePage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog
+        open={isImportDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsImportDialogOpen(false)
+            setImportPreview(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Import Timeline from Excel
+            </DialogTitle>
+            <DialogDescription>
+              Upload an Excel file to import or update timeline items. Use the exported Excel as a template.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!importPreview ? (
+            <div className="space-y-4">
+              {/* File Input */}
+              <div className="border-2 border-dashed rounded-lg p-8 text-center">
+                <FileSpreadsheet className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground mb-4">
+                  Select an Excel file (.xlsx) to import
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="timeline-import-file"
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isImporting}
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4 mr-2" />
+                      Select File
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Instructions */}
+              <div className="bg-muted/50 rounded-lg p-4 text-sm">
+                <h4 className="font-semibold mb-2">Instructions:</h4>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>First export the timeline to get the correct template format</li>
+                  <li>Edit the Excel file offline - add, modify, or delete rows</li>
+                  <li>Keep the ID column for existing items you want to update</li>
+                  <li>Leave ID empty for new items</li>
+                  <li>Add "DELETE" in the Notes column to remove items</li>
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Preview Summary */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-emerald-700">
+                    {importPreview.items.filter(i => i._action === 'create').length}
+                  </p>
+                  <p className="text-sm text-emerald-600">New Items</p>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-blue-700">
+                    {importPreview.items.filter(i => i._action === 'update').length}
+                  </p>
+                  <p className="text-sm text-blue-600">Updates</p>
+                </div>
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-rose-700">
+                    {importPreview.items.filter(i => i._action === 'delete').length}
+                  </p>
+                  <p className="text-sm text-rose-600">Deletions</p>
+                </div>
+              </div>
+
+              {/* Errors */}
+              {importPreview.errors.length > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-rose-700 mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Validation Errors ({importPreview.errors.length})
+                  </h4>
+                  <ul className="text-sm text-rose-600 space-y-1 max-h-32 overflow-y-auto">
+                    {importPreview.errors.map((err, idx) => (
+                      <li key={idx}>
+                        Row {err.row}: {err.field} - {err.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Items Preview */}
+              <div className="border rounded-lg max-h-64 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted sticky top-0">
+                    <tr>
+                      <th className="text-left p-2">Action</th>
+                      <th className="text-left p-2">Title</th>
+                      <th className="text-left p-2">Date</th>
+                      <th className="text-left p-2">Time</th>
+                      <th className="text-left p-2">Phase</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importPreview.items.slice(0, 20).map((item, idx) => (
+                      <tr key={idx} className="border-t">
+                        <td className="p-2">
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            item._action === 'create' ? 'bg-emerald-100 text-emerald-700' :
+                            item._action === 'delete' ? 'bg-rose-100 text-rose-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}>
+                            {item._action || 'create'}
+                          </span>
+                        </td>
+                        <td className="p-2 truncate max-w-[200px]">{item.title}</td>
+                        <td className="p-2">{item.date || '-'}</td>
+                        <td className="p-2">{item.startTime || '-'}</td>
+                        <td className="p-2">{item.phase || 'showtime'}</td>
+                      </tr>
+                    ))}
+                    {importPreview.items.length > 20 && (
+                      <tr className="border-t bg-muted/50">
+                        <td colSpan={5} className="p-2 text-center text-muted-foreground">
+                          ... and {importPreview.items.length - 20} more items
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary */}
+              <p className="text-sm text-muted-foreground">
+                Total: {importPreview.totalRows} rows parsed, {importPreview.validRows} valid items
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsImportDialogOpen(false)
+                setImportPreview(null)
+              }}
+            >
+              {tc('cancel')}
+            </Button>
+            {importPreview && (
+              <Button
+                onClick={handleImportConfirm}
+                disabled={bulkImportMutation.isPending || importPreview.validRows === 0}
+              >
+                {bulkImportMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Confirm Import ({importPreview.validRows} items)
+                  </>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
