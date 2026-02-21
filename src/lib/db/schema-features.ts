@@ -1123,3 +1123,31 @@ export const jobQueue = pgTable('job_queue', {
   index('job_queue_status_scheduled_idx').on(table.status, table.scheduledAt),
   index('job_queue_company_id_idx').on(table.companyId),
 ]);
+
+// Google Sheets Sync Settings - OAuth tokens and sync configuration
+// February 2026 - Full Google Sheets bi-directional sync support
+export const googleSheetsSyncSettings = pgTable('google_sheets_sync_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(), // User who connected the account
+  companyId: text('company_id'), // Company for team access
+  // OAuth tokens
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  tokenExpiresAt: timestamp('token_expires_at'),
+  // Connection status
+  isConnected: boolean('is_connected').default(false),
+  // Spreadsheet info
+  spreadsheetId: text('spreadsheet_id'), // Google Spreadsheet ID
+  spreadsheetUrl: text('spreadsheet_url'), // Full URL for quick access
+  // Sync tracking
+  lastSyncedAt: timestamp('last_synced_at'),
+  syncDirection: text('sync_direction').default('bidirectional'), // 'export', 'import', 'bidirectional'
+  autoSync: boolean('auto_sync').default(false),
+  autoSyncInterval: integer('auto_sync_interval').default(60), // minutes
+  // Timestamps
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('google_sheets_sync_user_id_idx').on(table.userId),
+  index('google_sheets_sync_company_id_idx').on(table.companyId),
+]);

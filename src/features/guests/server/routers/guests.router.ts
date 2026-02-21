@@ -210,112 +210,130 @@ export const guestsRouter = router({
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : ''
       const fullName = input.name.trim()
 
-      const [guest] = await ctx.db
-        .insert(guests)
-        .values({
-          clientId: input.clientId,
-          firstName,
-          lastName,
-          email: input.email || null,
-          phone: input.phone || null,
-          groupName: input.groupName || null,
-          guestSide: effectiveGuestSide,
-          plusOneAllowed: input.plusOne,
-          dietaryRestrictions: input.dietaryRestrictions || null,
-          notes: input.notes || null,
-          // Party info
-          partySize: input.partySize,
-          additionalGuestNames: input.additionalGuestNames,
-          // Travel info
-          arrivalDatetime: input.arrivalDatetime ? new Date(input.arrivalDatetime) : null,
-          arrivalMode: input.arrivalMode || null,
-          departureDatetime: input.departureDatetime ? new Date(input.departureDatetime) : null,
-          departureMode: input.departureMode || null,
-          // Relationship
-          relationshipToFamily: input.relationshipToFamily || null,
-          attendingEvents: input.attendingEvents,
-          // RSVP
-          rsvpStatus: input.rsvpStatus,
-          mealPreference: input.mealPreference as any || null,
-          // Hotel requirements
-          hotelRequired: input.hotelRequired,
-          hotelName: input.hotelName || null,
-          hotelCheckIn: input.hotelCheckIn || null,
-          hotelCheckOut: input.hotelCheckOut || null,
-          hotelRoomType: input.hotelRoomType || null,
-          // Transport requirements
-          transportRequired: input.transportRequired,
-          transportType: input.transportType || null,
-          transportPickupLocation: input.transportPickupLocation || null,
-          transportPickupTime: input.transportPickupTime || null,
-          transportNotes: input.transportNotes || null,
-          // Planner fields - Gift info
-          giftToGive: input.giftToGive || null,
-        })
-        .returning()
+      // Execute all guest creation operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      if (!guest) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create guest'
-        })
-      }
-
-      // Auto-create hotel entry if hotel is required
-      if (input.hotelRequired && guest) {
-        await ctx.db
-          .insert(hotels)
+        // 1. Create guest record
+        const [guest] = await tx
+          .insert(guests)
           .values({
             clientId: input.clientId,
-            guestId: guest.id,
-            guestName: fullName,
+            firstName,
+            lastName,
+            email: input.email || null,
+            phone: input.phone || null,
+            groupName: input.groupName || null,
+            guestSide: effectiveGuestSide,
+            plusOneAllowed: input.plusOne,
+            dietaryRestrictions: input.dietaryRestrictions || null,
+            notes: input.notes || null,
+            // Party info
+            partySize: input.partySize,
+            additionalGuestNames: input.additionalGuestNames,
+            // Travel info
+            arrivalDatetime: input.arrivalDatetime ? new Date(input.arrivalDatetime) : null,
+            arrivalMode: input.arrivalMode || null,
+            departureDatetime: input.departureDatetime ? new Date(input.departureDatetime) : null,
+            departureMode: input.departureMode || null,
+            // Relationship
+            relationshipToFamily: input.relationshipToFamily || null,
+            attendingEvents: input.attendingEvents,
+            // RSVP
+            rsvpStatus: input.rsvpStatus,
+            mealPreference: input.mealPreference as any || null,
+            // Hotel requirements
+            hotelRequired: input.hotelRequired,
             hotelName: input.hotelName || null,
-            roomType: input.hotelRoomType || null,
-            checkInDate: input.hotelCheckIn || null,
-            checkOutDate: input.hotelCheckOut || null,
-            accommodationNeeded: true,
+            hotelCheckIn: input.hotelCheckIn || null,
+            hotelCheckOut: input.hotelCheckOut || null,
+            hotelRoomType: input.hotelRoomType || null,
+            // Transport requirements
+            transportRequired: input.transportRequired,
+            transportType: input.transportType || null,
+            transportPickupLocation: input.transportPickupLocation || null,
+            transportPickupTime: input.transportPickupTime || null,
+            transportNotes: input.transportNotes || null,
+            // Planner fields - Gift info
+            giftToGive: input.giftToGive || null,
           })
-      }
+          .returning()
 
-      // Auto-create transport entry if transport is required
-      if (input.transportRequired && guest) {
-        // Extract date and time from arrivalDatetime if available
-        let pickupDate: string | null = null
-        let pickupTime: string | null = input.transportPickupTime || null
-
-        if (input.arrivalDatetime) {
-          const arrivalDate = new Date(input.arrivalDatetime)
-          pickupDate = arrivalDate.toISOString().split('T')[0] // YYYY-MM-DD
-          if (!pickupTime) {
-            pickupTime = arrivalDate.toTimeString().slice(0, 5) // HH:MM
-          }
+        if (!guest) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create guest'
+          })
         }
 
-        // Build vehicle/transport info
-        const vehicleParts: string[] = []
-        if (input.transportType) vehicleParts.push(input.transportType)
-        if (input.arrivalMode) vehicleParts.push(`(${input.arrivalMode})`)
-        const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
+        // 2. Auto-create hotel entry if hotel is required (within transaction)
+        if (input.hotelRequired) {
+          await tx
+            .insert(hotels)
+            .values({
+              clientId: input.clientId,
+              guestId: guest.id,
+              guestName: fullName,
+              hotelName: input.hotelName || null,
+              roomType: input.hotelRoomType || null,
+              checkInDate: input.hotelCheckIn || null,
+              checkOutDate: input.hotelCheckOut || null,
+              accommodationNeeded: true,
+            })
+          cascadeActions.push({ module: 'hotels', action: 'created', count: 1 })
+          console.log(`[Guest Create] Auto-created hotel record for guest: ${fullName}`)
+        }
 
-        await ctx.db
-          .insert(guestTransport)
-          .values({
-            clientId: input.clientId,
-            guestId: guest.id,
-            guestName: fullName,
-            legType: 'arrival',
-            legSequence: 1,
-            pickupDate,
-            pickupTime,
-            pickupFrom: input.transportPickupLocation || null,
-            dropTo: input.hotelName || null, // Default drop to hotel if available
-            vehicleInfo,
-            transportStatus: 'scheduled',
-            notes: input.transportNotes || null,
-          })
+        // 3. Auto-create transport entry if transport is required (within transaction)
+        if (input.transportRequired) {
+          // Extract date and time from arrivalDatetime if available
+          let pickupDate: string | null = null
+          let pickupTime: string | null = input.transportPickupTime || null
+
+          if (input.arrivalDatetime) {
+            const arrivalDate = new Date(input.arrivalDatetime)
+            pickupDate = arrivalDate.toISOString().split('T')[0] // YYYY-MM-DD
+            if (!pickupTime) {
+              pickupTime = arrivalDate.toTimeString().slice(0, 5) // HH:MM
+            }
+          }
+
+          // Build vehicle/transport info
+          const vehicleParts: string[] = []
+          if (input.transportType) vehicleParts.push(input.transportType)
+          if (input.arrivalMode) vehicleParts.push(`(${input.arrivalMode})`)
+          const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
+
+          await tx
+            .insert(guestTransport)
+            .values({
+              clientId: input.clientId,
+              guestId: guest.id,
+              guestName: fullName,
+              legType: 'arrival',
+              legSequence: 1,
+              pickupDate,
+              pickupTime,
+              pickupFrom: input.transportPickupLocation || null,
+              dropTo: input.hotelName || null, // Default drop to hotel if available
+              vehicleInfo,
+              transportStatus: 'scheduled',
+              notes: input.transportNotes || null,
+            })
+          cascadeActions.push({ module: 'transport', action: 'created', count: 1 })
+          console.log(`[Guest Create] Auto-created transport record for guest: ${fullName}`)
+        }
+
+        return { guest, cascadeActions }
+      })
+
+      console.log(`[Guest Create] Created guest ${result.guest.id} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.guest,
+        cascadeActions: result.cascadeActions,
       }
-
-      return guest
     }),
 
   update: adminProcedure
@@ -442,263 +460,295 @@ export const guestsRouter = router({
       // Metadata for party member requirements
       if (input.data.metadata !== undefined) updateData.metadata = input.data.metadata
 
-      // Update guest (already verified ownership)
-      const [guest] = await ctx.db
-        .update(guests)
-        .set(updateData)
-        .where(eq(guests.id, input.id))
-        .returning()
+      // Execute all guest update operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      if (!guest) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to update guest'
-        })
-      }
+        // 1. Update guest (already verified ownership)
+        const [guest] = await tx
+          .update(guests)
+          .set(updateData)
+          .where(eq(guests.id, input.id))
+          .returning()
 
-      // Handle hotel synchronization
-      if (input.data.hotelRequired === true && guest) {
-        // Get guest name if not provided in update
+        if (!guest) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to update guest'
+          })
+        }
+
+        // Get guest name for cascade operations
         if (!guestName) {
           guestName = `${guest.firstName} ${guest.lastName}`.trim()
         }
 
-        // Check if hotel entry already exists for this guest
-        const [existingHotel] = await ctx.db
-          .select({ id: hotels.id })
-          .from(hotels)
-          .where(eq(hotels.guestId, input.id))
-          .limit(1)
-
-        if (existingHotel) {
-          // Update existing hotel entry
-          await ctx.db
-            .update(hotels)
-            .set({
-              guestName: guestName,
-              hotelName: input.data.hotelName,
-              roomType: input.data.hotelRoomType,
-              checkInDate: input.data.hotelCheckIn,
-              checkOutDate: input.data.hotelCheckOut,
-              updatedAt: new Date(),
-            })
-            .where(eq(hotels.id, existingHotel.id))
-        } else {
-          // Create new hotel entry
-          await ctx.db
-            .insert(hotels)
-            .values({
-              clientId: guest.clientId,
-              guestId: guest.id,
-              guestName: guestName,
-              hotelName: input.data.hotelName || null,
-              roomType: input.data.hotelRoomType || null,
-              checkInDate: input.data.hotelCheckIn || null,
-              checkOutDate: input.data.hotelCheckOut || null,
-              accommodationNeeded: true,
-            })
-        }
-      } else if (input.data.hotelRequired === false && guest) {
-        // Remove hotel entry if hotel is no longer required
-        await ctx.db
-          .delete(hotels)
-          .where(eq(hotels.guestId, input.id))
-      }
-
-      // Handle transport synchronization
-      if (input.data.transportRequired === true && guest) {
-        // Get guest name if not provided in update
-        if (!guestName) {
-          guestName = `${guest.firstName} ${guest.lastName}`.trim()
-        }
-
-        // Check if transport entry already exists for this guest
-        const [existingTransport] = await ctx.db
-          .select({ id: guestTransport.id })
-          .from(guestTransport)
-          .where(eq(guestTransport.guestId, input.id))
-          .limit(1)
-
-        // Extract date and time from arrivalDatetime if available
-        let pickupDate: string | null = null
-        let pickupTime: string | null = input.data.transportPickupTime || null
-
-        if (input.data.arrivalDatetime) {
-          const arrivalDate = new Date(input.data.arrivalDatetime)
-          pickupDate = arrivalDate.toISOString().split('T')[0]
-          if (!pickupTime) {
-            pickupTime = arrivalDate.toTimeString().slice(0, 5)
-          }
-        }
-
-        // Build vehicle/transport info
-        const vehicleParts: string[] = []
-        if (input.data.transportType) vehicleParts.push(input.data.transportType)
-        if (input.data.arrivalMode) vehicleParts.push(`(${input.data.arrivalMode})`)
-        const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
-
-        if (existingTransport) {
-          // Update existing transport entry
-          await ctx.db
-            .update(guestTransport)
-            .set({
-              guestName: guestName,
-              pickupDate,
-              pickupTime,
-              pickupFrom: input.data.transportPickupLocation,
-              dropTo: input.data.hotelName || null,
-              vehicleInfo,
-              notes: input.data.transportNotes,
-              updatedAt: new Date(),
-            })
-            .where(eq(guestTransport.id, existingTransport.id))
-        } else {
-          // Create new transport entry
-          await ctx.db
-            .insert(guestTransport)
-            .values({
-              clientId: guest.clientId,
-              guestId: guest.id,
-              guestName: guestName,
-              legType: 'arrival',
-              legSequence: 1,
-              pickupDate,
-              pickupTime,
-              pickupFrom: input.data.transportPickupLocation || null,
-              dropTo: input.data.hotelName || null,
-              vehicleInfo,
-              transportStatus: 'scheduled',
-              notes: input.data.transportNotes || null,
-            })
-        }
-      } else if (input.data.transportRequired === false && guest) {
-        // Remove transport entries if transport is no longer required
-        await ctx.db
-          .delete(guestTransport)
-          .where(eq(guestTransport.guestId, input.id))
-      }
-
-      // Handle party member hotel (for additional guests in party)
-      if (input.data.partyMemberHotel && guest) {
-        const { memberName, checkIn, checkOut, remove } = input.data.partyMemberHotel
-
-        if (remove) {
-          // Remove hotel entry for this party member
-          await ctx.db
-            .delete(hotels)
-            .where(
-              and(
-                eq(hotels.clientId, guest.clientId),
-                eq(hotels.guestName, memberName)
-              )
-            )
-        } else {
-          // Check if hotel entry exists for this party member
-          const [existingHotel] = await ctx.db
+        // 2. Handle hotel synchronization (within transaction)
+        if (input.data.hotelRequired === true) {
+          // Check if hotel entry already exists for this guest
+          const [existingHotel] = await tx
             .select({ id: hotels.id })
             .from(hotels)
-            .where(
-              and(
-                eq(hotels.clientId, guest.clientId),
-                eq(hotels.guestName, memberName)
-              )
-            )
+            .where(eq(hotels.guestId, input.id))
             .limit(1)
 
           if (existingHotel) {
-            // Update existing
-            await ctx.db
+            // Update existing hotel entry
+            await tx
               .update(hotels)
               .set({
-                checkInDate: checkIn || null,
-                checkOutDate: checkOut || null,
+                guestName: guestName,
+                hotelName: input.data.hotelName,
+                roomType: input.data.hotelRoomType,
+                checkInDate: input.data.hotelCheckIn,
+                checkOutDate: input.data.hotelCheckOut,
                 updatedAt: new Date(),
               })
               .where(eq(hotels.id, existingHotel.id))
+            cascadeActions.push({ module: 'hotels', action: 'updated', count: 1 })
           } else {
-            // Create new hotel entry for party member
-            await ctx.db
+            // Create new hotel entry
+            await tx
               .insert(hotels)
               .values({
                 clientId: guest.clientId,
-                guestId: guest.id, // Link to primary guest
-                guestName: memberName,
-                partySize: 1,
-                checkInDate: checkIn || null,
-                checkOutDate: checkOut || null,
+                guestId: guest.id,
+                guestName: guestName,
+                hotelName: input.data.hotelName || null,
+                roomType: input.data.hotelRoomType || null,
+                checkInDate: input.data.hotelCheckIn || null,
+                checkOutDate: input.data.hotelCheckOut || null,
                 accommodationNeeded: true,
               })
+            cascadeActions.push({ module: 'hotels', action: 'created', count: 1 })
+          }
+        } else if (input.data.hotelRequired === false) {
+          // Remove hotel entry if hotel is no longer required
+          const deleted = await tx
+            .delete(hotels)
+            .where(eq(hotels.guestId, input.id))
+            .returning({ id: hotels.id })
+          if (deleted.length > 0) {
+            cascadeActions.push({ module: 'hotels', action: 'deleted', count: deleted.length })
           }
         }
-      }
 
-      // Handle party member transport (for additional guests in party)
-      if (input.data.partyMemberTransport && guest) {
-        const { memberName, arrivalDatetime, arrivalMode, remove } = input.data.partyMemberTransport
-
-        if (remove) {
-          // Remove transport entry for this party member
-          await ctx.db
-            .delete(guestTransport)
-            .where(
-              and(
-                eq(guestTransport.clientId, guest.clientId),
-                eq(guestTransport.guestName, memberName)
-              )
-            )
-        } else {
-          // Check if transport entry exists for this party member
-          const [existingTransport] = await ctx.db
+        // 3. Handle transport synchronization (within transaction)
+        if (input.data.transportRequired === true) {
+          // Check if transport entry already exists for this guest
+          const [existingTransport] = await tx
             .select({ id: guestTransport.id })
             .from(guestTransport)
-            .where(
-              and(
-                eq(guestTransport.clientId, guest.clientId),
-                eq(guestTransport.guestName, memberName)
-              )
-            )
+            .where(eq(guestTransport.guestId, input.id))
             .limit(1)
 
-          // Parse arrival datetime
+          // Extract date and time from arrivalDatetime if available
           let pickupDate: string | null = null
-          let pickupTime: string | null = null
-          if (arrivalDatetime) {
-            const arrivalDate = new Date(arrivalDatetime)
+          let pickupTime: string | null = input.data.transportPickupTime || null
+
+          if (input.data.arrivalDatetime) {
+            const arrivalDate = new Date(input.data.arrivalDatetime)
             pickupDate = arrivalDate.toISOString().split('T')[0]
-            pickupTime = arrivalDate.toTimeString().slice(0, 5)
+            if (!pickupTime) {
+              pickupTime = arrivalDate.toTimeString().slice(0, 5)
+            }
           }
 
+          // Build vehicle/transport info
+          const vehicleParts: string[] = []
+          if (input.data.transportType) vehicleParts.push(input.data.transportType)
+          if (input.data.arrivalMode) vehicleParts.push(`(${input.data.arrivalMode})`)
+          const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
+
           if (existingTransport) {
-            // Update existing
-            await ctx.db
+            // Update existing transport entry
+            await tx
               .update(guestTransport)
               .set({
+                guestName: guestName,
                 pickupDate,
                 pickupTime,
-                vehicleInfo: arrivalMode ? `(${arrivalMode})` : null,
+                pickupFrom: input.data.transportPickupLocation,
+                dropTo: input.data.hotelName || null,
+                vehicleInfo,
+                notes: input.data.transportNotes,
                 updatedAt: new Date(),
               })
               .where(eq(guestTransport.id, existingTransport.id))
+            cascadeActions.push({ module: 'transport', action: 'updated', count: 1 })
           } else {
-            // Create new transport entry for party member
-            await ctx.db
+            // Create new transport entry
+            await tx
               .insert(guestTransport)
               .values({
                 clientId: guest.clientId,
-                guestId: guest.id, // Link to primary guest
-                guestName: memberName,
+                guestId: guest.id,
+                guestName: guestName,
                 legType: 'arrival',
                 legSequence: 1,
                 pickupDate,
                 pickupTime,
-                vehicleInfo: arrivalMode ? `(${arrivalMode})` : null,
+                pickupFrom: input.data.transportPickupLocation || null,
+                dropTo: input.data.hotelName || null,
+                vehicleInfo,
                 transportStatus: 'scheduled',
+                notes: input.data.transportNotes || null,
               })
+            cascadeActions.push({ module: 'transport', action: 'created', count: 1 })
+          }
+        } else if (input.data.transportRequired === false) {
+          // Remove transport entries if transport is no longer required
+          const deleted = await tx
+            .delete(guestTransport)
+            .where(eq(guestTransport.guestId, input.id))
+            .returning({ id: guestTransport.id })
+          if (deleted.length > 0) {
+            cascadeActions.push({ module: 'transport', action: 'deleted', count: deleted.length })
           }
         }
-      }
 
-      return guest
+        // 4. Handle party member hotel (for additional guests in party) (within transaction)
+        if (input.data.partyMemberHotel) {
+          const { memberName, checkIn, checkOut, remove } = input.data.partyMemberHotel
+
+          if (remove) {
+            // Remove hotel entry for this party member
+            const deleted = await tx
+              .delete(hotels)
+              .where(
+                and(
+                  eq(hotels.clientId, guest.clientId),
+                  eq(hotels.guestName, memberName)
+                )
+              )
+              .returning({ id: hotels.id })
+            if (deleted.length > 0) {
+              cascadeActions.push({ module: 'hotels', action: 'deleted_party_member', count: 1 })
+            }
+          } else {
+            // Check if hotel entry exists for this party member
+            const [existingHotel] = await tx
+              .select({ id: hotels.id })
+              .from(hotels)
+              .where(
+                and(
+                  eq(hotels.clientId, guest.clientId),
+                  eq(hotels.guestName, memberName)
+                )
+              )
+              .limit(1)
+
+            if (existingHotel) {
+              // Update existing
+              await tx
+                .update(hotels)
+                .set({
+                  checkInDate: checkIn || null,
+                  checkOutDate: checkOut || null,
+                  updatedAt: new Date(),
+                })
+                .where(eq(hotels.id, existingHotel.id))
+              cascadeActions.push({ module: 'hotels', action: 'updated_party_member', count: 1 })
+            } else {
+              // Create new hotel entry for party member
+              await tx
+                .insert(hotels)
+                .values({
+                  clientId: guest.clientId,
+                  guestId: guest.id, // Link to primary guest
+                  guestName: memberName,
+                  partySize: 1,
+                  checkInDate: checkIn || null,
+                  checkOutDate: checkOut || null,
+                  accommodationNeeded: true,
+                })
+              cascadeActions.push({ module: 'hotels', action: 'created_party_member', count: 1 })
+            }
+          }
+        }
+
+        // 5. Handle party member transport (for additional guests in party) (within transaction)
+        if (input.data.partyMemberTransport) {
+          const { memberName, arrivalDatetime, arrivalMode, remove } = input.data.partyMemberTransport
+
+          if (remove) {
+            // Remove transport entry for this party member
+            const deleted = await tx
+              .delete(guestTransport)
+              .where(
+                and(
+                  eq(guestTransport.clientId, guest.clientId),
+                  eq(guestTransport.guestName, memberName)
+                )
+              )
+              .returning({ id: guestTransport.id })
+            if (deleted.length > 0) {
+              cascadeActions.push({ module: 'transport', action: 'deleted_party_member', count: 1 })
+            }
+          } else {
+            // Check if transport entry exists for this party member
+            const [existingTransport] = await tx
+              .select({ id: guestTransport.id })
+              .from(guestTransport)
+              .where(
+                and(
+                  eq(guestTransport.clientId, guest.clientId),
+                  eq(guestTransport.guestName, memberName)
+                )
+              )
+              .limit(1)
+
+            // Parse arrival datetime
+            let pickupDate: string | null = null
+            let pickupTime: string | null = null
+            if (arrivalDatetime) {
+              const arrivalDate = new Date(arrivalDatetime)
+              pickupDate = arrivalDate.toISOString().split('T')[0]
+              pickupTime = arrivalDate.toTimeString().slice(0, 5)
+            }
+
+            if (existingTransport) {
+              // Update existing
+              await tx
+                .update(guestTransport)
+                .set({
+                  pickupDate,
+                  pickupTime,
+                  vehicleInfo: arrivalMode ? `(${arrivalMode})` : null,
+                  updatedAt: new Date(),
+                })
+                .where(eq(guestTransport.id, existingTransport.id))
+              cascadeActions.push({ module: 'transport', action: 'updated_party_member', count: 1 })
+            } else {
+              // Create new transport entry for party member
+              await tx
+                .insert(guestTransport)
+                .values({
+                  clientId: guest.clientId,
+                  guestId: guest.id, // Link to primary guest
+                  guestName: memberName,
+                  legType: 'arrival',
+                  legSequence: 1,
+                  pickupDate,
+                  pickupTime,
+                  vehicleInfo: arrivalMode ? `(${arrivalMode})` : null,
+                  transportStatus: 'scheduled',
+                })
+              cascadeActions.push({ module: 'transport', action: 'created_party_member', count: 1 })
+            }
+          }
+        }
+
+        return { guest, cascadeActions }
+      })
+
+      console.log(`[Guest Update] Updated guest ${result.guest.id} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.guest,
+        cascadeActions: result.cascadeActions,
+      }
     }),
 
   /**
@@ -1054,34 +1104,77 @@ export const guestsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Update RSVP
-      const [guest] = await ctx.db
-        .update(guests)
-        .set({
-          rsvpStatus: input.rsvpStatus,
-          updatedAt: new Date(),
-        })
-        .where(eq(guests.id, input.guestId))
-        .returning()
+      // Execute RSVP update and budget sync atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      if (!guest) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Guest not found'
-        })
-      }
+        // 1. Update RSVP
+        const [guest] = await tx
+          .update(guests)
+          .set({
+            rsvpStatus: input.rsvpStatus,
+            updatedAt: new Date(),
+          })
+          .where(eq(guests.id, input.guestId))
+          .returning()
 
-      // RSVP→BUDGET SYNC: Update per-guest budget items when RSVP changes
-      if (input.rsvpStatus === 'accepted' || input.rsvpStatus === 'declined') {
-        try {
-          await syncBudgetWithRsvpCount(ctx.db as any, guest.clientId);
-        } catch (syncError) {
-          // Log but don't fail - RSVP update was successful
-          console.warn('[RSVP→Budget Sync] Failed to sync budget:', syncError);
+        if (!guest) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Guest not found'
+          })
         }
-      }
 
-      return guest
+        // 2. RSVP→BUDGET SYNC: Update per-guest budget items when RSVP changes (within transaction)
+        // This is now atomic - if budget sync fails, RSVP update is also rolled back
+        if (input.rsvpStatus === 'accepted' || input.rsvpStatus === 'declined') {
+          // Get confirmed guest count (including party sizes for each accepted guest)
+          const guestList = await tx
+            .select({ partySize: guests.partySize })
+            .from(guests)
+            .where(and(eq(guests.clientId, guest.clientId), eq(guests.rsvpStatus, 'accepted')));
+
+          // Sum up all party sizes (default to 1 if not set)
+          const confirmedCount = guestList.reduce((sum: number, g: { partySize: number | null }) => sum + (g.partySize || 1), 0);
+
+          // Get per-guest budget items for this client
+          const perGuestItems = await tx
+            .select()
+            .from(budget)
+            .where(and(eq(budget.clientId, guest.clientId), eq(budget.isPerGuestItem, true)));
+
+          // Update each per-guest item: estimatedCost = perGuestCost * confirmedCount
+          let updatedCount = 0
+          for (const item of perGuestItems) {
+            const perGuestCost = Number(item.perGuestCost || 0);
+            const newEstimatedCost = perGuestCost * confirmedCount;
+
+            await tx
+              .update(budget)
+              .set({
+                estimatedCost: String(newEstimatedCost),
+                updatedAt: new Date(),
+              })
+              .where(eq(budget.id, item.id));
+            updatedCount++
+          }
+
+          if (updatedCount > 0) {
+            cascadeActions.push({ module: 'budget', action: 'updated_per_guest_items', count: updatedCount })
+            console.log(`[RSVP→Budget Sync] Updated ${updatedCount} per-guest budget items for client ${guest.clientId}: confirmedGuests=${confirmedCount}`);
+          }
+        }
+
+        return { guest, cascadeActions }
+      })
+
+      console.log(`[RSVP Update] Updated guest ${result.guest.id} RSVP to ${input.rsvpStatus} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.guest,
+        cascadeActions: result.cascadeActions,
+      }
     }),
 
   checkIn: adminProcedure

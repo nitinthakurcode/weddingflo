@@ -4,7 +4,14 @@ import { TRPCError } from '@trpc/server'
 import ExcelJS from 'exceljs'
 import { eq, and, isNull } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
-import { triggerBatchSync, type EntityType } from '@/lib/backup/auto-sync-trigger'
+import {
+  triggerBatchSync,
+  syncGuestsToHotelsAndTransportTx,
+  syncHotelsToTimelineTx,
+  syncTransportToTimelineTx,
+  type EntityType,
+  type SyncResult,
+} from '@/lib/backup/auto-sync-trigger'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 
 // All exportable/importable module types
@@ -852,13 +859,17 @@ export const importRouter = router({
         cascadeActions: [] as { module: string; action: string; count: number }[]
       }
 
-      // Execute entire import within a transaction for atomicity
-      // If import fails catastrophically, entire operation is rolled back
-      await withTransaction(async (tx) => {
-        // Track cascade actions for cross-module sync
-        let hotelsCreated = 0
-        let transportCreated = 0
+      // Sync result tracking - populated within transaction for atomic import+sync
+      const syncResult: SyncResult = {
+        success: true,
+        synced: 0,
+        created: { hotels: 0, transport: 0, timeline: 0, budget: 0 },
+        errors: [],
+      }
 
+      // Execute entire import AND sync within a transaction for atomicity
+      // If import or sync fails, entire operation is rolled back
+      await withTransaction(async (tx) => {
         // Process each row within transaction
         for (const [index, row] of jsonData.entries()) {
           const rowNum = index + 2 // Excel row (1-indexed + header)
@@ -901,38 +912,48 @@ export const importRouter = router({
           }
         }
 
-        console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.errors.length} errors`)
-      })
+        console.log(`[Import] Rows processed: ${results.created} created, ${results.updated} updated, ${results.errors.length} errors`)
 
-      // ===== TRIGGER GOOGLE SHEETS AUTO-SYNC =====
-      // Sync changes to mastersheet if any records were updated or created
-      if (results.updated > 0 || results.created > 0) {
-        try {
-          // Map module types to entity types for sync
-          const moduleToEntityMap: Record<string, EntityType> = {
-            guests: 'guests',
-            vendors: 'vendors',
-            budget: 'budget',
-            gifts: 'gifts',
-            hotels: 'hotels',
-            transport: 'hotels', // Transport uses hotels entity type for sync
-            guestGifts: 'gifts', // Guest gifts uses gifts entity type for sync
+        // ===== ATOMIC CASCADE SYNC =====
+        // Run cascade sync operations WITHIN the same transaction for atomicity
+        // If sync fails, the entire import is rolled back
+        if (results.updated > 0 || results.created > 0) {
+          console.log(`[Import] Running atomic cascade sync for ${input.module}...`)
+
+          // Sync guests to hotels/transport if guest module was imported
+          if (input.module === 'guests') {
+            await syncGuestsToHotelsAndTransportTx(tx, input.clientId, syncResult)
+            if (syncResult.created.hotels > 0) {
+              results.cascadeActions.push({ module: 'hotels', action: 'created', count: syncResult.created.hotels })
+            }
+            if (syncResult.created.transport > 0) {
+              results.cascadeActions.push({ module: 'transport', action: 'created', count: syncResult.created.transport })
+            }
           }
 
-          const entityType = moduleToEntityMap[input.module]
-          if (entityType) {
-            console.log(`[Import] Triggering Google Sheets sync for ${results.updated + results.created} ${input.module} records`)
-
-            // Create batch sync changes - triggerBatchSync takes (entityType, ids[])
-            await triggerBatchSync(entityType, [input.clientId])
-
-            console.log(`[Import] Google Sheets sync triggered successfully for ${input.module}`)
+          // Sync hotels to timeline if hotels module was imported
+          if (input.module === 'hotels' || input.module === 'guests') {
+            await syncHotelsToTimelineTx(tx, input.clientId, syncResult)
+            if (syncResult.created.timeline > 0) {
+              results.cascadeActions.push({ module: 'timeline', action: 'hotel_checkins_created', count: syncResult.created.timeline })
+            }
           }
-        } catch (syncError) {
-          // Log but don't fail the import - sync can retry
-          console.error('[Import] Google Sheets sync trigger failed:', syncError)
+
+          // Sync transport to timeline if transport module was imported
+          if (input.module === 'transport' || input.module === 'guests') {
+            const timelineBeforeTransport = syncResult.created.timeline
+            await syncTransportToTimelineTx(tx, input.clientId, syncResult)
+            const transportTimelineCreated = syncResult.created.timeline - timelineBeforeTransport
+            if (transportTimelineCreated > 0) {
+              results.cascadeActions.push({ module: 'timeline', action: 'transport_entries_created', count: transportTimelineCreated })
+            }
+          }
+
+          console.log(`[Import] Cascade sync completed: hotels=${syncResult.created.hotels}, transport=${syncResult.created.transport}, timeline=${syncResult.created.timeline}`)
         }
-      }
+
+        console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.cascadeActions.length} cascade actions`)
+      })
 
       return results
     }),

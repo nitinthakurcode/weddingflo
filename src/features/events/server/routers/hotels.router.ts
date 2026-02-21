@@ -269,6 +269,7 @@ export const hotelsRouter = router({
 
   /**
    * SECURITY: Verifies hotel belongs to a client owned by the user's company
+   * TRANSACTION: All update operations including accommodation and timeline sync are atomic
    */
   update: adminProcedure
     .input(z.object({
@@ -338,30 +339,34 @@ export const hotelsRouter = router({
       if (input.data.paymentStatus !== undefined) updateData.paymentStatus = input.data.paymentStatus
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
-      // Update hotel
-      const [hotel] = await ctx.db
-        .update(hotels)
-        .set(updateData)
-        .where(eq(hotels.id, input.id))
-        .returning()
+      // Execute all hotel update operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      if (!hotel) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Hotel record not found'
-        })
-      }
+        // 1. Update hotel
+        const [hotel] = await tx
+          .update(hotels)
+          .set(updateData)
+          .where(eq(hotels.id, input.id))
+          .returning()
 
-      // AUTO-CREATE ACCOMMODATION: If hotelName is provided, ensure accommodation exists
-      if (input.data.hotelName && input.data.hotelName.trim()) {
-        try {
+        if (!hotel) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Hotel record not found'
+          })
+        }
+
+        // 2. AUTO-CREATE ACCOMMODATION: If hotelName is provided, ensure accommodation exists (within transaction)
+        if (input.data.hotelName && input.data.hotelName.trim()) {
           const hotelName = input.data.hotelName.trim()
-          const clientIdStr = String(hotel.clientId) // Ensure string type for UUID comparison
+          const clientIdStr = String(hotel.clientId)
 
           console.log(`[Accommodation] Checking for existing accommodation: "${hotelName}" for client: ${clientIdStr}`)
 
           // Check if accommodation with this name exists for the client
-          const [existingAccommodation] = await ctx.db
+          const [existingAccommodation] = await tx
             .select({ id: accommodations.id })
             .from(accommodations)
             .where(
@@ -376,7 +381,7 @@ export const hotelsRouter = router({
           if (!existingAccommodation) {
             console.log(`[Accommodation] No existing accommodation found, creating new one...`)
             // Create new accommodation record
-            const [newAccommodation] = await ctx.db
+            const [newAccommodation] = await tx
               .insert(accommodations)
               .values({
                 clientId: clientIdStr,
@@ -386,40 +391,29 @@ export const hotelsRouter = router({
 
             if (newAccommodation) {
               // Update hotel record with accommodation link
-              await ctx.db
+              await tx
                 .update(hotels)
                 .set({ accommodationId: newAccommodation.id })
                 .where(eq(hotels.id, hotel.id))
 
+              cascadeActions.push({ module: 'accommodation', action: 'created', count: 1 })
               console.log(`[Accommodation] Auto-created accommodation: ${hotelName} with id: ${newAccommodation.id}`)
-            } else {
-              console.warn(`[Accommodation] Insert returned no result for: ${hotelName}`)
             }
           } else {
             // Link hotel to existing accommodation if not already linked
             if (!hotel.accommodationId) {
-              await ctx.db
+              await tx
                 .update(hotels)
                 .set({ accommodationId: existingAccommodation.id })
                 .where(eq(hotels.id, hotel.id))
 
+              cascadeActions.push({ module: 'accommodation', action: 'linked', count: 1 })
               console.log(`[Accommodation] Linked hotel to existing accommodation: ${hotelName}`)
-            } else {
-              console.log(`[Accommodation] Hotel already linked to accommodation: ${hotelName}`)
             }
           }
-        } catch (accommodationError: any) {
-          console.error('[Accommodation] Failed to auto-create/link accommodation:', {
-            error: accommodationError?.message || accommodationError,
-            hotelName: input.data.hotelName,
-            clientId: hotel.clientId,
-            stack: accommodationError?.stack
-          })
         }
-      }
 
-      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
-      try {
+        // 3. TIMELINE SYNC: Update linked timeline entry (within transaction)
         const hasCheckInDate = input.data.checkInDate !== undefined ? input.data.checkInDate : hotel.checkInDate
 
         if (hasCheckInDate) {
@@ -440,7 +434,7 @@ export const hotelsRouter = router({
           }
 
           // Try to update existing entry first
-          const result = await ctx.db
+          const updateResult = await tx
             .update(timeline)
             .set(timelineData)
             .where(
@@ -451,9 +445,9 @@ export const hotelsRouter = router({
             )
             .returning({ id: timeline.id })
 
-          if (result.length === 0) {
+          if (updateResult.length === 0) {
             // No existing entry - create new one
-            await ctx.db.insert(timeline).values({
+            await tx.insert(timeline).values({
               id: randomUUID(),
               clientId: hotel.clientId,
               ...timelineData,
@@ -464,13 +458,15 @@ export const hotelsRouter = router({
                 type: 'check-in',
               }),
             })
+            cascadeActions.push({ module: 'timeline', action: 'created', count: 1 })
             console.log(`[Timeline] Created hotel check-in entry: ${guestName}`)
           } else {
+            cascadeActions.push({ module: 'timeline', action: 'updated', count: 1 })
             console.log(`[Timeline] Updated hotel check-in entry: ${guestName}`)
           }
         } else {
           // Check-in date cleared - delete timeline entry
-          await ctx.db
+          const deleted = await tx
             .delete(timeline)
             .where(
               and(
@@ -478,17 +474,28 @@ export const hotelsRouter = router({
                 eq(timeline.sourceId, input.id)
               )
             )
-          console.log(`[Timeline] Deleted hotel check-in entry (date cleared)`)
-        }
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to sync timeline with hotel update:', timelineError)
-      }
+            .returning({ id: timeline.id })
 
-      return hotel
+          if (deleted.length > 0) {
+            cascadeActions.push({ module: 'timeline', action: 'deleted', count: deleted.length })
+            console.log(`[Timeline] Deleted hotel check-in entry (date cleared)`)
+          }
+        }
+
+        return { hotel, cascadeActions }
+      })
+
+      console.log(`[Hotel Update] Updated hotel ${result.hotel.id} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.hotel,
+        cascadeActions: result.cascadeActions,
+      }
     }),
 
   /**
    * SECURITY: Verifies hotel belongs to a client owned by the user's company
+   * TRANSACTION: Hotel deletion and timeline cleanup are atomic
    */
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -515,13 +522,12 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
 
-      await ctx.db
-        .delete(hotels)
-        .where(eq(hotels.id, input.id))
+      // Execute hotel deletion and timeline cleanup atomically
+      const result = await withTransaction(async (tx) => {
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
-      try {
-        await ctx.db
+        // 1. Delete linked timeline entries first
+        const deletedTimeline = await tx
           .delete(timeline)
           .where(
             and(
@@ -529,12 +535,24 @@ export const hotelsRouter = router({
               eq(timeline.sourceId, input.id)
             )
           )
-        console.log(`[Timeline] Deleted hotel check-in entry`)
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to delete timeline entry for hotel:', timelineError)
-      }
+          .returning({ id: timeline.id })
 
-      return { success: true }
+        if (deletedTimeline.length > 0) {
+          cascadeActions.push({ module: 'timeline', action: 'deleted', count: deletedTimeline.length })
+          console.log(`[Timeline] Deleted ${deletedTimeline.length} hotel timeline entry`)
+        }
+
+        // 2. Delete hotel record
+        await tx
+          .delete(hotels)
+          .where(eq(hotels.id, input.id))
+
+        return { cascadeActions }
+      })
+
+      console.log(`[Hotel Delete] Deleted hotel ${input.id} with cascade:`, result.cascadeActions)
+
+      return { success: true, cascadeActions: result.cascadeActions }
     }),
 
   /**

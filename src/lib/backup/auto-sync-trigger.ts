@@ -7,7 +7,7 @@
  * - Vendor cost changes → budget sync
  * - Timeline entry creation from hotels/transport
  *
- * February 2026 - Full implementation
+ * February 2026 - Full implementation with transaction wrapping
  */
 
 import { db } from '@/lib/db';
@@ -21,6 +21,7 @@ import {
   clients,
 } from '@/lib/db/schema';
 import { randomUUID } from 'crypto';
+import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
 
 export type EntityType = 'guests' | 'vendors' | 'budget' | 'gifts' | 'hotels' | 'transport' | 'guestGifts';
 
@@ -42,6 +43,7 @@ export interface SyncResult {
 /**
  * Trigger batch sync for a specific entity type.
  * This is called after import operations to ensure cross-module consistency.
+ * Each client's sync is wrapped in a transaction for atomicity.
  */
 export async function triggerBatchSync(entityType: EntityType, clientIds: string[]): Promise<SyncResult> {
   const result: SyncResult = {
@@ -60,27 +62,30 @@ export async function triggerBatchSync(entityType: EntityType, clientIds: string
 
   for (const clientId of clientIds) {
     try {
-      switch (entityType) {
-        case 'guests':
-          await syncGuestsToHotelsAndTransport(clientId, result);
-          break;
-        case 'hotels':
-          await syncHotelsToTimeline(clientId, result);
-          break;
-        case 'transport':
-          await syncTransportToTimeline(clientId, result);
-          break;
-        case 'vendors':
-          // Vendor sync handled in vendors router directly
-          result.synced++;
-          break;
-        case 'budget':
-        case 'gifts':
-        case 'guestGifts':
-          // These don't cascade to other modules
-          result.synced++;
-          break;
-      }
+      // Wrap each client's sync in a transaction for atomicity
+      await withTransaction(async (tx) => {
+        switch (entityType) {
+          case 'guests':
+            await syncGuestsToHotelsAndTransportTx(tx, clientId, result);
+            break;
+          case 'hotels':
+            await syncHotelsToTimelineTx(tx, clientId, result);
+            break;
+          case 'transport':
+            await syncTransportToTimelineTx(tx, clientId, result);
+            break;
+          case 'vendors':
+            // Vendor sync handled in vendors router directly
+            result.synced++;
+            break;
+          case 'budget':
+          case 'gifts':
+          case 'guestGifts':
+            // These don't cascade to other modules
+            result.synced++;
+            break;
+        }
+      });
     } catch (error: any) {
       console.error(`[AutoSync] Error syncing ${entityType} for client ${clientId}:`, error);
       result.errors.push(`Client ${clientId}: ${error.message}`);
@@ -95,17 +100,29 @@ export async function triggerBatchSync(entityType: EntityType, clientIds: string
 /**
  * Sync guests with hotelRequired/transportRequired flags to create linked records.
  * Called after guest import to ensure consistency.
+ * @deprecated Use syncGuestsToHotelsAndTransportTx with transaction instead
  */
 async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResult) {
+  await withTransaction(async (tx) => {
+    await syncGuestsToHotelsAndTransportTx(tx, clientId, result);
+  });
+}
+
+/**
+ * Sync guests with hotelRequired/transportRequired flags to create linked records.
+ * Transaction-aware version for use within existing transactions.
+ * Exported for use in import router for atomic import+sync operations.
+ */
+export async function syncGuestsToHotelsAndTransportTx(tx: any, clientId: string, result: SyncResult) {
   // Get client info for defaults
-  const [client] = await db
+  const [client] = await tx
     .select({ weddingDate: clients.weddingDate })
     .from(clients)
     .where(eq(clients.id, clientId))
     .limit(1);
 
-  // Find guests with hotelRequired=true but no hotel record
-  const guestsNeedingHotels = await db
+  // Find guests with hotelRequired=true
+  const guestsNeedingHotels = await tx
     .select({
       id: guests.id,
       firstName: guests.firstName,
@@ -126,8 +143,8 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
     );
 
   for (const guest of guestsNeedingHotels) {
-    // Check if hotel record already exists
-    const [existingHotel] = await db
+    // DUPLICATE PREVENTION: Check if hotel record already exists for this guest
+    const [existingHotel] = await tx
       .select({ id: hotels.id })
       .from(hotels)
       .where(eq(hotels.guestId, guest.id))
@@ -156,7 +173,7 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
 
       const guestName = `${guest.firstName} ${guest.lastName}`.trim();
 
-      await db.insert(hotels).values({
+      await tx.insert(hotels).values({
         clientId,
         guestId: guest.id,
         guestName,
@@ -172,8 +189,8 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
     }
   }
 
-  // Find guests with transportRequired=true but no transport record
-  const guestsNeedingTransport = await db
+  // Find guests with transportRequired=true
+  const guestsNeedingTransport = await tx
     .select({
       id: guests.id,
       firstName: guests.firstName,
@@ -195,8 +212,8 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
     );
 
   for (const guest of guestsNeedingTransport) {
-    // Check if transport record already exists
-    const [existingTransport] = await db
+    // DUPLICATE PREVENTION: Check if transport record already exists for this guest
+    const [existingTransport] = await tx
       .select({ id: guestTransport.id })
       .from(guestTransport)
       .where(eq(guestTransport.guestId, guest.id))
@@ -223,7 +240,7 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
 
       const guestName = `${guest.firstName} ${guest.lastName}`.trim();
 
-      await db.insert(guestTransport).values({
+      await tx.insert(guestTransport).values({
         clientId,
         guestId: guest.id,
         guestName,
@@ -249,10 +266,22 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
 /**
  * Sync hotels to timeline entries.
  * Creates check-in/check-out timeline entries for hotel records.
+ * @deprecated Use syncHotelsToTimelineTx with transaction instead
  */
 async function syncHotelsToTimeline(clientId: string, result: SyncResult) {
-  // Get all hotels with check-in dates that don't have timeline entries
-  const hotelList = await db
+  await withTransaction(async (tx) => {
+    await syncHotelsToTimelineTx(tx, clientId, result);
+  });
+}
+
+/**
+ * Sync hotels to timeline entries.
+ * Transaction-aware version for use within existing transactions.
+ * Exported for use in import router for atomic import+sync operations.
+ */
+export async function syncHotelsToTimelineTx(tx: any, clientId: string, result: SyncResult) {
+  // Get all hotels with check-in dates
+  const hotelList = await tx
     .select()
     .from(hotels)
     .where(eq(hotels.clientId, clientId));
@@ -260,8 +289,8 @@ async function syncHotelsToTimeline(clientId: string, result: SyncResult) {
   for (const hotel of hotelList) {
     if (!hotel.checkInDate) continue;
 
-    // Check if timeline entry already exists
-    const [existingEntry] = await db
+    // DUPLICATE PREVENTION: Check if timeline entry already exists for this hotel
+    const [existingEntry] = await tx
       .select({ id: timeline.id })
       .from(timeline)
       .where(
@@ -276,7 +305,7 @@ async function syncHotelsToTimeline(clientId: string, result: SyncResult) {
       const checkInDateTime = new Date(hotel.checkInDate);
       checkInDateTime.setHours(15, 0, 0, 0);
 
-      await db.insert(timeline).values({
+      await tx.insert(timeline).values({
         id: randomUUID(),
         clientId,
         title: `Hotel Check-in: ${hotel.guestName}`,
@@ -303,10 +332,22 @@ async function syncHotelsToTimeline(clientId: string, result: SyncResult) {
 /**
  * Sync transport to timeline entries.
  * Creates pickup timeline entries for transport records.
+ * @deprecated Use syncTransportToTimelineTx with transaction instead
  */
 async function syncTransportToTimeline(clientId: string, result: SyncResult) {
+  await withTransaction(async (tx) => {
+    await syncTransportToTimelineTx(tx, clientId, result);
+  });
+}
+
+/**
+ * Sync transport to timeline entries.
+ * Transaction-aware version for use within existing transactions.
+ * Exported for use in import router for atomic import+sync operations.
+ */
+export async function syncTransportToTimelineTx(tx: any, clientId: string, result: SyncResult) {
   // Get all transport records with pickup dates
-  const transportList = await db
+  const transportList = await tx
     .select()
     .from(guestTransport)
     .where(eq(guestTransport.clientId, clientId));
@@ -314,8 +355,8 @@ async function syncTransportToTimeline(clientId: string, result: SyncResult) {
   for (const transport of transportList) {
     if (!transport.pickupDate) continue;
 
-    // Check if timeline entry already exists
-    const [existingEntry] = await db
+    // DUPLICATE PREVENTION: Check if timeline entry already exists for this transport
+    const [existingEntry] = await tx
       .select({ id: timeline.id })
       .from(timeline)
       .where(
@@ -335,7 +376,7 @@ async function syncTransportToTimeline(clientId: string, result: SyncResult) {
 
       const legLabel = transport.legType === 'departure' ? 'Drop-off' : 'Pickup';
 
-      await db.insert(timeline).values({
+      await tx.insert(timeline).values({
         id: randomUUID(),
         clientId,
         title: `Transport ${legLabel}: ${transport.guestName}`,
@@ -363,6 +404,7 @@ async function syncTransportToTimeline(clientId: string, result: SyncResult) {
 /**
  * Trigger a full sync for all modules in a client.
  * Used for manual sync or data recovery.
+ * All sync operations are wrapped in a single transaction for atomicity.
  */
 export async function triggerFullSync(clientId: string): Promise<SyncResult> {
   const result: SyncResult = {
@@ -380,9 +422,12 @@ export async function triggerFullSync(clientId: string): Promise<SyncResult> {
   console.log(`[AutoSync] Starting full sync for client: ${clientId}`);
 
   try {
-    await syncGuestsToHotelsAndTransport(clientId, result);
-    await syncHotelsToTimeline(clientId, result);
-    await syncTransportToTimeline(clientId, result);
+    // Wrap entire full sync in a single transaction for atomicity
+    await withTransaction(async (tx) => {
+      await syncGuestsToHotelsAndTransportTx(tx, clientId, result);
+      await syncHotelsToTimelineTx(tx, clientId, result);
+      await syncTransportToTimelineTx(tx, clientId, result);
+    });
   } catch (error: any) {
     console.error(`[AutoSync] Full sync error for client ${clientId}:`, error);
     result.errors.push(error.message);

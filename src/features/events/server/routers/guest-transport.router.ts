@@ -249,6 +249,7 @@ export const guestTransportRouter = router({
     }),
 
   // Update transport entry
+  // TRANSACTION: All update operations including vehicle and timeline sync are atomic
   update: adminProcedure
     .input(z.object({
       id: z.string().uuid(),
@@ -273,7 +274,7 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get existing transport to check for vehicle changes
+      // Get existing transport to check for vehicle changes (outside transaction for validation)
       const [existingTransport] = await ctx.db
         .select()
         .from(guestTransport)
@@ -284,212 +285,239 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Transport not found' })
       }
 
-      let vehicleId = existingTransport.vehicleId
-      const newVehicleNumber = input.data.vehicleNumber !== undefined ? input.data.vehicleNumber : existingTransport.vehicleNumber
-      const newStatus = input.data.transportStatus || existingTransport.transportStatus
+      // Execute all transport update operations atomically within a transaction
+      const result = await withTransaction(async (tx) => {
+        // Track cascade actions for frontend notification
+        const cascadeActions: { module: string; action: string; count: number }[] = []
 
-      // VEHICLE TRACKING: Handle vehicle assignment changes
-      if (newVehicleNumber) {
-        // Check if vehicle changed
-        if (newVehicleNumber !== existingTransport.vehicleNumber) {
-          // Release old vehicle if any
-          if (existingTransport.vehicleId) {
-            await ctx.db
-              .update(vehicles)
-              .set({
-                status: 'available',
-                currentTransportId: null,
-                availableAt: null,
-                updatedAt: new Date(),
-              })
-              .where(eq(vehicles.id, existingTransport.vehicleId))
-          }
+        let vehicleId = existingTransport.vehicleId
+        const newVehicleNumber = input.data.vehicleNumber !== undefined ? input.data.vehicleNumber : existingTransport.vehicleNumber
+        const newStatus = input.data.transportStatus || existingTransport.transportStatus
 
-          // Find or create new vehicle
-          const [existingVehicle] = await ctx.db
-            .select()
-            .from(vehicles)
-            .where(
-              and(
-                eq(vehicles.clientId, existingTransport.clientId),
-                eq(vehicles.vehicleNumber, newVehicleNumber)
+        // 1. VEHICLE TRACKING: Handle vehicle assignment changes (within transaction)
+        if (newVehicleNumber) {
+          // Check if vehicle changed
+          if (newVehicleNumber !== existingTransport.vehicleNumber) {
+            // Release old vehicle if any
+            if (existingTransport.vehicleId) {
+              await tx
+                .update(vehicles)
+                .set({
+                  status: 'available',
+                  currentTransportId: null,
+                  availableAt: null,
+                  updatedAt: new Date(),
+                })
+                .where(eq(vehicles.id, existingTransport.vehicleId))
+              cascadeActions.push({ module: 'vehicle', action: 'released', count: 1 })
+            }
+
+            // Find or create new vehicle
+            const [existingVehicle] = await tx
+              .select()
+              .from(vehicles)
+              .where(
+                and(
+                  eq(vehicles.clientId, existingTransport.clientId),
+                  eq(vehicles.vehicleNumber, newVehicleNumber)
+                )
               )
-            )
-            .limit(1)
+              .limit(1)
 
-          const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : existingTransport.pickupDate
-          const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
-          const availableAt = calculateAvailableAt(pickupDate, pickupTime)
+            const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : existingTransport.pickupDate
+            const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
+            const availableAt = calculateAvailableAt(pickupDate, pickupTime)
 
-          if (existingVehicle) {
-            vehicleId = existingVehicle.id
-          } else {
-            // Create new vehicle record
-            const [newVehicle] = await ctx.db
-              .insert(vehicles)
-              .values({
-                clientId: existingTransport.clientId,
-                vehicleNumber: newVehicleNumber,
-                vehicleType: input.data.vehicleType || null,
-                driverPhone: input.data.driverPhone || null,
-                coordinatorPhone: input.data.coordinatorPhone || null,
-                status: newStatus === 'completed' || newStatus === 'cancelled' ? 'available' : 'in_use',
-                availableAt: newStatus === 'completed' || newStatus === 'cancelled' ? null : availableAt,
-                currentTransportId: newStatus === 'completed' || newStatus === 'cancelled' ? null : input.id,
-              })
-              .returning()
-            vehicleId = newVehicle.id
+            if (existingVehicle) {
+              vehicleId = existingVehicle.id
+              cascadeActions.push({ module: 'vehicle', action: 'assigned', count: 1 })
+            } else {
+              // Create new vehicle record
+              const [newVehicle] = await tx
+                .insert(vehicles)
+                .values({
+                  clientId: existingTransport.clientId,
+                  vehicleNumber: newVehicleNumber,
+                  vehicleType: input.data.vehicleType || null,
+                  driverPhone: input.data.driverPhone || null,
+                  coordinatorPhone: input.data.coordinatorPhone || null,
+                  status: newStatus === 'completed' || newStatus === 'cancelled' ? 'available' : 'in_use',
+                  availableAt: newStatus === 'completed' || newStatus === 'cancelled' ? null : availableAt,
+                  currentTransportId: newStatus === 'completed' || newStatus === 'cancelled' ? null : input.id,
+                })
+                .returning()
+              vehicleId = newVehicle.id
+              cascadeActions.push({ module: 'vehicle', action: 'created', count: 1 })
+            }
           }
+
+          // Update vehicle status based on transport status
+          if (vehicleId) {
+            const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : existingTransport.pickupDate
+            const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
+            const availableAt = calculateAvailableAt(pickupDate, pickupTime)
+
+            if (newStatus === 'completed' || newStatus === 'cancelled') {
+              // Transport done - mark vehicle as available
+              await tx
+                .update(vehicles)
+                .set({
+                  status: 'available',
+                  currentTransportId: null,
+                  availableAt: null,
+                  vehicleType: input.data.vehicleType || undefined,
+                  driverPhone: input.data.driverPhone || undefined,
+                  coordinatorPhone: input.data.coordinatorPhone || undefined,
+                  updatedAt: new Date(),
+                })
+                .where(eq(vehicles.id, vehicleId))
+            } else {
+              // Transport active - mark vehicle as in_use with estimated availability
+              await tx
+                .update(vehicles)
+                .set({
+                  status: 'in_use',
+                  currentTransportId: input.id,
+                  availableAt,
+                  vehicleType: input.data.vehicleType || undefined,
+                  driverPhone: input.data.driverPhone || undefined,
+                  coordinatorPhone: input.data.coordinatorPhone || undefined,
+                  updatedAt: new Date(),
+                })
+                .where(eq(vehicles.id, vehicleId))
+            }
+          }
+        } else if (existingTransport.vehicleId && !newVehicleNumber) {
+          // Vehicle number cleared - release the vehicle
+          await tx
+            .update(vehicles)
+            .set({
+              status: 'available',
+              currentTransportId: null,
+              availableAt: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(vehicles.id, existingTransport.vehicleId))
+          vehicleId = null
+          cascadeActions.push({ module: 'vehicle', action: 'released', count: 1 })
         }
 
-        // Update vehicle status based on transport status
-        if (vehicleId) {
-          const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : existingTransport.pickupDate
-          const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
-          const availableAt = calculateAvailableAt(pickupDate, pickupTime)
-
-          if (newStatus === 'completed' || newStatus === 'cancelled') {
-            // Transport done - mark vehicle as available
-            await ctx.db
-              .update(vehicles)
-              .set({
-                status: 'available',
-                currentTransportId: null,
-                availableAt: null,
-                vehicleType: input.data.vehicleType || undefined,
-                driverPhone: input.data.driverPhone || undefined,
-                coordinatorPhone: input.data.coordinatorPhone || undefined,
-                updatedAt: new Date(),
-              })
-              .where(eq(vehicles.id, vehicleId))
-          } else {
-            // Transport active - mark vehicle as in_use with estimated availability
-            await ctx.db
-              .update(vehicles)
-              .set({
-                status: 'in_use',
-                currentTransportId: input.id,
-                availableAt,
-                vehicleType: input.data.vehicleType || undefined,
-                driverPhone: input.data.driverPhone || undefined,
-                coordinatorPhone: input.data.coordinatorPhone || undefined,
-                updatedAt: new Date(),
-              })
-              .where(eq(vehicles.id, vehicleId))
-          }
-        }
-      } else if (existingTransport.vehicleId && !newVehicleNumber) {
-        // Vehicle number cleared - release the vehicle
-        await ctx.db
-          .update(vehicles)
+        // 2. Update transport record (within transaction)
+        const [transport] = await tx
+          .update(guestTransport)
           .set({
-            status: 'available',
-            currentTransportId: null,
-            availableAt: null,
+            ...input.data,
+            vehicleId,
             updatedAt: new Date(),
           })
-          .where(eq(vehicles.id, existingTransport.vehicleId))
-        vehicleId = null
-      }
+          .where(eq(guestTransport.id, input.id))
+          .returning()
 
-      const [transport] = await ctx.db
-        .update(guestTransport)
-        .set({
-          ...input.data,
-          vehicleId,
-          updatedAt: new Date(),
-        })
-        .where(eq(guestTransport.id, input.id))
-        .returning()
+        if (!transport) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to update transport'
+          })
+        }
 
-      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
-      if (transport) {
-        try {
-          const hasPickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
+        // 3. TIMELINE SYNC: Update linked timeline entry (within transaction)
+        const hasPickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
 
-          if (hasPickupDate) {
-            const legTypeLabels: Record<string, string> = {
-              arrival: 'Arrival',
-              departure: 'Departure',
-              inter_event: 'Transfer',
-            }
-            const legType = input.data.legType || transport.legType || 'arrival'
-            const legLabel = legTypeLabels[legType] || 'Transport'
-            const guestName = input.data.guestName || transport.guestName
+        if (hasPickupDate) {
+          const legTypeLabels: Record<string, string> = {
+            arrival: 'Arrival',
+            departure: 'Departure',
+            inter_event: 'Transfer',
+          }
+          const legType = input.data.legType || transport.legType || 'arrival'
+          const legLabel = legTypeLabels[legType] || 'Transport'
+          const guestName = input.data.guestName || transport.guestName
 
-            // Parse pickup date/time
-            const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
-            const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
-            let startDateTime = new Date(pickupDate!)
-            if (pickupTime) {
-              const [hours, minutes] = pickupTime.split(':').map(Number)
-              startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
-            }
+          // Parse pickup date/time
+          const pickupDate = input.data.pickupDate !== undefined ? input.data.pickupDate : transport.pickupDate
+          const pickupTime = input.data.pickupTime !== undefined ? input.data.pickupTime : null
+          let startDateTime = new Date(pickupDate!)
+          if (pickupTime) {
+            const [hours, minutes] = pickupTime.split(':').map(Number)
+            startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+          }
 
-            // Build location string
-            const pickupFrom = input.data.pickupFrom !== undefined ? input.data.pickupFrom : transport.pickupFrom
-            const dropTo = input.data.dropTo !== undefined ? input.data.dropTo : transport.dropTo
-            const locationParts: string[] = []
-            if (pickupFrom) locationParts.push(`From: ${pickupFrom}`)
-            if (dropTo) locationParts.push(`To: ${dropTo}`)
-            const location = locationParts.join(' → ') || null
+          // Build location string
+          const pickupFrom = input.data.pickupFrom !== undefined ? input.data.pickupFrom : transport.pickupFrom
+          const dropTo = input.data.dropTo !== undefined ? input.data.dropTo : transport.dropTo
+          const locationParts: string[] = []
+          if (pickupFrom) locationParts.push(`From: ${pickupFrom}`)
+          if (dropTo) locationParts.push(`To: ${dropTo}`)
+          const location = locationParts.join(' → ') || null
 
-            const timelineData = {
-              title: `${legLabel}: ${guestName}`,
-              description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
-              startTime: startDateTime,
-              location,
-              notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
-              updatedAt: new Date(),
-            }
+          const timelineData = {
+            title: `${legLabel}: ${guestName}`,
+            description: input.data.vehicleInfo || transport.vehicleInfo || `Guest transport - ${legLabel.toLowerCase()}`,
+            startTime: startDateTime,
+            location,
+            notes: input.data.notes !== undefined ? input.data.notes : transport.notes,
+            updatedAt: new Date(),
+          }
 
-            // Try to update existing entry first
-            const result = await ctx.db
-              .update(timeline)
-              .set(timelineData)
-              .where(
-                and(
-                  eq(timeline.sourceModule, 'transport'),
-                  eq(timeline.sourceId, input.id)
-                )
+          // Try to update existing entry first
+          const updateResult = await tx
+            .update(timeline)
+            .set(timelineData)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'transport'),
+                eq(timeline.sourceId, input.id)
               )
-              .returning({ id: timeline.id })
+            )
+            .returning({ id: timeline.id })
 
-            if (result.length === 0) {
-              // No existing entry - create new one
-              await ctx.db.insert(timeline).values({
-                id: nanoid(),
-                clientId: transport.clientId,
-                ...timelineData,
-                sourceModule: 'transport',
-                sourceId: transport.id,
-                metadata: JSON.stringify({ guestId: transport.guestId, legType }),
-              })
-              console.log(`[Timeline] Created transport entry: ${legLabel} - ${guestName}`)
-            } else {
-              console.log(`[Timeline] Updated transport entry: ${legLabel} - ${guestName}`)
-            }
+          if (updateResult.length === 0) {
+            // No existing entry - create new one
+            await tx.insert(timeline).values({
+              id: nanoid(),
+              clientId: transport.clientId,
+              ...timelineData,
+              sourceModule: 'transport',
+              sourceId: transport.id,
+              metadata: JSON.stringify({ guestId: transport.guestId, legType }),
+            })
+            cascadeActions.push({ module: 'timeline', action: 'created', count: 1 })
+            console.log(`[Timeline] Created transport entry: ${legLabel} - ${guestName}`)
           } else {
-            // Pickup date cleared - delete timeline entry
-            await ctx.db
-              .delete(timeline)
-              .where(
-                and(
-                  eq(timeline.sourceModule, 'transport'),
-                  eq(timeline.sourceId, input.id)
-                )
+            cascadeActions.push({ module: 'timeline', action: 'updated', count: 1 })
+            console.log(`[Timeline] Updated transport entry: ${legLabel} - ${guestName}`)
+          }
+        } else {
+          // Pickup date cleared - delete timeline entry
+          const deleted = await tx
+            .delete(timeline)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'transport'),
+                eq(timeline.sourceId, input.id)
               )
+            )
+            .returning({ id: timeline.id })
+
+          if (deleted.length > 0) {
+            cascadeActions.push({ module: 'timeline', action: 'deleted', count: deleted.length })
             console.log(`[Timeline] Deleted transport entry (date cleared)`)
           }
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to sync timeline with transport update:', timelineError)
         }
-      }
 
-      return transport
+        return { transport, cascadeActions }
+      })
+
+      console.log(`[Transport Update] Updated transport ${result.transport.id} with cascade:`, result.cascadeActions)
+
+      return {
+        ...result.transport,
+        cascadeActions: result.cascadeActions,
+      }
     }),
 
   // Delete transport entry
+  // TRANSACTION: Transport deletion and timeline cleanup are atomic
   delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -497,13 +525,33 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      await ctx.db
-        .delete(guestTransport)
+      // Get transport to release vehicle if assigned
+      const [existingTransport] = await ctx.db
+        .select({ vehicleId: guestTransport.vehicleId })
+        .from(guestTransport)
         .where(eq(guestTransport.id, input.id))
+        .limit(1)
 
-      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
-      try {
-        await ctx.db
+      // Execute transport deletion and cleanup atomically
+      const result = await withTransaction(async (tx) => {
+        const cascadeActions: { module: string; action: string; count: number }[] = []
+
+        // 1. Release vehicle if assigned
+        if (existingTransport?.vehicleId) {
+          await tx
+            .update(vehicles)
+            .set({
+              status: 'available',
+              currentTransportId: null,
+              availableAt: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(vehicles.id, existingTransport.vehicleId))
+          cascadeActions.push({ module: 'vehicle', action: 'released', count: 1 })
+        }
+
+        // 2. Delete linked timeline entries
+        const deletedTimeline = await tx
           .delete(timeline)
           .where(
             and(
@@ -511,12 +559,24 @@ export const guestTransportRouter = router({
               eq(timeline.sourceId, input.id)
             )
           )
-        console.log(`[Timeline] Deleted transport entry`)
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to delete timeline entry for transport:', timelineError)
-      }
+          .returning({ id: timeline.id })
 
-      return { success: true }
+        if (deletedTimeline.length > 0) {
+          cascadeActions.push({ module: 'timeline', action: 'deleted', count: deletedTimeline.length })
+          console.log(`[Timeline] Deleted ${deletedTimeline.length} transport timeline entry`)
+        }
+
+        // 3. Delete transport record
+        await tx
+          .delete(guestTransport)
+          .where(eq(guestTransport.id, input.id))
+
+        return { cascadeActions }
+      })
+
+      console.log(`[Transport Delete] Deleted transport ${input.id} with cascade:`, result.cascadeActions)
+
+      return { success: true, cascadeActions: result.cascadeActions }
     }),
 
   // Sync transport with guests who have transport_required = true
