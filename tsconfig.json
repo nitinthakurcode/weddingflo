@@ -47,6 +47,7 @@
   "exclude": [
     "node_modules",
     "scripts",
+    "docs",
     "jest.setup.ts",
     "**/*.test.ts",
     "**/*.test.tsx",

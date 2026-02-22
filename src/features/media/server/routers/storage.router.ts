@@ -8,13 +8,14 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { protectedProcedure, router } from '@/server/trpc/trpc';
 import {
-  uploadFile,
   getPresignedUrl,
+  getPresignedUploadUrl,
   deleteFile,
   listFiles,
   generateFileKey,
-  validateFile,
+  validateStorageKey,
   FILE_TYPES,
+  FILE_SIZE_LIMITS,
 } from '@/lib/storage/r2-client';
 
 export const storageRouter = router({
@@ -25,17 +26,17 @@ export const storageRouter = router({
   getUploadUrl: protectedProcedure
     .input(
       z.object({
-        fileName: z.string(),
+        fileName: z.string().min(1).max(255),
         fileType: z.string(),
-        fileSize: z.number(),
+        fileSize: z.number().positive(),
         clientId: z.string().optional(),
         category: z
-          .enum(['documents', 'images', 'videos', 'audio', 'other'])
+          .enum(['documents', 'images', 'videos', 'audio'])
           .default('documents'),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { userId, companyId } = ctx;
+      const { companyId } = ctx;
 
       if (!companyId) {
         throw new TRPCError({
@@ -44,41 +45,51 @@ export const storageRouter = router({
         });
       }
 
-      // Validate file size (max 50MB)
-      if (input.fileSize > 50 * 1024 * 1024) {
+      // Validate file size against per-category limit
+      const maxSize = FILE_SIZE_LIMITS[input.category];
+      if (input.fileSize > maxSize) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'File size exceeds 50MB limit',
+          message: `File size exceeds ${maxSize / 1024 / 1024}MB limit for ${input.category}`,
         });
       }
 
-      // Validate file type based on category
+      // Validate MIME type against category allowlist (no 'other' bypass)
       const allowedTypes: Record<string, string[]> = {
         documents: FILE_TYPES.DOCUMENTS,
         images: FILE_TYPES.IMAGES,
         videos: FILE_TYPES.VIDEOS,
         audio: FILE_TYPES.AUDIO,
-        other: [], // Allow all for 'other'
       };
 
       const allowed = allowedTypes[input.category];
-      if (allowed.length > 0 && !allowed.includes(input.fileType)) {
+      if (!allowed.includes(input.fileType)) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: `File type ${input.fileType} not allowed for category ${input.category}`,
         });
       }
 
-      // Generate unique key
+      // Generate unique key (always prefixed with companyId for tenant isolation)
       const key = generateFileKey(companyId, input.fileName, input.clientId);
 
-      // Generate presigned URL (valid for 1 hour)
-      const uploadUrl = await getPresignedUrl(key, 3600);
+      // Path traversal prevention
+      const keyValidation = validateStorageKey(key);
+      if (!keyValidation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: keyValidation.error || 'Invalid file key',
+        });
+      }
+
+      // BUG FIX: Use PutObjectCommand for uploads (was incorrectly using GetObjectCommand)
+      // TTL reduced from 3600s to 900s (15 min)
+      const uploadUrl = await getPresignedUploadUrl(key, input.fileType, 900);
 
       return {
         uploadUrl,
         key,
-        expiresIn: 3600,
+        expiresIn: 900,
       };
     }),
 
@@ -88,14 +99,22 @@ export const storageRouter = router({
   getDownloadUrl: protectedProcedure
     .input(
       z.object({
-        key: z.string(),
-        expiresIn: z.number().default(3600), // 1 hour default
+        key: z.string().min(1),
       })
     )
     .query(async ({ ctx, input }) => {
       const { companyId } = ctx;
 
-      // Verify key belongs to user's company
+      // Path traversal prevention
+      const keyValidation = validateStorageKey(input.key);
+      if (!keyValidation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: keyValidation.error || 'Invalid file key',
+        });
+      }
+
+      // Verify key belongs to user's company (tenant isolation)
       if (!input.key.startsWith(`documents/${companyId}/`)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -103,11 +122,12 @@ export const storageRouter = router({
         });
       }
 
-      const url = await getPresignedUrl(input.key, input.expiresIn);
+      // Download URL uses GetObjectCommand (1 hour TTL)
+      const url = await getPresignedUrl(input.key, 3600);
 
       return {
         url,
-        expiresIn: input.expiresIn,
+        expiresIn: 3600,
       };
     }),
 
@@ -117,13 +137,22 @@ export const storageRouter = router({
   deleteFile: protectedProcedure
     .input(
       z.object({
-        key: z.string(),
+        key: z.string().min(1),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { companyId } = ctx;
 
-      // Verify key belongs to user's company
+      // Path traversal prevention
+      const keyValidation = validateStorageKey(input.key);
+      if (!keyValidation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: keyValidation.error || 'Invalid file key',
+        });
+      }
+
+      // Verify key belongs to user's company (tenant isolation)
       if (!input.key.startsWith(`documents/${companyId}/`)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -143,7 +172,7 @@ export const storageRouter = router({
     .input(
       z.object({
         clientId: z.string().optional(),
-        maxKeys: z.number().default(100),
+        maxKeys: z.number().min(1).max(100).default(100),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -152,6 +181,15 @@ export const storageRouter = router({
       const prefix = input.clientId
         ? `documents/${companyId}/${input.clientId}/`
         : `documents/${companyId}/`;
+
+      // Path traversal prevention (clientId could contain ../)
+      const keyValidation = validateStorageKey(prefix);
+      if (!keyValidation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: keyValidation.error || 'Invalid path',
+        });
+      }
 
       const files = await listFiles(prefix, input.maxKeys);
 
@@ -168,13 +206,24 @@ export const storageRouter = router({
   bulkDelete: protectedProcedure
     .input(
       z.object({
-        keys: z.array(z.string()).max(100), // Max 100 files at once
+        keys: z.array(z.string().min(1)).min(1).max(100),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { companyId } = ctx;
 
-      // Verify all keys belong to user's company
+      // Path traversal prevention on all keys
+      for (const key of input.keys) {
+        const keyValidation = validateStorageKey(key);
+        if (!keyValidation.valid) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Invalid key: ${keyValidation.error}`,
+          });
+        }
+      }
+
+      // Verify all keys belong to user's company (tenant isolation)
       const invalidKeys = input.keys.filter(
         (key) => !key.startsWith(`documents/${companyId}/`)
       );

@@ -137,38 +137,36 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'X-Frame-Options',
-            value: 'SAMEORIGIN'
+            value: 'DENY'
           },
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff'
           },
           {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block'
-          },
-          {
             key: 'Referrer-Policy',
-            value: 'origin-when-cross-origin'
+            value: 'strict-origin-when-cross-origin'
           },
           {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()'
           },
           {
+            // CSP: 'unsafe-inline' required for Next.js hydration scripts —
+            // XSS mitigation handled by Cloudflare WAF + no eval + strict connect-src
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://*.googleapis.com",
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              "img-src 'self' data: https: blob:",
-              "font-src 'self' data: https://fonts.gstatic.com",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.stripe.com https://api.openai.com https://*.sentry.io",
+              "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://js.stripe.com https://accounts.google.com https://*.googleapis.com",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' blob: data: https://*.supabase.co https://lh3.googleusercontent.com https://cdn.weddingflow.com https://*.r2.cloudflarestorage.com https://api.qrserver.com",
+              "font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.stripe.com https://api.openai.com https://*.sentry.io https://*.r2.cloudflarestorage.com https://cdn.weddingflow.com https://accounts.google.com https://*.upstash.io",
               "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
-              "frame-ancestors 'self'",
+              "frame-ancestors 'none'",
               "upgrade-insecure-requests",
             ].join('; ')
           }

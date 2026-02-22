@@ -113,6 +113,29 @@ export async function getPresignedUrl(key: string, expiresIn: number = 3600) {
 }
 
 /**
+ * Generate a presigned URL for uploading a file (PutObjectCommand)
+ *
+ * @param key - File key in bucket
+ * @param contentType - MIME type of the file being uploaded
+ * @param expiresIn - Expiration time in seconds (default: 15 minutes)
+ * @returns Presigned upload URL
+ */
+export async function getPresignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresIn: number = 900
+) {
+  const command = new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME!,
+    Key: key,
+    ContentType: contentType,
+  });
+
+  const url = await getSignedUrl(r2Client, command, { expiresIn });
+  return url;
+}
+
+/**
  * Delete a file from R2
  *
  * @param key - File key to delete
@@ -235,25 +258,56 @@ export function validateFile(
  * Common file type categories
  */
 export const FILE_TYPES = {
+  IMAGES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
   DOCUMENTS: [
     'application/pdf',
-    'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ],
-  IMAGES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
-  VIDEOS: ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo'],
+  VIDEOS: ['video/mp4', 'video/webm'],
   AUDIO: ['audio/mpeg', 'audio/wav', 'audio/ogg'],
 };
+
+/** Maximum file size per category (bytes) */
+export const FILE_SIZE_LIMITS: Record<string, number> = {
+  images: 10 * 1024 * 1024,    // 10MB
+  documents: 25 * 1024 * 1024, // 25MB
+  videos: 100 * 1024 * 1024,   // 100MB
+  audio: 25 * 1024 * 1024,     // 25MB
+};
+
+/**
+ * Validate a storage key for path traversal and injection attacks
+ */
+export function validateStorageKey(key: string): { valid: boolean; error?: string } {
+  if (!key || key.length > 1024) {
+    return { valid: false, error: 'Invalid key length' };
+  }
+  if (key.includes('..')) {
+    return { valid: false, error: 'Path traversal detected' };
+  }
+  if (key.startsWith('/')) {
+    return { valid: false, error: 'Key must not start with /' };
+  }
+  if (key.includes('//')) {
+    return { valid: false, error: 'Double slashes not allowed' };
+  }
+  if (/\x00/.test(key)) {
+    return { valid: false, error: 'Null bytes not allowed' };
+  }
+  return { valid: true };
+}
 
 export default {
   uploadFile,
   getPresignedUrl,
+  getPresignedUploadUrl,
   deleteFile,
   listFiles,
   getFileMetadata,
   generateFileKey,
   validateFile,
+  validateStorageKey,
   FILE_TYPES,
+  FILE_SIZE_LIMITS,
 };

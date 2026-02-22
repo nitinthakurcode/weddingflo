@@ -13,15 +13,73 @@
  *   - Guard idempotency (double-release safety)
  *   - Concurrent connection handling
  *   - Force disconnect
+ *   - canConnect() read-only check
+ *   - SSEConnectionLimitError details
  *
- * PREREQUISITES:
- *   - UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set
- *     (use a test/dev Redis instance, not production)
+ * Uses an in-memory Redis mock — no live Redis credentials required.
  *
  * RUN: npx jest tests/security/sse-connection-manager.test.ts
  *
  * WeddingFlo Security Remediation — Phase 2.5 (Tests)
  */
+
+// ---------------------------------------------------------------------------
+// In-memory Redis mock — everything inside factory to avoid jest.mock hoisting.
+// jest.mock() factories are hoisted above ALL const/let declarations.
+// The store is created inside the factory and attached to globalThis.
+// ---------------------------------------------------------------------------
+
+jest.mock('@upstash/redis', () => {
+  const store = new Map<string, number>();
+  // Expose for test cleanup if needed
+  (globalThis as Record<string, unknown>).__sseTestStore = store;
+
+  function createPipeline() {
+    const ops: Array<() => number | string> = [];
+
+    const p = {
+      incr(key: string) {
+        ops.push(() => {
+          const val = (store.get(key) ?? 0) + 1;
+          store.set(key, val);
+          return val;
+        });
+        return p;
+      },
+      decr(key: string) {
+        ops.push(() => {
+          const val = (store.get(key) ?? 0) - 1;
+          store.set(key, val);
+          return val;
+        });
+        return p;
+      },
+      expire() {
+        ops.push(() => 'OK');
+        return p;
+      },
+      async exec() {
+        return ops.map((op) => op());
+      },
+    };
+
+    return p;
+  }
+
+  return {
+    Redis: {
+      fromEnv: jest.fn(() => ({
+        get: jest.fn(async (key: string) => store.get(key) ?? null),
+        del: jest.fn(async (key: string) => { store.delete(key); return 1; }),
+        pipeline: jest.fn(() => createPipeline()),
+      })),
+    },
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Imports (after mock declaration)
+// ---------------------------------------------------------------------------
 
 import { describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import {
@@ -30,16 +88,15 @@ import {
 } from '../../src/lib/sse/connection-manager';
 
 // ---------------------------------------------------------------------------
-// Setup: create a test instance with low limits for fast testing
+// Setup
 // ---------------------------------------------------------------------------
 
 const manager = new SSEConnectionManager({
   maxPerUser: 3,
   maxPerCompany: 5,
-  counterTtlSeconds: 60, // Short TTL for tests
+  counterTtlSeconds: 60,
 });
 
-// Unique test IDs to avoid collisions between test runs
 const testId = Date.now().toString(36);
 const USER_A = `test-user-a-${testId}`;
 const USER_B = `test-user-b-${testId}`;
@@ -51,7 +108,6 @@ const COMPANY_2 = `test-company-2-${testId}`;
 // ---------------------------------------------------------------------------
 
 beforeEach(async () => {
-  // Clean up Redis state from previous test
   await manager.forceDisconnectUser(USER_A);
   await manager.forceDisconnectUser(USER_B);
   await manager.forceDisconnectCompany(COMPANY);
@@ -59,7 +115,6 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  // Final cleanup
   await manager.forceDisconnectUser(USER_A);
   await manager.forceDisconnectUser(USER_B);
   await manager.forceDisconnectCompany(COMPANY);
@@ -111,7 +166,6 @@ describe('SSE Connection Manager', () => {
       const counts = await manager.getCounts(USER_A, COMPANY);
       expect(counts.userConnections).toBe(3);
 
-      // Clean up
       for (const g of guards) await g.release();
     });
 
@@ -121,12 +175,10 @@ describe('SSE Connection Manager', () => {
         guards.push(await manager.acquire(USER_A, COMPANY));
       }
 
-      // 4th connection should be rejected
       await expect(manager.acquire(USER_A, COMPANY)).rejects.toThrow(
         SSEConnectionLimitError
       );
 
-      // Clean up
       for (const g of guards) await g.release();
     });
 
@@ -136,14 +188,11 @@ describe('SSE Connection Manager', () => {
         guards.push(await manager.acquire(USER_A, COMPANY));
       }
 
-      // At limit — release one
       await guards[0]!.release();
 
-      // Now a new connection should be allowed
       const newGuard = await manager.acquire(USER_A, COMPANY);
       expect(newGuard.released).toBe(false);
 
-      // Clean up
       await newGuard.release();
       for (const g of guards.slice(1)) await g.release();
     });
@@ -152,13 +201,10 @@ describe('SSE Connection Manager', () => {
   // ---- Per-company limits ----
   describe('per-company limits', () => {
     it('rejects when per-company limit is exceeded', async () => {
-      // Fill company limit with different users
       const guards = [];
-      // 3 from User A
       for (let i = 0; i < 3; i++) {
         guards.push(await manager.acquire(USER_A, COMPANY));
       }
-      // 2 from User B (total = 5, which is the company limit)
       for (let i = 0; i < 2; i++) {
         guards.push(await manager.acquire(USER_B, COMPANY));
       }
@@ -166,12 +212,10 @@ describe('SSE Connection Manager', () => {
       const counts = await manager.getCounts(USER_A, COMPANY);
       expect(counts.companyConnections).toBe(5);
 
-      // Next connection from either user should fail (company full)
       await expect(manager.acquire(USER_B, COMPANY)).rejects.toThrow(
         SSEConnectionLimitError
       );
 
-      // Clean up
       for (const g of guards) await g.release();
     });
   });

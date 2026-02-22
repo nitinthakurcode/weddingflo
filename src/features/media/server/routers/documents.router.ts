@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc } from 'drizzle-orm'
 import { clients, documents, users } from '@/lib/db/schema'
-import * as storage from '@/lib/storage'
+import { deleteFile, validateStorageKey } from '@/lib/storage/r2-client'
 import {
   requestSignature,
   getSignatureStatus,
@@ -261,10 +261,20 @@ export const documentsRouter = router({
       if (document.url) {
         // Delete file from R2 Storage
         try {
-          // Extract key from URL
+          // Extract key from URL (format: documents/{companyId}/{clientId}/{timestamp}-{filename})
           const urlParts = document.url.split('/')
-          const key = urlParts.slice(-3).join('/') // company/client/filename
-          await storage.deleteDocument(key)
+          const key = urlParts.slice(-4).join('/') // documents/company/client/filename
+
+          // Path traversal prevention
+          const keyValidation = validateStorageKey(key)
+          if (!keyValidation.valid) {
+            console.error('Invalid storage key during deletion:', keyValidation.error)
+          } else if (!key.startsWith(`documents/${ctx.companyId}/`)) {
+            // Tenant isolation: only delete files belonging to this company
+            console.error('Tenant isolation violation: key does not match company', { key, companyId: ctx.companyId })
+          } else {
+            await deleteFile(key)
+          }
         } catch (storageError) {
           console.error('Storage deletion error:', storageError)
           // Continue anyway - delete database record even if storage fails

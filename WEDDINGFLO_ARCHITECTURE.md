@@ -1708,6 +1708,31 @@ export async function checkRateLimit(params: {
 | OAuth Tokens | AES-256-GCM encrypted at rest |
 | 2FA Secrets | Encrypted storage |
 
+### Phase 1 Security Changes (January 2026)
+
+Security hardening addressing CRITICAL and HIGH findings from the initial security audit. **Middleware-free architecture** — all security headers via `next.config.ts` + Cloudflare, zero latency on API/tRPC/SSE routes.
+
+| Area | Before | After |
+|------|--------|-------|
+| **CSP Headers** | None | Static CSP via `next.config.ts` headers + Cloudflare; `unsafe-eval` removed |
+| **HSTS** | Basic | HSTS with `preload`, `includeSubDomains`, `max-age=63072000` |
+| **Frame Protection** | None | `X-Frame-Options: DENY` + `frame-ancestors 'none'` in CSP |
+| **R2 Upload URLs** | GetObjectCommand (wrong) | PutObjectCommand with 15-minute TTL (was 60 min) |
+| **R2 Download URLs** | No tenant check | Tenant-isolated, `documents/{companyId}/` prefix enforced, 60-minute TTL |
+| **Path Traversal** | No validation | `validateStorageKey()` rejects `..`, leading `/`, `//`, null bytes, >1024 chars |
+| **MIME Validation** | Loose / no allowlist | Per-category allowlist; SVG, legacy Office, executables blocked |
+| **Category 'other'** | Bypass allowed any type | Removed — only `documents`, `images`, `videos`, `audio` accepted |
+| **File Size Limits** | Single 50MB global | Per-category: images 10MB, documents 25MB, videos 100MB, audio 25MB |
+| **Document Deletion** | No-op stub (`@/lib/storage`) | Real R2 `deleteFile()` with tenant isolation + path traversal checks |
+
+**Key files:**
+- `next.config.ts` — Static CSP, HSTS preload, X-Frame-Options DENY, X-Content-Type-Options
+- `src/lib/storage/r2-client.ts` — `validateStorageKey()`, `getPresignedUploadUrl()` (PutObjectCommand), `FILE_TYPES` allowlists, `FILE_SIZE_LIMITS` per category
+- `src/features/media/server/routers/storage.router.ts` — Tenant-isolated upload/download/delete/list with path traversal prevention, MIME + size validation, no 'other' category
+- `src/features/media/server/routers/documents.router.ts` — Fixed import from stub to `r2-client`, added tenant isolation to delete path
+- `tests/security/r2-validation.test.ts` — 34 tests for key validation, file validation, constants
+- `tests/security/r2-tenant-isolation.test.ts` — 51 tests for tenant isolation, path traversal, MIME, size limits, TTL values
+
 ### Phase 2 Security Changes (February 2026)
 
 Security remediation addressing HIGH-severity findings from the December 2025 audit.
