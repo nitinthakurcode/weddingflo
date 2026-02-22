@@ -75,8 +75,10 @@ import {
   calendarSyncSettings,
   calendarSyncedEvents,
   googleCalendarTokens,
+  googleSheetsSyncSettings,
   icalFeedTokens,
   creativeJobs,
+  giftItems,
   qrCodes,
   hotelBookings,
   guestPreferences,
@@ -204,6 +206,7 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
   }),
   timeline: many(timeline),
   clientVendors: many(clientVendors),
+  floorPlans: many(floorPlans),
 }));
 
 // ============================================
@@ -264,6 +267,14 @@ export const budgetRelations = relations(budget, ({ one }) => ({
     fields: [budget.clientId],
     references: [clients.id],
   }),
+  vendor: one(vendors, {
+    fields: [budget.vendorId],
+    references: [vendors.id],
+  }),
+  event: one(events, {
+    fields: [budget.eventId],
+    references: [events.id],
+  }),
 }));
 
 // ============================================
@@ -279,6 +290,10 @@ export const hotelsRelations = relations(hotels, ({ one }) => ({
     fields: [hotels.guestId],
     references: [guests.id],
   }),
+  accommodation: one(accommodations, {
+    fields: [hotels.accommodationId],
+    references: [accommodations.id],
+  }),
 }));
 
 export const guestTransportRelations = relations(guestTransport, ({ one }) => ({
@@ -293,6 +308,10 @@ export const guestTransportRelations = relations(guestTransport, ({ one }) => ({
   vehicle: one(vehicles, {
     fields: [guestTransport.vehicleId],
     references: [vehicles.id],
+  }),
+  event: one(events, {
+    fields: [guestTransport.eventId],
+    references: [events.id],
   }),
 }));
 
@@ -402,7 +421,7 @@ export const proposalTemplatesRelations = relations(proposalTemplates, ({ one, m
   proposals: many(proposals),
 }));
 
-export const proposalsRelations = relations(proposals, ({ one }) => ({
+export const proposalsRelations = relations(proposals, ({ one, many }) => ({
   company: one(companies, {
     fields: [proposals.companyId],
     references: [companies.id],
@@ -419,6 +438,7 @@ export const proposalsRelations = relations(proposals, ({ one }) => ({
     fields: [proposals.clientId],
     references: [clients.id],
   }),
+  contracts: many(contracts),
 }));
 
 export const contractTemplatesRelations = relations(contractTemplates, ({ one, many }) => ({
@@ -442,6 +462,10 @@ export const contractsRelations = relations(contracts, ({ one }) => ({
     fields: [contracts.clientId],
     references: [clients.id],
   }),
+  proposal: one(proposals, {
+    fields: [contracts.proposalId],
+    references: [proposals.id],
+  }),
 }));
 
 // ============================================
@@ -461,6 +485,16 @@ export const workflowStepsRelations = relations(workflowSteps, ({ one }) => ({
   workflow: one(workflows, {
     fields: [workflowSteps.workflowId],
     references: [workflows.id],
+  }),
+  onTrueStep: one(workflowSteps, {
+    fields: [workflowSteps.onTrueStepId],
+    references: [workflowSteps.id],
+    relationName: 'onTrueStep',
+  }),
+  onFalseStep: one(workflowSteps, {
+    fields: [workflowSteps.onFalseStepId],
+    references: [workflowSteps.id],
+    relationName: 'onFalseStep',
   }),
 }));
 
@@ -567,7 +601,7 @@ export const giftsRelations = relations(gifts, ({ one }) => ({
   }),
 }));
 
-export const giftsEnhancedRelations = relations(giftsEnhanced, ({ one }) => ({
+export const giftsEnhancedRelations = relations(giftsEnhanced, ({ one, many }) => ({
   client: one(clients, {
     fields: [giftsEnhanced.clientId],
     references: [clients.id],
@@ -575,6 +609,14 @@ export const giftsEnhancedRelations = relations(giftsEnhanced, ({ one }) => ({
   guest: one(guests, {
     fields: [giftsEnhanced.guestId],
     references: [guests.id],
+  }),
+  giftItems: many(giftItems),
+}));
+
+export const giftItemsRelations = relations(giftItems, ({ one }) => ({
+  gift: one(giftsEnhanced, {
+    fields: [giftItems.giftId],
+    references: [giftsEnhanced.id],
   }),
 }));
 
@@ -898,7 +940,7 @@ export const invoicesRelations = relations(invoices, ({ one }) => ({
 // WEBSITE BUILDER RELATIONS
 // ============================================
 
-// websiteBuilderLayouts is a global table without company reference
+// websiteBuilderLayouts — intentionally has no relations (global layout templates, not tenant-scoped)
 
 export const websiteBuilderPagesRelations = relations(websiteBuilderPages, ({ one }) => ({
   client: one(clients, {
@@ -956,6 +998,10 @@ export const calendarSyncedEventsRelations = relations(calendarSyncedEvents, ({ 
     fields: [calendarSyncedEvents.eventId],
     references: [events.id],
   }),
+  settings: one(calendarSyncSettings, {
+    fields: [calendarSyncedEvents.settingsId],
+    references: [calendarSyncSettings.id],
+  }),
 }));
 
 export const googleCalendarTokensRelations = relations(googleCalendarTokens, ({ one }) => ({
@@ -969,6 +1015,17 @@ export const icalFeedTokensRelations = relations(icalFeedTokens, ({ one }) => ({
   userRef: one(user, {
     fields: [icalFeedTokens.userId],
     references: [user.id],
+  }),
+}));
+
+export const googleSheetsSyncSettingsRelations = relations(googleSheetsSyncSettings, ({ one }) => ({
+  user: one(user, {
+    fields: [googleSheetsSyncSettings.userId],
+    references: [user.id],
+  }),
+  company: one(companies, {
+    fields: [googleSheetsSyncSettings.companyId],
+    references: [companies.id],
   }),
 }));
 

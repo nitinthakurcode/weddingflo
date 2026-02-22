@@ -33,11 +33,12 @@ import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid, numeric,
  */
 
 /**
- * @deprecated Use `user` table from schema.ts instead (BetterAuth source of truth).
+ * @deprecated DO NOT USE — legacy table. Use `user` from schema.ts instead.
+ * Scheduled for removal. Any code importing `users` should be migrated to `user`.
  *
  * This table was created before BetterAuth integration. The `user` table
- * in schema.ts is now the authoritative user table. This table may be
- * removed in a future migration.
+ * in schema.ts is now the authoritative user table. No Drizzle relations
+ * are defined for this table — use `user` relations instead.
  *
  * Migration path:
  * 1. Ensure all user data is in `user` table
@@ -141,7 +142,7 @@ export const clients = pgTable('clients', {
 // Client Users (relationship between clients and users)
 export const clientUsers = pgTable('client_users', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull(),
   role: text('role').default('viewer'),
   relationship: text('relationship'),
@@ -153,7 +154,8 @@ export const clientUsers = pgTable('client_users', {
 // Guests - February 2026: Changed ID types to TEXT for consistency
 export const guests = pgTable('guests', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull().default(''),
   email: text('email'),
@@ -202,8 +204,9 @@ export const guests = pgTable('guests', {
 // Hotels (guest accommodation tracking) - February 2026: Changed IDs to TEXT
 export const hotels = pgTable('hotels', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: text('client_id').notNull(),
-  guestId: text('guest_id'),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
+  guestId: text('guest_id').references(() => guests.id, { onDelete: 'set null' }),
   guestName: text('guest_name').notNull(),
   accommodationId: uuid('accommodation_id'), // Links to accommodations table
   hotelName: text('hotel_name'),
@@ -260,8 +263,9 @@ export const vehicles = pgTable('vehicles', {
 // Guest Transport - February 2026: Changed clientId, guestId to TEXT
 export const guestTransport = pgTable('guest_transport', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: text('client_id').notNull(),
-  guestId: text('guest_id'),  // Optional - transport can exist without linked guest
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
+  guestId: text('guest_id').references(() => guests.id, { onDelete: 'set null' }),  // Optional - transport can exist without linked guest
   guestName: text('guest_name').notNull(),
   pickupDate: text('pickup_date'),
   pickupTime: time('pickup_time'),
@@ -280,7 +284,7 @@ export const guestTransport = pgTable('guest_transport', {
   updatedAt: timestamp('updated_at').defaultNow(),
   legType: transportLegTypeEnum('leg_type').default('arrival'),
   legSequence: integer('leg_sequence').default(1),
-  eventId: text('event_id'), // Changed from uuid to text to match events.id type
+  eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }), // Changed from uuid to text to match events.id type
 }, (table) => [
   index('guest_transport_client_id_idx').on(table.clientId),
   index('guest_transport_guest_id_idx').on(table.guestId),
@@ -290,7 +294,8 @@ export const guestTransport = pgTable('guest_transport', {
 // Events
 export const events = pgTable('events', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
   title: text('title').notNull(),
   eventType: text('event_type'),
   eventDate: text('event_date'),
@@ -313,8 +318,9 @@ export const events = pgTable('events', {
 // Timeline - Cross-module synced entries for wedding day schedule
 export const timeline = pgTable('timeline', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
-  eventId: text('event_id'), // Links timeline item to specific event (FK to events.id with cascade delete)
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
+  eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }), // Links timeline item to specific event
   title: text('title').notNull(),
   description: text('description'),
   phase: text('phase').default('showtime'), // 'setup' | 'showtime' | 'wrapup' - segments within event
@@ -362,7 +368,7 @@ export const timelineTemplates = pgTable('timeline_templates', {
 // Vendors
 export const vendors = pgTable('vendors', {
   id: text('id').primaryKey(),
-  companyId: text('company_id'),
+  companyId: text('company_id').notNull(),
   name: text('name').notNull(),
   category: text('category'),
   contactName: text('contact_name'),
@@ -385,9 +391,9 @@ export const vendors = pgTable('vendors', {
 // Client Vendors (relationship) - Links vendors to clients with contract/payment details
 export const clientVendors = pgTable('client_vendors', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
-  vendorId: text('vendor_id').notNull(),
-  eventId: text('event_id'), // Links vendor to specific event (text to match events.id)
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  vendorId: text('vendor_id').notNull().references(() => vendors.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }), // Links vendor to specific event
   status: text('status').default('active'),
   // Contract & Payment Details
   contractAmount: text('contract_amount'), // Total contract value
@@ -418,7 +424,7 @@ export const clientVendors = pgTable('client_vendors', {
 // Vendor Comments
 export const vendorComments = pgTable('vendor_comments', {
   id: text('id').primaryKey(),
-  vendorId: text('vendor_id').notNull(),
+  vendorId: text('vendor_id').notNull().references(() => vendors.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull(),
   content: text('content').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -428,8 +434,8 @@ export const vendorComments = pgTable('vendor_comments', {
 // Vendor Reviews - For rating system with aggregation
 export const vendorReviews = pgTable('vendor_reviews', {
   id: text('id').primaryKey(),
-  vendorId: text('vendor_id').notNull(), // References vendors(id) ON DELETE CASCADE
-  clientId: text('client_id').notNull(),
+  vendorId: text('vendor_id').notNull().references(() => vendors.id, { onDelete: 'cascade' }),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull(),
   rating: integer('rating').notNull(), // 1-5 overall rating
   reviewText: text('review_text'),
@@ -447,9 +453,10 @@ export const vendorReviews = pgTable('vendor_reviews', {
 // Budget - Linked to vendors for seamless bidirectional sync
 export const budget = pgTable('budget', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
-  vendorId: text('vendor_id'), // Links to vendors table for sync
-  eventId: text('event_id'), // Links to events table (text to match events.id)
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
+  vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }), // Links to vendors table for sync
+  eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }), // Links to events table
   category: text('category').notNull(),
   segment: text('segment'), // vendors, travel, creatives, artists, accommodation, other
   item: text('item'),
@@ -476,9 +483,9 @@ export const budget = pgTable('budget', {
 // Advance Payments - Linked to budget items for payment tracking
 export const advancePayments = pgTable('advance_payments', {
   id: text('id').primaryKey(),
-  budgetItemId: text('budget_item_id'), // Links to budget.id
+  budgetItemId: text('budget_item_id').references(() => budget.id, { onDelete: 'cascade' }), // Links to budget.id
   budgetId: text('budget_id'), // Legacy field
-  vendorId: text('vendor_id'),
+  vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
   amount: text('amount').notNull(), // Store as text for precision
   paymentDate: text('payment_date'),
   paymentMode: text('payment_mode'), // Cash, Bank Transfer, UPI, Check, Credit Card, Other
@@ -494,7 +501,7 @@ export const advancePayments = pgTable('advance_payments', {
 // Documents
 export const documents = pgTable('documents', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   url: text('url'),
   type: text('type'),
@@ -521,7 +528,7 @@ export const calendarSyncSettings = pgTable('calendar_sync_settings', {
 export const calendarSyncedEvents = pgTable('calendar_synced_events', {
   id: text('id').primaryKey(),
   settingsId: text('settings_id').notNull(),
-  eventId: text('event_id').notNull(),
+  eventId: text('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
   externalId: text('external_id'),
   syncedAt: timestamp('synced_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -531,7 +538,7 @@ export const calendarSyncedEvents = pgTable('calendar_synced_events', {
 // Generated Reports
 export const generatedReports = pgTable('generated_reports', {
   id: text('id').primaryKey(),
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull(),
   type: text('type').notNull(),
   data: jsonb('data'),
@@ -555,7 +562,7 @@ export const scheduledReports = pgTable('scheduled_reports', {
 // Email Logs
 export const emailLogs = pgTable('email_logs', {
   id: text('id').primaryKey(),
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   to: text('to').notNull(),
   subject: text('subject'),
@@ -577,7 +584,7 @@ export const emailPreferences = pgTable('email_preferences', {
 // SMS Logs
 export const smsLogs = pgTable('sms_logs', {
   id: text('id').primaryKey(),
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   to: text('to').notNull(),
   message: text('message'),
   status: text('status').default('sent'),
@@ -587,7 +594,7 @@ export const smsLogs = pgTable('sms_logs', {
 // SMS Templates
 export const smsTemplates = pgTable('sms_templates', {
   id: text('id').primaryKey(),
-  companyId: text('company_id'),
+  companyId: text('company_id').notNull(),
   name: text('name').notNull(),
   content: text('content'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -597,7 +604,7 @@ export const smsTemplates = pgTable('sms_templates', {
 // WhatsApp Logs
 export const whatsappLogs = pgTable('whatsapp_logs', {
   id: text('id').primaryKey(),
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   to: text('to').notNull(),
   message: text('message'),
   status: text('status').default('sent'),
@@ -607,7 +614,7 @@ export const whatsappLogs = pgTable('whatsapp_logs', {
 // WhatsApp Templates
 export const whatsappTemplates = pgTable('whatsapp_templates', {
   id: text('id').primaryKey(),
-  companyId: text('company_id'),
+  companyId: text('company_id').notNull(),
   name: text('name').notNull(),
   content: text('content'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -637,8 +644,9 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
 // Floor Plans
 export const floorPlans = pgTable('floor_plans', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  clientId: text('client_id').notNull(),
-  eventId: text('event_id'),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
+  eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   width: integer('width').default(1200),
   height: integer('height').default(800),
@@ -654,7 +662,7 @@ export const floorPlans = pgTable('floor_plans', {
 // Floor Plan Tables
 export const floorPlanTables = pgTable('floor_plan_tables', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  floorPlanId: text('floor_plan_id').notNull(),
+  floorPlanId: text('floor_plan_id').notNull().references(() => floorPlans.id, { onDelete: 'cascade' }),
   tableNumber: integer('table_number').notNull().default(1),
   tableName: text('table_name'),
   shape: text('shape').default('round'),
@@ -672,9 +680,9 @@ export const floorPlanTables = pgTable('floor_plan_tables', {
 // Floor Plan Guests
 export const floorPlanGuests = pgTable('floor_plan_guests', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  floorPlanId: text('floor_plan_id').notNull(),
-  tableId: text('table_id').notNull(),
-  guestId: text('guest_id'),
+  floorPlanId: text('floor_plan_id').notNull().references(() => floorPlans.id, { onDelete: 'cascade' }),
+  tableId: text('table_id').notNull().references(() => floorPlanTables.id, { onDelete: 'cascade' }),
+  guestId: text('guest_id').references(() => guests.id, { onDelete: 'set null' }),
   seatNumber: integer('seat_number'),
   x: integer('x'),
   y: integer('y'),
@@ -685,8 +693,9 @@ export const floorPlanGuests = pgTable('floor_plan_guests', {
 // Gifts (basic)
 export const gifts = pgTable('gifts', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
-  guestId: text('guest_id'),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
+  guestId: text('guest_id').references(() => guests.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   value: real('value'),
   status: text('status').default('received'),
@@ -699,7 +708,7 @@ export const gifts = pgTable('gifts', {
 // Gifts Enhanced
 export const giftsEnhanced = pgTable('gifts_enhanced', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   guestId: text('guest_id'),
   name: text('name').notNull(),
   type: text('type').default('physical'),
@@ -714,7 +723,7 @@ export const giftsEnhanced = pgTable('gifts_enhanced', {
 // Gift Categories
 export const giftCategories = pgTable('gift_categories', {
   id: text('id').primaryKey(),
-  companyId: text('company_id'),
+  companyId: text('company_id').notNull(),
   name: text('name').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
@@ -731,7 +740,7 @@ export const giftItems = pgTable('gift_items', {
 // Gift Types
 export const giftTypes = pgTable('gift_types', {
   id: text('id').primaryKey(),
-  companyId: text('company_id'),
+  companyId: text('company_id').notNull(),
   name: text('name').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
@@ -739,7 +748,7 @@ export const giftTypes = pgTable('gift_types', {
 // Thank You Note Templates
 export const thankYouNoteTemplates = pgTable('thank_you_note_templates', {
   id: text('id').primaryKey(),
-  companyId: text('company_id'),
+  companyId: text('company_id').notNull(),
   name: text('name').notNull(),
   content: text('content'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -749,7 +758,7 @@ export const thankYouNoteTemplates = pgTable('thank_you_note_templates', {
 // Creative Jobs
 export const creativeJobs = pgTable('creative_jobs', {
   id: text('id').primaryKey(),
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   type: text('type'),
   status: text('status').default('pending'),
@@ -770,7 +779,7 @@ export const websiteBuilderLayouts = pgTable('website_builder_layouts', {
 
 export const websiteBuilderPages = pgTable('website_builder_pages', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   layoutId: text('layout_id'),
   slug: text('slug').notNull(),
   title: text('title').notNull(),
@@ -780,7 +789,7 @@ export const websiteBuilderPages = pgTable('website_builder_pages', {
 
 export const websiteBuilderContent = pgTable('website_builder_content', {
   id: text('id').primaryKey(),
-  pageId: text('page_id').notNull(),
+  pageId: text('page_id').notNull().references(() => websiteBuilderPages.id, { onDelete: 'cascade' }),
   content: jsonb('content'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -789,7 +798,7 @@ export const websiteBuilderContent = pgTable('website_builder_content', {
 // QR Codes
 export const qrCodes = pgTable('qr_codes', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   guestId: text('guest_id'),
   code: text('code').notNull().unique(),
   scannedAt: timestamp('scanned_at'),
@@ -802,7 +811,7 @@ export const qrCodes = pgTable('qr_codes', {
 export const messages = pgTable('messages', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: text('company_id').notNull(),
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   guestId: text('guest_id'),
   senderId: text('sender_id').notNull(),
   receiverId: text('receiver_id'),
@@ -824,7 +833,7 @@ export const messages = pgTable('messages', {
 // Payments
 export const payments = pgTable('payments', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   amount: real('amount').notNull(),
   status: text('status').default('pending'),
   stripeId: text('stripe_id'),
@@ -851,8 +860,8 @@ export const stripeConnectAccounts = pgTable('stripe_connect_accounts', {
 // Hotel Bookings
 export const hotelBookings = pgTable('hotel_bookings', {
   id: text('id').primaryKey(),
-  hotelId: text('hotel_id').notNull(),
-  guestId: text('guest_id').notNull(),
+  hotelId: text('hotel_id').notNull(), // FK to hotels.id — type mismatch (text vs uuid) prevents Drizzle .references()
+  guestId: text('guest_id').notNull().references(() => guests.id, { onDelete: 'cascade' }),
   checkIn: timestamp('check_in'),
   checkOut: timestamp('check_out'),
   roomType: text('room_type'),
@@ -875,8 +884,8 @@ export const googleCalendarTokens = pgTable('google_calendar_tokens', {
 // Guest Gifts (gifts given to guests)
 export const guestGifts = pgTable('guest_gifts', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
-  guestId: text('guest_id'),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  guestId: text('guest_id').references(() => guests.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   type: text('type'),
   quantity: integer('quantity').default(1),
@@ -887,7 +896,7 @@ export const guestGifts = pgTable('guest_gifts', {
 // Guest Preferences
 export const guestPreferences = pgTable('guest_preferences', {
   id: text('id').primaryKey(),
-  guestId: text('guest_id').notNull(),
+  guestId: text('guest_id').notNull().references(() => guests.id, { onDelete: 'cascade' }),
   preferences: jsonb('preferences'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -897,8 +906,8 @@ export const guestPreferences = pgTable('guest_preferences', {
 export const guestConflicts = pgTable('guest_conflicts', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
-  guest1Id: text('guest1_id').notNull(),
-  guest2Id: text('guest2_id').notNull(),
+  guest1Id: text('guest1_id').notNull().references(() => guests.id, { onDelete: 'cascade' }),
+  guest2Id: text('guest2_id').notNull().references(() => guests.id, { onDelete: 'cascade' }),
   reason: text('reason'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
@@ -908,7 +917,7 @@ export const activity = pgTable('activity', {
   id: text('id').primaryKey(),
   userId: text('user_id'),
   companyId: text('company_id'), // Added Feb 2026 for auth logging
-  clientId: text('client_id'),
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),
   type: text('type').notNull(),
   action: text('action'), // Added Feb 2026: 'sign_in', 'sign_out', 'sign_up', etc.
   data: jsonb('data'),
@@ -936,7 +945,7 @@ export const icalFeedTokens = pgTable('ical_feed_tokens', {
 // Invoices
 export const invoices = pgTable('invoices', {
   id: text('id').primaryKey(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   amount: real('amount').notNull(),
   status: text('status').default('pending'),
   dueDate: timestamp('due_date'),
@@ -984,7 +993,7 @@ export const refunds = pgTable('refunds', {
 // Seating Change Log
 export const seatingChangeLog = pgTable('seating_change_log', {
   id: text('id').primaryKey(),
-  floorPlanId: text('floor_plan_id').notNull(),
+  floorPlanId: text('floor_plan_id').notNull().references(() => floorPlans.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   changeType: text('change_type').notNull(),
   previousData: jsonb('previous_data'),
@@ -995,7 +1004,7 @@ export const seatingChangeLog = pgTable('seating_change_log', {
 // Seating Versions
 export const seatingVersions = pgTable('seating_versions', {
   id: text('id').primaryKey(),
-  floorPlanId: text('floor_plan_id').notNull(),
+  floorPlanId: text('floor_plan_id').notNull().references(() => floorPlans.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   layout: jsonb('layout'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -1039,7 +1048,7 @@ export const stripeAccounts = pgTable('stripe_accounts', {
 export const teamClientAssignments = pgTable('team_client_assignments', {
   id: text('id').primaryKey(),
   teamMemberId: text('team_member_id').notNull(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   role: text('role').default('assigned'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -1048,7 +1057,7 @@ export const teamClientAssignments = pgTable('team_client_assignments', {
 // Wedding Websites
 export const weddingWebsites = pgTable('wedding_websites', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   subdomain: text('subdomain').unique(),
   customDomain: text('custom_domain'),
   theme: text('theme').default('classic'),
@@ -1066,7 +1075,7 @@ export const weddingWebsites = pgTable('wedding_websites', {
 // February 2026: Changed clientId to TEXT
 export const accommodations = pgTable('accommodations', {
   id: uuid('id').primaryKey().defaultRandom(),
-  clientId: text('client_id').notNull(),
+  clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   address: text('address'),
   city: text('city'),
@@ -1129,7 +1138,7 @@ export const jobQueue = pgTable('job_queue', {
 export const googleSheetsSyncSettings = pgTable('google_sheets_sync_settings', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id').notNull(), // User who connected the account
-  companyId: text('company_id'), // Company for team access
+  companyId: text('company_id').notNull(), // Company for team access
   // OAuth tokens
   accessToken: text('access_token'),
   refreshToken: text('refresh_token'),

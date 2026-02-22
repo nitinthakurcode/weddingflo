@@ -20,7 +20,7 @@ import {
   integer,
   pgEnum,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+
 
 // Enums
 export const questionTypeEnum = pgEnum('question_type', [
@@ -125,35 +125,6 @@ export const questionnaireResponses = pgTable(
     index('questionnaire_responses_questionnaire_idx').on(table.questionnaireId),
     index('questionnaire_responses_question_idx').on(table.questionId),
   ]
-);
-
-// Relations
-export const questionnaireTemplatesRelations = relations(
-  questionnaireTemplates,
-  ({ many }) => ({
-    questionnaires: many(questionnaires),
-  })
-);
-
-export const questionnairesRelations = relations(
-  questionnaires,
-  ({ one, many }) => ({
-    template: one(questionnaireTemplates, {
-      fields: [questionnaires.templateId],
-      references: [questionnaireTemplates.id],
-    }),
-    responses: many(questionnaireResponses),
-  })
-);
-
-export const questionnaireResponsesRelations = relations(
-  questionnaireResponses,
-  ({ one }) => ({
-    questionnaire: one(questionnaires, {
-      fields: [questionnaireResponses.questionnaireId],
-      references: [questionnaires.id],
-    }),
-  })
 );
 
 // Type definitions
