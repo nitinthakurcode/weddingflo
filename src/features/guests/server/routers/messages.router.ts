@@ -129,27 +129,13 @@ export const messagesRouter = router({
         });
       }
 
-      // Look up user's database UUID from BetterAuth ID
-      const [dbUser] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, userId))
-        .limit(1);
-
-      if (!dbUser) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User not found in database'
-        });
-      }
-
-      // Insert message
+      // Insert message - userId is the BetterAuth user.id (same as senderId)
       const [newMessage] = await db
         .insert(schema.messages)
         .values({
           companyId,
           clientId: input.clientId,
-          senderId: dbUser.id,
+          senderId: userId,
           receiverId: input.recipientId,
           subject: input.subject,
           content: input.content,
@@ -178,21 +164,8 @@ export const messagesRouter = router({
         });
       }
 
-      // Look up user's database UUID from BetterAuth ID
-      const [dbUser] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, userId))
-        .limit(1);
-
-      if (!dbUser) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User not found in database'
-        });
-      }
-
       // Mark messages as read (only where current user is receiver)
+      // userId is the BetterAuth user.id (same as receiverId)
       await db
         .update(schema.messages)
         .set({
@@ -203,7 +176,7 @@ export const messagesRouter = router({
         .where(
           and(
             inArray(schema.messages.id, input.messageIds),
-            eq(schema.messages.receiverId, dbUser.id)
+            eq(schema.messages.receiverId, userId)
           )
         );
 
@@ -248,27 +221,15 @@ export const messagesRouter = router({
         });
       }
 
-      // Look up user's database UUID from BetterAuth ID
-      // The users table stores authId (BetterAuth ID) separately from id (UUID)
-      const [dbUser] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, userId))
-        .limit(1);
-
-      // If user not found in legacy users table, return 0 count
-      if (!dbUser) {
-        return { count: 0 };
-      }
-
       // Count unread messages where current user is receiver
+      // userId is the BetterAuth user.id (same as receiverId)
       const [result] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(schema.messages)
         .where(
           and(
             eq(schema.messages.clientId, input.clientId),
-            eq(schema.messages.receiverId, dbUser.id),
+            eq(schema.messages.receiverId, userId),
             eq(schema.messages.isRead, false)
           )
         );
@@ -315,18 +276,8 @@ export const messagesRouter = router({
         });
       }
 
-      // Look up user's database UUID from BetterAuth ID
-      const [dbUser] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, userId))
-        .limit(1);
-
-      if (!dbUser) {
-        return [];
-      }
-
       // Get conversation (messages between current user and other user)
+      // userId is the BetterAuth user.id (same as senderId/receiverId)
       const messages = await db
         .select()
         .from(schema.messages)
@@ -334,8 +285,8 @@ export const messagesRouter = router({
           and(
             eq(schema.messages.clientId, input.clientId),
             or(
-              and(eq(schema.messages.senderId, dbUser.id), eq(schema.messages.receiverId, input.otherUserId)),
-              and(eq(schema.messages.senderId, input.otherUserId), eq(schema.messages.receiverId, dbUser.id))
+              and(eq(schema.messages.senderId, userId), eq(schema.messages.receiverId, input.otherUserId)),
+              and(eq(schema.messages.senderId, input.otherUserId), eq(schema.messages.receiverId, userId))
             )
           )
         )
@@ -506,17 +457,17 @@ export const messagesRouter = router({
         conditions.push(lt(schema.messages.createdAt, cursorDate));
       }
 
-      // OPTIMIZED: Single query with LEFT JOIN for sender info
+      // OPTIMIZED: Single query with LEFT JOIN for sender info (BetterAuth user table)
       const results = await db
         .select({
           message: schema.messages,
-          senderId: schema.users.id,
-          senderFirstName: schema.users.firstName,
-          senderLastName: schema.users.lastName,
-          senderAvatarUrl: schema.users.avatarUrl,
+          senderId: schema.user.id,
+          senderFirstName: schema.user.firstName,
+          senderLastName: schema.user.lastName,
+          senderAvatarUrl: schema.user.avatarUrl,
         })
         .from(schema.messages)
-        .leftJoin(schema.users, eq(schema.messages.senderId, schema.users.id))
+        .leftJoin(schema.user, eq(schema.messages.senderId, schema.user.id))
         .where(and(...conditions))
         .orderBy(desc(schema.messages.createdAt))
         .limit(input.limit);
@@ -587,27 +538,13 @@ export const messagesRouter = router({
         }
       }
 
-      // Look up user's database UUID from BetterAuth ID
-      const [dbUser] = await db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, userId))
-        .limit(1);
-
-      if (!dbUser) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User not found in database'
-        });
-      }
-
-      // Insert message
+      // Insert message - userId is the BetterAuth user.id (same as senderId)
       const [newMessage] = await db
         .insert(schema.messages)
         .values({
           companyId,
           clientId: input.clientId,
-          senderId: dbUser.id,
+          senderId: userId,
           content: input.content,
           parentId: input.parentMessageId,
           isRead: false,

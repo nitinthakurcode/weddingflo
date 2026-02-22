@@ -2,7 +2,7 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
-import { budget, advancePayments, clients, events, clientUsers, users, clientVendors, vendors, timeline } from '@/lib/db/schema'
+import { budget, advancePayments, clients, events, clientUsers, user, clientVendors, vendors, timeline } from '@/lib/db/schema'
 import { nanoid } from 'nanoid'
 
 /**
@@ -1180,13 +1180,13 @@ export const budgetRouter = router({
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       // Get the internal user UUID from auth ID
-      const [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+      const [portalUser] = await ctx.db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1)
 
-      if (!user) {
+      if (!portalUser) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' })
       }
 
@@ -1197,7 +1197,7 @@ export const budgetRouter = router({
         .where(
           and(
             eq(clientUsers.clientId, input.clientId),
-            eq(clientUsers.userId, user.id)
+            eq(clientUsers.userId, portalUser.id)
           )
         )
         .limit(1)

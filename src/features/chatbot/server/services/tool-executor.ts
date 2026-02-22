@@ -22,7 +22,7 @@ import {
   clientVendors,
   accommodations,
   hotels,
-  users,
+  user as userTable,
   guestTransport,
   gifts,
   giftsEnhanced,
@@ -703,9 +703,9 @@ async function executeCreateClient(
 
   // Get database user UUID from auth user ID (outside transaction)
   const [user] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.authId, ctx.userId!))
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(eq(userTable.id, ctx.userId!))
     .limit(1)
 
   if (!user) {
@@ -4777,14 +4777,14 @@ async function executeAssignTeamMember(
 
   if (!resolvedTeamMemberId && teamMemberName) {
     const [foundUser] = await db
-      .select({ id: users.id })
-      .from(users)
+      .select({ id: userTable.id })
+      .from(userTable)
       .where(and(
-        eq(users.companyId, ctx.companyId!),
+        eq(userTable.companyId, ctx.companyId!),
         or(
-          like(users.firstName, `%${teamMemberName}%`),
-          like(users.lastName, `%${teamMemberName}%`),
-          like(users.email, `%${teamMemberName}%`)
+          like(userTable.firstName, `%${teamMemberName}%`),
+          like(userTable.lastName, `%${teamMemberName}%`),
+          like(userTable.email, `%${teamMemberName}%`)
         )
       ))
       .limit(1)

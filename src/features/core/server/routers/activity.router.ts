@@ -14,7 +14,7 @@ import { router, protectedProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, desc, count, isNull, sql, lte, gte } from 'drizzle-orm';
-import { notifications, users } from '@/lib/db/schema';
+import { notifications } from '@/lib/db/schema';
 
 // Notification types
 const notificationTypeSchema = z.enum([
@@ -44,24 +44,13 @@ export const activityRouter = router({
       return { count: 0 };
     }
 
-    // Get user ID
-    const [user] = await ctx.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.authId, ctx.userId))
-      .limit(1);
-
-    if (!user) {
-      return { count: 0 };
-    }
-
     const [result] = await ctx.db
       .select({ count: count() })
       .from(notifications)
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id),
+          eq(notifications.userId, ctx.userId),
           eq(notifications.isRead, false)
         )
       );
@@ -88,20 +77,9 @@ export const activityRouter = router({
         return [];
       }
 
-      // Get user ID
-      const [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
-        .limit(1);
-
-      if (!user) {
-        return [];
-      }
-
       const conditions = [
         eq(notifications.companyId, ctx.companyId),
-        eq(notifications.userId, user.id),
+        eq(notifications.userId, ctx.userId),
       ];
 
       if (input?.unreadOnly) {
@@ -136,19 +114,6 @@ export const activityRouter = router({
         });
       }
 
-      const [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
-        .limit(1);
-
-      if (!user) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User not found',
-        });
-      }
-
       const [notification] = await ctx.db
         .select()
         .from(notifications)
@@ -156,7 +121,7 @@ export const activityRouter = router({
           and(
             eq(notifications.id, input.id),
             eq(notifications.companyId, ctx.companyId),
-            eq(notifications.userId, user.id)
+            eq(notifications.userId, ctx.userId)
           )
         )
         .limit(1);
@@ -184,19 +149,6 @@ export const activityRouter = router({
         });
       }
 
-      const [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
-        .limit(1);
-
-      if (!user) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User not found',
-        });
-      }
-
       const [updated] = await ctx.db
         .update(notifications)
         .set({
@@ -207,7 +159,7 @@ export const activityRouter = router({
           and(
             eq(notifications.id, input.id),
             eq(notifications.companyId, ctx.companyId),
-            eq(notifications.userId, user.id)
+            eq(notifications.userId, ctx.userId)
           )
         )
         .returning();
@@ -226,19 +178,6 @@ export const activityRouter = router({
       });
     }
 
-    const [user] = await ctx.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.authId, ctx.userId))
-      .limit(1);
-
-    if (!user) {
-      throw new TRPCError({
-        code: 'NOT_FOUND',
-        message: 'User not found',
-      });
-    }
-
     await ctx.db
       .update(notifications)
       .set({
@@ -248,7 +187,7 @@ export const activityRouter = router({
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id),
+          eq(notifications.userId, ctx.userId),
           eq(notifications.isRead, false)
         )
       );
@@ -306,26 +245,13 @@ export const activityRouter = router({
         });
       }
 
-      const [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
-        .limit(1);
-
-      if (!user) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'User not found',
-        });
-      }
-
       await ctx.db
         .delete(notifications)
         .where(
           and(
             eq(notifications.id, input.id),
             eq(notifications.companyId, ctx.companyId),
-            eq(notifications.userId, user.id)
+            eq(notifications.userId, ctx.userId)
           )
         );
 
@@ -343,25 +269,12 @@ export const activityRouter = router({
       });
     }
 
-    const [user] = await ctx.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.authId, ctx.userId))
-      .limit(1);
-
-    if (!user) {
-      throw new TRPCError({
-        code: 'NOT_FOUND',
-        message: 'User not found',
-      });
-    }
-
     await ctx.db
       .delete(notifications)
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id),
+          eq(notifications.userId, ctx.userId),
           eq(notifications.isRead, true)
         )
       );
@@ -382,21 +295,6 @@ export const activityRouter = router({
       };
     }
 
-    const [user] = await ctx.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.authId, ctx.userId))
-      .limit(1);
-
-    if (!user) {
-      return {
-        total: 0,
-        unread: 0,
-        byType: {},
-        recentCount: 0,
-      };
-    }
-
     // Total count
     const [totalResult] = await ctx.db
       .select({ count: count() })
@@ -404,7 +302,7 @@ export const activityRouter = router({
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id)
+          eq(notifications.userId, ctx.userId)
         )
       );
 
@@ -415,7 +313,7 @@ export const activityRouter = router({
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id),
+          eq(notifications.userId, ctx.userId),
           eq(notifications.isRead, false)
         )
       );
@@ -430,7 +328,7 @@ export const activityRouter = router({
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id)
+          eq(notifications.userId, ctx.userId)
         )
       )
       .groupBy(notifications.type);
@@ -443,7 +341,7 @@ export const activityRouter = router({
       .where(
         and(
           eq(notifications.companyId, ctx.companyId),
-          eq(notifications.userId, user.id),
+          eq(notifications.userId, ctx.userId),
           gte(notifications.createdAt, yesterday)
         )
       );

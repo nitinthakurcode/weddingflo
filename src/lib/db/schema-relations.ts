@@ -19,7 +19,6 @@ import {
   account,
 } from './schema';
 import {
-  users,
   companies,
   clients,
   clientUsers,

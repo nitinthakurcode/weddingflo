@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, asc, sql, count, sum, gte, lte, or, ilike } from 'drizzle-orm';
 import { pipelineStages, pipelineLeads, pipelineActivities, DEFAULT_PIPELINE_STAGES } from '@/lib/db/schema-pipeline';
-import { clients, users } from '@/lib/db/schema';
+import { clients, user } from '@/lib/db/schema';
 // Note: Using crypto.randomUUID() for client IDs to match TEXT UUID format
 // nanoid removed - was causing inconsistent ID formats
 
@@ -370,15 +370,15 @@ export const pipelineRouter = router({
             // Stage fields
             stage: pipelineStages,
             // Assignee fields
-            assigneeId: users.id,
-            assigneeFirstName: users.firstName,
-            assigneeLastName: users.lastName,
-            assigneeEmail: users.email,
-            assigneeAvatarUrl: users.avatarUrl,
+            assigneeId: user.id,
+            assigneeFirstName: user.firstName,
+            assigneeLastName: user.lastName,
+            assigneeEmail: user.email,
+            assigneeAvatarUrl: user.avatarUrl,
           })
           .from(pipelineLeads)
           .leftJoin(pipelineStages, eq(pipelineLeads.stageId, pipelineStages.id))
-          .leftJoin(users, eq(pipelineLeads.assigneeId, users.id))
+          .leftJoin(user, eq(pipelineLeads.assigneeId, user.id))
           .where(
             and(
               eq(pipelineLeads.id, input.id),
@@ -523,9 +523,9 @@ export const pipelineRouter = router({
 
         // Create initial activity
         const [currentUser] = ctx.userId ? await ctx.db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.authId, ctx.userId))
+          .select({ id: user.id })
+          .from(user)
+          .where(eq(user.id, ctx.userId))
           .limit(1) : [];
 
         if (currentUser) {
@@ -704,9 +704,9 @@ export const pipelineRouter = router({
 
         // Log stage change activity
         const [currentUser] = ctx.userId ? await ctx.db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.authId, ctx.userId))
+          .select({ id: user.id })
+          .from(user)
+          .where(eq(user.id, ctx.userId))
           .limit(1) : [];
 
         if (currentUser) {
@@ -775,9 +775,9 @@ export const pipelineRouter = router({
 
         // Get current user for createdBy
         const [currentUser] = ctx.userId ? await ctx.db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.authId, ctx.userId))
+          .select({ id: user.id })
+          .from(user)
+          .where(eq(user.id, ctx.userId))
           .limit(1) : [null];
 
         // Create client from lead data
@@ -1058,9 +1058,9 @@ export const pipelineRouter = router({
         }
 
         const [currentUser] = await ctx.db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.authId, ctx.userId))
+          .select({ id: user.id })
+          .from(user)
+          .where(eq(user.id, ctx.userId))
           .limit(1);
 
         if (!currentUser) {

@@ -12,9 +12,9 @@ ALTER TABLE "user" ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 
 -- Add indexes for common queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS user_company_id_idx ON "user"(company_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS user_email_idx ON "user"(email);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS user_role_idx ON "user"(role);
+CREATE INDEX IF NOT EXISTS user_company_id_idx ON "user"(company_id);
+CREATE INDEX IF NOT EXISTS user_email_idx ON "user"(email);
+CREATE INDEX IF NOT EXISTS user_role_idx ON "user"(role);
 
 -- Migrate existing data from users table to user table
 -- This syncs avatar_url and is_active from the app users table

@@ -4,7 +4,7 @@ import { GoogleCalendarOAuth } from '@/lib/calendar/google-oauth';
 import { GoogleCalendarSync } from '@/lib/calendar/google-calendar-sync';
 import { encryptToken } from '@/lib/crypto/token-encryption';
 import { db, eq, sql } from '@/lib/db';
-import { users } from '@/lib/db/schema';
+import { user } from '@/lib/db/schema';
 
 // Helper to extract locale from referer or default to 'en'
 function getLocaleFromRequest(request: NextRequest): string {
@@ -36,9 +36,9 @@ export async function GET(request: NextRequest) {
 
     // Get user's company_id using Drizzle
     const userResult = await db
-      .select({ companyId: users.companyId })
-      .from(users)
-      .where(eq(users.authId, state))
+      .select({ companyId: user.companyId })
+      .from(user)
+      .where(eq(user.id, state))
       .limit(1);
 
     const userData = userResult[0];

@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, ilike, or } from 'drizzle-orm';
 import {
-  clients, users, companies, events, clientUsers, budget, timeline, vendors, clientVendors,
+  clients, user as userTable, companies, events, clientUsers, budget, timeline, vendors, clientVendors,
   guests, hotels, guestTransport, documents, floorPlans, floorPlanTables, floorPlanGuests,
   gifts, giftsEnhanced, guestGifts, messages, payments, weddingWebsites, activity
 } from '@/lib/db/schema';
-import type { UserRole, SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
+import type { SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
 
 // Budget category segment type (different from BudgetSegment which is budget tier)
@@ -440,22 +440,22 @@ export const clientsRouter = router({
         });
       }
 
-      // Get database user UUID from auth user ID
-      let [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+      // Get user record from BetterAuth user table
+      let [dbUser] = await ctx.db
+        .select({ id: userTable.id })
+        .from(userTable)
+        .where(eq(userTable.id, ctx.userId))
         .limit(1);
 
       // Track if we did self-healing
       let usedSelfHeal = false;
       let effectiveCompanyId = ctx.companyId;
 
-      // Self-healing: If user not found in custom users table, create from BetterAuth session
-      // With BetterAuth, user exists in the 'user' table but may need sync to custom 'users' table
-      if (!user) {
+      // Self-healing: If user not found in BetterAuth user table, something is seriously wrong
+      // The BetterAuth user table should always have the user record since auth creates it
+      if (!dbUser) {
         usedSelfHeal = true;
-        console.log('[Clients Router] User not found in custom users table, syncing from BetterAuth session...');
+        console.log('[Clients Router] User not found in BetterAuth user table, attempting self-heal...');
 
         // Get user details from BetterAuth session (ctx.user is set in tRPC context)
         const sessionUser = ctx.user;
@@ -468,13 +468,6 @@ export const clientsRouter = router({
 
         const email = sessionUser.email || '';
         const firstName = sessionUser.name?.split(' ')[0] || 'User';
-
-        // Determine role from session or default
-        const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-        const isSuperAdmin = email === superAdminEmail;
-        // Session user role is properly typed via BetterAuth additionalFields
-        const sessionRole = (sessionUser as { role?: string }).role;
-        const role: UserRole = sessionRole as UserRole || (isSuperAdmin ? 'super_admin' : 'company_admin');
 
         // Check if company_id from session claims exists
         if (effectiveCompanyId) {
@@ -517,38 +510,29 @@ export const clientsRouter = router({
           console.log('[Clients Router] Created new company:', effectiveCompanyId);
         }
 
-        // Create user in custom users table (sync from BetterAuth)
+        // Update the BetterAuth user table with companyId if it was missing or changed
         await ctx.db
-          .insert(users)
-          .values({
-            id: crypto.randomUUID(),
-            authId: ctx.userId, // BetterAuth user ID
-            email,
-            firstName: firstName,
-            lastName: sessionUser.name?.split(' ').slice(1).join(' ') || null,
-            avatarUrl: sessionUser.image || null,
-            role,
-            companyId: effectiveCompanyId,
-            isActive: true,
-          });
+          .update(userTable)
+          .set({ companyId: effectiveCompanyId })
+          .where(eq(userTable.id, ctx.userId));
 
-        console.log('[Clients Router] Self-heal complete - user synced with company_id:', effectiveCompanyId);
+        console.log('[Clients Router] Self-heal complete - user updated with company_id:', effectiveCompanyId);
 
-        // Get the newly created user
-        const [newUser] = await ctx.db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.authId, ctx.userId))
+        // Re-fetch the user record
+        const [refreshedUser] = await ctx.db
+          .select({ id: userTable.id })
+          .from(userTable)
+          .where(eq(userTable.id, ctx.userId))
           .limit(1);
 
-        if (!newUser) {
+        if (!refreshedUser) {
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to retrieve newly synced user',
+            message: 'User not found in BetterAuth user table after self-heal',
           });
         }
 
-        user = newUser;
+        dbUser = refreshedUser;
       }
 
       // Create client
@@ -578,7 +562,7 @@ export const clientsRouter = router({
           notes: input.notes || null,
           planningSide: input.planning_side || 'both',
           weddingType: input.wedding_type || 'traditional',
-          createdBy: user.id,
+          createdBy: dbUser.id,
           metadata: {},
         })
         .returning();
@@ -1266,16 +1250,17 @@ export const clientsRouter = router({
       }
 
       // OPTIMIZED: Single query with JOINs instead of 3 sequential queries
+      // Uses BetterAuth `user` table (aliased as userTable) instead of deprecated `users` table
       const [result] = await ctx.db
         .select({
           // User fields
-          userId: users.id,
-          userEmail: users.email,
-          userFirstName: users.firstName,
-          userLastName: users.lastName,
-          userAvatarUrl: users.avatarUrl,
-          userPreferredLanguage: users.preferredLanguage,
-          userTimezone: users.timezone,
+          userId: userTable.id,
+          userEmail: userTable.email,
+          userFirstName: userTable.firstName,
+          userLastName: userTable.lastName,
+          userAvatarUrl: userTable.avatarUrl,
+          userPreferredLanguage: userTable.preferredLanguage,
+          userTimezone: userTable.timezone,
           // Client user relationship fields
           cuRelationship: clientUsers.relationship,
           cuIsPrimary: clientUsers.isPrimary,
@@ -1290,10 +1275,10 @@ export const clientsRouter = router({
           clientPartner2LastName: clients.partner2LastName,
           clientPartner2Email: clients.partner2Email,
         })
-        .from(users)
-        .leftJoin(clientUsers, eq(clientUsers.userId, users.id))
+        .from(userTable)
+        .leftJoin(clientUsers, eq(clientUsers.userId, userTable.id))
         .leftJoin(clients, eq(clients.id, clientUsers.clientId))
-        .where(eq(users.authId, ctx.userId))
+        .where(eq(userTable.id, ctx.userId))
         .limit(1);
 
       if (!result) {

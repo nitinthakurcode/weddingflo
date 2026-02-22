@@ -1,6 +1,6 @@
 import { getServerSession } from '@/lib/auth/server';
 import { db } from '@/lib/db';
-import { users, companies, session } from '@/lib/db/schema';
+import { user, companies, session } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
@@ -89,9 +89,9 @@ export async function getCurrentUserWithCompany(): Promise<UserWithCompany | nul
   try {
     const result = await db
       .select()
-      .from(users)
-      .leftJoin(companies, eq(users.companyId, companies.id))
-      .where(eq(users.authId, userId))
+      .from(user)
+      .leftJoin(companies, eq(user.companyId, companies.id))
+      .where(eq(user.id, userId))
       .limit(1);
 
     if (!result.length) {
@@ -101,7 +101,7 @@ export async function getCurrentUserWithCompany(): Promise<UserWithCompany | nul
     const row = result[0];
     // Convert Drizzle camelCase to snake_case expected by UserWithCompany type
     return {
-      ...row.users,
+      ...row.user,
       company: row.companies,
     } as unknown as UserWithCompany;
   } catch (error) {
@@ -163,13 +163,13 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
     }
 
     // Query by auth_id which stores the auth provider's user ID (BetterAuth)
-    const [user] = await db
+    const [currentUser] = await db
       .select()
-      .from(users)
-      .where(eq(users.authId, userId))
+      .from(user)
+      .where(eq(user.id, userId))
       .limit(1);
 
-    return (user as unknown as User) || null;
+    return (currentUser as unknown as User) || null;
   } catch (error) {
     console.error('Unexpected error in getCurrentUser:', error);
     return null;

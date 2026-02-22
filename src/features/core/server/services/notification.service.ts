@@ -29,7 +29,7 @@
  */
 
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { notifications, users } from '@/lib/db/schema';
+import { notifications, user } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
 // Notification type definitions
@@ -111,9 +111,9 @@ export async function notifyTeamMembers(
 ): Promise<{ count: number }> {
   // Get all users in the company
   let teamMembers = await db
-    .select({ id: users.id, role: users.role })
-    .from(users)
-    .where(eq(users.companyId, input.companyId));
+    .select({ id: user.id, role: user.role })
+    .from(user)
+    .where(eq(user.companyId, input.companyId));
 
   // Filter by role if onlyAdmins is true
   if (input.onlyAdmins) {
@@ -157,13 +157,13 @@ export async function notifyUserByAuthId(
   input: Omit<CreateNotificationInput, 'userId'>
 ): Promise<{ id: string; dbUserId: string } | null> {
   // Get db user ID from auth ID
-  const [user] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.authId, authId))
+  const [dbUser] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.id, authId))
     .limit(1);
 
-  if (!user) {
+  if (!dbUser) {
     console.warn(`[Notification Service] User not found for auth ID: ${authId}`);
     return null;
   }
@@ -172,7 +172,7 @@ export async function notifyUserByAuthId(
     .insert(notifications)
     .values({
       companyId: input.companyId,
-      userId: user.id,
+      userId: dbUser.id,
       type: input.type,
       title: input.title,
       message: input.message,
@@ -180,7 +180,7 @@ export async function notifyUserByAuthId(
     })
     .returning({ id: notifications.id });
 
-  return { id: notification.id, dbUserId: user.id };
+  return { id: notification.id, dbUserId: dbUser.id };
 }
 
 /**

@@ -391,22 +391,12 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      const [user] = await ctx.db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, ctx.userId))
-        .limit(1)
-
-      if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED' })
-      }
-
       const [clientAccess] = await ctx.db
         .select({ id: schema.clientUsers.id })
         .from(schema.clientUsers)
         .where(and(
           eq(schema.clientUsers.clientId, input.clientId),
-          eq(schema.clientUsers.userId, user.id)
+          eq(schema.clientUsers.userId, ctx.userId)
         ))
         .limit(1)
 
@@ -444,16 +434,6 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      const [user] = await ctx.db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, ctx.userId))
-        .limit(1)
-
-      if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED' })
-      }
-
       const [creativeJob] = await ctx.db
         .select()
         .from(schema.creativeJobs)
@@ -469,7 +449,7 @@ export const creativesRouter = router({
         .from(schema.clientUsers)
         .where(and(
           eq(schema.clientUsers.clientId, creativeJob.clientId!),
-          eq(schema.clientUsers.userId, user.id)
+          eq(schema.clientUsers.userId, ctx.userId)
         ))
         .limit(1)
 
@@ -482,7 +462,7 @@ export const creativesRouter = router({
         ...existingData,
         approvalStatus: input.approved ? 'approved' : 'rejected',
         approvalComments: input.comments,
-        approvedBy: user.id,
+        approvedBy: ctx.userId,
         approvedAt: new Date().toISOString(),
       }
 
@@ -513,16 +493,6 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      const [user] = await ctx.db
-        .select({ id: schema.users.id })
-        .from(schema.users)
-        .where(eq(schema.users.authId, ctx.userId))
-        .limit(1)
-
-      if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED' })
-      }
-
       const [creativeJob] = await ctx.db
         .select()
         .from(schema.creativeJobs)
@@ -538,7 +508,7 @@ export const creativesRouter = router({
         .from(schema.clientUsers)
         .where(and(
           eq(schema.clientUsers.clientId, creativeJob.clientId!),
-          eq(schema.clientUsers.userId, user.id)
+          eq(schema.clientUsers.userId, ctx.userId)
         ))
         .limit(1)
 
@@ -551,7 +521,7 @@ export const creativesRouter = router({
         ...existingData,
         approvalStatus: 'revision_requested',
         approvalComments: input.comments,
-        approvedBy: user.id,
+        approvedBy: ctx.userId,
         approvedAt: new Date().toISOString(),
         revisionCount: (existingData.revisionCount || 0) + 1,
       }

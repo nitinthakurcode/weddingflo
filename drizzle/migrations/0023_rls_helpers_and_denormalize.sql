@@ -17,7 +17,7 @@
 -- RUN AS: Superuser (before switching to weddingflo_app)
 -- ============================================================================
 
-BEGIN;
+-- Transaction managed by Drizzle migrator
 
 -- ============================================================================
 -- PART A: RLS HELPER FUNCTIONS
@@ -91,54 +91,54 @@ SELECT add_column_if_not_exists('gifts',           'company_id', 'TEXT');
 SELECT add_column_if_not_exists('floor_plans',     'company_id', 'TEXT');
 
 -- Backfill companyId from the clients table
--- Uses Drizzle's camelCase → snake_case mapping: clients.companyId → "companyId"
+-- Uses snake_case column names
 -- Adjust the column name below to match your actual schema (companyId or company_id)
 UPDATE guests g
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE g."clientId" = c.id
+  WHERE g.client_id = c.id
     AND g.company_id IS NULL;
 
 UPDATE events e
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE e."clientId" = c.id
+  WHERE e.client_id = c.id
     AND e.company_id IS NULL;
 
 UPDATE timeline t
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE t."clientId" = c.id
+  WHERE t.client_id = c.id
     AND t.company_id IS NULL;
 
 UPDATE budget b
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE b."clientId" = c.id
+  WHERE b.client_id = c.id
     AND b.company_id IS NULL;
 
 UPDATE hotels h
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE h."clientId" = c.id
+  WHERE h.client_id = c.id
     AND h.company_id IS NULL;
 
 UPDATE guest_transport gt
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE gt."clientId" = c.id
+  WHERE gt.client_id = c.id
     AND gt.company_id IS NULL;
 
 UPDATE gifts g
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE g."clientId" = c.id
+  WHERE g.client_id = c.id
     AND g.company_id IS NULL;
 
 UPDATE floor_plans fp
-  SET company_id = c."companyId"
+  SET company_id = c.company_id
   FROM clients c
-  WHERE fp."clientId" = c.id
+  WHERE fp.client_id = c.id
     AND fp.company_id IS NULL;
 
 -- Add indexes on the new companyId columns for RLS performance
@@ -154,7 +154,7 @@ CREATE INDEX IF NOT EXISTS idx_floor_plans_company_id     ON floor_plans(company
 -- Drop the helper function (no longer needed)
 DROP FUNCTION IF EXISTS add_column_if_not_exists(TEXT, TEXT, TEXT);
 
-COMMIT;
+-- End of migration (transaction managed by Drizzle)
 
 -- ============================================================================
 -- IMPORTANT: COLUMN NAME MAPPING

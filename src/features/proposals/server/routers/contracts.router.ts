@@ -15,7 +15,7 @@ import { router, protectedProcedure, publicProcedure, adminProcedure } from '@/s
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
-import { contracts, contractTemplates, proposals, clients, users, companies, DEFAULT_CONTRACT_VARIABLES } from '@/lib/db/schema';
+import { contracts, contractTemplates, proposals, clients, user, companies, DEFAULT_CONTRACT_VARIABLES } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
 import { createNotification, notifyTeamMembers } from '@/features/core/server/services/notification.service';
 
@@ -380,9 +380,9 @@ export const contractsRouter = router({
 
       // Get current user
       const [currentUser] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1);
 
       // Generate contract number
@@ -499,9 +499,9 @@ export const contractsRouter = router({
 
       // Get current user
       const [currentUser] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1);
 
       // Generate contract number

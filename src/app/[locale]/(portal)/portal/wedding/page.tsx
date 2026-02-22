@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq } from '@/lib/db';
-import { users, clients } from '@/lib/db/schema';
+import { user, clients } from '@/lib/db/schema';
 import { getTranslations, getLocale } from 'next-intl/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Heart, Calendar, Clock, MapPin, FileText, Mail, Phone } from 'lucide-react';
@@ -12,7 +12,7 @@ export default async function PortalWeddingPage() {
   const locale = await getLocale();
 
   // Get BetterAuth user ID
-  const { userId, user } = await getServerSession();
+  const { userId, user: sessionUser } = await getServerSession();
 
   if (!userId) {
     redirect(`/${locale}/sign-in`);
@@ -20,9 +20,9 @@ export default async function PortalWeddingPage() {
 
   // Fetch user role from database using Drizzle
   const userResult = await db
-    .select({ role: users.role, companyId: users.companyId })
-    .from(users)
-    .where(eq(users.authId, userId))
+    .select({ role: user.role, companyId: user.companyId })
+    .from(user)
+    .where(eq(user.id, userId))
     .limit(1);
 
   const currentUser = userResult[0] || null;

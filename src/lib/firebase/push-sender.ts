@@ -15,7 +15,7 @@
  */
 
 import { db, sql, eq, and } from '@/lib/db';
-import { users, pushSubscriptions } from '@/lib/db/schema';
+import { user as userTable, pushSubscriptions } from '@/lib/db/schema';
 import { FirebaseAdminPushService } from './admin';
 import type {
   NotificationType,
@@ -216,9 +216,9 @@ export class PushNotificationSender {
     try {
       // Get all users in company using Drizzle
       const companyUsers = await db
-        .select({ authId: users.authId })
-        .from(users)
-        .where(eq(users.companyId, companyId));
+        .select({ id: userTable.id })
+        .from(userTable)
+        .where(eq(userTable.companyId, companyId));
 
       if (companyUsers.length === 0) {
         console.log(`No users found for company: ${companyId}`);
@@ -231,12 +231,11 @@ export class PushNotificationSender {
         };
       }
 
-      // Create payloads for each user (filter out users without authId)
+      // Create payloads for each user
       const payloads: PushNotificationPayload[] = companyUsers
-        .filter((user): user is typeof user & { authId: string } => !!user.authId)
-        .map((user) => ({
+        .map((u) => ({
           ...payload,
-          userId: user.authId,
+          userId: u.id,
           companyId,
         }));
 

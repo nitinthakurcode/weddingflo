@@ -14,17 +14,17 @@
 -- RUN AS: Superuser or weddingflo_app
 -- ============================================================================
 
-BEGIN;
+-- Transaction managed by Drizzle migrator
 
 -- Track which rows have been encrypted
 ALTER TABLE account
   ADD COLUMN IF NOT EXISTS tokens_encrypted_at TIMESTAMPTZ DEFAULT NULL;
 
 -- Add comments for developer awareness
-COMMENT ON COLUMN account."accessToken" IS
+COMMENT ON COLUMN account.access_token IS
   'AES-256-GCM encrypted. Decrypt with token-encryption.ts before use. Format: iv:tag:ciphertext (base64).';
 
-COMMENT ON COLUMN account."refreshToken" IS
+COMMENT ON COLUMN account.refresh_token IS
   'AES-256-GCM encrypted. Decrypt with token-encryption.ts before use. Format: iv:tag:ciphertext (base64).';
 
 -- Also encrypt Google Calendar tokens if stored separately
@@ -39,4 +39,4 @@ BEGIN
 END
 $$;
 
-COMMIT;
+-- End of migration (transaction managed by Drizzle)

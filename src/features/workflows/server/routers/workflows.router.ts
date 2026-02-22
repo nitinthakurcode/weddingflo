@@ -15,7 +15,7 @@ import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, desc, asc, count } from 'drizzle-orm';
-import { workflows, workflowSteps, workflowExecutions, workflowExecutionLogs, WORKFLOW_TEMPLATES, users } from '@/lib/db/schema';
+import { workflows, workflowSteps, workflowExecutions, workflowExecutionLogs, WORKFLOW_TEMPLATES, user } from '@/lib/db/schema';
 import { enqueueJob } from '@/lib/jobs/pg-queue';
 
 // Input schemas
@@ -158,9 +158,9 @@ export const workflowsRouter = router({
       }
 
       const [currentUser] = ctx.userId ? await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1) : [];
 
       const [workflow] = await ctx.db
@@ -208,9 +208,9 @@ export const workflowsRouter = router({
       }
 
       const [currentUser] = ctx.userId ? await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1) : [];
 
       // Create workflow

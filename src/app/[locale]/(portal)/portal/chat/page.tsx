@@ -2,11 +2,11 @@ import { getServerSession } from '@/lib/auth/server'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { db, eq, and, inArray, asc } from '@/lib/db'
-import { users, clients, companies } from '@/lib/db/schema'
+import { user, clients, companies } from '@/lib/db/schema'
 import { ChatPage } from './ChatPage'
 
 export default async function PortalChatPage() {
-  const { userId, user } = await getServerSession()
+  const { userId, user: sessionUser } = await getServerSession()
 
   // Get locale from headers for proper redirects
   const headersList = await headers()
@@ -18,7 +18,7 @@ export default async function PortalChatPage() {
     redirect(`/${locale}/sign-in`)
   }
 
-  const role = user?.role
+  const role = sessionUser?.role
   if (role !== 'client_user') {
     redirect(`/${locale}/sign-in`)
   }
@@ -26,13 +26,13 @@ export default async function PortalChatPage() {
   // Get current user's database record using Drizzle
   const userResult = await db
     .select({
-      id: users.id,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      companyId: users.companyId,
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      companyId: user.companyId,
     })
-    .from(users)
-    .where(eq(users.authId, userId))
+    .from(user)
+    .where(eq(user.id, userId))
     .limit(1);
 
   const userData = userResult[0] || null;
@@ -63,16 +63,16 @@ export default async function PortalChatPage() {
   // Get a planner from the company to chat with using Drizzle
   const plannerResult = await db
     .select({
-      id: users.id,
-      firstName: users.firstName,
-      lastName: users.lastName,
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
     })
-    .from(users)
+    .from(user)
     .where(and(
-      eq(users.companyId, client.companyId),
-      inArray(users.role, ['company_admin', 'staff'])
+      eq(user.companyId, client.companyId),
+      inArray(user.role, ['company_admin', 'staff'])
     ))
-    .orderBy(asc(users.createdAt))
+    .orderBy(asc(user.createdAt))
     .limit(1);
 
   const planner = plannerResult[0] || null;

@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { budget, clients, users } from '@/lib/db/schema';
+import { budget, clients, user } from '@/lib/db/schema';
 import { enqueueJob } from '@/lib/jobs/pg-queue';
 import { eq, and, isNull, gte, lte } from 'drizzle-orm';
 
@@ -92,16 +92,16 @@ export async function POST(request: Request) {
       // Get company admin user for this client's company
       const [adminUser] = await db
         .select({
-          id: users.id,
-          email: users.email,
-          firstName: users.firstName,
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
         })
-        .from(users)
+        .from(user)
         .where(
           and(
-            eq(users.companyId, client.companyId),
-            eq(users.role, 'company_admin'),
-            eq(users.isActive, true)
+            eq(user.companyId, client.companyId),
+            eq(user.role, 'company_admin'),
+            eq(user.isActive, true)
           )
         )
         .limit(1);

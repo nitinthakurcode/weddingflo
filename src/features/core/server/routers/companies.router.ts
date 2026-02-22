@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, protectedProcedure, superAdminProcedure } from '@/server/trpc/trpc'
 import { db, eq, desc } from '@/lib/db'
-import { companies, users } from '@/lib/db/schema'
+import { companies } from '@/lib/db/schema'
 import { TRPCError } from '@trpc/server'
 
 export const companiesRouter = router({

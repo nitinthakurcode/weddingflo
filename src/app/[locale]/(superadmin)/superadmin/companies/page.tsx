@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq, sql, desc } from '@/lib/db';
-import { companies, users, clients } from '@/lib/db/schema';
+import { companies, clients } from '@/lib/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -54,9 +54,9 @@ export default async function SuperAdminCompaniesPage() {
   const companiesList = await Promise.all(
     companiesData.map(async (company) => {
       const [userCountResult, clientCountResult, adminResult] = await Promise.all([
-        db.execute(sql`SELECT COUNT(*)::integer as count FROM users WHERE company_id = ${company.id}`),
+        db.execute(sql`SELECT COUNT(*)::integer as count FROM "user" WHERE company_id = ${company.id}`),
         db.execute(sql`SELECT COUNT(*)::integer as count FROM clients WHERE company_id = ${company.id}`),
-        db.execute(sql`SELECT email FROM users WHERE company_id = ${company.id} AND role = 'company_admin' LIMIT 1`),
+        db.execute(sql`SELECT email FROM "user" WHERE company_id = ${company.id} AND role = 'company_admin' LIMIT 1`),
       ]);
 
       const adminEmail = (adminResult[0] as { email: string } | undefined)?.email || null;

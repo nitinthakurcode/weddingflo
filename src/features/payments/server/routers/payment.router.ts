@@ -898,13 +898,13 @@ export const paymentRouter = router({
       }
 
       // Get user record
-      const [user] = await ctx.db
-        .select({ id: schema.users.id, role: schema.users.role })
-        .from(schema.users)
-        .where(eq(schema.users.authId, ctx.userId))
+      const [dbUser] = await ctx.db
+        .select({ id: schema.user.id, role: schema.user.role })
+        .from(schema.user)
+        .where(eq(schema.user.id, ctx.userId))
         .limit(1)
 
-      if (!user) {
+      if (!dbUser) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' })
       }
 
@@ -912,7 +912,7 @@ export const paymentRouter = router({
       const [clientUser] = await ctx.db
         .select({ clientId: schema.clientUsers.clientId })
         .from(schema.clientUsers)
-        .where(eq(schema.clientUsers.userId, user.id))
+        .where(eq(schema.clientUsers.userId, dbUser.id))
         .limit(1)
 
       if (!clientUser) {
@@ -940,13 +940,13 @@ export const paymentRouter = router({
       }
 
       // Get user record
-      const [user] = await ctx.db
-        .select({ id: schema.users.id, role: schema.users.role })
-        .from(schema.users)
-        .where(eq(schema.users.authId, ctx.userId))
+      const [dbUser] = await ctx.db
+        .select({ id: schema.user.id, role: schema.user.role })
+        .from(schema.user)
+        .where(eq(schema.user.id, ctx.userId))
         .limit(1)
 
-      if (!user) {
+      if (!dbUser) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' })
       }
 
@@ -954,7 +954,7 @@ export const paymentRouter = router({
       const [clientUser] = await ctx.db
         .select({ clientId: schema.clientUsers.clientId })
         .from(schema.clientUsers)
-        .where(eq(schema.clientUsers.userId, user.id))
+        .where(eq(schema.clientUsers.userId, dbUser.id))
         .limit(1)
 
       if (!clientUser) {

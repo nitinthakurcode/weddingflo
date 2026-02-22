@@ -14,15 +14,15 @@
 -- ============================================
 
 -- Subscription status for billing queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "companies_subscription_status_idx"
+CREATE INDEX IF NOT EXISTS "companies_subscription_status_idx"
   ON "companies" ("subscription_status");
 
 -- Subscription tier for feature gating
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "companies_subscription_tier_idx"
+CREATE INDEX IF NOT EXISTS "companies_subscription_tier_idx"
   ON "companies" ("subscription_tier");
 
 -- Combined billing index
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "companies_billing_idx"
+CREATE INDEX IF NOT EXISTS "companies_billing_idx"
   ON "companies" ("subscription_status", "subscription_tier");
 
 -- ============================================
@@ -30,55 +30,47 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "companies_billing_idx"
 -- ============================================
 
 -- Stage + assignee for kanban board views
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "pipeline_leads_stage_assignee_idx"
+CREATE INDEX IF NOT EXISTS "pipeline_leads_stage_assignee_idx"
   ON "pipeline_leads" ("stage_id", "assignee_id");
 
 -- Company + stage + status for filtered pipeline views
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "pipeline_leads_company_stage_idx"
+CREATE INDEX IF NOT EXISTS "pipeline_leads_company_stage_idx"
   ON "pipeline_leads" ("company_id", "stage_id", "status");
 
 -- ============================================
 -- GUEST GIFTS - Delivery Tracking
 -- ============================================
 
--- Guest gifts by client + delivery status
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "guest_gifts_delivery_idx"
-  ON "guest_gifts" ("client_id", "delivery_status");
+-- REMOVED: guest_gifts_delivery_idx - delivery_status column does not exist on guest_gifts table
 
 -- Guest gifts by guest for lookup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "guest_gifts_guest_idx"
+CREATE INDEX IF NOT EXISTS "guest_gifts_guest_idx"
   ON "guest_gifts" ("guest_id");
 
 -- ============================================
 -- FLOOR PLAN GUESTS - Seating Optimization
 -- ============================================
 
--- Floor plan guests by client for bulk operations
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "floor_plan_guests_client_idx"
-  ON "floor_plan_guests" ("client_id");
+-- REMOVED: floor_plan_guests_client_idx - client_id column does not exist on floor_plan_guests table
 
 -- Floor plan guests by guest for cleanup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "floor_plan_guests_guest_idx"
+CREATE INDEX IF NOT EXISTS "floor_plan_guests_guest_idx"
   ON "floor_plan_guests" ("guest_id");
 
 -- ============================================
 -- CHATBOT - Pending Calls Index
 -- ============================================
 
--- Pending calls by status for processing
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "chatbot_pending_calls_status_idx"
-  ON "chatbot_pending_calls" ("status");
+-- REMOVED: chatbot_pending_calls_status_idx - status column does not exist on chatbot_pending_calls table
 
--- Pending calls by conversation for cleanup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "chatbot_pending_calls_conv_idx"
-  ON "chatbot_pending_calls" ("conversation_id");
+-- REMOVED: chatbot_pending_calls_conv_idx - conversation_id column does not exist on chatbot_pending_calls table
 
 -- ============================================
 -- ACCOMMODATIONS - Hotel Management
 -- ============================================
 
 -- Accommodations by name for duplicate detection
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "accommodations_name_idx"
+CREATE INDEX IF NOT EXISTS "accommodations_name_idx"
   ON "accommodations" ("client_id", "name");
 
 -- ============================================
@@ -86,7 +78,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "accommodations_name_idx"
 -- ============================================
 
 -- Reviews by vendor for rating calculation
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "vendor_reviews_vendor_idx"
+CREATE INDEX IF NOT EXISTS "vendor_reviews_vendor_idx"
   ON "vendor_reviews" ("vendor_id", "rating");
 
 -- ============================================
@@ -94,7 +86,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "vendor_reviews_vendor_idx"
 -- ============================================
 
 -- Seating versions by floor plan
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "seating_versions_floor_plan_idx"
+CREATE INDEX IF NOT EXISTS "seating_versions_floor_plan_idx"
   ON "seating_versions" ("floor_plan_id", "created_at" DESC);
 
 -- ============================================
@@ -102,17 +94,17 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "seating_versions_floor_plan_idx"
 -- ============================================
 
 -- Creative jobs by status for dashboard
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "creative_jobs_status_idx"
+CREATE INDEX IF NOT EXISTS "creative_jobs_status_idx"
   ON "creative_jobs" ("client_id", "status");
 
 -- ============================================
 -- TEAM CLIENT ASSIGNMENTS - Lookup
 -- ============================================
 
--- Team assignments by user
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "team_client_assignments_user_idx"
-  ON "team_client_assignments" ("user_id");
+-- Team assignments by team member (column is team_member_id, not user_id)
+CREATE INDEX IF NOT EXISTS "team_client_assignments_user_idx"
+  ON "team_client_assignments" ("team_member_id");
 
 -- Team assignments by client
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "team_client_assignments_client_idx"
+CREATE INDEX IF NOT EXISTS "team_client_assignments_client_idx"
   ON "team_client_assignments" ("client_id");

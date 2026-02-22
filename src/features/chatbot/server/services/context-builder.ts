@@ -18,7 +18,7 @@ import {
   vendors,
   timeline,
   clientVendors,
-  users,
+  user as userTable,
   chatbotConversations,
   chatbotMessages,
   chatbotCommandTemplates,
@@ -515,19 +515,19 @@ async function buildTimelineStats(clientId: string): Promise<TimelineStats> {
  * Build user preferences from user record
  */
 async function buildUserPreferences(userId: string): Promise<UserPreferences> {
-  const [user] = await db
+  const [dbUser] = await db
     .select({
-      preferredLanguage: users.preferredLanguage,
-      timezone: users.timezone,
+      preferredLanguage: userTable.preferredLanguage,
+      timezone: userTable.timezone,
     })
-    .from(users)
-    .where(eq(users.authId, userId))
+    .from(userTable)
+    .where(eq(userTable.id, userId))
     .limit(1)
 
   // Default preferences
   return {
-    preferredLanguage: user?.preferredLanguage || 'en',
-    timezone: user?.timezone || 'America/New_York',
+    preferredLanguage: dbUser?.preferredLanguage || 'en',
+    timezone: dbUser?.timezone || 'America/New_York',
     defaultCurrency: 'USD',
     dateFormat: 'US',
     measurementUnit: 'imperial',

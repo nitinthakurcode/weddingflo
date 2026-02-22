@@ -654,6 +654,7 @@ export const floorPlans = pgTable('floor_plans', {
 export const floorPlanTables = pgTable('floor_plan_tables', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   floorPlanId: text('floor_plan_id').notNull().references(() => floorPlans.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
   tableNumber: integer('table_number').notNull().default(1),
   tableName: text('table_name'),
   shape: text('shape').default('round'),
@@ -1021,6 +1022,7 @@ export const smsPreferences = pgTable('sms_preferences', {
 // Stripe Accounts (company Stripe Connect accounts)
 export const stripeAccounts = pgTable('stripe_accounts', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull(),
   companyId: text('company_id').notNull(),
   stripeAccountId: text('stripe_account_id').notNull(),
   type: text('type').default('express'),

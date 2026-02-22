@@ -2,7 +2,7 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
-import { timeline, clients, users, clientUsers, events } from '@/lib/db/schema'
+import { timeline, clients, user, clientUsers, events } from '@/lib/db/schema'
 
 /**
  * Timeline tRPC Router - Drizzle ORM Version
@@ -490,13 +490,13 @@ export const timelineRouter = router({
       }
 
       // Get user record
-      const [user] = await ctx.db
-        .select({ id: users.id, role: users.role })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+      const [portalUser] = await ctx.db
+        .select({ id: user.id, role: user.role })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1)
 
-      if (!user) {
+      if (!portalUser) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' })
       }
 
@@ -504,7 +504,7 @@ export const timelineRouter = router({
       const [clientUser] = await ctx.db
         .select({ clientId: clientUsers.clientId })
         .from(clientUsers)
-        .where(eq(clientUsers.userId, user.id))
+        .where(eq(clientUsers.userId, portalUser.id))
         .limit(1)
 
       if (!clientUser) {

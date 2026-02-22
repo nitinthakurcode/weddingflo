@@ -70,40 +70,40 @@ CREATE TABLE IF NOT EXISTS chatbot_command_templates (
 -- ============================================
 
 -- Conversations: lookup by user (most common query)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_conv_user
+CREATE INDEX IF NOT EXISTS idx_chatbot_conv_user
   ON chatbot_conversations(user_id);
 
 -- Conversations: lookup by user + company for multi-company users
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_conv_user_company
+CREATE INDEX IF NOT EXISTS idx_chatbot_conv_user_company
   ON chatbot_conversations(user_id, company_id);
 
 -- Conversations: lookup by client (for client-specific history)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_conv_client
+CREATE INDEX IF NOT EXISTS idx_chatbot_conv_client
   ON chatbot_conversations(client_id)
   WHERE client_id IS NOT NULL;
 
 -- Conversations: ordering by recency
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_conv_updated
+CREATE INDEX IF NOT EXISTS idx_chatbot_conv_updated
   ON chatbot_conversations(user_id, updated_at DESC);
 
 -- Messages: lookup by conversation (most common)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_msg_conv
+CREATE INDEX IF NOT EXISTS idx_chatbot_msg_conv
   ON chatbot_messages(conversation_id);
 
 -- Messages: ordering by time within conversation
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_msg_created
+CREATE INDEX IF NOT EXISTS idx_chatbot_msg_created
   ON chatbot_messages(conversation_id, created_at ASC);
 
 -- Templates: lookup by user
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_templates_user
+CREATE INDEX IF NOT EXISTS idx_chatbot_templates_user
   ON chatbot_command_templates(user_id);
 
 -- Templates: lookup by user + company for multi-company users
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_templates_user_company
+CREATE INDEX IF NOT EXISTS idx_chatbot_templates_user_company
   ON chatbot_command_templates(user_id, company_id);
 
 -- Templates: pinned templates first, then by usage
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chatbot_templates_pinned
+CREATE INDEX IF NOT EXISTS idx_chatbot_templates_pinned
   ON chatbot_command_templates(user_id, is_pinned DESC, usage_count DESC);
 
 -- ============================================

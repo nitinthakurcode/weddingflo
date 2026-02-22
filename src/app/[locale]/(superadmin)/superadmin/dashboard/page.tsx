@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { getServerSession } from '@/lib/auth/server';
 import { db, eq, sql, desc } from '@/lib/db';
-import { users, companies, clients } from '@/lib/db/schema';
+import { user, companies, clients } from '@/lib/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from '@/lib/navigation';
@@ -10,7 +10,7 @@ import { Building2, Users, UserCircle, TrendingUp } from 'lucide-react';
 
 export default async function SuperAdminDashboardPage() {
   // Get BetterAuth session
-  const { userId, user } = await getServerSession();
+  const { userId, user: sessionUser } = await getServerSession();
 
   // Get locale from headers for proper redirects
   const headersList = await headers();
@@ -18,12 +18,12 @@ export default async function SuperAdminDashboardPage() {
   const localeMatch = url.match(/\/([a-z]{2})\//);
   const locale = localeMatch ? localeMatch[1] : 'en';
 
-  if (!userId || !user) {
+  if (!userId || !sessionUser) {
     redirect(`/${locale}/sign-in`);
   }
 
   // Get role from BetterAuth user object (properly typed)
-  const role = user.role ?? undefined;
+  const role = sessionUser.role ?? undefined;
 
   // Verify super admin access
   if (role !== 'super_admin') {
@@ -33,21 +33,21 @@ export default async function SuperAdminDashboardPage() {
   // Fetch platform statistics using Drizzle
   const [companiesCountResult, usersCountResult, clientsCountResult, recentUsersResult] = await Promise.all([
     db.execute(sql`SELECT COUNT(*)::integer as count FROM companies`),
-    db.execute(sql`SELECT COUNT(*)::integer as count FROM users`),
+    db.execute(sql`SELECT COUNT(*)::integer as count FROM "user"`),
     db.execute(sql`SELECT COUNT(*)::integer as count FROM clients`),
     db
       .select({
-        id: users.id,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        email: users.email,
-        role: users.role,
-        created_at: users.createdAt,
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        created_at: user.createdAt,
         companyName: companies.name,
       })
-      .from(users)
-      .leftJoin(companies, eq(users.companyId, companies.id))
-      .orderBy(desc(users.createdAt))
+      .from(user)
+      .leftJoin(companies, eq(user.companyId, companies.id))
+      .orderBy(desc(user.createdAt))
       .limit(10),
   ]);
 

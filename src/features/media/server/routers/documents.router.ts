@@ -2,7 +2,7 @@ import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc } from 'drizzle-orm'
-import { clients, documents, users } from '@/lib/db/schema'
+import { clients, documents, user } from '@/lib/db/schema'
 import { deleteFile, validateStorageKey } from '@/lib/storage/r2-client'
 import {
   requestSignature,
@@ -130,10 +130,10 @@ export const documentsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User ID not found in session' })
       }
 
-      const [user] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+      const [dbUser] = await ctx.db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1)
 
       // Validate required fields
@@ -146,7 +146,7 @@ export const documentsRouter = router({
       if (!input.storageUrl) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Storage URL is required' })
       }
-      if (!user) {
+      if (!dbUser) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found in database' })
       }
 

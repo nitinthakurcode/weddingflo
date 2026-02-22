@@ -6,7 +6,6 @@ import {
   timeline,
   events,
   messages,
-  users,
 } from '@/lib/db/schema'
 import { sendEmail } from './resend'
 import { WeeklyDigestEmail } from './templates/weekly-digest-email'

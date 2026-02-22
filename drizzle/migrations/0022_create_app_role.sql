@@ -14,7 +14,7 @@
 --   Keep the superuser credentials for migrations and emergency access only.
 -- ============================================================================
 
-BEGIN;
+-- Transaction managed by Drizzle migrator
 
 -- 1. Create the application role (NOT a superuser, NOT a replication role)
 DO $$
@@ -25,8 +25,10 @@ BEGIN
 END
 $$;
 
--- 2. Grant connect access to the database
-GRANT CONNECT ON DATABASE weddingflo TO weddingflo_app;
+-- 2. Grant connect access to the current database
+DO $$ BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO weddingflo_app', current_database());
+END $$;
 
 -- 3. Grant schema usage
 GRANT USAGE ON SCHEMA public TO weddingflo_app;
@@ -48,7 +50,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- This is safe — SET LOCAL only affects the current transaction.
 -- No additional GRANT is needed for SET LOCAL in PostgreSQL 15+.
 
-COMMIT;
+-- End of migration (transaction managed by Drizzle)
 
 -- ============================================================================
 -- POST-MIGRATION STEPS:

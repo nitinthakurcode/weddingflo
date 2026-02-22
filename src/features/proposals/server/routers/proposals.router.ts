@@ -15,7 +15,7 @@ import { router, protectedProcedure, publicProcedure, adminProcedure } from '@/s
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
-import { proposals, proposalTemplates, pipelineLeads, clients, users, companies } from '@/lib/db/schema';
+import { proposals, proposalTemplates, pipelineLeads, clients, user, companies } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
 import { createNotification, notifyTeamMembers } from '@/features/core/server/services/notification.service';
 
@@ -402,9 +402,9 @@ export const proposalsRouter = router({
 
       // Get current user
       const [currentUser] = await ctx.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.authId, ctx.userId))
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, ctx.userId))
         .limit(1);
 
       // Generate proposal number
