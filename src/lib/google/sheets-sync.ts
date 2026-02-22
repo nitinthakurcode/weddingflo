@@ -580,3 +580,690 @@ export async function importGuestsFromSheet(
 
   return stats;
 }
+
+/**
+ * Import budget items from Google Sheet (bi-directional sync)
+ * Compares timestamps and imports newer records from Sheet
+ */
+export async function importBudgetFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Budget');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Budget sheet');
+      return stats;
+    }
+
+    // Get existing budget items for timestamp comparison
+    const existingBudget = await db
+      .select({ id: budget.id, updatedAt: budget.updatedAt })
+      .from(budget)
+      .where(eq(budget.clientId, clientId));
+
+    const existingMap = new Map(existingBudget.map(b => [b.id, b.updatedAt]));
+
+    for (let i = 1; i < sheetData.length; i++) {
+      const row = sheetData[i];
+      const id = row[idIndex];
+      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+      const dbUpdatedAt = existingMap.get(id);
+
+      // Skip if DB record is newer or same
+      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+        continue;
+      }
+
+      const getValue = (header: string) => {
+        const idx = headers.indexOf(header);
+        return idx !== -1 ? row[idx] : null;
+      };
+
+      try {
+        const budgetData = {
+          item: getValue('Item') || '',
+          category: getValue('Category') || 'other',
+          segment: getValue('Segment') || null,
+          estimatedCost: getValue('Estimated Cost') || '0',
+          actualCost: getValue('Actual Cost') || null,
+          paidAmount: getValue('Paid Amount') || '0',
+          paymentStatus: getValue('Payment Status') || 'pending',
+          notes: getValue('Notes') || null,
+          updatedAt: new Date(),
+        };
+
+        if (existingMap.has(id)) {
+          await db.update(budget).set(budgetData).where(eq(budget.id, id));
+        } else if (budgetData.item) {
+          await db.insert(budget).values({
+            id,
+            clientId,
+            ...budgetData,
+          });
+        }
+
+        stats.imported++;
+      } catch (rowError: any) {
+        stats.errors.push(`Budget Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} budget items from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Budget import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing budget:', error);
+  }
+
+  return stats;
+}
+
+/**
+ * Import vendors from Google Sheet (bi-directional sync)
+ * Handles both vendors and client_vendors tables
+ */
+export async function importVendorsFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string,
+  companyId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Vendors');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Vendors sheet');
+      return stats;
+    }
+
+    // Get existing vendors
+    const existingVendors = await db
+      .select({ id: vendors.id, updatedAt: vendors.updatedAt })
+      .from(vendors)
+      .where(eq(vendors.companyId, companyId));
+
+    const existingMap = new Map(existingVendors.map(v => [v.id, v.updatedAt]));
+
+    // Get existing client_vendors links
+    const existingLinks = await db
+      .select({ vendorId: clientVendors.vendorId })
+      .from(clientVendors)
+      .where(eq(clientVendors.clientId, clientId));
+
+    const linkedVendorIds = new Set(existingLinks.map(l => l.vendorId));
+
+    for (let i = 1; i < sheetData.length; i++) {
+      const row = sheetData[i];
+      const id = row[idIndex];
+      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+      const dbUpdatedAt = existingMap.get(id);
+
+      // Skip if DB record is newer or same
+      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+        continue;
+      }
+
+      const getValue = (header: string) => {
+        const idx = headers.indexOf(header);
+        return idx !== -1 ? row[idx] : null;
+      };
+
+      try {
+        const vendorData = {
+          name: getValue('Vendor Name') || '',
+          category: getValue('Category') || 'other',
+          contactName: getValue('Contact Name') || null,
+          phone: getValue('Phone') || null,
+          email: getValue('Email') || null,
+          rating: getValue('Rating') || null,
+          notes: getValue('Notes') || null,
+          updatedAt: new Date(),
+        };
+
+        if (!vendorData.name) {
+          continue;
+        }
+
+        if (existingMap.has(id)) {
+          await db.update(vendors).set(vendorData).where(eq(vendors.id, id));
+        } else {
+          await db.insert(vendors).values({
+            id,
+            companyId,
+            ...vendorData,
+          });
+          existingMap.set(id, new Date());
+        }
+
+        // Create or update client_vendor link
+        const contractAmount = getValue('Contract Amount');
+        const serviceDate = getValue('Service Date');
+        const paymentStatus = getValue('Payment Status') || 'pending';
+        const venueAddress = getValue('Location');
+
+        if (!linkedVendorIds.has(id)) {
+          const { randomUUID } = await import('crypto');
+          await db.insert(clientVendors).values({
+            id: randomUUID(),
+            clientId,
+            vendorId: id,
+            contractAmount: contractAmount || null,
+            serviceDate: serviceDate || null,
+            paymentStatus: paymentStatus as any,
+            venueAddress: venueAddress || null,
+          });
+          linkedVendorIds.add(id);
+        } else {
+          await db.update(clientVendors).set({
+            contractAmount: contractAmount || null,
+            serviceDate: serviceDate || null,
+            paymentStatus: paymentStatus as any,
+            venueAddress: venueAddress || null,
+            updatedAt: new Date(),
+          }).where(
+            and(eq(clientVendors.clientId, clientId), eq(clientVendors.vendorId, id))
+          );
+        }
+
+        stats.imported++;
+      } catch (rowError: any) {
+        stats.errors.push(`Vendor Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} vendors from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Vendor import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing vendors:', error);
+  }
+
+  return stats;
+}
+
+/**
+ * Import hotels from Google Sheet (bi-directional sync)
+ */
+export async function importHotelsFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Hotels');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Hotels sheet');
+      return stats;
+    }
+
+    const existingHotels = await db
+      .select({ id: hotels.id, updatedAt: hotels.updatedAt })
+      .from(hotels)
+      .where(eq(hotels.clientId, clientId));
+
+    const existingMap = new Map(existingHotels.map(h => [h.id, h.updatedAt]));
+
+    for (let i = 1; i < sheetData.length; i++) {
+      const row = sheetData[i];
+      const id = row[idIndex];
+      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+      const dbUpdatedAt = existingMap.get(id);
+
+      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+        continue;
+      }
+
+      const getValue = (header: string) => {
+        const idx = headers.indexOf(header);
+        return idx !== -1 ? row[idx] : null;
+      };
+
+      const parseBoolean = (val: string | null) => {
+        if (!val) return false;
+        return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
+      };
+
+      try {
+        const hotelData = {
+          guestName: getValue('Guest Name') || '',
+          hotelName: getValue('Hotel Name') || null,
+          roomType: getValue('Room Type') || null,
+          roomNumber: getValue('Room Number') || null,
+          checkInDate: getValue('Check-In Date') || null,
+          checkOutDate: getValue('Check-Out Date') || null,
+          partySize: parseInt(getValue('Party Size') || '1') || 1,
+          accommodationNeeded: parseBoolean(getValue('Accommodation Needed')),
+          bookingConfirmed: parseBoolean(getValue('Booking Confirmed')),
+          checkedIn: parseBoolean(getValue('Checked In')),
+          cost: getValue('Cost') || null,
+          paymentStatus: getValue('Payment Status') || 'pending',
+          notes: getValue('Notes') || null,
+          updatedAt: new Date(),
+        };
+
+        if (!hotelData.guestName) {
+          continue;
+        }
+
+        if (existingMap.has(id)) {
+          await db.update(hotels).set(hotelData).where(eq(hotels.id, id));
+        } else {
+          await db.insert(hotels).values({
+            id,
+            clientId,
+            ...hotelData,
+          });
+        }
+
+        stats.imported++;
+      } catch (rowError: any) {
+        stats.errors.push(`Hotel Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} hotels from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Hotel import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing hotels:', error);
+  }
+
+  return stats;
+}
+
+/**
+ * Import transport from Google Sheet (bi-directional sync)
+ */
+export async function importTransportFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Transport');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Transport sheet');
+      return stats;
+    }
+
+    const existingTransport = await db
+      .select({ id: guestTransport.id, updatedAt: guestTransport.updatedAt })
+      .from(guestTransport)
+      .where(eq(guestTransport.clientId, clientId));
+
+    const existingMap = new Map(existingTransport.map(t => [t.id, t.updatedAt]));
+
+    for (let i = 1; i < sheetData.length; i++) {
+      const row = sheetData[i];
+      const id = row[idIndex];
+      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+      const dbUpdatedAt = existingMap.get(id);
+
+      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+        continue;
+      }
+
+      const getValue = (header: string) => {
+        const idx = headers.indexOf(header);
+        return idx !== -1 ? row[idx] : null;
+      };
+
+      try {
+        const transportData = {
+          guestName: getValue('Guest Name') || '',
+          legType: getValue('Leg Type') || 'arrival',
+          pickupDate: getValue('Pickup Date') || null,
+          pickupTime: getValue('Pickup Time') || null,
+          pickupFrom: getValue('Pickup From') || null,
+          dropTo: getValue('Drop To') || null,
+          vehicleInfo: getValue('Vehicle Info') || null,
+          vehicleNumber: getValue('Vehicle Number') || null,
+          driverPhone: getValue('Driver Phone') || null,
+          transportStatus: getValue('Transport Status') || 'scheduled',
+          notes: getValue('Notes') || null,
+          updatedAt: new Date(),
+        };
+
+        if (!transportData.guestName) {
+          continue;
+        }
+
+        if (existingMap.has(id)) {
+          await db.update(guestTransport).set(transportData).where(eq(guestTransport.id, id));
+        } else {
+          await db.insert(guestTransport).values({
+            id,
+            clientId,
+            ...transportData,
+          });
+        }
+
+        stats.imported++;
+      } catch (rowError: any) {
+        stats.errors.push(`Transport Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} transport records from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Transport import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing transport:', error);
+  }
+
+  return stats;
+}
+
+/**
+ * Import timeline from Google Sheet (bi-directional sync)
+ * Preserves sourceModule/sourceId for linked items
+ */
+export async function importTimelineFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Timeline');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Timeline sheet');
+      return stats;
+    }
+
+    const existingTimeline = await db
+      .select({ id: timeline.id, updatedAt: timeline.updatedAt, sourceModule: timeline.sourceModule })
+      .from(timeline)
+      .where(eq(timeline.clientId, clientId));
+
+    const existingMap = new Map(existingTimeline.map(t => [t.id, { updatedAt: t.updatedAt, sourceModule: t.sourceModule }]));
+
+    for (let i = 1; i < sheetData.length; i++) {
+      const row = sheetData[i];
+      const id = row[idIndex];
+      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+      const existing = existingMap.get(id);
+
+      // Skip if DB record is newer
+      if (existing?.updatedAt && sheetUpdatedAt && new Date(existing.updatedAt) >= sheetUpdatedAt) {
+        continue;
+      }
+
+      // Skip auto-generated items (hotels, transport, events sync)
+      if (existing?.sourceModule && ['hotels', 'transport', 'events'].includes(existing.sourceModule)) {
+        continue;
+      }
+
+      const getValue = (header: string) => {
+        const idx = headers.indexOf(header);
+        return idx !== -1 ? row[idx] : null;
+      };
+
+      const parseBoolean = (val: string | null) => {
+        if (!val) return false;
+        return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
+      };
+
+      try {
+        const startTimeStr = getValue('Start Time');
+        const endTimeStr = getValue('End Time');
+
+        const title = getValue('Title') || '';
+
+        // Skip rows without title or startTime (required for insert)
+        if (!title || !startTimeStr) {
+          if (!title) continue;
+          // For existing entries, we can update without startTime
+          if (!existingMap.has(id)) continue;
+        }
+
+        const startTime = startTimeStr ? new Date(startTimeStr) : undefined;
+        const endTime = endTimeStr ? new Date(endTimeStr) : undefined;
+
+        if (existingMap.has(id)) {
+          // Update existing - can handle partial updates
+          const updateData: Record<string, any> = {
+            title,
+            description: getValue('Description') || null,
+            location: getValue('Location') || null,
+            phase: getValue('Phase') || 'showtime',
+            completed: parseBoolean(getValue('Completed')),
+            responsiblePerson: getValue('Responsible Person') || null,
+            notes: getValue('Notes') || null,
+            updatedAt: new Date(),
+          };
+          if (startTime) updateData.startTime = startTime;
+          if (endTime) updateData.endTime = endTime;
+          await db.update(timeline).set(updateData).where(eq(timeline.id, id));
+        } else {
+          // Insert requires startTime
+          await db.insert(timeline).values({
+            id,
+            clientId,
+            title,
+            description: getValue('Description') || null,
+            startTime: startTime!,
+            endTime: endTime || undefined,
+            location: getValue('Location') || null,
+            phase: getValue('Phase') || 'showtime',
+            completed: parseBoolean(getValue('Completed')),
+            responsiblePerson: getValue('Responsible Person') || null,
+            notes: getValue('Notes') || null,
+          });
+        }
+
+        stats.imported++;
+      } catch (rowError: any) {
+        stats.errors.push(`Timeline Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} timeline entries from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Timeline import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing timeline:', error);
+  }
+
+  return stats;
+}
+
+/**
+ * Import gifts from Google Sheet (bi-directional sync)
+ */
+export async function importGiftsFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Gifts');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Gifts sheet');
+      return stats;
+    }
+
+    const existingGifts = await db
+      .select({ id: gifts.id, updatedAt: gifts.updatedAt })
+      .from(gifts)
+      .where(eq(gifts.clientId, clientId));
+
+    const existingMap = new Map(existingGifts.map(g => [g.id, g.updatedAt]));
+
+    for (let i = 1; i < sheetData.length; i++) {
+      const row = sheetData[i];
+      const id = row[idIndex];
+      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+      const dbUpdatedAt = existingMap.get(id);
+
+      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+        continue;
+      }
+
+      const getValue = (header: string) => {
+        const idx = headers.indexOf(header);
+        return idx !== -1 ? row[idx] : null;
+      };
+
+      try {
+        const giftData = {
+          name: getValue('Gift Name') || '',
+          guestId: getValue('Guest ID') || null,
+          value: getValue('Value') ? parseFloat(getValue('Value')!) : null,
+          status: getValue('Status') || 'received',
+          updatedAt: new Date(),
+        };
+
+        if (!giftData.name) {
+          continue;
+        }
+
+        if (existingMap.has(id)) {
+          await db.update(gifts).set(giftData).where(eq(gifts.id, id));
+        } else {
+          await db.insert(gifts).values({
+            id,
+            clientId,
+            ...giftData,
+          });
+        }
+
+        stats.imported++;
+      } catch (rowError: any) {
+        stats.errors.push(`Gift Row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} gifts from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Gift import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing gifts:', error);
+  }
+
+  return stats;
+}
+
+/**
+ * Import all modules from Google Sheets (bi-directional sync)
+ */
+export async function importAllFromSheets(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string,
+  companyId: string
+): Promise<{
+  success: boolean;
+  totalImported: number;
+  byModule: Record<string, number>;
+  errors: string[];
+}> {
+  let totalImported = 0;
+  const byModule: Record<string, number> = {};
+  const allErrors: string[] = [];
+
+  // Import each module
+  const guestStats = await importGuestsFromSheet(sheetsClient, spreadsheetId, clientId);
+  totalImported += guestStats.imported;
+  byModule.guests = guestStats.imported;
+  allErrors.push(...guestStats.errors);
+
+  const budgetStats = await importBudgetFromSheet(sheetsClient, spreadsheetId, clientId);
+  totalImported += budgetStats.imported;
+  byModule.budget = budgetStats.imported;
+  allErrors.push(...budgetStats.errors);
+
+  const vendorStats = await importVendorsFromSheet(sheetsClient, spreadsheetId, clientId, companyId);
+  totalImported += vendorStats.imported;
+  byModule.vendors = vendorStats.imported;
+  allErrors.push(...vendorStats.errors);
+
+  const hotelStats = await importHotelsFromSheet(sheetsClient, spreadsheetId, clientId);
+  totalImported += hotelStats.imported;
+  byModule.hotels = hotelStats.imported;
+  allErrors.push(...hotelStats.errors);
+
+  const transportStats = await importTransportFromSheet(sheetsClient, spreadsheetId, clientId);
+  totalImported += transportStats.imported;
+  byModule.transport = transportStats.imported;
+  allErrors.push(...transportStats.errors);
+
+  const timelineStats = await importTimelineFromSheet(sheetsClient, spreadsheetId, clientId);
+  totalImported += timelineStats.imported;
+  byModule.timeline = timelineStats.imported;
+  allErrors.push(...timelineStats.errors);
+
+  const giftStats = await importGiftsFromSheet(sheetsClient, spreadsheetId, clientId);
+  totalImported += giftStats.imported;
+  byModule.gifts = giftStats.imported;
+  allErrors.push(...giftStats.errors);
+
+  console.log(`[Sheets Sync] Import complete: ${totalImported} records imported, ${allErrors.length} errors`);
+
+  return {
+    success: allErrors.length === 0,
+    totalImported,
+    byModule,
+    errors: allErrors,
+  };
+}

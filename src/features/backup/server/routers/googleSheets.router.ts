@@ -11,6 +11,13 @@ import {
 import {
   syncAllToSheets,
   importGuestsFromSheet,
+  importBudgetFromSheet,
+  importVendorsFromSheet,
+  importHotelsFromSheet,
+  importTransportFromSheet,
+  importTimelineFromSheet,
+  importGiftsFromSheet,
+  importAllFromSheets,
 } from '@/lib/google/sheets-sync';
 
 /**
@@ -316,7 +323,7 @@ export const googleSheetsRouter = router({
   importFromSheet: protectedProcedure
     .input(z.object({
       clientId: z.string(),
-      module: z.enum(['guests']).default('guests'), // Start with guests, can expand later
+      module: z.enum(['guests', 'budget', 'vendors', 'hotels', 'transport', 'timeline', 'gifts', 'all']).default('guests'),
     }))
     .mutation(async ({ input, ctx }) => {
       const settings = await db.query.googleSheetsSyncSettings.findFirst({
@@ -351,15 +358,51 @@ export const googleSheetsRouter = router({
 
       const sheetsClient = oauth.getSheetsClient(accessToken, settings.refreshToken);
 
+      // Handle all modules import
+      if (input.module === 'all') {
+        const allResult = await importAllFromSheets(
+          sheetsClient,
+          settings.spreadsheetId,
+          input.clientId,
+          ctx.companyId!
+        );
+
+        return {
+          success: allResult.success,
+          imported: allResult.totalImported,
+          byModule: allResult.byModule,
+          errors: allResult.errors.length > 0 ? allResult.errors : undefined,
+        };
+      }
+
+      // Handle individual module import
       let result;
       switch (input.module) {
         case 'guests':
           result = await importGuestsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
           break;
+        case 'budget':
+          result = await importBudgetFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          break;
+        case 'vendors':
+          result = await importVendorsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId!);
+          break;
+        case 'hotels':
+          result = await importHotelsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          break;
+        case 'transport':
+          result = await importTransportFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          break;
+        case 'timeline':
+          result = await importTimelineFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          break;
+        case 'gifts':
+          result = await importGiftsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          break;
         default:
           throw new TRPCError({
             code: 'BAD_REQUEST',
-            message: `Import for module '${input.module}' not yet supported`,
+            message: `Import for module '${input.module}' not supported`,
           });
       }
 

@@ -1,7 +1,7 @@
 import { router, adminProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { eq, and, isNull, asc } from 'drizzle-orm'
+import { eq, and, isNull, asc, sql } from 'drizzle-orm'
 import { hotels, clients, guests, timeline, accommodations } from '@/lib/db/schema'
 import { randomUUID } from 'crypto'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
@@ -733,6 +733,175 @@ export const hotelsRouter = router({
         synced: newHotelRecords.length,
         total: guestsNeedingHotel.length,
         message: `Synced ${newHotelRecords.length} new hotel records`
+      }
+    }),
+
+  /**
+   * Get accommodation capacity summary with alerts
+   * Returns total capacity, allocated guests, and capacity warnings
+   */
+  getCapacitySummary: adminProcedure
+    .input(z.object({ clientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+
+      // Verify client belongs to company and is not soft-deleted
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.id, input.clientId),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!client) {
+        throw new TRPCError({ code: 'FORBIDDEN' })
+      }
+
+      // Type for room type configuration
+      type RoomType = {
+        type: string;
+        capacity: number;
+        ratePerNight: number;
+        totalRooms: number;
+      }
+
+      // Get all accommodations for this client
+      const accommodationList = await ctx.db
+        .select({
+          id: accommodations.id,
+          name: accommodations.name,
+          roomTypes: accommodations.roomTypes,
+        })
+        .from(accommodations)
+        .where(
+          and(
+            eq(accommodations.clientId, input.clientId),
+            isNull(accommodations.deletedAt)
+          )
+        )
+
+      // Get hotel allocations per accommodation
+      const hotelAllocations = await ctx.db
+        .select({
+          accommodationId: hotels.accommodationId,
+          totalPartySize: sql<number>`coalesce(sum(${hotels.partySize}), 0)::int`,
+          roomCount: sql<number>`count(*)::int`,
+        })
+        .from(hotels)
+        .where(eq(hotels.clientId, input.clientId))
+        .groupBy(hotels.accommodationId)
+
+      // Build allocation map
+      const allocationMap = new Map<string, { totalPartySize: number; roomCount: number }>(
+        hotelAllocations.map(a => [
+          a.accommodationId || 'unassigned',
+          { totalPartySize: a.totalPartySize, roomCount: a.roomCount }
+        ])
+      )
+
+      // Build capacity alerts
+      type CapacityAlert = {
+        accommodationId: string;
+        accommodationName: string;
+        alertType: 'over_capacity' | 'near_capacity' | 'over_room_limit';
+        message: string;
+        currentAllocation: number;
+        limit: number;
+      }
+
+      const alerts: CapacityAlert[] = []
+      let totalCapacity = 0
+      let totalAllocated = 0
+
+      const accommodationsWithStatus = accommodationList.map(acc => {
+        const allocation = allocationMap.get(acc.id) || { totalPartySize: 0, roomCount: 0 }
+
+        // Parse room types JSON to calculate capacity and total rooms
+        let capacity = 0
+        let totalRooms = 0
+        if (acc.roomTypes && Array.isArray(acc.roomTypes)) {
+          const roomTypesArr = acc.roomTypes as RoomType[]
+          for (const rt of roomTypesArr) {
+            totalRooms += rt.totalRooms || 0
+            capacity += (rt.capacity || 0) * (rt.totalRooms || 0)
+          }
+        }
+
+        totalCapacity += capacity
+        totalAllocated += allocation.totalPartySize
+
+        // Check capacity alerts
+        if (capacity > 0 && allocation.totalPartySize > capacity) {
+          alerts.push({
+            accommodationId: acc.id,
+            accommodationName: acc.name,
+            alertType: 'over_capacity',
+            message: `${acc.name} is over capacity: ${allocation.totalPartySize}/${capacity} guests`,
+            currentAllocation: allocation.totalPartySize,
+            limit: capacity,
+          })
+        } else if (capacity > 0 && allocation.totalPartySize >= capacity * 0.9) {
+          alerts.push({
+            accommodationId: acc.id,
+            accommodationName: acc.name,
+            alertType: 'near_capacity',
+            message: `${acc.name} is near capacity: ${allocation.totalPartySize}/${capacity} guests (90%+)`,
+            currentAllocation: allocation.totalPartySize,
+            limit: capacity,
+          })
+        }
+
+        // Check room limit alerts
+        if (totalRooms > 0 && allocation.roomCount > totalRooms) {
+          alerts.push({
+            accommodationId: acc.id,
+            accommodationName: acc.name,
+            alertType: 'over_room_limit',
+            message: `${acc.name} has more bookings than rooms: ${allocation.roomCount}/${totalRooms} rooms`,
+            currentAllocation: allocation.roomCount,
+            limit: totalRooms,
+          })
+        }
+
+        return {
+          id: acc.id,
+          name: acc.name,
+          totalRooms,
+          capacity,
+          allocatedGuests: allocation.totalPartySize,
+          allocatedRooms: allocation.roomCount,
+          capacityPercentage: capacity > 0 ? Math.round((allocation.totalPartySize / capacity) * 100) : 0,
+          roomPercentage: totalRooms > 0 ? Math.round((allocation.roomCount / totalRooms) * 100) : 0,
+        }
+      })
+
+      // Check for unassigned hotel bookings
+      const unassigned = allocationMap.get('unassigned')
+      if (unassigned && unassigned.totalPartySize > 0) {
+        alerts.push({
+          accommodationId: 'unassigned',
+          accommodationName: 'Unassigned',
+          alertType: 'over_capacity',
+          message: `${unassigned.totalPartySize} guests have hotel bookings but no accommodation assigned`,
+          currentAllocation: unassigned.totalPartySize,
+          limit: 0,
+        })
+      }
+
+      return {
+        accommodations: accommodationsWithStatus,
+        totalCapacity,
+        totalAllocated,
+        unassignedGuests: unassigned?.totalPartySize || 0,
+        alerts,
+        hasCapacityIssues: alerts.some(a => a.alertType === 'over_capacity' || a.alertType === 'over_room_limit'),
       }
     }),
 
