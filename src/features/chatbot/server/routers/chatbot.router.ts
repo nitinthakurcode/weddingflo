@@ -49,6 +49,7 @@ import { buildChatbotSystemPrompt } from '@/lib/ai/prompts/chatbot-system'
 import {
   generateToolPreview,
   executeTool,
+  executeToolWithSync,
   type ToolPreview,
   type ToolExecutionResult,
   type PendingToolCall,
@@ -450,13 +451,21 @@ Use this information to correctly interpret the user's request.`
         }
       }
 
-      // Get pending call from Redis
+      // Get pending call from PostgreSQL
       const pending = await getPendingCall(input.pendingCallId)
 
       if (!pending) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Pending tool call not found or expired. Please try your request again.',
+        })
+      }
+
+      // Security: Verify pending call belongs to this company and user
+      if (pending.companyId !== companyId || pending.userId !== userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Access denied to this pending call',
         })
       }
 
@@ -478,8 +487,8 @@ Use this information to correctly interpret the user's request.`
       }
 
       try {
-        // Execute the tool
-        const result = await executeTool(pending.toolName, pending.args, ctx)
+        // Execute the tool with real-time sync broadcasting
+        const result = await executeToolWithSync(pending.toolName, pending.args, ctx)
 
         // Clean up pending call
         await deletePendingCall(input.pendingCallId)
