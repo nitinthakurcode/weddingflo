@@ -7,6 +7,8 @@
  *
  * Floating action button to toggle the AI chat panel.
  * Placed in the dashboard layout, outside the sidebar.
+ *
+ * Note: Real-time sync is now handled by RealtimeWrapper in the layout.
  */
 
 import { useState } from 'react'
@@ -25,6 +27,9 @@ import { ChatPanel } from './chat-panel'
 export function ChatToggle() {
   const t = useTranslations('chatbot')
   const [isOpen, setIsOpen] = useState(false)
+
+  // Note: Real-time sync is now handled by RealtimeWrapper in the dashboard layout
+  // The RealtimeProvider automatically invalidates tRPC queries when data changes
 
   return (
     <>

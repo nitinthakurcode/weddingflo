@@ -61,6 +61,15 @@ import {
   type EntityResolutionResult,
   type DuplicateCheckResult,
 } from './entity-resolver'
+import {
+  getQueriesToInvalidate,
+  isQueryOnlyTool,
+} from './query-invalidation-map'
+import {
+  publishSyncAction,
+  storeSyncAction,
+  type SyncAction,
+} from '@/lib/realtime/redis-pubsub'
 import type { Context } from '@/server/trpc/context'
 
 // ============================================
@@ -508,6 +517,89 @@ export async function executeTool(
       message: error instanceof Error ? error.message : 'Failed to execute tool',
     })
   }
+}
+
+/**
+ * Execute a tool and broadcast invalidation to connected clients
+ *
+ * This wrapper function handles:
+ * 1. Tool execution via executeTool
+ * 2. Broadcasting query invalidation for non-query tools
+ * 3. Real-time sync to other browser tabs/pages
+ */
+export async function executeToolWithSync(
+  toolName: string,
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  // Execute the tool
+  const result = await executeTool(toolName, args, ctx)
+
+  // Broadcast invalidation for non-query tools via Redis pub/sub
+  if (result.success && !isQueryOnlyTool(toolName)) {
+    const queryPaths = getQueriesToInvalidate(toolName)
+
+    if (queryPaths.length > 0 && ctx.userId && ctx.companyId) {
+      // Extract clientId and entityId from args/result
+      const clientId = typeof args.clientId === 'string' ? args.clientId : undefined
+      const entityId = (result.data as Record<string, unknown>)?.id as string || ''
+
+      // Create sync action
+      const action: SyncAction = {
+        id: crypto.randomUUID(),
+        type: getActionType(toolName),
+        module: getModuleFromToolName(toolName),
+        entityId,
+        data: result.data as Record<string, unknown>,
+        companyId: ctx.companyId,
+        clientId,
+        userId: ctx.userId,
+        timestamp: Date.now(),
+        queryPaths,
+        toolName,
+      }
+
+      // Publish to Redis (broadcasts to ALL instances) and store for recovery
+      try {
+        await Promise.all([
+          publishSyncAction(action),
+          storeSyncAction(action),
+        ])
+        console.log(`[Tool Executor] Published sync action for ${toolName}: ${queryPaths.join(', ')}`)
+      } catch (error) {
+        // Don't fail the tool execution if broadcast fails
+        console.warn(`[Tool Executor] Failed to publish sync action:`, error)
+      }
+    }
+  }
+
+  return result
+}
+
+/**
+ * Determine action type from tool name
+ */
+function getActionType(toolName: string): 'insert' | 'update' | 'delete' {
+  if (toolName.startsWith('add_') || toolName.startsWith('create_')) return 'insert'
+  if (toolName.startsWith('delete_') || toolName.startsWith('remove_')) return 'delete'
+  return 'update'
+}
+
+/**
+ * Determine module from tool name
+ */
+function getModuleFromToolName(toolName: string): SyncAction['module'] {
+  if (toolName.includes('guest')) return 'guests'
+  if (toolName.includes('budget') || toolName.includes('payment')) return 'budget'
+  if (toolName.includes('event')) return 'events'
+  if (toolName.includes('vendor')) return 'vendors'
+  if (toolName.includes('hotel') || toolName.includes('accommodation')) return 'hotels'
+  if (toolName.includes('transport')) return 'transport'
+  if (toolName.includes('timeline')) return 'timeline'
+  if (toolName.includes('gift')) return 'gifts'
+  if (toolName.includes('client')) return 'clients'
+  if (toolName.includes('floor') || toolName.includes('table')) return 'floorPlans'
+  return 'guests' // Default
 }
 
 // ============================================

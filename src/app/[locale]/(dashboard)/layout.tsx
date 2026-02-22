@@ -7,6 +7,7 @@ import { getServerSession } from '@/lib/auth/server';
 import { db, eq } from '@/lib/db';
 import { user as userTable } from '@/lib/db/schema/auth';
 import { ChatToggle } from '@/features/chatbot/components/chat-toggle';
+import { RealtimeWrapper } from '@/features/realtime';
 
 // Force dynamic rendering for all dashboard pages
 export const dynamic = 'force-dynamic';
@@ -135,7 +136,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <>
+    <RealtimeWrapper>
       {/* Server-side theme injection - NO FOUC on production! */}
       <ServerThemeScript />
 
@@ -179,6 +180,6 @@ export default async function DashboardLayout({
         {/* AI Command Chatbot (February 2026) */}
         <ChatToggle />
       </div>
-    </>
+    </RealtimeWrapper>
   );
 }

@@ -76,6 +76,9 @@ import { portalRouter } from '../../../features/portal/server/routers';
 // Chatbot Feature Pocket (AI Command Chatbot - February 2026)
 import { chatbotRouter } from '../../../features/chatbot/server';
 
+// Real-Time Sync (February 2026 - Redis Pub/Sub)
+import { syncRouter } from './sync.router';
+
 // Integrations Feature Pocket (December 2025)
 import { integrationsRouter } from '../../../features/integrations/server/routers';
 
@@ -158,6 +161,9 @@ export const appRouter = router({
 
   // AI Command Chatbot (February 2026)
   chatbot: chatbotRouter,
+
+  // Real-Time Sync (February 2026 - Redis Pub/Sub)
+  sync: syncRouter,
   // TODO: Uncomment when implemented
   // sequences: sequencesRouter,
   // booking: bookingRouter,
