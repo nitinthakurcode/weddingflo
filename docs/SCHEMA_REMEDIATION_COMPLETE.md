@@ -135,17 +135,17 @@ Sessions 2-5 resolved all actionable issues. The 7 "by design / deferred" items 
 | FK `.references()` declarations | 64 |
 | Migration files | 28 (0000-0027) |
 | Schema definition files | 8 + 1 relations file |
-| Custom PostgreSQL ENUMs | 10+ |
-| RLS-enabled tables | 30+ |
+| Custom PostgreSQL ENUMs | 11 |
+| RLS-enabled tables | 42 |
 
 ### companyId Coverage
 
 | Status | Count |
 |--------|-------|
-| Has `companyId` with `.notNull()` | 30 (after remediation) |
+| Has `companyId` with `.notNull()` | 28 (after remediation) |
 | Has `companyId` nullable (by design) | 4 (`user`, `users` deprecated, `activity`, `job_queue`) |
 | Has `companyId` nullable (pending backfill) | 10 (8 denormalized tables + `chatbot_messages` + `client_users`) |
-| No `companyId` (auth/global/child tables) | 50 |
+| No `companyId` (auth/global/child tables) | 52 |
 
 ### Tables Intentionally Without RLS
 
