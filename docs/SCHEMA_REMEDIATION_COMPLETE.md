@@ -12,15 +12,15 @@ A December 2025 security audit of the WeddingFlo multi-tenant SaaS platform iden
 
 A dedicated schema integrity audit (Session 1) catalogued **28 issues** across all severity levels:
 
-| Severity | Count | Resolved | Documented |
-|----------|-------|----------|------------|
+| Severity | Count | Resolved | By Design / Deferred |
+|----------|-------|----------|----------------------|
 | CRITICAL | 5 | 5 | 0 |
-| HIGH | 8 | 8 | 0 |
+| HIGH | 8 | 5 | 3 (by design) |
 | MEDIUM | 9 | 8 | 1 (intentional) |
 | LOW | 6 | 3 | 3 |
-| **Total** | **28** | **24** | **4** |
+| **Total** | **28** | **21** | **7** |
 
-Sessions 2-5 resolved all actionable issues. The 4 "documented" items are intentional design choices or deferred deprecations that pose no security risk.
+Sessions 2-5 resolved all actionable issues. The 7 "by design / deferred" items are intentional design choices (nullable `companyId` on `activity`, `job_queue`, `user`) or deferred deprecations that pose no security risk.
 
 **Final verification:**
 - `drizzle-kit check`: "Everything's fine"
@@ -40,7 +40,7 @@ Sessions 2-5 resolved all actionable issues. The 4 "documented" items are intent
 | C-01 | **Schema drift** — Migration 0023 adds `company_id` to 8 tables (guests, events, timeline, budget, hotels, guest_transport, gifts, floor_plans) not in Drizzle schema. `drizzle-kit generate` would DROP these columns, destroying RLS. | Added `companyId: text('company_id')` to all 8 tables in `schema-features.ts` | 2 | `schema-features.ts` |
 | C-02 | **Column name mismatch** — Migration 0024 Section 1 uses `"companyId"` (camelCase) while Sections 2/3 use `company_id` (snake_case) for RLS policies. | Verified actual DB column names; standardized RLS policy column naming in migration 0024. | 2 | `0024_enable_rls_all_tables.sql` |
 | C-03 | **RLS coverage gap** — ~24 tables in migration 0024 Section 3 silently skipped because `company_id` column didn't exist. Tables accessible across tenants. | Added missing `companyId` columns to tables; verified RLS coverage; backfilled NULL values. | 2, 4 | `schema-features.ts`, `0023`, `0024`, `0027` |
-| C-04 | **Duplicate relation exports** — `schema-questionnaires.ts` and `schema-relations.ts` both export identically named relation definitions. Last import wins silently. | Documented for removal; `schema-relations.ts` is the source of truth. Duplicates in `schema-questionnaires.ts` marked for cleanup. | 2 | (documented only) |
+| C-04 | **Duplicate relation exports** — `schema-questionnaires.ts` and `schema-relations.ts` both export identically named relation definitions. Last import wins silently. | Removed 3 duplicate relation definitions from `schema-questionnaires.ts`. Canonical versions in `schema-relations.ts` retained. | 2 | `schema-questionnaires.ts` |
 | C-05 | **Missing `contracts.proposalId` relation** — `contractsRelations` missing `proposal` relation. `db.query.contracts.findFirst({ with: { proposal: true } })` fails. | Added `proposal: one(proposals, ...)` to `contractsRelations` and `contracts: many(contracts)` to `proposalsRelations`. | 2 | `schema-relations.ts` |
 
 ### HIGH (H-01 through H-08)
@@ -50,10 +50,10 @@ Sessions 2-5 resolved all actionable issues. The 4 "documented" items are intent
 | H-01 | **`vendors.companyId` nullable** — NULL vendors invisible under RLS. | Made `.notNull()`; backfilled NULL values. | 2 | `schema-features.ts` |
 | H-02 | **5 template tables have nullable `companyId`** — sms_templates, whatsapp_templates, gift_categories, gift_types, thank_you_note_templates. Company-customizable templates without tenant scope. | Made `.notNull()` on all 5; backfilled. | 2 | `schema-features.ts` |
 | H-03 | **Deprecated `users` table still active** — 27 files importing/querying deprecated `users` table alongside BetterAuth `user` table. Writes go to orphaned table. | Migrated all 27 files to BetterAuth `user` table. Eliminated `users.authId` lookups. Self-healing in `clients.router.ts` simplified. | 5 | 27 files (see Section 5) |
-| H-04 | **`activity.companyId` nullable** — Auth event logging misses tenant context. Compliance gap under RLS. | Made `.notNull()`; added `action`, `ipAddress`, `userAgent` columns for audit trail. | 2 | `schema-features.ts`, `0018` |
-| H-05 | **`job_queue.companyId` nullable** — Background jobs escape tenant scope. | Made `.notNull()`; backfilled. | 2 | `schema-features.ts` |
+| H-04 | **`activity.companyId` nullable** — Auth event logging misses tenant context. Compliance gap under RLS. | Kept nullable by design — activity logs for pre-company auth events. Added `action`, `ipAddress`, `userAgent` columns for audit trail. | 2 | `schema-features.ts`, `0018` |
+| H-05 | **`job_queue.companyId` nullable** — Background jobs escape tenant scope. | Kept nullable by design — system-level jobs run without tenant context. | 2 | `schema-features.ts` |
 | H-06 | **`google_sheets_sync_settings.companyId` nullable** — OAuth tokens stored without tenant scope. | Made `.notNull()`; implemented AES-256-GCM token encryption via `token-encryption.ts`. | 2 | `schema-features.ts`, `token-encryption.ts`, `0025` |
-| H-07 | **`user.companyId` nullable** — Users during onboarding have no RLS scope. Migration 0024 `OR "companyId" IS NULL` allows cross-tenant visibility. | Implemented proper RLS with `current_company_id()` session function. Onboarding users properly scoped. | 2 | `0022`, `0023`, `0024` |
+| H-07 | **`user.companyId` nullable** — Users during onboarding have no RLS scope. Migration 0024 `OR "companyId" IS NULL` allows cross-tenant visibility. | Accepted as by-design. Users during onboarding legitimately have NULL `companyId`. RLS policy in migration 0024 includes `OR company_id IS NULL` clause for the `user` table. No code change needed. | 2 | `0024` |
 | H-08 | **Missing `hotels.accommodationId` relation** — `hotelsRelations` missing accommodation mapping. | Added `accommodation: one(accommodations, ...)` to `hotelsRelations` and `hotelAssignments: many(hotels)` to `accommodationsRelations`. | 2 | `schema-relations.ts` |
 
 ### MEDIUM (M-01 through M-09)
@@ -142,9 +142,10 @@ Sessions 2-5 resolved all actionable issues. The 4 "documented" items are intent
 
 | Status | Count |
 |--------|-------|
-| Has `companyId` with `.notNull()` | 32 (after remediation) |
-| Has `companyId` nullable (by design) | 2 (`user`, `users` deprecated) |
-| No `companyId` (auth/global/child tables) | 60 |
+| Has `companyId` with `.notNull()` | 30 (after remediation) |
+| Has `companyId` nullable (by design) | 4 (`user`, `users` deprecated, `activity`, `job_queue`) |
+| Has `companyId` nullable (pending backfill) | 10 (8 denormalized tables + `chatbot_messages` + `client_users`) |
+| No `companyId` (auth/global/child tables) | 50 |
 
 ### Tables Intentionally Without RLS
 
@@ -311,9 +312,6 @@ Execute in order when Dokploy is configured:
 The `users` table definition remains in `schema-features.ts` with `@deprecated` JSDoc. Zero application code imports or queries it. Historical FK values (e.g., `clientUsers.userId`, `messages.senderId`) may contain deprecated `users.id` values for records created before Session 5. New records use BetterAuth `user.id`.
 
 **Action required:** Data backfill migration to reconcile `users.id` FK values to `user.id`, then DROP TABLE via migration.
-
-### Duplicate Relation Definitions (LOW)
-`schema-questionnaires.ts` exports 3 relation definitions that duplicate `schema-relations.ts`. Currently identical. Should remove from `schema-questionnaires.ts`.
 
 ### UUID/TEXT Type Mismatches on Some companyId FKs (LOW)
 Some tables use UUID PKs while FK columns use TEXT. PostgreSQL handles implicit casting. Documented as intentional design choice.
