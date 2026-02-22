@@ -362,7 +362,154 @@ These actions will cause data loss, RLS bypass, or migration failures. NEVER do 
 
 ---
 
-## 9. Verification Commands — Run Before AND After Any Change
+## 9. Patterns — How to Safely Modify the Schema
+
+### 9.1 Schema File Responsibilities
+
+| File | Contains | Rule |
+|------|----------|------|
+| `src/lib/db/schema.ts` | BetterAuth tables: `user`, `session`, `account`, `verification`, `webhookEvents`, `rateLimitEntries` | DO NOT add non-auth tables here |
+| `src/lib/db/schema-features.ts` | All feature tables (clients, guests, vendors, budget, etc.) — 68 tables | ALL new feature tables go here |
+| `src/lib/db/schema-chatbot.ts` | Chatbot tables: `chatbotConversations`, `chatbotMessages`, `chatbotPendingCalls`, `chatbotCommandTemplates` | Only chatbot tables |
+| `src/lib/db/schema-proposals.ts` | `proposalTemplates`, `proposals`, `contractTemplates`, `contracts` | Only proposal/contract tables |
+| `src/lib/db/schema-questionnaires.ts` | `questionnaireTemplates`, `questionnaires`, `questionnaireResponses` | Only questionnaire tables. NO relation definitions here. |
+| `src/lib/db/schema-pipeline.ts` | `pipelineStages`, `pipelineLeads`, `pipelineActivities` | Only pipeline CRM tables |
+| `src/lib/db/schema-workflows.ts` | `workflows`, `workflowSteps`, `workflowExecutions`, `workflowExecutionLogs` | Only workflow tables |
+| `src/lib/db/schema-invitations.ts` | `teamInvitations`, `weddingInvitations` | Only invitation tables |
+| `src/lib/db/schema-relations.ts` | ALL 88 relation definitions for ALL tables | ONLY file where relations live. Never define relations in other schema files. |
+
+### 9.2 Adding a New Tenant-Scoped Table
+
+Pattern based on actual codebase (see `vendors` in `schema-features.ts:360`):
+
+```typescript
+// In src/lib/db/schema-features.ts
+export const newTable = pgTable('new_table', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: text('company_id').notNull(),  // REQUIRED for RLS
+  clientId: text('client_id').references(() => clients.id, { onDelete: 'cascade' }),  // FK with .references()
+  name: text('name').notNull(),
+  // ... other columns using snake_case DB names: text('column_name')
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('new_table_company_id_idx').on(table.companyId),
+]);
+
+// In src/lib/db/schema-relations.ts (NEVER in the schema file above)
+export const newTableRelations = relations(newTable, ({ one, many }) => ({
+  company: one(companies, { fields: [newTable.companyId], references: [companies.id] }),
+  client: one(clients, { fields: [newTable.clientId], references: [clients.id] }),
+}));
+```
+
+Then the migration SQL MUST include:
+
+```sql
+ALTER TABLE new_table ENABLE ROW LEVEL SECURITY;
+ALTER TABLE new_table FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON new_table
+  FOR ALL
+  USING (company_id = current_company_id() OR is_super_admin())
+  WITH CHECK (company_id = current_company_id() OR is_super_admin());
+```
+
+### 9.3 Column Naming Convention
+
+CRITICAL: Drizzle's `text('company_id')` maps the TypeScript property `companyId` to the DB column `company_id`. Always use the string argument with snake_case:
+
+```typescript
+// CORRECT — DB column is company_id (snake_case)
+companyId: text('company_id').notNull()
+
+// WRONG — DB column would be companyId (camelCase), breaks RLS policies
+companyId: text()  // DO NOT DO THIS
+```
+
+### 9.4 Adding an FK Reference to an Existing Column
+
+```typescript
+// BEFORE (no DB-level FK):
+clientId: text('client_id').notNull(),
+
+// AFTER (with DB-level FK):
+clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+```
+
+### 9.5 Adding a Relation
+
+Always in `schema-relations.ts`, never in the table's schema file:
+
+```typescript
+// one-to-many: parent side
+export const clientsRelations = relations(clients, ({ many }) => ({
+  guests: many(guests),
+}));
+
+// many-to-one: child side
+export const guestsRelations = relations(guests, ({ one }) => ({
+  client: one(clients, { fields: [guests.clientId], references: [clients.id] }),
+}));
+```
+
+### 9.6 Baseline Counts (as of February 2026)
+
+#### `.references()` Declarations Per File
+
+| File | `.references()` Count |
+|------|-----------------------|
+| `schema-features.ts` | 56 |
+| `schema-chatbot.ts` | 4 |
+| `schema.ts` | 2 |
+| `schema-questionnaires.ts` | 2 |
+| `schema-proposals.ts` | 0 |
+| `schema-pipeline.ts` | 0 |
+| `schema-workflows.ts` | 0 |
+| `schema-invitations.ts` | 0 |
+| **Total** | **64** |
+
+#### `pgTable()` Definitions Per File
+
+| File | Table Count |
+|------|-------------|
+| `schema-features.ts` | 68 |
+| `schema.ts` | 6 |
+| `schema-chatbot.ts` | 4 |
+| `schema-proposals.ts` | 4 |
+| `schema-workflows.ts` | 4 |
+| `schema-pipeline.ts` | 3 |
+| `schema-questionnaires.ts` | 3 |
+| `schema-invitations.ts` | 2 |
+| **Total** | **94** |
+
+#### Other Baseline Counts
+
+| Metric | Command | Count |
+|--------|---------|-------|
+| Relation definitions | `grep -c "Relations = relations" src/lib/db/schema-relations.ts` | 88 |
+| `.notNull()` in schema-features.ts | `grep -c "\.notNull()" src/lib/db/schema-features.ts` | 241 |
+| Custom pgEnum definitions | `grep -c "pgEnum(" src/lib/db/schema*.ts` | 11 |
+| Deprecated `users` imports in src/ | `grep -rn "from.*schema.*import.*\busers\b" src/ ...` | 0 |
+
+#### All 42 RLS-Enabled Tables
+
+Enabled across migrations 0024 (Sections 1–3) and 0027 (catch-up):
+
+**Section 1 — Direct `company_id` (5 tables):**
+`user`, `clients`, `vendors`, `chatbot_conversations`, `chatbot_pending_calls`
+
+**Section 2 — Denormalized `company_id` from migration 0023 (8 tables):**
+`guests`, `events`, `timeline`, `budget`, `hotels`, `guest_transport`, `gifts`, `floor_plans`
+
+**Section 3 — Dynamic loop (29 tables):**
+`proposal_templates`, `proposals`, `contract_templates`, `contracts`, `workflows`, `workflow_executions`, `questionnaire_templates`, `questionnaires`, `messages`, `sms_templates`, `whatsapp_templates`, `pipeline_stages`, `pipeline_leads`, `pipeline_activities`, `team_invitations`, `wedding_invitations`, `activity`, `notifications`, `google_sheets_sync_settings`, `chatbot_messages`, `chatbot_command_templates`, `client_users`, `gift_categories`, `gift_types`, `thank_you_note_templates`, `stripe_accounts`, `job_queue`, `timeline_templates`, `users`
+
+**Migration 0027 RLS catch-up (re-applied to 6 tables already in 0024 list):**
+`stripe_accounts`, `messages`, `google_sheets_sync_settings`, `client_users`, `chatbot_messages`, `users`
+
+---
+
+## 10. Verification Commands — Run Before AND After Any Change
 
 ```bash
 # === PRE-CHANGE VERIFICATION ===
@@ -380,11 +527,11 @@ npx drizzle-kit generate --name=pre-change-drift-check
 # 3. Record baseline counts
 echo "=== BASELINE COUNTS ==="
 grep -c "\.references(" src/lib/db/schema-features.ts
-# Expected: 55+
+# Expected: 56
 grep -c "Relations = relations" src/lib/db/schema-relations.ts
 # Expected: 88
 grep -c "\.notNull()" src/lib/db/schema-features.ts
-# Expected: 80+
+# Expected: 241
 grep -rn "from.*schema.*import.*\busers\b" src/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v "clientUsers\|guestUsers\|client_users"
 # Expected: 0 matches
 
@@ -410,9 +557,11 @@ npx tsc --noEmit
 
 # 5. Count verification (compare to baseline)
 grep -c "\.references(" src/lib/db/schema-features.ts
+# Expected: >= 56 (never less)
 grep -c "Relations = relations" src/lib/db/schema-relations.ts
+# Expected: >= 88 (never less)
 grep -c "\.notNull()" src/lib/db/schema-features.ts
-# Counts should be >= baseline (never less)
+# Expected: >= 241 (never less)
 
 # 6. No deprecated table references
 grep -rn "from.*schema.*import.*\busers\b" src/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v "clientUsers\|guestUsers\|client_users"
@@ -430,7 +579,7 @@ docker rm -f weddingflo-test-db
 
 ---
 
-## 10. Architecture Rules Going Forward
+## 11. Architecture Rules Going Forward
 
 1. **Every raw SQL migration MUST have corresponding Drizzle schema updates in the same PR.** This prevents drift (the root cause of C-01). Never use `ALTER TABLE ADD COLUMN` in a migration without adding the column to the Drizzle schema definition.
 
