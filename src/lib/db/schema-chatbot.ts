@@ -44,6 +44,8 @@ export type MessageStatus = 'pending' | 'streaming' | 'success' | 'error';
 export const chatbotMessages = pgTable('chatbot_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: uuid('conversation_id').notNull().references(() => chatbotConversations.id, { onDelete: 'cascade' }),
+  // Defense-in-depth for RLS — populated from parent conversation
+  companyId: text('company_id'),
   role: text('role').notNull().$type<MessageRole>(),
   content: text('content').notNull(),
   toolName: text('tool_name'),

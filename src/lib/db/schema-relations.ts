@@ -180,6 +180,10 @@ export const clientUsersRelations = relations(clientUsers, ({ one }) => ({
     fields: [clientUsers.clientId],
     references: [clients.id],
   }),
+  company: one(companies, {
+    fields: [clientUsers.companyId],
+    references: [companies.id],
+  }),
 }));
 
 // ============================================
@@ -399,6 +403,10 @@ export const chatbotMessagesRelations = relations(chatbotMessages, ({ one }) => 
   conversation: one(chatbotConversations, {
     fields: [chatbotMessages.conversationId],
     references: [chatbotConversations.id],
+  }),
+  company: one(companies, {
+    fields: [chatbotMessages.companyId],
+    references: [companies.id],
   }),
 }));
 

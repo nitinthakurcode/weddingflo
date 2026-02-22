@@ -7,28 +7,17 @@ import { pgTable, text, timestamp, boolean, integer, jsonb, real, uuid, numeric,
  * February 2026 - Comprehensive audit and documentation update
  *
  * ============================================
- * ID TYPE CONVENTION (IMPORTANT)
+ * PK Type Strategy:
  * ============================================
  *
- * This codebase uses TWO ID type patterns:
+ * - Tables created by BetterAuth: TEXT PKs (user, session, account, verification)
+ * - Tables created early in development: TEXT PKs (clients, guests, events, etc.)
+ * - Tables created later: UUID PKs (companies, hotels, pipelines, proposals, etc.)
+ * - All FK columns MUST match the PK type of their referenced table
+ * - companies.id is UUID; companyId FK columns referencing it should be UUID,
+ *   but many are TEXT due to historical reasons. PostgreSQL handles implicit casting.
  *
- * 1. UUID (uuid type) - Used for:
- *    - companies.id (historical, UUID for uniqueness across tenants)
- *    - Some newer tables like guestTransport, vehicles
- *
- * 2. TEXT (text type with UUID values) - Used for:
- *    - BetterAuth user.id (TEXT for compatibility)
- *    - All client-related tables: clients, guests, events, timeline, etc.
- *    - All companyId foreign keys (TEXT to avoid type mismatches)
- *
- * WHY TEXT FOR companyId FKs:
- * - BetterAuth generates TEXT user IDs
- * - Most tables use TEXT IDs for consistency
- * - Cross-table joins work without casting
- * - FK constraints added via migration (0021_add_foreign_key_constraints.sql)
- *
- * Note: companies.id is UUID but referenced as TEXT in FK columns.
- * This is intentional - PostgreSQL allows UUID→TEXT implicit casting.
+ * FK constraints added via migration (0021_add_foreign_key_constraints.sql)
  * ============================================
  */
 
@@ -143,6 +132,8 @@ export const clients = pgTable('clients', {
 export const clientUsers = pgTable('client_users', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  // Defense-in-depth for RLS — populated from parent client
+  companyId: text('company_id'),
   userId: text('user_id').notNull(),
   role: text('role').default('viewer'),
   relationship: text('relationship'),
@@ -860,7 +851,7 @@ export const stripeConnectAccounts = pgTable('stripe_connect_accounts', {
 // Hotel Bookings
 export const hotelBookings = pgTable('hotel_bookings', {
   id: text('id').primaryKey(),
-  hotelId: text('hotel_id').notNull(), // FK to hotels.id — type mismatch (text vs uuid) prevents Drizzle .references()
+  hotelId: uuid('hotel_id').notNull().references(() => hotels.id, { onDelete: 'cascade' }),
   guestId: text('guest_id').notNull().references(() => guests.id, { onDelete: 'cascade' }),
   checkIn: timestamp('check_in'),
   checkOut: timestamp('check_out'),
