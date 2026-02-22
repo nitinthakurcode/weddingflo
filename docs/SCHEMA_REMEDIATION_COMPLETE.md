@@ -167,7 +167,7 @@ Sessions 2-5 resolved all actionable issues. The 7 "by design / deferred" items 
 | File | Changes |
 |------|---------|
 | `schema.ts` | Added `preferredLanguage`, `preferredCurrency`, `timezone`, `autoDetectLocale`, `avatarUrl`, `isActive` to BetterAuth `user` table |
-| `schema-features.ts` | Added `companyId` to 8 tables (C-01); made 7 `companyId` columns `.notNull()` (H-01, H-02, H-04, H-05, H-06); added `.references()` to 30+ FK columns (M-09); `@deprecated` JSDoc on `users` table |
+| `schema-features.ts` | Added `companyId` to 8 tables (C-01); made 7 `companyId` columns `.notNull()` (H-01, H-02, H-06); added `.references()` to 30+ FK columns (M-09); `@deprecated` JSDoc on `users` table |
 | `schema-relations.ts` | Added 15 missing relations (C-05, H-08, M-01 through M-06); removed unused `users` import (Session 5) |
 | `schema-chatbot.ts` | Added `companyId` to `chatbot_messages` (M-07); added `.references()` to FK columns |
 | `schema-proposals.ts` | Added `.references()` to FK columns |
