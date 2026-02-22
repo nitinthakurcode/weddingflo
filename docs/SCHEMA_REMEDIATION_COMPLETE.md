@@ -336,7 +336,101 @@ These should be consolidated in a future migration.
 
 ---
 
-## 8. Architecture Rules Going Forward
+## 8. DANGER ZONE — What Will Break the Schema
+
+These actions will cause data loss, RLS bypass, or migration failures. NEVER do them:
+
+1. **NEVER run `drizzle-kit push`** — It applies schema changes directly to the DB without migrations, bypassing RLS policies, functions, roles, and backfill logic. Always use `drizzle-kit migrate`.
+
+2. **NEVER run `drizzle-kit generate` without running `drizzle-kit check` first** — If there's drift, the generated migration will contain destructive DROP COLUMN/DROP CONSTRAINT statements.
+
+3. **NEVER add a raw SQL migration without updating the Drizzle schema files** — This is the root cause of C-01. The next `drizzle-kit generate` will try to DROP the columns you added.
+
+4. **NEVER remove `.references()` from FK columns in schema files** — The next `drizzle-kit generate` will DROP the corresponding FK constraints in the database.
+
+5. **NEVER make `companyId` nullable on a table that has it as `.notNull()`** — RLS policies depend on non-null company_id for tenant isolation.
+
+6. **NEVER add a tenant-scoped table without BOTH a `companyId` column AND an RLS policy** — The table will be accessible across tenants.
+
+7. **NEVER use `CREATE INDEX CONCURRENTLY` in migration files** — Drizzle runs migrations inside transactions; CONCURRENTLY is incompatible and will fail.
+
+8. **NEVER import or query the deprecated `users` table** — Use BetterAuth `user` table from `schema.ts`. `user.id === ctx.userId` from the session.
+
+9. **NEVER add `BEGIN`/`COMMIT` inside migration files** — Drizzle wraps each migration in its own transaction. Nested transactions will fail.
+
+10. **NEVER use camelCase for column names in raw SQL migrations** — Drizzle maps `text('company_id')` to the DB column `company_id` (snake_case). Using `"companyId"` in SQL will reference a non-existent column.
+
+---
+
+## 9. Verification Commands — Run Before AND After Any Change
+
+```bash
+# === PRE-CHANGE VERIFICATION ===
+# Run these BEFORE making any schema or migration changes
+
+# 1. Check current schema consistency
+npx drizzle-kit check
+# Expected: "Everything's fine"
+
+# 2. Verify zero drift baseline
+npx drizzle-kit generate --name=pre-change-drift-check
+# Expected: "No schema changes, nothing to migrate"
+# DELETE the generated file immediately
+
+# 3. Record baseline counts
+echo "=== BASELINE COUNTS ==="
+grep -c "\.references(" src/lib/db/schema-features.ts
+# Expected: 55+
+grep -c "Relations = relations" src/lib/db/schema-relations.ts
+# Expected: 88
+grep -c "\.notNull()" src/lib/db/schema-features.ts
+# Expected: 80+
+grep -rn "from.*schema.*import.*\busers\b" src/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v "clientUsers\|guestUsers\|client_users"
+# Expected: 0 matches
+
+# === POST-CHANGE VERIFICATION ===
+# Run these AFTER making any schema or migration changes
+
+# 1. Schema consistency
+npx drizzle-kit check
+# MUST output: "Everything's fine"
+
+# 2. Zero drift
+npx drizzle-kit generate --name=post-change-drift-check
+# MUST output: "No schema changes, nothing to migrate"
+# DELETE the generated file
+
+# 3. Tests pass
+npx jest --passWithNoTests
+# MUST: 373+ tests pass, 0 new failures
+
+# 4. TypeScript compiles
+npx tsc --noEmit
+# MUST: Pass (3 pre-existing errors are known)
+
+# 5. Count verification (compare to baseline)
+grep -c "\.references(" src/lib/db/schema-features.ts
+grep -c "Relations = relations" src/lib/db/schema-relations.ts
+grep -c "\.notNull()" src/lib/db/schema-features.ts
+# Counts should be >= baseline (never less)
+
+# 6. No deprecated table references
+grep -rn "from.*schema.*import.*\busers\b" src/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v "clientUsers\|guestUsers\|client_users"
+# MUST: 0 matches
+
+# === MIGRATION CHAIN TEST (for migration changes only) ===
+# Run on a fresh Docker PostgreSQL to verify migrations apply cleanly
+docker rm -f weddingflo-test-db 2>/dev/null
+docker run --name weddingflo-test-db -e POSTGRES_PASSWORD=testpass -e POSTGRES_DB=weddingflo_test -p 5433:5432 -d postgres:16
+sleep 3
+DATABASE_URL=postgres://postgres:testpass@localhost:5433/weddingflo_test npx drizzle-kit migrate
+# MUST: All migrations applied successfully
+docker rm -f weddingflo-test-db
+```
+
+---
+
+## 10. Architecture Rules Going Forward
 
 1. **Every raw SQL migration MUST have corresponding Drizzle schema updates in the same PR.** This prevents drift (the root cause of C-01). Never use `ALTER TABLE ADD COLUMN` in a migration without adding the column to the Drizzle schema definition.
 
