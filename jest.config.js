@@ -17,7 +17,7 @@ const config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
-  testPathIgnorePatterns: ['/node_modules/', '/.next/', '/e2e/', '/tests/'],
+  testPathIgnorePatterns: ['/node_modules/', '/.next/', '/e2e/', '/docs/phase2/', '\\.spec\\.ts$'],
   transformIgnorePatterns: [
     '/node_modules/(?!(msw|superjson|until-async|@bundled-es-modules)/)',
   ],

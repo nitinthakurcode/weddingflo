@@ -7,6 +7,7 @@ import {
   logSignIn,
   logSignUp,
 } from '@/lib/auth/auth-logger';
+import { hashPassword, verifyPassword, rehashIfNeeded, isLegacyBcryptHash } from '@/lib/auth/argon2-password';
 import { assertValidAuthEnv } from '@/lib/auth/validate-env';
 import { Resend } from 'resend';
 
@@ -14,6 +15,41 @@ import { Resend } from 'resend';
 if (typeof window === 'undefined') {
   // Only validate on server-side
   assertValidAuthEnv();
+}
+
+/**
+ * Verify password with transparent bcrypt→Argon2id rehash.
+ *
+ * BetterAuth's session hooks don't expose the plaintext password,
+ * so this wrapper is the only place we can trigger rehashing.
+ * On successful bcrypt verification, the hash is upgraded to Argon2id
+ * in the background (fire-and-forget — sign-in is not blocked).
+ */
+async function verifyPasswordWithRehash(data: {
+  hash: string;
+  password: string;
+}): Promise<boolean> {
+  const isValid = await verifyPassword(data);
+
+  if (isValid && isLegacyBcryptHash(data.hash)) {
+    // Fire-and-forget: rehash in background without blocking sign-in.
+    // We look up the userId from the account table by the hash value.
+    import('drizzle-orm').then(({ sql: sqlTag }) => {
+      db.execute(
+        sqlTag`SELECT "userId" FROM account WHERE password = ${data.hash} AND "providerId" = 'credential' LIMIT 1`
+      ).then(async (rows: any) => {
+        const userId = rows[0]?.userId;
+        if (userId) {
+          await rehashIfNeeded(db, userId, data.hash, data.password);
+          console.log(`[Auth] Migrated user ${userId} from bcrypt to Argon2id`);
+        }
+      }).catch((err: unknown) => {
+        console.error('[Auth] Background rehash failed:', err);
+      });
+    });
+  }
+
+  return isValid;
 }
 
 // Initialize Resend for email sending
@@ -69,6 +105,13 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     autoSignIn: true,
+    // Argon2id password hashing — Phase 2.3 security remediation
+    // Replaces BetterAuth default bcrypt(10). Legacy bcrypt hashes
+    // are still verified correctly (transparent migration).
+    password: {
+      hash: hashPassword,
+      verify: verifyPasswordWithRehash,
+    },
     // Email verification - Security February 2026
     requireEmailVerification: process.env.NODE_ENV === 'production',
     sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {

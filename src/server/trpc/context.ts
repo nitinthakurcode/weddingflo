@@ -2,6 +2,7 @@ import { getServerSession } from '@/lib/auth/server';
 import { db, eq } from '@/lib/db';
 import { user as userTable } from '@/lib/db/schema/auth';
 import * as dbQueries from '@/lib/db/queries';
+import { createTenantScopeMethod, type AppRole } from '@/lib/db/with-tenant-scope';
 import type { Roles } from '@/types/globals';
 import type { inferAsyncReturnType } from '@trpc/server';
 
@@ -57,6 +58,13 @@ export async function createTRPCContext() {
     db,
     queries: dbQueries,
     user,
+    withTenantScope: userId
+      ? createTenantScopeMethod(db, {
+          companyId,
+          role: finalRole as AppRole,
+          userId,
+        })
+      : undefined,
   };
 }
 

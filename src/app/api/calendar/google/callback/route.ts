@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { GoogleCalendarOAuth } from '@/lib/calendar/google-oauth';
 import { GoogleCalendarSync } from '@/lib/calendar/google-calendar-sync';
+import { encryptToken } from '@/lib/crypto/token-encryption';
 import { db, eq, sql } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 
@@ -53,10 +54,14 @@ export async function GET(request: NextRequest) {
       tokens.refresh_token
     );
 
-    // Store tokens in database using raw SQL for upsert
+    // Encrypt tokens before storing
+    const encryptedAccessToken = encryptToken(tokens.access_token);
+    const encryptedRefreshToken = encryptToken(tokens.refresh_token);
+
+    // Store encrypted tokens in database using raw SQL for upsert
     await db.execute(sql`
       INSERT INTO google_calendar_tokens (user_id, company_id, access_token, refresh_token, token_expiry, scope, calendar_id)
-      VALUES (${state}, ${userData.companyId}, ${tokens.access_token}, ${tokens.refresh_token},
+      VALUES (${state}, ${userData.companyId}, ${encryptedAccessToken}, ${encryptedRefreshToken},
               ${new Date(Date.now() + (tokens.expiry_date || 3600) * 1000).toISOString()},
               ${tokens.scope || ''}, ${calendarId})
       ON CONFLICT (user_id)

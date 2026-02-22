@@ -50,44 +50,47 @@ jest.mock('next/navigation', () => ({
   },
 }))
 
-// Mock window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: jest.fn().mockImplementation((query) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: jest.fn(), // deprecated
-    removeListener: jest.fn(), // deprecated
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
-})
+// Browser-only mocks (skip in node test environment)
+if (typeof window !== 'undefined') {
+  // Mock window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(), // deprecated
+      removeListener: jest.fn(), // deprecated
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
 
-// Mock IntersectionObserver
-class MockIntersectionObserver implements IntersectionObserver {
-  readonly root: Element | Document | null = null
-  readonly rootMargin = ''
-  readonly thresholds: ReadonlyArray<number> = []
-  disconnect(): void {}
-  observe(_target: Element): void {}
-  takeRecords(): IntersectionObserverEntry[] {
-    return []
+  // Mock IntersectionObserver
+  class MockIntersectionObserver implements IntersectionObserver {
+    readonly root: Element | Document | null = null
+    readonly rootMargin = ''
+    readonly thresholds: ReadonlyArray<number> = []
+    disconnect(): void {}
+    observe(_target: Element): void {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return []
+    }
+    unobserve(_target: Element): void {}
   }
-  unobserve(_target: Element): void {}
+
+  global.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver
+
+  // Mock ResizeObserver
+  class MockResizeObserver implements ResizeObserver {
+    disconnect(): void {}
+    observe(_target: Element): void {}
+    unobserve(_target: Element): void {}
+  }
+
+  global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
 }
-
-global.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver
-
-// Mock ResizeObserver
-class MockResizeObserver implements ResizeObserver {
-  disconnect(): void {}
-  observe(_target: Element): void {}
-  unobserve(_target: Element): void {}
-}
-
-global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
 
 // Mock BetterAuth client hooks
 jest.mock('@/lib/auth-client', () => ({

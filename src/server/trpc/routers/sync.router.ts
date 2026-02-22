@@ -19,6 +19,7 @@ import {
   subscribeToCompany,
   type SyncAction,
 } from '@/lib/realtime/redis-pubsub'
+import { sseConnections, SSEConnectionLimitError } from '@/lib/sse/connection-manager'
 
 export const syncRouter = router({
   /**
@@ -48,45 +49,65 @@ export const syncRouter = router({
         })
       }
 
-      console.log(
-        `[Sync Router] User ${userId} subscribed to company ${companyId}`
-      )
+      // Acquire SSE connection slot (enforces per-user and per-company limits)
+      let guard;
+      try {
+        guard = await sseConnections.acquire(userId, companyId)
+      } catch (error) {
+        if (error instanceof SSEConnectionLimitError) {
+          throw new TRPCError({
+            code: 'TOO_MANY_REQUESTS',
+            message: 'Too many open connections. Please close some tabs and retry.',
+            cause: error,
+          })
+        }
+        throw error
+      }
 
-      // Phase 1: Offline recovery - send missed actions
-      if (input.lastSyncTimestamp) {
+      try {
+        console.log(
+          `[Sync Router] User ${userId} subscribed to company ${companyId}`
+        )
+
+        // Phase 1: Offline recovery - send missed actions
+        if (input.lastSyncTimestamp) {
+          try {
+            const missed = await getMissedActions(companyId, input.lastSyncTimestamp)
+            console.log(
+              `[Sync Router] Sending ${missed.length} missed actions since ${input.lastSyncTimestamp}`
+            )
+
+            for (const action of missed) {
+              // Don't echo back actions from the same user
+              if (action.userId !== userId) {
+                yield action
+              }
+            }
+          } catch (error) {
+            console.error('[Sync Router] Failed to get missed actions:', error)
+            // Continue to live streaming even if recovery fails
+          }
+        }
+
+        // Phase 2: Stream live updates via Redis subscription
         try {
-          const missed = await getMissedActions(companyId, input.lastSyncTimestamp)
-          console.log(
-            `[Sync Router] Sending ${missed.length} missed actions since ${input.lastSyncTimestamp}`
-          )
-
-          for (const action of missed) {
+          for await (const action of subscribeToCompany(companyId, signal)) {
             // Don't echo back actions from the same user
             if (action.userId !== userId) {
               yield action
             }
           }
         } catch (error) {
-          console.error('[Sync Router] Failed to get missed actions:', error)
-          // Continue to live streaming even if recovery fails
-        }
-      }
-
-      // Phase 2: Stream live updates via Redis subscription
-      try {
-        for await (const action of subscribeToCompany(companyId, signal)) {
-          // Don't echo back actions from the same user
-          if (action.userId !== userId) {
-            yield action
+          if (signal?.aborted) {
+            console.log(`[Sync Router] User ${userId} unsubscribed from company ${companyId}`)
+          } else {
+            console.error('[Sync Router] Subscription error:', error)
+            throw error
           }
         }
-      } catch (error) {
-        if (signal?.aborted) {
-          console.log(`[Sync Router] User ${userId} unsubscribed from company ${companyId}`)
-        } else {
-          console.error('[Sync Router] Subscription error:', error)
-          throw error
-        }
+      } finally {
+        // Always release the connection slot on disconnect
+        await guard.release()
       }
     }),
 

@@ -8,6 +8,7 @@ import {
   GoogleSheetsOAuth,
   createSpreadsheet,
 } from '@/lib/google/sheets-client';
+import { encryptToken, decryptToken } from '@/lib/crypto/token-encryption';
 import {
   syncAllToSheets,
   importGuestsFromSheet,
@@ -61,8 +62,8 @@ export const googleSheetsRouter = router({
           await db
             .update(googleSheetsSyncSettings)
             .set({
-              accessToken: tokens.access_token,
-              refreshToken: tokens.refresh_token,
+              accessToken: encryptToken(tokens.access_token),
+              refreshToken: encryptToken(tokens.refresh_token),
               tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
               isConnected: true,
               updatedAt: new Date(),
@@ -71,8 +72,8 @@ export const googleSheetsRouter = router({
         } else {
           await db.insert(googleSheetsSyncSettings).values({
             userId: ctx.userId,
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
+            accessToken: encryptToken(tokens.access_token),
+            refreshToken: encryptToken(tokens.refresh_token),
             tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
             isConnected: true,
           });
@@ -160,20 +161,21 @@ export const googleSheetsRouter = router({
       }
 
       const oauth = new GoogleSheetsOAuth();
-      let accessToken = settings.accessToken;
+      let accessToken = decryptToken(settings.accessToken);
+      const refreshTokenPlain = decryptToken(settings.refreshToken);
 
       // Refresh token if expired
       if (settings.tokenExpiresAt && new Date(settings.tokenExpiresAt) < new Date()) {
         try {
-          const newTokens = await oauth.refreshAccessToken(settings.refreshToken);
+          const newTokens = await oauth.refreshAccessToken(refreshTokenPlain);
           accessToken = newTokens.access_token;
 
-          // Update stored tokens
+          // Update stored tokens (encrypt before saving)
           await db
             .update(googleSheetsSyncSettings)
             .set({
-              accessToken: newTokens.access_token,
-              refreshToken: newTokens.refresh_token,
+              accessToken: encryptToken(newTokens.access_token),
+              refreshToken: encryptToken(newTokens.refresh_token),
               tokenExpiresAt: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
               updatedAt: new Date(),
             })
@@ -187,7 +189,7 @@ export const googleSheetsRouter = router({
         }
       }
 
-      const sheetsClient = oauth.getSheetsClient(accessToken, settings.refreshToken);
+      const sheetsClient = oauth.getSheetsClient(accessToken, refreshTokenPlain);
 
       // Get or create spreadsheet for this client
       let spreadsheetId = settings.spreadsheetId;
@@ -338,25 +340,26 @@ export const googleSheetsRouter = router({
       }
 
       const oauth = new GoogleSheetsOAuth();
-      let accessToken = settings.accessToken;
+      let accessToken = decryptToken(settings.accessToken);
+      const refreshTokenPlain = decryptToken(settings.refreshToken);
 
       // Refresh token if expired
       if (settings.tokenExpiresAt && new Date(settings.tokenExpiresAt) < new Date()) {
-        const newTokens = await oauth.refreshAccessToken(settings.refreshToken);
+        const newTokens = await oauth.refreshAccessToken(refreshTokenPlain);
         accessToken = newTokens.access_token;
 
         await db
           .update(googleSheetsSyncSettings)
           .set({
-            accessToken: newTokens.access_token,
-            refreshToken: newTokens.refresh_token,
+            accessToken: encryptToken(newTokens.access_token),
+            refreshToken: encryptToken(newTokens.refresh_token),
             tokenExpiresAt: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
             updatedAt: new Date(),
           })
           .where(eq(googleSheetsSyncSettings.id, settings.id));
       }
 
-      const sheetsClient = oauth.getSheetsClient(accessToken, settings.refreshToken);
+      const sheetsClient = oauth.getSheetsClient(accessToken, refreshTokenPlain);
 
       // Handle all modules import
       if (input.module === 'all') {

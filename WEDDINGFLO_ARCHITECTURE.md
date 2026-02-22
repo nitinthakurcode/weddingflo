@@ -2,7 +2,7 @@
 
 **Last Updated:** February 2026
 **Version:** 10.0 (Production-Ready)
-**Security Rating:** 10/10
+**Security Rating:** 8.5/10
 
 ---
 
@@ -19,7 +19,7 @@
 9. [AI Chatbot System](#9-ai-chatbot-system)
 10. [Real-Time Sync Architecture](#10-real-time-sync-architecture)
 11. [Google Sheets Bidirectional Sync](#11-google-sheets-bidirectional-sync)
-12. [Security Implementation (10/10)](#12-security-implementation-1010)
+12. [Security Implementation (8.5/10)](#12-security-implementation-8510)
 13. [What Each Technology Handles](#13-what-each-technology-handles)
 14. [Complete Data Flow Diagrams](#14-complete-data-flow-diagrams)
 15. [API Routes & tRPC Routers](#15-api-routes--trpc-routers)
@@ -840,7 +840,7 @@ User visits /sign-up
 │ BetterAuth Server Processing                                 │
 │ ├─ Validate email format                                     │
 │ ├─ Check email uniqueness                                    │
-│ ├─ Hash password (bcrypt)                                    │
+│ ├─ Hash password (Argon2id)                                  │
 │ ├─ INSERT INTO "user" (role='company_admin', companyId=null) │
 │ ├─ INSERT INTO account (providerId='credential')             │
 │ ├─ INSERT INTO session                                       │
@@ -998,7 +998,7 @@ User visits /sign-in
 ┌─────────────────────────────────────────────────────────────┐
 │ BetterAuth signInWithEmail()                                 │
 │ ├─ Find user by email                                        │
-│ ├─ Verify password (bcrypt compare)                          │
+│ ├─ Verify password (Argon2id, bcrypt fallback)               │
 │ ├─ Check if banned                                           │
 │ ├─ Check if 2FA enabled:                                     │
 │ │   ├─ YES: Return challenge, require TOTP                   │
@@ -1606,7 +1606,7 @@ K: Notes
 
 ---
 
-## 12. Security Implementation (10/10)
+## 12. Security Implementation (8.5/10)
 
 ### Multi-Tenant Isolation
 
@@ -1638,7 +1638,7 @@ K: Notes
 
 | Layer | Implementation | Status |
 |-------|----------------|--------|
-| **Authentication** | BetterAuth with bcrypt, session cookies | ✅ |
+| **Authentication** | BetterAuth with Argon2id (bcrypt migration), session cookies | ✅ |
 | **Authorization** | Role-based (super_admin, company_admin, staff, client_user) | ✅ |
 | **Rate Limiting** | Redis sliding window (AI, API, Auth) | ✅ |
 | **CSRF Protection** | BetterAuth built-in | ✅ |
@@ -1700,13 +1700,36 @@ export async function checkRateLimit(params: {
 
 | Data Type | Protection |
 |-----------|------------|
-| Passwords | bcrypt (10 rounds) |
+| Passwords | Argon2id (64 MiB, 3 iterations) — bcrypt fallback for migration |
 | Sessions | Signed cookies, HTTPOnly |
 | API Traffic | TLS 1.3 (HTTPS only) |
 | Redis | Upstash TLS always enabled |
 | Database | SSL connection required |
-| OAuth Tokens | Encrypted in account table |
+| OAuth Tokens | AES-256-GCM encrypted at rest |
 | 2FA Secrets | Encrypted storage |
+
+### Phase 2 Security Changes (February 2026)
+
+Security remediation addressing HIGH-severity findings from the December 2025 audit.
+
+| Area | Before | After |
+|------|--------|-------|
+| **Password Hashing** | bcrypt (10 rounds) | Argon2id (64 MiB, 3 iterations) — OWASP 2025 recommended |
+| **OAuth Token Storage** | Plaintext TEXT columns | AES-256-GCM encrypted at rest |
+| **Tenant Isolation** | Application-level WHERE clause only | RLS + application-level (defense-in-depth) |
+| **SSE Connections** | Unlimited | 5/user, 50/company (Redis-enforced) |
+| **Supply Chain Security** | None | npm audit + OSV + CodeQL + Dependabot |
+| **Secret Rotation** | Undocumented | 90-day schedule with runbook |
+| **DB Connection Role** | Superuser | Non-superuser (`weddingflo_app`) |
+
+**Key files:**
+- `src/lib/auth/argon2-password.ts` — Argon2id hashing with transparent bcrypt migration
+- `src/lib/crypto/token-encryption.ts` — AES-256-GCM encrypt/decrypt for OAuth tokens
+- `src/lib/sse/connection-manager.ts` — Redis-backed per-user/company SSE limits
+- `src/lib/db/tenant-scope.ts` — Application-level tenant isolation wrapper
+- `supabase/migrations/0022–0025` — RLS policies, restricted DB role, token encryption columns
+- `scripts/verify-phase2.sh` — Post-deployment verification script
+- `docs/phase2/secret-rotation-runbook.md` — 90-day rotation schedule
 
 ### Audit Logging
 
@@ -2034,7 +2057,7 @@ appRouter
 - **Real-time sync** via Upstash Redis pub/sub
 - **AI chatbot** with 40+ tools and confirmation flow
 - **Bidirectional Google Sheets sync** for all planning modules
-- **10/10 security rating** with multi-tenant isolation
+- **8.5/10 security rating** with multi-tenant isolation and Phase 2 hardening
 - **Hosted on Hostinger** (not Hetzner)
 
 This document serves as the **single source of truth** for understanding the complete architecture, data flows, and security implementation.
