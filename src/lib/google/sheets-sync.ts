@@ -7,6 +7,7 @@
  * February 2026 - Full implementation
  */
 
+import { randomUUID } from 'crypto';
 import { sheets_v4 } from 'googleapis';
 import { db } from '@/lib/db';
 import { eq, and } from 'drizzle-orm';
@@ -20,11 +21,19 @@ import {
   clientVendors,
   gifts,
   clients,
+  advancePayments,
 } from '@/lib/db/schema';
+import { inArray } from 'drizzle-orm';
 import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-client';
-import { normalizeRsvpStatus } from '@/lib/constants/enums';
+import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
 import { publishSyncAction, storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
+import {
+  syncGuestsToHotelsAndTransportTx,
+  syncHotelsToTimelineTx,
+  syncTransportToTimelineTx,
+  type SyncResult,
+} from '@/lib/backup/auto-sync-trigger';
 
 export interface SyncStats {
   exported: number;
@@ -34,11 +43,12 @@ export interface SyncStats {
 
 // Sheet column definitions for each module
 const GUEST_HEADERS = [
-  'ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Group',
+  'ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Group', 'Side',
   'RSVP Status', 'Party Size', 'Relationship', 'Arrival Date',
   'Arrival Mode', 'Departure Date', 'Departure Mode',
   'Hotel Required', 'Transport Required', 'Meal Preference',
-  'Dietary Restrictions', 'Notes', 'Last Updated'
+  'Dietary Restrictions', 'Additional Guests', 'Events',
+  'Gift To Give', 'Checked In', 'Notes', 'Last Updated'
 ];
 
 const BUDGET_HEADERS = [
@@ -73,8 +83,8 @@ const VENDOR_HEADERS = [
 ];
 
 const GIFT_HEADERS = [
-  'ID', 'Gift Name', 'Guest ID', 'Value', 'Status',
-  'Last Updated'
+  'ID', 'Gift Name', 'Guest ID', 'Guest Name',
+  'Value', 'Status', 'Last Updated'
 ];
 
 // Query paths to invalidate per module after import
@@ -145,6 +155,7 @@ export async function syncGuestsToSheet(
         g.email || '',
         g.phone || '',
         g.groupName || '',
+        g.guestSide || '',
         g.rsvpStatus || 'pending',
         g.partySize || 1,
         g.relationshipToFamily || '',
@@ -156,6 +167,10 @@ export async function syncGuestsToSheet(
         g.transportRequired ? 'Yes' : 'No',
         g.mealPreference || '',
         g.dietaryRestrictions || '',
+        Array.isArray(g.additionalGuestNames) ? g.additionalGuestNames.join(', ') : '',
+        Array.isArray(g.attendingEvents) ? g.attendingEvents.join(', ') : '',
+        g.giftToGive || '',
+        g.checkedIn ? 'Yes' : 'No',
         g.notes || '',
         g.updatedAt ? new Date(g.updatedAt).toISOString() : '',
       ])
@@ -185,8 +200,21 @@ export async function syncBudgetToSheet(
 
   try {
     const budgetList = await db
-      .select()
+      .select({
+        id: budget.id,
+        item: budget.item,
+        category: budget.category,
+        segment: budget.segment,
+        estimatedCost: budget.estimatedCost,
+        actualCost: budget.actualCost,
+        paidAmount: budget.paidAmount,
+        paymentStatus: budget.paymentStatus,
+        notes: budget.notes,
+        updatedAt: budget.updatedAt,
+        vendorName: vendors.name,
+      })
       .from(budget)
+      .leftJoin(vendors, eq(budget.vendorId, vendors.id))
       .where(eq(budget.clientId, clientId));
 
     const data = [
@@ -200,7 +228,7 @@ export async function syncBudgetToSheet(
         b.actualCost || '',
         b.paidAmount || '0',
         b.paymentStatus || 'pending',
-        '', // Vendor - would need join
+        b.vendorName || '',
         b.notes || '',
         b.updatedAt ? new Date(b.updatedAt).toISOString() : '',
       ])
@@ -391,10 +419,26 @@ export async function syncVendorsToSheet(
     // Create a map of vendor links for additional data
     const linkMap = new Map(vendorLinks.map(l => [l.vendorId, l]));
 
+    // Calculate total paid per vendor from advance payments
+    const totalPaidMap = new Map<string, number>();
+    if (vendorIds.length > 0) {
+      const payments = await db
+        .select({ vendorId: advancePayments.vendorId, amount: advancePayments.amount })
+        .from(advancePayments)
+        .where(inArray(advancePayments.vendorId, vendorIds));
+      for (const p of payments) {
+        if (p.vendorId) {
+          const current = totalPaidMap.get(p.vendorId) || 0;
+          totalPaidMap.set(p.vendorId, current + (parseFloat(p.amount) || 0));
+        }
+      }
+    }
+
     const data = [
       VENDOR_HEADERS,
       ...filteredVendors.map(v => {
         const link = linkMap.get(v.id);
+        const totalPaid = totalPaidMap.get(v.id);
         return [
           v.id,
           v.name,
@@ -403,7 +447,7 @@ export async function syncVendorsToSheet(
           v.phone || '',
           v.email || '',
           link?.contractAmount || '',
-          '', // Total paid - would need calculation
+          totalPaid != null ? totalPaid.toString() : '',
           link?.paymentStatus || 'pending',
           link?.serviceDate || '',
           link?.venueAddress || '',
@@ -438,20 +482,34 @@ export async function syncGiftsToSheet(
 
   try {
     const giftList = await db
-      .select()
+      .select({
+        id: gifts.id,
+        name: gifts.name,
+        guestId: gifts.guestId,
+        guestFirstName: guests.firstName,
+        guestLastName: guests.lastName,
+        value: gifts.value,
+        status: gifts.status,
+        updatedAt: gifts.updatedAt,
+      })
       .from(gifts)
+      .leftJoin(guests, eq(gifts.guestId, guests.id))
       .where(eq(gifts.clientId, clientId));
 
     const data = [
       GIFT_HEADERS,
-      ...giftList.map(g => [
-        g.id,
-        g.name || '',
-        g.guestId || '',
-        g.value?.toString() || '',
-        g.status || 'received',
-        g.updatedAt ? new Date(g.updatedAt).toISOString() : '',
-      ])
+      ...giftList.map(g => {
+        const guestName = [g.guestFirstName, g.guestLastName].filter(Boolean).join(' ').trim();
+        return [
+          g.id,
+          g.name || '',
+          g.guestId || '',
+          guestName || '',
+          g.value?.toString() || '',
+          g.status || 'received',
+          g.updatedAt ? new Date(g.updatedAt).toISOString() : '',
+        ];
+      })
     ];
 
     await writeSheetData(sheetsClient, spreadsheetId, 'Gifts', data);
@@ -556,67 +614,85 @@ export async function importGuestsFromSheet(
 
     const existingMap = new Map(existingGuests.map(g => [g.id, g.updatedAt]));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const dbUpdatedAt = existingMap.get(id);
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const dbUpdatedAt = existingMap.get(id);
 
-      // Skip if DB record is newer or same
-      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
-
-      // Parse row data based on headers
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      const parseBoolean = (val: string | null) => {
-        if (!val) return false;
-        return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
-      };
-
-      try {
-        const guestData = {
-          firstName: getValue('First Name') || '',
-          lastName: getValue('Last Name') || null,
-          email: getValue('Email') || null,
-          phone: getValue('Phone') || null,
-          groupName: getValue('Group') || null,
-          rsvpStatus: normalizeRsvpStatus(getValue('RSVP Status') || 'pending'),
-          partySize: parseInt(getValue('Party Size') || '1') || 1,
-          relationshipToFamily: getValue('Relationship') || null,
-          arrivalDatetime: getValue('Arrival Date') ? new Date(getValue('Arrival Date')!) : null,
-          arrivalMode: getValue('Arrival Mode') || null,
-          departureDatetime: getValue('Departure Date') ? new Date(getValue('Departure Date')!) : null,
-          departureMode: getValue('Departure Mode') || null,
-          hotelRequired: parseBoolean(getValue('Hotel Required')),
-          transportRequired: parseBoolean(getValue('Transport Required')),
-          mealPreference: getValue('Meal Preference') || null,
-          dietaryRestrictions: getValue('Dietary Restrictions') || null,
-          notes: getValue('Notes') || null,
-          updatedAt: new Date(),
-        };
-
-        if (existingMap.has(id)) {
-          // Update existing
-          await db.update(guests).set(guestData).where(eq(guests.id, id));
-        } else {
-          // Insert new
-          await db.insert(guests).values({
-            id,
-            clientId,
-            ...guestData,
-          });
+        // Skip if DB record is newer or same
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+          continue;
         }
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Row ${i + 1}: ${rowError.message}`);
+        // Parse row data based on headers
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
+
+        const parseBoolean = (val: string | null) => {
+          if (!val) return false;
+          return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
+        };
+
+        try {
+          const guestData = {
+            firstName: getValue('First Name') || '',
+            lastName: getValue('Last Name') || null,
+            email: getValue('Email') || null,
+            phone: getValue('Phone') || null,
+            groupName: getValue('Group') || null,
+            guestSide: normalizeGuestSide(getValue('Side') || 'mutual'),
+            rsvpStatus: normalizeRsvpStatus(getValue('RSVP Status') || 'pending'),
+            partySize: parseInt(getValue('Party Size') || '1') || 1,
+            relationshipToFamily: getValue('Relationship') || null,
+            arrivalDatetime: getValue('Arrival Date') ? new Date(getValue('Arrival Date')!) : null,
+            arrivalMode: getValue('Arrival Mode') || null,
+            departureDatetime: getValue('Departure Date') ? new Date(getValue('Departure Date')!) : null,
+            departureMode: getValue('Departure Mode') || null,
+            hotelRequired: parseBoolean(getValue('Hotel Required')),
+            transportRequired: parseBoolean(getValue('Transport Required')),
+            mealPreference: getValue('Meal Preference') || null,
+            dietaryRestrictions: getValue('Dietary Restrictions') || null,
+            additionalGuestNames: getValue('Additional Guests')
+              ? getValue('Additional Guests')!.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : null,
+            attendingEvents: getValue('Events')
+              ? getValue('Events')!.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : null,
+            giftToGive: getValue('Gift To Give') || null,
+            checkedIn: parseBoolean(getValue('Checked In')),
+            notes: getValue('Notes') || null,
+            updatedAt: new Date(),
+          };
+
+          // Skip rows with no name (e.g., merged cells in Sheets)
+          if (!guestData.firstName || !guestData.firstName.trim()) {
+            continue;
+          }
+
+          if (existingMap.has(id)) {
+            // Update existing
+            await tx.update(guests).set(guestData).where(eq(guests.id, id));
+          } else {
+            // Insert new
+            await tx.insert(guests).values({
+              id,
+              clientId,
+              ...guestData,
+            });
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} guests from sheet`);
   } catch (error: any) {
@@ -662,50 +738,54 @@ export async function importBudgetFromSheet(
 
     const existingMap = new Map(existingBudget.map(b => [b.id, b.updatedAt]));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const dbUpdatedAt = existingMap.get(id);
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const dbUpdatedAt = existingMap.get(id);
 
-      // Skip if DB record is newer or same
-      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
-
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      try {
-        const budgetData = {
-          item: getValue('Item') || '',
-          category: getValue('Category') || 'other',
-          segment: getValue('Segment') || null,
-          estimatedCost: getValue('Estimated Cost') || '0',
-          actualCost: getValue('Actual Cost') || null,
-          paidAmount: getValue('Paid Amount') || '0',
-          paymentStatus: getValue('Payment Status') || 'pending',
-          notes: getValue('Notes') || null,
-          updatedAt: new Date(),
-        };
-
-        if (existingMap.has(id)) {
-          await db.update(budget).set(budgetData).where(eq(budget.id, id));
-        } else if (budgetData.item) {
-          await db.insert(budget).values({
-            id,
-            clientId,
-            ...budgetData,
-          });
+        // Skip if DB record is newer or same
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+          continue;
         }
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Budget Row ${i + 1}: ${rowError.message}`);
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
+
+        try {
+          const budgetData = {
+            item: getValue('Item') || '',
+            category: getValue('Category') || 'other',
+            segment: getValue('Segment') || null,
+            estimatedCost: getValue('Estimated Cost') || '0',
+            actualCost: getValue('Actual Cost') || null,
+            paidAmount: getValue('Paid Amount') || '0',
+            paymentStatus: getValue('Payment Status') || 'pending',
+            notes: getValue('Notes') || null,
+            updatedAt: new Date(),
+          };
+
+          if (existingMap.has(id)) {
+            await tx.update(budget).set(budgetData).where(eq(budget.id, id));
+          } else if (budgetData.item) {
+            await tx.insert(budget).values({
+              id,
+              clientId,
+              ...budgetData,
+            });
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Budget Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} budget items from sheet`);
   } catch (error: any) {
@@ -760,84 +840,87 @@ export async function importVendorsFromSheet(
 
     const linkedVendorIds = new Set(existingLinks.map(l => l.vendorId));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const dbUpdatedAt = existingMap.get(id);
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const dbUpdatedAt = existingMap.get(id);
 
-      // Skip if DB record is newer or same
-      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
-
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      try {
-        const vendorData = {
-          name: getValue('Vendor Name') || '',
-          category: getValue('Category') || 'other',
-          contactName: getValue('Contact Name') || null,
-          phone: getValue('Phone') || null,
-          email: getValue('Email') || null,
-          rating: getValue('Rating') || null,
-          notes: getValue('Notes') || null,
-          updatedAt: new Date(),
-        };
-
-        if (!vendorData.name) {
+        // Skip if DB record is newer or same
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
 
-        if (existingMap.has(id)) {
-          await db.update(vendors).set(vendorData).where(eq(vendors.id, id));
-        } else {
-          await db.insert(vendors).values({
-            id,
-            companyId,
-            ...vendorData,
-          });
-          existingMap.set(id, new Date());
-        }
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
 
-        // Create or update client_vendor link
-        const contractAmount = getValue('Contract Amount');
-        const serviceDate = getValue('Service Date');
-        const paymentStatus = getValue('Payment Status') || 'pending';
-        const venueAddress = getValue('Location');
-
-        if (!linkedVendorIds.has(id)) {
-          const { randomUUID } = await import('crypto');
-          await db.insert(clientVendors).values({
-            id: randomUUID(),
-            clientId,
-            vendorId: id,
-            contractAmount: contractAmount || null,
-            serviceDate: serviceDate || null,
-            paymentStatus: paymentStatus as any,
-            venueAddress: venueAddress || null,
-          });
-          linkedVendorIds.add(id);
-        } else {
-          await db.update(clientVendors).set({
-            contractAmount: contractAmount || null,
-            serviceDate: serviceDate || null,
-            paymentStatus: paymentStatus as any,
-            venueAddress: venueAddress || null,
+        try {
+          const vendorData = {
+            name: getValue('Vendor Name') || '',
+            category: getValue('Category') || 'other',
+            contactName: getValue('Contact Name') || null,
+            phone: getValue('Phone') || null,
+            email: getValue('Email') || null,
+            rating: getValue('Rating') || null,
+            notes: getValue('Notes') || null,
             updatedAt: new Date(),
-          }).where(
-            and(eq(clientVendors.clientId, clientId), eq(clientVendors.vendorId, id))
-          );
-        }
+          };
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Vendor Row ${i + 1}: ${rowError.message}`);
+          if (!vendorData.name) {
+            continue;
+          }
+
+          if (existingMap.has(id)) {
+            await tx.update(vendors).set(vendorData).where(eq(vendors.id, id));
+          } else {
+            await tx.insert(vendors).values({
+              id,
+              companyId,
+              ...vendorData,
+            });
+            existingMap.set(id, new Date());
+          }
+
+          // Create or update client_vendor link
+          const contractAmount = getValue('Contract Amount');
+          const serviceDate = getValue('Service Date');
+          const paymentStatus = getValue('Payment Status') || 'pending';
+          const venueAddress = getValue('Location');
+
+          if (!linkedVendorIds.has(id)) {
+            await tx.insert(clientVendors).values({
+              id: randomUUID(),
+              clientId,
+              vendorId: id,
+              contractAmount: contractAmount || null,
+              serviceDate: serviceDate || null,
+              paymentStatus: paymentStatus as any,
+              venueAddress: venueAddress || null,
+            });
+            linkedVendorIds.add(id);
+          } else {
+            await tx.update(clientVendors).set({
+              contractAmount: contractAmount || null,
+              serviceDate: serviceDate || null,
+              paymentStatus: paymentStatus as any,
+              venueAddress: venueAddress || null,
+              updatedAt: new Date(),
+            }).where(
+              and(eq(clientVendors.clientId, clientId), eq(clientVendors.vendorId, id))
+            );
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Vendor Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} vendors from sheet`);
   } catch (error: any) {
@@ -881,63 +964,67 @@ export async function importHotelsFromSheet(
 
     const existingMap = new Map(existingHotels.map(h => [h.id, h.updatedAt]));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const dbUpdatedAt = existingMap.get(id);
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const dbUpdatedAt = existingMap.get(id);
 
-      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
-
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      const parseBoolean = (val: string | null) => {
-        if (!val) return false;
-        return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
-      };
-
-      try {
-        const hotelData = {
-          guestName: getValue('Guest Name') || '',
-          hotelName: getValue('Hotel Name') || null,
-          roomType: getValue('Room Type') || null,
-          roomNumber: getValue('Room Number') || null,
-          checkInDate: getValue('Check-In Date') || null,
-          checkOutDate: getValue('Check-Out Date') || null,
-          partySize: parseInt(getValue('Party Size') || '1') || 1,
-          accommodationNeeded: parseBoolean(getValue('Accommodation Needed')),
-          bookingConfirmed: parseBoolean(getValue('Booking Confirmed')),
-          checkedIn: parseBoolean(getValue('Checked In')),
-          cost: getValue('Cost') || null,
-          paymentStatus: getValue('Payment Status') || 'pending',
-          notes: getValue('Notes') || null,
-          updatedAt: new Date(),
-        };
-
-        if (!hotelData.guestName) {
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
 
-        if (existingMap.has(id)) {
-          await db.update(hotels).set(hotelData).where(eq(hotels.id, id));
-        } else {
-          await db.insert(hotels).values({
-            id,
-            clientId,
-            ...hotelData,
-          });
-        }
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Hotel Row ${i + 1}: ${rowError.message}`);
+        const parseBoolean = (val: string | null) => {
+          if (!val) return false;
+          return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
+        };
+
+        try {
+          const hotelData = {
+            guestName: getValue('Guest Name') || '',
+            hotelName: getValue('Hotel Name') || null,
+            roomType: getValue('Room Type') || null,
+            roomNumber: getValue('Room Number') || null,
+            checkInDate: getValue('Check-In Date') || null,
+            checkOutDate: getValue('Check-Out Date') || null,
+            partySize: parseInt(getValue('Party Size') || '1') || 1,
+            accommodationNeeded: parseBoolean(getValue('Accommodation Needed')),
+            bookingConfirmed: parseBoolean(getValue('Booking Confirmed')),
+            checkedIn: parseBoolean(getValue('Checked In')),
+            cost: getValue('Cost') || null,
+            paymentStatus: getValue('Payment Status') || 'pending',
+            notes: getValue('Notes') || null,
+            updatedAt: new Date(),
+          };
+
+          if (!hotelData.guestName) {
+            continue;
+          }
+
+          if (existingMap.has(id)) {
+            await tx.update(hotels).set(hotelData).where(eq(hotels.id, id));
+          } else {
+            await tx.insert(hotels).values({
+              id,
+              clientId,
+              ...hotelData,
+            });
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Hotel Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} hotels from sheet`);
   } catch (error: any) {
@@ -981,56 +1068,60 @@ export async function importTransportFromSheet(
 
     const existingMap = new Map(existingTransport.map(t => [t.id, t.updatedAt]));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const dbUpdatedAt = existingMap.get(id);
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const dbUpdatedAt = existingMap.get(id);
 
-      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
-
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      try {
-        const transportData = {
-          guestName: getValue('Guest Name') || '',
-          legType: getValue('Leg Type') || 'arrival',
-          pickupDate: getValue('Pickup Date') || null,
-          pickupTime: getValue('Pickup Time') || null,
-          pickupFrom: getValue('Pickup From') || null,
-          dropTo: getValue('Drop To') || null,
-          vehicleInfo: getValue('Vehicle Info') || null,
-          vehicleNumber: getValue('Vehicle Number') || null,
-          driverPhone: getValue('Driver Phone') || null,
-          transportStatus: getValue('Transport Status') || 'scheduled',
-          notes: getValue('Notes') || null,
-          updatedAt: new Date(),
-        };
-
-        if (!transportData.guestName) {
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
 
-        if (existingMap.has(id)) {
-          await db.update(guestTransport).set(transportData).where(eq(guestTransport.id, id));
-        } else {
-          await db.insert(guestTransport).values({
-            id,
-            clientId,
-            ...transportData,
-          });
-        }
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Transport Row ${i + 1}: ${rowError.message}`);
+        try {
+          const transportData = {
+            guestName: getValue('Guest Name') || '',
+            legType: getValue('Leg Type') || 'arrival',
+            pickupDate: getValue('Pickup Date') || null,
+            pickupTime: getValue('Pickup Time') || null,
+            pickupFrom: getValue('Pickup From') || null,
+            dropTo: getValue('Drop To') || null,
+            vehicleInfo: getValue('Vehicle Info') || null,
+            vehicleNumber: getValue('Vehicle Number') || null,
+            driverPhone: getValue('Driver Phone') || null,
+            transportStatus: getValue('Transport Status') || 'scheduled',
+            notes: getValue('Notes') || null,
+            updatedAt: new Date(),
+          };
+
+          if (!transportData.guestName) {
+            continue;
+          }
+
+          if (existingMap.has(id)) {
+            await tx.update(guestTransport).set(transportData).where(eq(guestTransport.id, id));
+          } else {
+            await tx.insert(guestTransport).values({
+              id,
+              clientId,
+              ...transportData,
+            });
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Transport Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} transport records from sheet`);
   } catch (error: any) {
@@ -1075,85 +1166,89 @@ export async function importTimelineFromSheet(
 
     const existingMap = new Map(existingTimeline.map(t => [t.id, { updatedAt: t.updatedAt, sourceModule: t.sourceModule }]));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const existing = existingMap.get(id);
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const existing = existingMap.get(id);
 
-      // Skip if DB record is newer
-      if (existing?.updatedAt && sheetUpdatedAt && new Date(existing.updatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
-
-      // Skip auto-generated items (hotels, transport, events sync)
-      if (existing?.sourceModule && ['hotels', 'transport', 'events'].includes(existing.sourceModule)) {
-        continue;
-      }
-
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      const parseBoolean = (val: string | null) => {
-        if (!val) return false;
-        return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
-      };
-
-      try {
-        const startTimeStr = getValue('Start Time');
-        const endTimeStr = getValue('End Time');
-
-        const title = getValue('Title') || '';
-
-        // Skip rows without title or startTime (required for insert)
-        if (!title || !startTimeStr) {
-          if (!title) continue;
-          // For existing entries, we can update without startTime
-          if (!existingMap.has(id)) continue;
+        // Skip if DB record is newer
+        if (existing?.updatedAt && sheetUpdatedAt && new Date(existing.updatedAt) >= sheetUpdatedAt) {
+          continue;
         }
 
-        const startTime = startTimeStr ? new Date(startTimeStr) : undefined;
-        const endTime = endTimeStr ? new Date(endTimeStr) : undefined;
-
-        if (existingMap.has(id)) {
-          // Update existing - can handle partial updates
-          const updateData: Record<string, any> = {
-            title,
-            description: getValue('Description') || null,
-            location: getValue('Location') || null,
-            phase: getValue('Phase') || 'showtime',
-            completed: parseBoolean(getValue('Completed')),
-            responsiblePerson: getValue('Responsible Person') || null,
-            notes: getValue('Notes') || null,
-            updatedAt: new Date(),
-          };
-          if (startTime) updateData.startTime = startTime;
-          if (endTime) updateData.endTime = endTime;
-          await db.update(timeline).set(updateData).where(eq(timeline.id, id));
-        } else {
-          // Insert requires startTime
-          await db.insert(timeline).values({
-            id,
-            clientId,
-            title,
-            description: getValue('Description') || null,
-            startTime: startTime!,
-            endTime: endTime || undefined,
-            location: getValue('Location') || null,
-            phase: getValue('Phase') || 'showtime',
-            completed: parseBoolean(getValue('Completed')),
-            responsiblePerson: getValue('Responsible Person') || null,
-            notes: getValue('Notes') || null,
-          });
+        // Skip auto-generated items (hotels, transport, events sync)
+        if (existing?.sourceModule && ['hotels', 'transport', 'events'].includes(existing.sourceModule)) {
+          continue;
         }
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Timeline Row ${i + 1}: ${rowError.message}`);
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
+
+        const parseBoolean = (val: string | null) => {
+          if (!val) return false;
+          return val.toLowerCase() === 'yes' || val.toLowerCase() === 'true';
+        };
+
+        try {
+          const startTimeStr = getValue('Start Time');
+          const endTimeStr = getValue('End Time');
+
+          const title = getValue('Title') || '';
+
+          // Skip rows without title or startTime (required for insert)
+          if (!title || !startTimeStr) {
+            if (!title) continue;
+            // For existing entries, we can update without startTime
+            if (!existingMap.has(id)) continue;
+          }
+
+          const startTime = startTimeStr ? new Date(startTimeStr) : undefined;
+          const endTime = endTimeStr ? new Date(endTimeStr) : undefined;
+
+          if (existingMap.has(id)) {
+            // Update existing - can handle partial updates
+            const updateData: Record<string, any> = {
+              title,
+              description: getValue('Description') || null,
+              location: getValue('Location') || null,
+              phase: getValue('Phase') || 'showtime',
+              completed: parseBoolean(getValue('Completed')),
+              responsiblePerson: getValue('Responsible Person') || null,
+              notes: getValue('Notes') || null,
+              updatedAt: new Date(),
+            };
+            if (startTime) updateData.startTime = startTime;
+            if (endTime) updateData.endTime = endTime;
+            await tx.update(timeline).set(updateData).where(eq(timeline.id, id));
+          } else {
+            // Insert requires startTime
+            await tx.insert(timeline).values({
+              id,
+              clientId,
+              title,
+              description: getValue('Description') || null,
+              startTime: startTime!,
+              endTime: endTime || undefined,
+              location: getValue('Location') || null,
+              phase: getValue('Phase') || 'showtime',
+              completed: parseBoolean(getValue('Completed')),
+              responsiblePerson: getValue('Responsible Person') || null,
+              notes: getValue('Notes') || null,
+            });
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Timeline Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} timeline entries from sheet`);
   } catch (error: any) {
@@ -1197,49 +1292,71 @@ export async function importGiftsFromSheet(
 
     const existingMap = new Map(existingGifts.map(g => [g.id, g.updatedAt]));
 
-    for (let i = 1; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const id = row[idIndex];
-      const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
-      const dbUpdatedAt = existingMap.get(id);
+    // Build guest name→id lookup for resolving Guest Name to Guest ID
+    const clientGuests = await db
+      .select({ id: guests.id, firstName: guests.firstName, lastName: guests.lastName })
+      .from(guests)
+      .where(eq(guests.clientId, clientId));
+    const guestNameMap = new Map(clientGuests.map(g => [
+      `${g.firstName || ''} ${g.lastName || ''}`.trim().toLowerCase(), g.id
+    ]));
 
-      if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
-        continue;
-      }
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        const dbUpdatedAt = existingMap.get(id);
 
-      const getValue = (header: string) => {
-        const idx = headers.indexOf(header);
-        return idx !== -1 ? row[idx] : null;
-      };
-
-      try {
-        const giftData = {
-          name: getValue('Gift Name') || '',
-          guestId: getValue('Guest ID') || null,
-          value: getValue('Value') ? parseFloat(getValue('Value')!) : null,
-          status: getValue('Status') || 'received',
-          updatedAt: new Date(),
-        };
-
-        if (!giftData.name) {
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
 
-        if (existingMap.has(id)) {
-          await db.update(gifts).set(giftData).where(eq(gifts.id, id));
-        } else {
-          await db.insert(gifts).values({
-            id,
-            clientId,
-            ...giftData,
-          });
-        }
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
 
-        stats.imported++;
-      } catch (rowError: any) {
-        stats.errors.push(`Gift Row ${i + 1}: ${rowError.message}`);
+        try {
+          // Resolve Guest ID: prefer explicit ID, fall back to name lookup
+          let guestId = getValue('Guest ID') || null;
+          if (!guestId) {
+            const guestName = getValue('Guest Name');
+            if (guestName) {
+              guestId = guestNameMap.get(guestName.trim().toLowerCase()) || null;
+            }
+          }
+
+          const giftData = {
+            name: getValue('Gift Name') || '',
+            guestId,
+            value: getValue('Value') ? parseFloat(getValue('Value')!) : null,
+            status: getValue('Status') || 'received',
+            updatedAt: new Date(),
+          };
+
+          if (!giftData.name) {
+            continue;
+          }
+
+          if (existingMap.has(id)) {
+            await tx.update(gifts).set(giftData).where(eq(gifts.id, id));
+          } else {
+            await tx.insert(gifts).values({
+              id,
+              clientId,
+              ...giftData,
+            });
+          }
+
+          stats.imported++;
+        } catch (rowError: any) {
+          stats.errors.push(`Gift Row ${i + 2}: ${rowError.message}`);
+        }
       }
-    }
+    });
 
     console.log(`[Sheets Sync] Imported ${stats.imported} gifts from sheet`);
   } catch (error: any) {
@@ -1275,12 +1392,18 @@ export async function importAllFromSheets(
   byModule.guests = guestStats.imported;
   allErrors.push(...guestStats.errors);
 
-  // Recalculate per-guest budget items after guest import
+  // Recalculate per-guest budget items and cascade sync after guest import
   if (guestStats.imported > 0) {
     try {
       await recalcPerGuestBudgetItems(db, clientId);
     } catch (err) {
       console.error('[Sheets Sync] Budget recalc failed:', err);
+    }
+    try {
+      const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
+      await syncGuestsToHotelsAndTransportTx(db, clientId, cascadeResult);
+    } catch (err) {
+      console.error('[Sheets Sync] Guest cascade sync failed:', err);
     }
   }
 
@@ -1299,10 +1422,28 @@ export async function importAllFromSheets(
   byModule.hotels = hotelStats.imported;
   allErrors.push(...hotelStats.errors);
 
+  if (hotelStats.imported > 0) {
+    try {
+      const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
+      await syncHotelsToTimelineTx(db, clientId, cascadeResult);
+    } catch (err) {
+      console.error('[Sheets Sync] Hotel cascade sync failed:', err);
+    }
+  }
+
   const transportStats = await importTransportFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += transportStats.imported;
   byModule.transport = transportStats.imported;
   allErrors.push(...transportStats.errors);
+
+  if (transportStats.imported > 0) {
+    try {
+      const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
+      await syncTransportToTimelineTx(db, clientId, cascadeResult);
+    } catch (err) {
+      console.error('[Sheets Sync] Transport cascade sync failed:', err);
+    }
+  }
 
   const timelineStats = await importTimelineFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += timelineStats.imported;

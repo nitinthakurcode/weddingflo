@@ -22,6 +22,12 @@ import {
   broadcastSheetSync,
 } from '@/lib/google/sheets-sync';
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
+import {
+  syncGuestsToHotelsAndTransportTx,
+  syncHotelsToTimelineTx,
+  syncTransportToTimelineTx,
+  type SyncResult,
+} from '@/lib/backup/auto-sync-trigger';
 
 /**
  * Google Sheets Router
@@ -74,6 +80,7 @@ export const googleSheetsRouter = router({
         } else {
           await db.insert(googleSheetsSyncSettings).values({
             userId: ctx.userId,
+            companyId: ctx.companyId!,
             accessToken: encryptToken(tokens.access_token),
             refreshToken: encryptToken(tokens.refresh_token),
             tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
@@ -184,9 +191,17 @@ export const googleSheetsRouter = router({
             .where(eq(googleSheetsSyncSettings.id, settings.id));
         } catch (error: any) {
           console.error('[Google Sheets] Token refresh failed:', error);
+          // Clear stale tokens so user can reconnect
+          await db.update(googleSheetsSyncSettings).set({
+            accessToken: null,
+            refreshToken: null,
+            tokenExpiresAt: null,
+            isConnected: false,
+            updatedAt: new Date(),
+          }).where(eq(googleSheetsSyncSettings.id, settings.id));
           throw new TRPCError({
             code: 'UNAUTHORIZED',
-            message: 'Google Sheets session expired. Please reconnect.',
+            message: 'Google Sheets session expired. Please reconnect your Google account.',
           });
         }
       }
@@ -347,18 +362,34 @@ export const googleSheetsRouter = router({
 
       // Refresh token if expired
       if (settings.tokenExpiresAt && new Date(settings.tokenExpiresAt) < new Date()) {
-        const newTokens = await oauth.refreshAccessToken(refreshTokenPlain);
-        accessToken = newTokens.access_token;
+        try {
+          const newTokens = await oauth.refreshAccessToken(refreshTokenPlain);
+          accessToken = newTokens.access_token;
 
-        await db
-          .update(googleSheetsSyncSettings)
-          .set({
-            accessToken: encryptToken(newTokens.access_token),
-            refreshToken: encryptToken(newTokens.refresh_token),
-            tokenExpiresAt: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
+          await db
+            .update(googleSheetsSyncSettings)
+            .set({
+              accessToken: encryptToken(newTokens.access_token),
+              refreshToken: encryptToken(newTokens.refresh_token),
+              tokenExpiresAt: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
+              updatedAt: new Date(),
+            })
+            .where(eq(googleSheetsSyncSettings.id, settings.id));
+        } catch (refreshError) {
+          console.error('[Google Sheets] Token refresh failed during import:', refreshError);
+          // Clear stale tokens so user can reconnect
+          await db.update(googleSheetsSyncSettings).set({
+            accessToken: null,
+            refreshToken: null,
+            tokenExpiresAt: null,
+            isConnected: false,
             updatedAt: new Date(),
-          })
-          .where(eq(googleSheetsSyncSettings.id, settings.id));
+          }).where(eq(googleSheetsSyncSettings.id, settings.id));
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'Google Sheets session expired. Please reconnect your Google account.',
+          });
+        }
       }
 
       const sheetsClient = oauth.getSheetsClient(accessToken, refreshTokenPlain);
@@ -412,12 +443,38 @@ export const googleSheetsRouter = router({
           });
       }
 
-      // Budget recalc after guest import
+      // Budget recalc and cascade sync after guest import
       if (input.module === 'guests' && result.imported > 0) {
         try {
           await recalcPerGuestBudgetItems(db, input.clientId);
         } catch (err) {
           console.error('[Sheets Router] Budget recalc failed:', err);
+        }
+        try {
+          const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
+          await syncGuestsToHotelsAndTransportTx(db, input.clientId, cascadeResult);
+        } catch (err) {
+          console.error('[Sheets Router] Guest cascade sync failed:', err);
+        }
+      }
+
+      // Cascade sync after hotel import
+      if (input.module === 'hotels' && result.imported > 0) {
+        try {
+          const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
+          await syncHotelsToTimelineTx(db, input.clientId, cascadeResult);
+        } catch (err) {
+          console.error('[Sheets Router] Hotel cascade sync failed:', err);
+        }
+      }
+
+      // Cascade sync after transport import
+      if (input.module === 'transport' && result.imported > 0) {
+        try {
+          const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
+          await syncTransportToTimelineTx(db, input.clientId, cascadeResult);
+        } catch (err) {
+          console.error('[Sheets Router] Transport cascade sync failed:', err);
         }
       }
 

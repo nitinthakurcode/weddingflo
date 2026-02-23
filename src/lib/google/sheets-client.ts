@@ -165,6 +165,12 @@ export async function writeSheetData(
   });
 
   // Write new data
+  // WARNING: USER_ENTERED mode causes Google Sheets to interpret values:
+  // - Phone numbers with leading +/0 are converted to numbers (data loss)
+  // - Date-like strings are reformatted based on spreadsheet locale
+  // - Numeric strings lose leading zeros
+  // Using RAW would prevent this but makes the spreadsheet less user-friendly.
+  // Accepted risk — documented in Session 4 audit, Section 17.5
   if (data.length > 0) {
     await sheetsClient.spreadsheets.values.update({
       spreadsheetId,

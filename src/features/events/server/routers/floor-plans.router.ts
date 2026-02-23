@@ -346,6 +346,7 @@ export const floorPlansRouter = router({
           .insert(schema.floorPlanTables)
           .values({
             floorPlanId: input.floorPlanId,
+            name: input.tableName || `Table ${input.tableNumber}`,
             tableNumber: parseInt(input.tableNumber) || 1,
             tableName: input.tableName,
             shape: input.tableShape,

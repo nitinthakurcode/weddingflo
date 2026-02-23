@@ -64,6 +64,7 @@ export const paymentRouter = router({
           .insert(schema.stripeAccounts)
           .values({
             companyId,
+            userId,
             stripeAccountId: account.id,
             country,
             status: 'pending',
