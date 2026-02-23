@@ -25,11 +25,16 @@ const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Store a pending tool call in PostgreSQL UNLOGGED table
+ *
+ * Runs opportunistic cleanup of expired calls before inserting.
  */
 export async function setPendingCall(
   id: string,
   call: PendingToolCall
 ): Promise<void> {
+  // Opportunistic cleanup — lightweight, non-blocking for the caller
+  cleanupExpiredCalls().catch(() => { /* best-effort */ });
+
   try {
     await db.insert(chatbotPendingCalls).values({
       id,
@@ -87,6 +92,10 @@ export async function getPendingCall(
 
 /**
  * Delete a pending tool call
+ *
+ * Re-throws errors so callers can handle cleanup failures.
+ * The mutation itself may have already succeeded — callers should
+ * catch this and still report mutation success with a logged warning.
  */
 export async function deletePendingCall(id: string): Promise<void> {
   try {
@@ -95,6 +104,7 @@ export async function deletePendingCall(id: string): Promise<void> {
       .where(eq(chatbotPendingCalls.id, id));
   } catch (error) {
     console.error('[PendingCalls] Failed to delete pending call:', error);
+    throw error;
   }
 }
 
@@ -146,16 +156,19 @@ export async function getPendingCallsForUser(
 
 /**
  * Clean up expired pending calls
- * Call this periodically (e.g., via cron job or on each request)
+ *
+ * Called opportunistically from setPendingCall() so stale entries
+ * are pruned each time a new pending call is created. This is
+ * lightweight since the table is UNLOGGED and expiresAt is indexed.
  */
 export async function cleanupExpiredCalls(): Promise<number> {
   try {
-    const result = await db
+    const deleted = await db
       .delete(chatbotPendingCalls)
-      .where(lt(chatbotPendingCalls.expiresAt, new Date()));
+      .where(lt(chatbotPendingCalls.expiresAt, new Date()))
+      .returning({ id: chatbotPendingCalls.id });
 
-    // Drizzle returns the deleted rows count in some drivers
-    return 0; // Count not available in all drivers
+    return deleted.length;
   } catch (error) {
     console.error('[PendingCalls] Failed to cleanup expired calls:', error);
     return 0;

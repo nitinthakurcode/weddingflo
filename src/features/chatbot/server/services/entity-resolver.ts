@@ -8,7 +8,7 @@
  */
 
 import { db, eq, and, ilike, or, isNull } from '@/lib/db'
-import { clients, guests, vendors, events, budget } from '@/lib/db/schema'
+import { clients, guests, vendors, events } from '@/lib/db/schema'
 
 // ============================================
 // TYPES
@@ -21,7 +21,7 @@ export interface EntityMatch<T = unknown> {
 }
 
 export interface ResolvedEntity {
-  type: 'client' | 'guest' | 'vendor' | 'event' | 'budget'
+  type: 'client' | 'guest' | 'vendor' | 'event'
   id: string
   displayName: string
   confidence: number
@@ -398,11 +398,32 @@ export async function resolveClient(
 
 /**
  * Resolve a guest by name or ID
+ *
+ * @param companyId - Optional companyId for defense-in-depth tenant isolation.
+ *   When provided, validates clientId belongs to this company before querying.
  */
 export async function resolveGuest(
   query: string,
-  clientId: string
+  clientId: string,
+  companyId?: string
 ): Promise<EntityResolutionResult> {
+  // SECURITY: Verify clientId belongs to companyId (defense-in-depth)
+  if (companyId) {
+    const [validClient] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.companyId, companyId), isNull(clients.deletedAt)))
+      .limit(1)
+
+    if (!validClient) {
+      return {
+        isAmbiguous: true,
+        message: 'Client not found or access denied',
+        options: [],
+      }
+    }
+  }
+
   // If it's a UUID, try direct lookup
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query)) {
     const [guest] = await db
@@ -610,11 +631,32 @@ export async function resolveVendor(
 
 /**
  * Resolve an event by name or ID
+ *
+ * @param companyId - Optional companyId for defense-in-depth tenant isolation.
+ *   When provided, validates clientId belongs to this company before querying.
  */
 export async function resolveEvent(
   query: string,
-  clientId: string
+  clientId: string,
+  companyId?: string
 ): Promise<EntityResolutionResult> {
+  // SECURITY: Verify clientId belongs to companyId (defense-in-depth)
+  if (companyId) {
+    const [validClient] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.companyId, companyId), isNull(clients.deletedAt)))
+      .limit(1)
+
+    if (!validClient) {
+      return {
+        isAmbiguous: true,
+        message: 'Client not found or access denied',
+        options: [],
+      }
+    }
+  }
+
   // If it's a UUID, try direct lookup
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query)) {
     const [event] = await db
@@ -743,7 +785,7 @@ export async function resolveMultipleEntities(
             options: [],
           }
         } else {
-          result = await resolveGuest(query, clientId)
+          result = await resolveGuest(query, clientId, companyId)
         }
         break
       case 'vendor':
@@ -757,7 +799,7 @@ export async function resolveMultipleEntities(
             options: [],
           }
         } else {
-          result = await resolveEvent(query, clientId)
+          result = await resolveEvent(query, clientId, companyId)
         }
         break
       default:

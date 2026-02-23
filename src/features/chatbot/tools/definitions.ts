@@ -466,6 +466,48 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     type: 'query',
     description: 'Get a pre-signed URL to upload a document for a client',
   },
+
+  // Delete tools
+  delete_guest: {
+    name: 'delete_guest',
+    category: 'guest',
+    type: 'mutation',
+    description: 'Delete a guest and all related records',
+    cascadeEffects: ['hotels', 'transport', 'gifts', 'seating', 'budget'],
+  },
+  delete_event: {
+    name: 'delete_event',
+    category: 'event',
+    type: 'mutation',
+    description: 'Delete an event and its timeline entries',
+    cascadeEffects: ['timeline', 'guests'],
+  },
+  delete_vendor: {
+    name: 'delete_vendor',
+    category: 'vendor',
+    type: 'mutation',
+    description: 'Delete a vendor relationship and linked budget/timeline entries',
+    cascadeEffects: ['budget', 'timeline'],
+  },
+  delete_budget_item: {
+    name: 'delete_budget_item',
+    category: 'budget',
+    type: 'mutation',
+    description: 'Delete a budget item and linked timeline payment entries',
+    cascadeEffects: ['timeline'],
+  },
+  delete_timeline_item: {
+    name: 'delete_timeline_item',
+    category: 'timeline',
+    type: 'mutation',
+    description: 'Delete a timeline item',
+  },
+  delete_gift: {
+    name: 'delete_gift',
+    category: 'gifts',
+    type: 'mutation',
+    description: 'Delete a gift record',
+  },
 }
 
 /**
@@ -534,6 +576,10 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             enum: ['traditional', 'destination', 'intimate', 'elopement', 'multi_day', 'cultural', 'modern', 'rustic', 'bohemian', 'religious', 'luxury'],
             description: 'Type of wedding',
+          },
+          vendors: {
+            type: 'string',
+            description: 'Comma-separated vendor names to auto-create. Format: "Category: Name" or just "Name". E.g., "Venue: Grand Hotel, Photography: Studio One, DJ"',
           },
         },
       },
@@ -696,6 +742,38 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             description: 'Specific event UUID to associate guest with',
           },
+          hotelName: {
+            type: 'string',
+            description: 'Hotel name if known (pre-fills hotel record when needsHotel is true)',
+          },
+          hotelCheckIn: {
+            type: 'string',
+            description: 'Hotel check-in date (YYYY-MM-DD)',
+          },
+          hotelCheckOut: {
+            type: 'string',
+            description: 'Hotel check-out date (YYYY-MM-DD)',
+          },
+          hotelRoomType: {
+            type: 'string',
+            description: 'Room type (e.g., "single", "double", "suite")',
+          },
+          transportType: {
+            type: 'string',
+            description: 'Transport type (e.g., "car", "bus", "flight")',
+          },
+          pickupLocation: {
+            type: 'string',
+            description: 'Pickup location for transport',
+          },
+          pickupTime: {
+            type: 'string',
+            description: 'Pickup time (HH:MM)',
+          },
+          transportNotes: {
+            type: 'string',
+            description: 'Transport notes or special instructions',
+          },
         },
       },
     },
@@ -857,10 +935,6 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           guestCount: {
             type: 'number',
             description: 'Expected guests for this event',
-          },
-          dressCode: {
-            type: 'string',
-            description: 'Dress code',
           },
         },
       },
@@ -1073,6 +1147,10 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           notes: {
             type: 'string',
             description: 'Additional notes',
+          },
+          serviceDate: {
+            type: 'string',
+            description: 'Service date in ISO format (YYYY-MM-DD). Auto-creates timeline entry and auto-links to matching event.',
           },
           eventId: {
             type: 'string',
@@ -2678,6 +2756,148 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           description: {
             type: 'string',
             description: 'Description of the document',
+          },
+        },
+      },
+    },
+  },
+
+  // ============================================
+  // DELETE TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'delete_guest',
+      description: 'Delete a guest and all related records (hotel bookings, transport, gifts, seating assignments). This action is irreversible. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          guestId: {
+            type: 'string',
+            description: 'Guest UUID to delete',
+          },
+          guestName: {
+            type: 'string',
+            description: 'Guest name for fuzzy matching if guestId not provided',
+          },
+          clientId: {
+            type: 'string',
+            description: 'Client UUID for context',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_event',
+      description: 'Delete an event and its linked timeline entries. Removes event from guest attending lists. This action is irreversible. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          eventId: {
+            type: 'string',
+            description: 'Event UUID to delete',
+          },
+          eventName: {
+            type: 'string',
+            description: 'Event name for fuzzy matching if eventId not provided',
+          },
+          clientId: {
+            type: 'string',
+            description: 'Client UUID for context',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_vendor',
+      description: 'Delete a vendor relationship from a client, including linked budget items and timeline entries. The vendor record remains in the system for reuse. This action is irreversible. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          vendorId: {
+            type: 'string',
+            description: 'Vendor UUID to delete',
+          },
+          vendorName: {
+            type: 'string',
+            description: 'Vendor name for fuzzy matching if vendorId not provided',
+          },
+          clientId: {
+            type: 'string',
+            description: 'Client UUID for context',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_budget_item',
+      description: 'Delete a budget line item and any linked timeline payment entries. This action is irreversible. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['budgetItemId'],
+        additionalProperties: false,
+        properties: {
+          budgetItemId: {
+            type: 'string',
+            description: 'Budget item UUID to delete',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_timeline_item',
+      description: 'Delete a timeline item. This action is irreversible. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['timelineItemId'],
+        additionalProperties: false,
+        properties: {
+          timelineItemId: {
+            type: 'string',
+            description: 'Timeline item UUID to delete',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_gift',
+      description: 'Delete a gift record. This action is irreversible. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['giftId'],
+        additionalProperties: false,
+        properties: {
+          giftId: {
+            type: 'string',
+            description: 'Gift UUID to delete',
           },
         },
       },

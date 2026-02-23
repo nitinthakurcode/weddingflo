@@ -319,8 +319,9 @@ async function buildClientContext(clientId: string, companyId: string): Promise<
 
 /**
  * Build event statistics
+ * @param companyId - Defense-in-depth tenant filter
  */
-async function buildEventStats(clientId: string): Promise<EventStats> {
+async function buildEventStats(clientId: string, companyId: string): Promise<EventStats> {
   const today = new Date().toISOString().split('T')[0]
 
   const [stats] = await db
@@ -333,6 +334,7 @@ async function buildEventStats(clientId: string): Promise<EventStats> {
     .where(
       and(
         eq(events.clientId, clientId),
+        eq(events.companyId, companyId),
         isNull(events.deletedAt)
       )
     )
@@ -348,6 +350,7 @@ async function buildEventStats(clientId: string): Promise<EventStats> {
     .where(
       and(
         eq(events.clientId, clientId),
+        eq(events.companyId, companyId),
         isNull(events.deletedAt),
         sql`${events.eventDate} >= ${today}`
       )
@@ -369,8 +372,9 @@ async function buildEventStats(clientId: string): Promise<EventStats> {
 
 /**
  * Build guest statistics
+ * @param companyId - Defense-in-depth tenant filter
  */
-async function buildGuestStats(clientId: string): Promise<GuestStats> {
+async function buildGuestStats(clientId: string, companyId: string): Promise<GuestStats> {
   const [stats] = await db
     .select({
       total: sql<number>`count(*)::int`,
@@ -383,7 +387,7 @@ async function buildGuestStats(clientId: string): Promise<GuestStats> {
       dietarySpecial: sql<number>`count(*) filter (where ${guests.dietaryRestrictions} is not null and ${guests.dietaryRestrictions} != '')::int`,
     })
     .from(guests)
-    .where(eq(guests.clientId, clientId))
+    .where(and(eq(guests.clientId, clientId), eq(guests.companyId, companyId)))
 
   return {
     total: stats?.total || 0,
@@ -399,8 +403,9 @@ async function buildGuestStats(clientId: string): Promise<GuestStats> {
 
 /**
  * Build budget statistics
+ * @param companyId - Defense-in-depth tenant filter
  */
-async function buildBudgetStats(clientId: string, totalBudget: number | null): Promise<BudgetStats> {
+async function buildBudgetStats(clientId: string, companyId: string, totalBudget: number | null): Promise<BudgetStats> {
   const [stats] = await db
     .select({
       itemCount: sql<number>`count(*)::int`,
@@ -409,7 +414,7 @@ async function buildBudgetStats(clientId: string, totalBudget: number | null): P
       totalPaid: sql<number>`coalesce(sum(${budget.paidAmount}::numeric), 0)::float`,
     })
     .from(budget)
-    .where(eq(budget.clientId, clientId))
+    .where(and(eq(budget.clientId, clientId), eq(budget.companyId, companyId)))
 
   const budgetAmount = totalBudget || 0
   const estimated = stats?.totalEstimated || 0
@@ -431,8 +436,9 @@ async function buildBudgetStats(clientId: string, totalBudget: number | null): P
 
 /**
  * Build vendor statistics
+ * @param companyId - Defense-in-depth tenant filter
  */
-async function buildVendorStats(clientId: string): Promise<VendorStats> {
+async function buildVendorStats(clientId: string, companyId: string): Promise<VendorStats> {
   // Get vendor assignments for this client
   const vendorAssignments = await db
     .select({
@@ -441,7 +447,7 @@ async function buildVendorStats(clientId: string): Promise<VendorStats> {
     })
     .from(clientVendors)
     .innerJoin(vendors, eq(vendors.id, clientVendors.vendorId))
-    .where(eq(clientVendors.clientId, clientId))
+    .where(and(eq(clientVendors.clientId, clientId), eq(vendors.companyId, companyId)))
 
   const byCategory: Record<string, number> = {}
   let confirmed = 0
@@ -468,8 +474,9 @@ async function buildVendorStats(clientId: string): Promise<VendorStats> {
 
 /**
  * Build timeline statistics
+ * @param companyId - Defense-in-depth tenant filter
  */
-async function buildTimelineStats(clientId: string): Promise<TimelineStats> {
+async function buildTimelineStats(clientId: string, companyId: string): Promise<TimelineStats> {
   const today = new Date().toISOString().split('T')[0]
   const now = new Date()
 
@@ -478,7 +485,7 @@ async function buildTimelineStats(clientId: string): Promise<TimelineStats> {
       totalItems: sql<number>`count(*)::int`,
     })
     .from(timeline)
-    .where(eq(timeline.clientId, clientId))
+    .where(and(eq(timeline.clientId, clientId), eq(timeline.companyId, companyId)))
 
   // Get next timeline item for today
   const [nextItem] = await db
@@ -490,6 +497,7 @@ async function buildTimelineStats(clientId: string): Promise<TimelineStats> {
     .where(
       and(
         eq(timeline.clientId, clientId),
+        eq(timeline.companyId, companyId),
         sql`${timeline.startTime}::date = ${today}`,
         sql`${timeline.startTime} >= ${now.toISOString()}`
       )
@@ -698,11 +706,11 @@ export async function buildChatbotContext(
 
   // Run remaining queries in parallel for performance
   const [eventStats, guestStats, budgetStats, vendorStats, timelineStats, userPreferences] = await Promise.all([
-    buildEventStats(clientId),
-    buildGuestStats(clientId),
-    buildBudgetStats(clientId, clientContext.totalBudget),
-    buildVendorStats(clientId),
-    buildTimelineStats(clientId),
+    buildEventStats(clientId, companyId),
+    buildGuestStats(clientId, companyId),
+    buildBudgetStats(clientId, companyId, clientContext.totalBudget),
+    buildVendorStats(clientId, companyId),
+    buildTimelineStats(clientId, companyId),
     userId ? buildUserPreferences(userId) : Promise.resolve(undefined),
   ])
 

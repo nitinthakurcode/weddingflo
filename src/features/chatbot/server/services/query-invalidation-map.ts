@@ -5,77 +5,91 @@
  *
  * Maps chatbot tool calls to tRPC queries that need to be invalidated
  * when data changes via the chatbot.
+ *
+ * IMPORTANT: Every key must match a mutation tool name in TOOL_METADATA (definitions.ts).
+ * Query path names must match the broadcastSync queryPaths used by UI routers.
  */
 
 /**
- * Tool to Query mapping
- * When a tool is executed, the listed queries should be invalidated
+ * Tool to Query mapping (31 mutation tools)
+ * When a tool is executed, the listed queries should be invalidated.
+ * queryPath names sourced from each module's router broadcastSync calls.
  */
 export const TOOL_QUERY_MAP: Record<string, string[]> = {
-  // Guest tools
-  add_guest: ['guests.getAll', 'guests.getForClient', 'chatbot.getContext'],
-  update_guest: ['guests.getAll', 'guests.getById', 'guests.getForClient'],
-  update_guest_rsvp: ['guests.getAll', 'guests.getById', 'budget.getAll', 'budget.getSummary'],
-  delete_guest: ['guests.getAll', 'guests.getForClient', 'chatbot.getContext'],
-  bulk_update_guests: ['guests.getAll', 'guests.getForClient'],
+  // Client tools (no broadcastSync in router — use conventional names)
+  create_client: ['clients.list'],
+  update_client: ['clients.list'],
 
-  // Event tools
-  create_event: ['events.getAll', 'events.getForClient', 'events.getUpcoming', 'timeline.getAll', 'chatbot.getContext'],
-  update_event: ['events.getAll', 'events.getById', 'events.getUpcoming', 'timeline.getAll'],
-  delete_event: ['events.getAll', 'events.getForClient', 'events.getUpcoming', 'timeline.getAll'],
-  update_event_status: ['events.getAll', 'events.getById'],
+  // Guest tools (from guests.router.ts broadcastSync)
+  add_guest: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+  update_guest_rsvp: ['guests.list', 'guests.getStats', 'budget.overview'],
+  bulk_update_guests: ['guests.list', 'guests.getStats'],
+  check_in_guest: ['guests.list', 'guests.getStats'],
+  assign_guests_to_events: ['guests.list', 'events.list'],
+  update_table_dietary: ['guests.list'],
 
-  // Budget tools
-  create_budget_item: ['budget.getAll', 'budget.getSummary', 'budget.getForClient', 'chatbot.getContext'],
-  update_budget_item: ['budget.getAll', 'budget.getSummary', 'budget.getById'],
-  delete_budget_item: ['budget.getAll', 'budget.getSummary', 'budget.getForClient'],
-  record_payment: ['budget.getAll', 'budget.getSummary', 'budget.getById'],
+  // Event tools (from events.router.ts broadcastSync)
+  create_event: ['events.list', 'timeline.list'],
+  update_event: ['events.list', 'timeline.list'],
 
-  // Vendor tools
-  add_vendor: ['vendors.getAll', 'vendors.getForClient', 'chatbot.getContext'],
-  update_vendor: ['vendors.getAll', 'vendors.getById', 'vendors.getForClient'],
-  delete_vendor: ['vendors.getAll', 'vendors.getForClient'],
-  assign_vendor_to_client: ['vendors.getForClient', 'clientVendors.getAll'],
-  update_vendor_payment: ['vendors.getForClient', 'clientVendors.getAll', 'budget.getSummary'],
+  // Timeline tools (from timeline.router.ts broadcastSync)
+  add_timeline_item: ['timeline.list'],
+  shift_timeline: ['timeline.list'],
 
-  // Hotel/Accommodation tools
-  create_hotel_booking: ['hotels.getAll', 'hotels.getAllWithGuests', 'hotels.getCapacitySummary', 'timeline.getAll'],
-  update_hotel_booking: ['hotels.getAll', 'hotels.getById', 'hotels.getCapacitySummary', 'timeline.getAll'],
-  delete_hotel_booking: ['hotels.getAll', 'hotels.getCapacitySummary', 'timeline.getAll'],
-  check_in_guest: ['hotels.getAll', 'hotels.getStats'],
+  // Vendor tools (from vendors.router.ts broadcastSync)
+  add_vendor: ['vendors.list', 'budget.list', 'timeline.list'],
+  update_vendor: ['vendors.list', 'budget.list'],
 
-  // Transport tools
-  create_transport: ['transport.getAll', 'transport.getForClient', 'timeline.getAll'],
-  update_transport: ['transport.getAll', 'transport.getById', 'timeline.getAll'],
-  delete_transport: ['transport.getAll', 'transport.getForClient', 'timeline.getAll'],
+  // Hotel tools (from hotels.router.ts broadcastSync)
+  add_hotel_booking: ['hotels.list'],
+  bulk_add_hotel_bookings: ['hotels.list'],
 
-  // Timeline tools
-  create_timeline_item: ['timeline.getAll', 'timeline.getForClient', 'timeline.getForEvent'],
-  update_timeline_item: ['timeline.getAll', 'timeline.getById', 'timeline.getForEvent'],
-  delete_timeline_item: ['timeline.getAll', 'timeline.getForClient', 'timeline.getForEvent'],
-  complete_timeline_item: ['timeline.getAll', 'timeline.getById'],
+  // Transport tools (from guest-transport.router.ts broadcastSync)
+  assign_transport: ['guestTransport.list'],
 
-  // Gift tools
-  add_gift: ['gifts.getAll', 'gifts.getForClient', 'guestGifts.getAll'],
-  update_gift: ['gifts.getAll', 'gifts.getById'],
-  delete_gift: ['gifts.getAll', 'gifts.getForClient'],
-  record_gift_delivery: ['gifts.getAll', 'guestGifts.getAll'],
+  // Budget tools (from budget.router.ts broadcastSync)
+  update_budget_item: ['budget.list', 'budget.overview'],
 
-  // Client tools
-  create_client: ['clients.getAll', 'clients.getForCompany', 'chatbot.getContext'],
-  update_client: ['clients.getAll', 'clients.getById', 'chatbot.getContext'],
-  delete_client: ['clients.getAll', 'clients.getForCompany'],
+  // Gift tools (from gifts.router.ts broadcastSync)
+  add_gift: ['gifts.list'],
+  update_gift: ['gifts.list'],
 
-  // Floor plan tools
-  assign_guest_to_table: ['floorPlans.getById', 'floorPlanGuests.getAll'],
-  remove_guest_from_table: ['floorPlans.getById', 'floorPlanGuests.getAll'],
-  create_table: ['floorPlans.getById', 'floorPlanTables.getAll'],
-  update_table: ['floorPlans.getById', 'floorPlanTables.getById'],
+  // Floor plan / Seating tools (from floor-plans.router.ts broadcastSync)
+  add_seating_constraint: ['floorPlans.list'],
 
-  // Import/Export
-  bulk_import: ['guests.getAll', 'hotels.getAll', 'transport.getAll', 'budget.getAll', 'vendors.getAll'],
-  sync_to_sheets: ['googleSheets.getSyncStatus'],
-  import_from_sheets: ['guests.getAll', 'hotels.getAll', 'transport.getAll', 'budget.getAll', 'vendors.getAll', 'timeline.getAll', 'gifts.getAll'],
+  // Communication tools (no broadcastSync in router)
+  send_communication: ['communications.list'],
+
+  // Pipeline tools (no broadcastSync in router)
+  update_pipeline: ['pipeline.list'],
+
+  // Creative tools (no broadcastSync in router)
+  update_creative: ['creatives.list'],
+
+  // Team tools (no broadcastSync in router)
+  assign_team_member: ['team.list'],
+
+  // Proposal/Invoice tools (no broadcastSync in router)
+  create_proposal: ['proposals.list'],
+  create_invoice: ['invoices.list'],
+
+  // Website tools (no broadcastSync in router)
+  update_website: ['websites.list'],
+
+  // Workflow tools (no broadcastSync in router)
+  create_workflow: ['workflows.list'],
+
+  // Delete tools (from UI router broadcastSync queryPaths)
+  delete_guest: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+  delete_event: ['events.list', 'timeline.list', 'guests.list'],
+  delete_vendor: ['vendors.list', 'budget.list', 'timeline.list'],
+  delete_budget_item: ['budget.list', 'budget.overview', 'timeline.list'],
+  delete_timeline_item: ['timeline.list'],
+  delete_gift: ['gifts.list'],
+
+  // Side-effect-only tools (no cache invalidation needed)
+  generate_qr_codes: [],
+  sync_calendar: [],
 }
 
 /**
@@ -87,24 +101,24 @@ export function getQueriesToInvalidate(toolName: string): string[] {
 
 /**
  * Check if a tool is a query-only tool (doesn't modify data)
+ * Must match the 14 query tools in TOOL_METADATA (definitions.ts)
  */
 export function isQueryOnlyTool(toolName: string): boolean {
   const queryTools = [
-    'get_client_info',
-    'get_guests',
-    'get_guest_by_name',
-    'get_events',
-    'get_budget_summary',
-    'get_vendors',
-    'get_timeline',
-    'get_hotels',
-    'get_transport',
-    'get_gifts',
-    'search_guests',
-    'search_vendors',
-    'get_floor_plan',
-    'get_statistics',
+    'get_client_summary',
     'get_wedding_summary',
+    'get_recommendations',
+    'get_guest_stats',
+    'sync_hotel_guests',
+    'get_budget_overview',
+    'budget_currency_convert',
+    'search_entities',
+    'query_data',
+    'query_cross_client_events',
+    'export_data',
+    'query_analytics',
+    'get_weather',
+    'get_document_upload_url',
   ]
 
   return queryTools.includes(toolName)
@@ -112,18 +126,27 @@ export function isQueryOnlyTool(toolName: string): boolean {
 
 /**
  * Module to primary query mapping
- * Used for determining which module page needs to refresh
+ * Used for determining which module page needs to refresh.
+ * Uses the same queryPath names as UI router broadcastSync calls.
  */
 export const MODULE_PRIMARY_QUERIES: Record<string, string[]> = {
-  guests: ['guests.getAll', 'guests.getForClient'],
-  events: ['events.getAll', 'events.getForClient'],
-  budget: ['budget.getAll', 'budget.getSummary'],
-  vendors: ['vendors.getAll', 'vendors.getForClient'],
-  hotels: ['hotels.getAll', 'hotels.getAllWithGuests'],
-  transport: ['transport.getAll', 'transport.getForClient'],
-  timeline: ['timeline.getAll', 'timeline.getForClient'],
-  gifts: ['gifts.getAll', 'gifts.getForClient'],
-  floorPlan: ['floorPlans.getById', 'floorPlanGuests.getAll'],
+  guests: ['guests.list', 'guests.getStats'],
+  events: ['events.list'],
+  budget: ['budget.list', 'budget.overview'],
+  vendors: ['vendors.list'],
+  hotels: ['hotels.list'],
+  transport: ['guestTransport.list'],
+  timeline: ['timeline.list'],
+  gifts: ['gifts.list'],
+  floorPlan: ['floorPlans.list'],
+  pipeline: ['pipeline.list'],
+  communications: ['communications.list'],
+  creatives: ['creatives.list'],
+  team: ['team.list'],
+  proposals: ['proposals.list'],
+  invoices: ['invoices.list'],
+  websites: ['websites.list'],
+  workflows: ['workflows.list'],
 }
 
 /**

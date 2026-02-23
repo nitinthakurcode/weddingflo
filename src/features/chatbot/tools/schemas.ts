@@ -26,6 +26,7 @@ export const createClientSchema = z.object({
   budget: z.number().positive().optional().describe('Total wedding budget'),
   guestCount: z.number().int().positive().max(10000).optional().describe('Expected guest count'),
   weddingType: z.enum(['traditional', 'destination', 'intimate', 'elopement', 'multi_day', 'cultural', 'modern', 'rustic', 'bohemian', 'religious', 'luxury']).optional().describe('Type of wedding'),
+  vendors: z.string().max(1000).optional().describe('Comma-separated vendor names to auto-create. Format: "Category: Name" or just "Name". E.g., "Venue: Grand Hotel, Photography: Studio One, DJ"'),
 })
 
 export const updateClientSchema = z.object({
@@ -66,6 +67,16 @@ export const addGuestSchema = z.object({
   needsTransport: z.boolean().optional().default(false).describe('Whether guest needs transportation'),
   side: z.enum(['partner1', 'partner2', 'mutual']).optional().describe('Which side the guest belongs to'),
   eventId: z.string().uuid().optional().describe('Specific event UUID to associate guest with'),
+  // Hotel detail fields (used by cascade to pre-fill hotel record)
+  hotelName: z.string().max(200).optional().describe('Hotel name if known'),
+  hotelCheckIn: z.string().optional().describe('Hotel check-in date (YYYY-MM-DD)'),
+  hotelCheckOut: z.string().optional().describe('Hotel check-out date (YYYY-MM-DD)'),
+  hotelRoomType: z.string().max(100).optional().describe('Room type (e.g., "single", "double", "suite")'),
+  // Transport detail fields (used by cascade to pre-fill transport record)
+  transportType: z.string().max(100).optional().describe('Transport type (e.g., "car", "bus", "flight")'),
+  pickupLocation: z.string().max(200).optional().describe('Pickup location'),
+  pickupTime: z.string().optional().describe('Pickup time (HH:MM)'),
+  transportNotes: z.string().max(500).optional().describe('Transport notes'),
 })
 
 export const updateGuestRsvpSchema = z.object({
@@ -107,7 +118,6 @@ export const createEventSchema = z.object({
   venueAddress: z.string().max(500).optional().describe('Full venue address'),
   description: z.string().max(2000).optional().describe('Event description'),
   guestCount: z.number().int().positive().optional().describe('Expected guests for this event'),
-  dressCode: z.string().max(200).optional().describe('Dress code'),
 })
 
 export const updateEventSchema = z.object({
@@ -163,6 +173,7 @@ export const addVendorSchema = z.object({
   estimatedCost: z.number().positive().optional().describe('Estimated cost'),
   depositAmount: z.number().positive().optional(),
   notes: z.string().max(2000).optional(),
+  serviceDate: z.string().optional().describe('Service date in ISO format (YYYY-MM-DD)'),
   eventId: z.string().uuid().optional().describe('Specific event to associate with'),
 })
 
@@ -592,6 +603,40 @@ export const getDocumentUploadUrlSchema = z.object({
 })
 
 // ============================================
+// DELETE SCHEMAS
+// ============================================
+
+export const deleteGuestSchema = z.object({
+  guestId: z.string().uuid().optional().describe('Guest UUID to delete'),
+  guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const deleteEventSchema = z.object({
+  eventId: z.string().uuid().optional().describe('Event UUID to delete'),
+  eventName: z.string().optional().describe('Event name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const deleteVendorSchema = z.object({
+  vendorId: z.string().uuid().optional().describe('Vendor UUID to delete'),
+  vendorName: z.string().optional().describe('Vendor name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const deleteBudgetItemSchema = z.object({
+  budgetItemId: z.string().uuid().describe('Budget item UUID to delete'),
+})
+
+export const deleteTimelineItemSchema = z.object({
+  timelineItemId: z.string().uuid().describe('Timeline item UUID to delete'),
+})
+
+export const deleteGiftSchema = z.object({
+  giftId: z.string().uuid().describe('Gift UUID to delete'),
+})
+
+// ============================================
 // TOOL TYPE DEFINITIONS
 // ============================================
 
@@ -650,3 +695,11 @@ export type GenerateQrCodesInput = z.infer<typeof generateQrCodesSchema>
 // Calendar & Documents Types
 export type SyncCalendarInput = z.infer<typeof syncCalendarSchema>
 export type GetDocumentUploadUrlInput = z.infer<typeof getDocumentUploadUrlSchema>
+
+// Delete Types
+export type DeleteGuestInput = z.infer<typeof deleteGuestSchema>
+export type DeleteEventInput = z.infer<typeof deleteEventSchema>
+export type DeleteVendorInput = z.infer<typeof deleteVendorSchema>
+export type DeleteBudgetItemInput = z.infer<typeof deleteBudgetItemSchema>
+export type DeleteTimelineItemInput = z.infer<typeof deleteTimelineItemSchema>
+export type DeleteGiftInput = z.infer<typeof deleteGiftSchema>

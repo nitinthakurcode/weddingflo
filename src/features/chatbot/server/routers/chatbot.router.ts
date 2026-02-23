@@ -365,6 +365,15 @@ Use this information to correctly interpret the user's request.`
             }
           }
 
+          // SECURITY: Only admins can execute mutations via chatbot
+          if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
+            return {
+              type: 'error' as const,
+              content: 'You don\'t have permission to make changes via chatbot. Contact your admin for write access.',
+              error: 'FORBIDDEN',
+            }
+          }
+
           // For mutations, generate preview and require confirmation
           try {
             const preview = await generateToolPreview(toolName, args, ctx)
@@ -433,6 +442,14 @@ Use this information to correctly interpret the user's request.`
         })
       }
 
+      // SECURITY: Only admins can confirm/execute mutations via chatbot
+      if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Insufficient permissions to execute mutations. Admin role required.',
+        })
+      }
+
       // SECURITY: Validate client ownership if clientId provided
       if (input.clientId) {
         const [client] = await ctx.db.select({ id: clients.id }).from(clients)
@@ -490,8 +507,12 @@ Use this information to correctly interpret the user's request.`
         // Execute the tool with real-time sync broadcasting
         const result = await executeToolWithSync(pending.toolName, pending.args, ctx)
 
-        // Clean up pending call
-        await deletePendingCall(input.pendingCallId)
+        // Clean up pending call (best-effort — mutation already succeeded)
+        try {
+          await deletePendingCall(input.pendingCallId)
+        } catch (cleanupError) {
+          console.warn('[Chatbot] Pending call cleanup failed after successful mutation:', cleanupError)
+        }
 
         // Update conversation memory with the mutation (2026 Best Practices)
         const entityFromResult = extractEntityFromResult(pending.toolName, result)
@@ -503,6 +524,10 @@ Use this information to correctly interpret the user's request.`
 
         // Generate success message
         let successMessage = result.message
+
+        if (result.warning) {
+          successMessage += `\n\n⚠️ ${result.warning}`
+        }
 
         if (result.cascadeResults && result.cascadeResults.length > 0) {
           successMessage += '\n\nAdditionally:\n'
@@ -516,8 +541,12 @@ Use this information to correctly interpret the user's request.`
           cascadeResults: result.cascadeResults,
         }
       } catch (error) {
-        // Clean up pending call on error too
-        await deletePendingCall(input.pendingCallId)
+        // Clean up pending call on error too (best-effort)
+        try {
+          await deletePendingCall(input.pendingCallId)
+        } catch (cleanupError) {
+          console.warn('[Chatbot] Pending call cleanup failed after mutation error:', cleanupError)
+        }
 
         const errorMessage = error instanceof Error ? error.message : 'Execution failed'
 

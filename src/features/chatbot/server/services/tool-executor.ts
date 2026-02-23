@@ -10,7 +10,7 @@
  * - Comprehensive error handling
  */
 
-import { db, eq, and, isNull, desc, sql, gte, lte, or, like, inArray } from '@/lib/db'
+import { db, eq, and, isNull, desc, asc, sql, gte, lte, or, like, inArray } from '@/lib/db'
 import { TRPCError } from '@trpc/server'
 import {
   clients,
@@ -31,19 +31,23 @@ import {
   weddingWebsites,
   floorPlans,
   floorPlanTables,
+  floorPlanGuests,
+  guestGifts,
   invoices,
   documents,
   icalFeedTokens,
   calendarSyncSettings,
   calendarSyncedEvents,
   googleCalendarTokens,
+  timelineTemplates,
 } from '@/lib/db/schema'
 import { ICalGenerator } from '@/lib/calendar/ical-generator'
 import { pipelineLeads, pipelineStages, pipelineActivities } from '@/lib/db/schema-pipeline'
 import { proposals, proposalTemplates } from '@/lib/db/schema-proposals'
 import { workflows, workflowSteps } from '@/lib/db/schema-workflows'
 import type { WeddingType } from '@/lib/db/schema/enums'
-import { normalizeGuestSide } from '@/lib/constants/enums'
+import { normalizeGuestSide, normalizeRsvpStatus } from '@/lib/constants/enums'
+import { getDefaultTemplate, type TimelineTemplateItem } from '@/lib/templates/timeline-defaults'
 import { cascadeGuestSideEffects } from '@/features/guests/server/utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { withTransaction, withCascadeTransaction } from './transaction-wrapper'
@@ -104,6 +108,7 @@ export interface ToolExecutionResult {
     entityId: string
   }>
   error?: string
+  warning?: string
 }
 
 export interface PendingToolCall {
@@ -502,6 +507,22 @@ export async function executeTool(
       case 'get_document_upload_url':
         return await executeGetDocumentUploadUrl(args, ctx)
 
+      // ============================================
+      // DELETE TOOLS
+      // ============================================
+      case 'delete_guest':
+        return await executeDeleteGuest(args, ctx)
+      case 'delete_event':
+        return await executeDeleteEvent(args, ctx)
+      case 'delete_vendor':
+        return await executeDeleteVendor(args, ctx)
+      case 'delete_budget_item':
+        return await executeDeleteBudgetItem(args, ctx)
+      case 'delete_timeline_item':
+        return await executeDeleteTimelineItem(args, ctx)
+      case 'delete_gift':
+        return await executeDeleteGift(args, ctx)
+
       default:
         throw new TRPCError({
           code: 'NOT_IMPLEMENTED',
@@ -563,6 +584,9 @@ export async function executeToolWithSync(
       }
 
       // Publish to Redis (broadcasts to ALL instances) and store for recovery
+      // DESIGN: Sync broadcast is non-fatal. If Redis pub/sub fails, the mutation still succeeds.
+      // Other tabs will refresh on next navigation or manual refresh. This prevents Redis outages
+      // from blocking mutations and ensures the chatbot always returns success for completed DB writes.
       try {
         await Promise.all([
           publishSyncAction(action),
@@ -570,8 +594,7 @@ export async function executeToolWithSync(
         ])
         console.log(`[Tool Executor] Published sync action for ${toolName}: ${queryPaths.join(', ')}`)
       } catch (error) {
-        // Don't fail the tool execution if broadcast fails
-        console.warn(`[Tool Executor] Failed to publish sync action:`, error)
+        console.warn(`[Tool Executor] Sync broadcast failed (non-fatal):`, error)
       }
     }
   }
@@ -755,6 +778,7 @@ async function executeCreateClient(
     const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
 
     // Auto-create main wedding event if wedding_date is provided
+    let mainEventId: string | null = null
     if (args.weddingDate) {
       const eventTitle = `${partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}'s Wedding`
 
@@ -774,6 +798,7 @@ async function executeCreateClient(
         .returning({ id: events.id })
 
       if (createdEvent) {
+        mainEventId = createdEvent.id
         cascadeResults.push({
           action: `Created main wedding event: ${eventTitle}`,
           entityType: 'event',
@@ -807,6 +832,98 @@ async function executeCreateClient(
         entityType: 'budget',
         entityId: newClient.id,
       })
+    }
+
+    // Auto-create vendors from comma-separated list
+    // Format: "Category: Vendor Name" or just "Vendor Name"
+    const vendorsInput = args.vendors as string | undefined
+    if (vendorsInput && vendorsInput.trim()) {
+      const categoryKeywords: Record<string, string> = {
+        'venue': 'venue', 'catering': 'catering', 'caterer': 'catering', 'food': 'catering',
+        'photo': 'photography', 'photography': 'photography', 'photographer': 'photography',
+        'video': 'videography', 'videography': 'videography', 'videographer': 'videography',
+        'floral': 'florals', 'florals': 'florals', 'florist': 'florals', 'flowers': 'florals',
+        'decor': 'decor', 'decoration': 'decor', 'music': 'music', 'band': 'music', 'dj': 'dj',
+        'transport': 'transportation', 'transportation': 'transportation',
+        'beauty': 'beauty', 'makeup': 'beauty', 'hair': 'beauty',
+        'cake': 'bakery', 'bakery': 'bakery', 'entertainment': 'entertainment',
+        'rentals': 'rentals', 'stationery': 'stationery', 'invitation': 'stationery',
+      }
+
+      const vendorEntries = vendorsInput.split(',').map(e => e.trim()).filter(e => e.length > 0)
+      const createdVendorNames: string[] = []
+
+      for (const entry of vendorEntries) {
+        let category = 'other'
+        let vendorName = entry
+
+        if (entry.includes(':')) {
+          const [catPart, namePart] = entry.split(':').map(s => s.trim())
+          vendorName = namePart || catPart
+          const catLower = catPart.toLowerCase()
+          for (const [keyword, cat] of Object.entries(categoryKeywords)) {
+            if (catLower.includes(keyword)) { category = cat; break }
+          }
+        } else {
+          const nameLower = entry.toLowerCase()
+          for (const [keyword, cat] of Object.entries(categoryKeywords)) {
+            if (nameLower.includes(keyword)) { category = cat; break }
+          }
+        }
+
+        if (!vendorName) continue
+
+        try {
+          const [vendor] = await tx
+            .insert(vendors)
+            .values({
+              id: crypto.randomUUID(),
+              companyId: ctx.companyId!,
+              name: vendorName,
+              category,
+              isPreferred: false,
+            })
+            .returning()
+
+          if (vendor) {
+            await tx.insert(clientVendors).values({
+              id: crypto.randomUUID(),
+              clientId: newClient.id,
+              vendorId: vendor.id,
+              eventId: mainEventId,
+              paymentStatus: 'pending',
+              approvalStatus: 'pending',
+            })
+
+            await tx.insert(budget).values({
+              id: crypto.randomUUID(),
+              clientId: newClient.id,
+              vendorId: vendor.id,
+              eventId: mainEventId,
+              category,
+              segment: 'vendors',
+              item: vendorName,
+              estimatedCost: '0',
+              paidAmount: '0',
+              paymentStatus: 'pending',
+              clientVisible: true,
+              notes: `Auto-created from vendor: ${vendorName}`,
+            })
+
+            createdVendorNames.push(vendorName)
+          }
+        } catch (vendorErr) {
+          console.warn(`[Chatbot] Failed to create vendor "${vendorName}":`, vendorErr)
+        }
+      }
+
+      if (createdVendorNames.length > 0) {
+        cascadeResults.push({
+          action: `Auto-created ${createdVendorNames.length} vendor(s): ${createdVendorNames.join(', ')}`,
+          entityType: 'vendor',
+          entityId: newClient.id,
+        })
+      }
     }
 
     const displayName = `${partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}`
@@ -891,6 +1008,7 @@ async function executeUpdateClient(
     args.venue !== undefined ||
     args.guestCount !== undefined
 
+  let syncWarning: string | undefined
   if (weddingFieldsUpdated) {
     // Find the main wedding event
     const [mainEvent] = await db
@@ -923,6 +1041,7 @@ async function executeUpdateClient(
         })
       } catch (eventUpdateError) {
         console.error('[Chatbot Tool] Failed to sync wedding details to event:', eventUpdateError)
+        syncWarning = 'Client updated but event date sync failed — please update the event manually.'
       }
     } else if (args.weddingDate) {
       // No main event exists but wedding_date was provided - create one
@@ -953,6 +1072,7 @@ async function executeUpdateClient(
         }
       } catch (eventCreateError) {
         console.error('[Chatbot Tool] Failed to create wedding event:', eventCreateError)
+        syncWarning = 'Client updated but wedding event creation failed — please create the event manually.'
       }
     }
   }
@@ -965,6 +1085,7 @@ async function executeUpdateClient(
     data: updatedClient,
     message: `Updated client: ${displayName}`,
     cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
+    warning: syncWarning,
   }
 }
 
@@ -1379,16 +1500,26 @@ async function executeAddGuest(
   const lastName = args.lastName as string | undefined
   const email = args.email as string | undefined
   const phone = args.phone as string | undefined
-  const rsvpStatus = (args.rsvpStatus as string) || 'pending'
+  const rsvpStatus = normalizeRsvpStatus((args.rsvpStatus as string) || 'pending')
   const mealPreference = args.mealPreference as string | undefined
   const dietaryRestrictions = args.dietaryRestrictions as string | undefined
   const groupName = args.groupName as string | undefined
   const plusOne = args.plusOne as boolean | undefined
   const tableNumber = args.tableNumber as number | undefined
-  const hotelRequired = args.hotelRequired as boolean | undefined
+  const hotelRequired = (args.hotelRequired ?? args.needsHotel) as boolean | undefined
   const needsTransport = args.needsTransport as boolean | undefined
   const side = args.side as string | undefined
   const eventId = args.eventId as string | undefined
+  // Hotel detail fields for cascade
+  const hotelName = args.hotelName as string | undefined
+  const hotelCheckIn = args.hotelCheckIn as string | undefined
+  const hotelCheckOut = args.hotelCheckOut as string | undefined
+  const hotelRoomType = args.hotelRoomType as string | undefined
+  // Transport detail fields for cascade
+  const transportType = args.transportType as string | undefined
+  const pickupLocation = args.pickupLocation as string | undefined
+  const pickupTime = args.pickupTime as string | undefined
+  const transportNotes = args.transportNotes as string | undefined
 
   if (!clientId || !firstName) {
     throw new TRPCError({
@@ -1397,9 +1528,9 @@ async function executeAddGuest(
     })
   }
 
-  // Verify client access
+  // Verify client access and fetch planningSide for guest side resolution
   const [client] = await db
-    .select({ id: clients.id })
+    .select({ id: clients.id, planningSide: clients.planningSide })
     .from(clients)
     .where(
       and(
@@ -1418,6 +1549,12 @@ async function executeAddGuest(
   }
 
   const fullName = `${firstName}${lastName ? ` ${lastName}` : ''}`
+
+  // Resolve effective guest side: if 'mutual' and client has planningSide, use that
+  let effectiveGuestSide = side ? normalizeGuestSide(side as string) : 'mutual'
+  if (effectiveGuestSide === 'mutual' && client.planningSide) {
+    effectiveGuestSide = normalizeGuestSide(client.planningSide)
+  }
 
   // Execute guest creation and cascade side effects atomically
   const result = await withTransaction(async (tx) => {
@@ -1438,7 +1575,7 @@ async function executeAddGuest(
         tableNumber: tableNumber || undefined,
         hotelRequired: hotelRequired || false,
         transportRequired: needsTransport || false,
-        guestSide: side ? normalizeGuestSide(side as string) : 'mutual',
+        guestSide: effectiveGuestSide,
         attendingEvents: eventId ? [eventId] : undefined,
       })
       .returning()
@@ -1454,15 +1591,15 @@ async function executeAddGuest(
     const cascadeActions = await cascadeGuestSideEffects({
       guest: {
         ...newGuest,
-        // These fields aren't on the guest record but needed for cascade
-        hotelName: null,
-        hotelCheckIn: null,
-        hotelCheckOut: null,
-        hotelRoomType: null,
-        transportType: null,
-        transportPickupLocation: null,
-        transportPickupTime: null,
-        transportNotes: null,
+        // Pass hotel/transport detail fields from args for cascade pre-fill
+        hotelName: hotelName || null,
+        hotelCheckIn: hotelCheckIn || null,
+        hotelCheckOut: hotelCheckOut || null,
+        hotelRoomType: hotelRoomType || null,
+        transportType: transportType || null,
+        transportPickupLocation: pickupLocation || null,
+        transportPickupTime: pickupTime || null,
+        transportNotes: transportNotes || null,
         arrivalDatetime: null,
         arrivalMode: null,
       },
@@ -1498,20 +1635,22 @@ async function executeUpdateGuestRsvp(
   const guestId = args.guestId as string | undefined
   const guestName = args.guestName as string | undefined
   const clientId = args.clientId as string | undefined
-  const rsvpStatus = args.rsvpStatus as string
+  const rawRsvpStatus = args.rsvpStatus as string
 
-  if (!rsvpStatus) {
+  if (!rawRsvpStatus) {
     throw new TRPCError({
       code: 'BAD_REQUEST',
       message: 'RSVP status is required',
     })
   }
 
+  const rsvpStatus = normalizeRsvpStatus(rawRsvpStatus)
+
   let targetGuestId = guestId
 
   // If no guestId but guestName provided, resolve it
   if (!targetGuestId && guestName && clientId) {
-    const resolution = await resolveGuest(guestName, clientId)
+    const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
 
     if (resolution.isAmbiguous) {
       throw new TRPCError({
@@ -1529,6 +1668,28 @@ async function executeUpdateGuestRsvp(
       code: 'BAD_REQUEST',
       message: 'Guest ID or guest name (with client context) is required',
     })
+  }
+
+  // SECURITY: Verify guest belongs to user's company via client join
+  if (ctx.companyId) {
+    const [ownershipCheck] = await db
+      .select({ guestId: guests.id })
+      .from(guests)
+      .innerJoin(clients, eq(guests.clientId, clients.id))
+      .where(
+        and(
+          eq(guests.id, targetGuestId),
+          eq(clients.companyId, ctx.companyId)
+        )
+      )
+      .limit(1)
+
+    if (!ownershipCheck) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Guest not found or access denied',
+      })
+    }
   }
 
   // Update guest RSVP and recalculate budget atomically
@@ -1624,7 +1785,7 @@ async function executeBulkUpdateGuests(
   const updateValues: Record<string, unknown> = { updatedAt: new Date() }
 
   if (updates.rsvpStatus !== undefined) {
-    updateValues.rsvpStatus = updates.rsvpStatus
+    updateValues.rsvpStatus = normalizeRsvpStatus(updates.rsvpStatus as string)
   }
   if (updates.tableNumber !== undefined) {
     updateValues.tableNumber = updates.tableNumber
@@ -1703,7 +1864,6 @@ async function executeCreateEvent(
   const venueAddress = args.venueAddress as string | undefined
   const description = args.description as string | undefined
   const guestCount = args.guestCount as number | undefined
-  const dressCode = args.dressCode as string | undefined
 
   if (!clientId || !title || !eventType || !eventDate) {
     throw new TRPCError({
@@ -1735,31 +1895,126 @@ async function executeCreateEvent(
   // Parse date
   const parsedDate = parseNaturalDate(eventDate) || eventDate
 
-  // Create event
-  const [newEvent] = await db
-    .insert(events)
-    .values({
-      id: crypto.randomUUID(),
-      clientId,
-      title,
-      eventType: eventType || undefined,
-      eventDate: parsedDate,
-      startTime: startTime || undefined,
-      endTime: endTime || undefined,
-      venueName: venueName || undefined,
-      address: venueAddress || undefined,
-      description: description || undefined,
-      guestCount: guestCount || undefined,
-      status: 'planned',
-      notes: dressCode ? `Dress code: ${dressCode}` : undefined,
+  // Generate UUID for new event (needed before transaction for timeline item generation)
+  const eventId = crypto.randomUUID()
+
+  // TIMELINE TEMPLATE LOOKUP: Prepare timeline items before transaction (read-only)
+  let preparedTimelineItems: Array<typeof timeline.$inferInsert> = []
+  try {
+    let eventStartDateTime = new Date(parsedDate)
+    if (startTime) {
+      const [hours, minutes] = startTime.split(':').map(Number)
+      eventStartDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+    } else {
+      eventStartDateTime.setHours(12, 0, 0, 0)
+    }
+
+    const normalizedEventType = eventType?.toLowerCase().replace(/[^a-z_]/g, '_') || 'wedding'
+
+    // Check for company-customized templates first
+    let templateItems: TimelineTemplateItem[] = []
+    if (ctx.companyId) {
+      const customTemplates = await db
+        .select()
+        .from(timelineTemplates)
+        .where(
+          and(
+            eq(timelineTemplates.companyId, ctx.companyId),
+            eq(timelineTemplates.eventType, normalizedEventType),
+            eq(timelineTemplates.isActive, true)
+          )
+        )
+        .orderBy(asc(timelineTemplates.sortOrder))
+
+      if (customTemplates.length > 0) {
+        templateItems = customTemplates.map((t) => ({
+          title: t.title,
+          description: t.description || '',
+          offsetMinutes: t.offsetMinutes,
+          durationMinutes: t.durationMinutes,
+          location: t.location || undefined,
+          phase: (t.phase || 'showtime') as 'setup' | 'showtime' | 'wrapup',
+        }))
+        console.log(`[Timeline] Using ${customTemplates.length} custom template items for ${normalizedEventType}`)
+      }
+    }
+
+    // Fall back to default templates if no custom ones
+    if (templateItems.length === 0) {
+      templateItems = getDefaultTemplate(eventType)
+      console.log(`[Timeline] Using default template for ${normalizedEventType}`)
+    }
+
+    const eventLocation = venueName || null
+
+    // Generate timeline items from template
+    preparedTimelineItems = templateItems.map((item, index) => {
+      const itemStartTime = new Date(eventStartDateTime.getTime() + item.offsetMinutes * 60 * 1000)
+      const itemEndTime = new Date(itemStartTime.getTime() + item.durationMinutes * 60 * 1000)
+
+      return {
+        id: crypto.randomUUID(),
+        clientId,
+        eventId,
+        title: item.title,
+        description: item.description,
+        phase: item.phase,
+        startTime: itemStartTime,
+        endTime: itemEndTime,
+        durationMinutes: item.durationMinutes,
+        location: item.location || eventLocation,
+        sortOrder: index,
+        sourceModule: 'events',
+        sourceId: eventId,
+        metadata: JSON.stringify({ eventType: eventType || 'Wedding Event', eventTitle: title }),
+      }
     })
-    .returning()
+  } catch (timelineError) {
+    console.warn('[Timeline] Failed to prepare timeline entries for event:', timelineError)
+  }
+
+  // ATOMIC CREATE: Event + timeline items in a single transaction
+  const newEvent = await withTransaction(async (tx) => {
+    const [createdEvent] = await tx
+      .insert(events)
+      .values({
+        id: eventId,
+        clientId,
+        title,
+        eventType: eventType || undefined,
+        eventDate: parsedDate,
+        startTime: startTime || undefined,
+        endTime: endTime || undefined,
+        venueName: venueName || undefined,
+        address: venueAddress || undefined,
+        description: description || undefined,
+        guestCount: guestCount || undefined,
+        status: 'planned',
+        notes: undefined,
+      })
+      .returning()
+
+    if (!createdEvent) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to create event',
+      })
+    }
+
+    // Insert timeline items if template preparation succeeded
+    if (preparedTimelineItems.length > 0) {
+      await tx.insert(timeline).values(preparedTimelineItems)
+      console.log(`[Timeline] Auto-created ${preparedTimelineItems.length} items for event: ${title} (${eventType})`)
+    }
+
+    return createdEvent
+  })
 
   return {
     success: true,
     toolName: 'create_event',
     data: newEvent,
-    message: `Created event: ${title} (${eventType}) on ${parsedDate}`,
+    message: `Created event: ${title} (${eventType}) on ${parsedDate}${preparedTimelineItems.length > 0 ? ` with ${preparedTimelineItems.length} timeline items` : ''}`,
   }
 }
 
@@ -1814,11 +2069,70 @@ async function executeUpdateEvent(
   if (args.description !== undefined) updateValues.description = args.description
   if (args.status !== undefined) updateValues.status = args.status
 
-  const [updatedEvent] = await db
-    .update(events)
-    .set(updateValues)
-    .where(eq(events.id, eventId))
-    .returning()
+  // Prepare timeline update data (before transaction, no DB access needed)
+  const timelineUpdate: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.title !== undefined) timelineUpdate.title = args.title
+  if (args.description !== undefined) timelineUpdate.description = args.description
+  if (args.venueName !== undefined) timelineUpdate.location = args.venueName
+  if (args.notes !== undefined) timelineUpdate.notes = args.notes
+
+  // ATOMIC UPDATE: Event + timeline sync in a single transaction
+  const updatedEvent = await withTransaction(async (tx) => {
+    const [updated] = await tx
+      .update(events)
+      .set(updateValues)
+      .where(eq(events.id, eventId))
+      .returning()
+
+    if (!updated) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to update event',
+      })
+    }
+
+    // TIMELINE SYNC: Update linked timeline entries
+    // Update date/time if changed (needs updatedEvent for fallback values)
+    if (args.eventDate !== undefined || args.startTime !== undefined) {
+      const eventDate = (args.eventDate !== undefined
+        ? (parseNaturalDate(args.eventDate as string) || args.eventDate)
+        : updated.eventDate) as string | null
+      const startTime = (args.startTime !== undefined ? args.startTime : updated.startTime) as string | null
+      if (eventDate) {
+        const startDateTime = new Date(eventDate)
+        if (startTime) {
+          const [hours, minutes] = (startTime as string).split(':').map(Number)
+          startDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+        }
+        timelineUpdate.startTime = startDateTime
+      }
+    }
+
+    if (args.endTime !== undefined) {
+      const eventDate = (args.eventDate !== undefined
+        ? (parseNaturalDate(args.eventDate as string) || args.eventDate)
+        : updated.eventDate) as string | null
+      if (eventDate) {
+        const endDateTime = new Date(eventDate)
+        const [hours, minutes] = (args.endTime as string).split(':').map(Number)
+        endDateTime.setHours(hours || 0, minutes || 0, 0, 0)
+        timelineUpdate.endTime = endDateTime
+      }
+    }
+
+    await tx
+      .update(timeline)
+      .set(timelineUpdate)
+      .where(
+        and(
+          eq(timeline.sourceModule, 'events'),
+          eq(timeline.sourceId, eventId)
+        )
+      )
+
+    console.log(`[Timeline] Updated entries for event: ${updated.title}`)
+    return updated
+  })
 
   return {
     success: true,
@@ -2028,6 +2342,7 @@ async function executeAddVendor(
   const estimatedCost = args.estimatedCost as number | undefined
   const depositAmount = args.depositAmount as number | undefined
   const notes = args.notes as string | undefined
+  const serviceDate = args.serviceDate as string | undefined
   const eventId = args.eventId as string | undefined
 
   if (!clientId || !name || !category) {
@@ -2125,6 +2440,56 @@ async function executeAddVendor(
           entityType: 'budget',
           entityId: budgetItem.id,
         })
+      }
+
+      // Timeline sync: create timeline entry if service date is provided
+      if (serviceDate) {
+        const serviceDateTime = new Date(serviceDate)
+        const [timelineEntry] = await tx.insert(timeline).values({
+          id: crypto.randomUUID(),
+          clientId,
+          title: `${name} - ${category || 'Vendor Service'}`,
+          description: `Vendor service: ${name}`,
+          startTime: serviceDateTime,
+          responsiblePerson: contactName || null,
+          notes: notes || null,
+          sourceModule: 'vendors',
+          sourceId: clientVendor.id,
+        }).returning()
+
+        cascadeResults.push({
+          action: 'Created timeline entry for vendor service date',
+          entityType: 'timeline',
+          entityId: timelineEntry.id,
+        })
+      }
+
+      // Auto-link: if serviceDate but no eventId, find matching event by date
+      if (serviceDate && !eventId) {
+        const serviceDateStr = serviceDate.split('T')[0]
+        const [matchingEvent] = await tx
+          .select({ id: events.id, title: events.title })
+          .from(events)
+          .where(and(eq(events.clientId, clientId), eq(events.eventDate, serviceDateStr)))
+          .limit(1)
+
+        if (matchingEvent) {
+          // Link vendor to matching event
+          await tx.update(clientVendors)
+            .set({ eventId: matchingEvent.id, updatedAt: new Date() })
+            .where(eq(clientVendors.id, clientVendor.id))
+
+          // Also update budget item to match the event
+          await tx.update(budget)
+            .set({ eventId: matchingEvent.id, category: matchingEvent.title, updatedAt: new Date() })
+            .where(eq(budget.vendorId, newVendor.id))
+
+          cascadeResults.push({
+            action: `Auto-linked to event "${matchingEvent.title}" by service date`,
+            entityType: 'event',
+            entityId: matchingEvent.id,
+          })
+        }
       }
     }
 
@@ -2252,9 +2617,12 @@ async function executeAddHotelBooking(
     })
   }
 
-  // Verify client access
+  // Verify client access + fetch wedding date for default dates
   const [client] = await db
-    .select({ id: clients.id })
+    .select({
+      id: clients.id,
+      weddingDate: clients.weddingDate,
+    })
     .from(clients)
     .where(
       and(
@@ -2276,7 +2644,7 @@ async function executeAddHotelBooking(
   let targetGuestId = guestId
 
   if (!targetGuestId && guestName) {
-    const resolution = await resolveGuest(guestName, clientId)
+    const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
 
     if (resolution.isAmbiguous) {
       throw new TRPCError({
@@ -2290,8 +2658,23 @@ async function executeAddHotelBooking(
   }
 
   // Parse dates
-  const checkIn = parseNaturalDate(checkInDate) || checkInDate
-  const checkOut = parseNaturalDate(checkOutDate) || checkOutDate
+  let checkIn = parseNaturalDate(checkInDate) || checkInDate
+  let checkOut = parseNaturalDate(checkOutDate) || checkOutDate
+
+  // Default check-in/out from wedding date if not provided
+  if (client.weddingDate) {
+    const weddingDate = new Date(client.weddingDate)
+    if (!checkIn) {
+      const defaultCheckIn = new Date(weddingDate)
+      defaultCheckIn.setDate(defaultCheckIn.getDate() - 1)
+      checkIn = defaultCheckIn.toISOString().split('T')[0]
+    }
+    if (!checkOut) {
+      const defaultCheckOut = new Date(weddingDate)
+      defaultCheckOut.setDate(defaultCheckOut.getDate() + 1)
+      checkOut = defaultCheckOut.toISOString().split('T')[0]
+    }
+  }
 
   // Get guest name if we have the ID
   let guestDisplayName = guestName || 'Unknown Guest'
@@ -2306,36 +2689,128 @@ async function executeAddHotelBooking(
     }
   }
 
-  // Create hotel booking in hotels table (guest bookings)
-  const [newHotelBooking] = await db
-    .insert(hotels)
-    .values({
-      clientId,
-      guestId: targetGuestId || undefined,
-      guestName: guestDisplayName,
-      hotelName: hotelName || undefined,
-      roomType: roomType || undefined,
-      checkInDate: checkIn,
-      checkOutDate: checkOut,
-      notes: notes || undefined,
-      cost: roomRate?.toString() || undefined,
-      bookingConfirmed: true,
-    })
-    .returning()
+  // Execute all hotel creation operations atomically within a transaction
+  const result = await withTransaction(async (tx) => {
+    const cascadeActions: { module: string; action: string; count: number }[] = []
 
-  // Update guest hotelRequired flag if guest was specified
-  if (targetGuestId) {
-    await db
-      .update(guests)
-      .set({ hotelRequired: false }) // Fulfilled
-      .where(eq(guests.id, targetGuestId))
-  }
+    // 1. Create hotel record
+    const [hotel] = await tx
+      .insert(hotels)
+      .values({
+        clientId,
+        guestId: targetGuestId || undefined,
+        guestName: guestDisplayName,
+        hotelName: hotelName || undefined,
+        roomType: roomType || undefined,
+        checkInDate: checkIn,
+        checkOutDate: checkOut,
+        notes: notes || undefined,
+        cost: roomRate?.toString() || undefined,
+        bookingConfirmed: true,
+      })
+      .returning()
+
+    if (!hotel) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to create hotel record',
+      })
+    }
+
+    // 2. AUTO-CREATE ACCOMMODATION (within transaction - atomic)
+    if (hotelName && hotelName.trim()) {
+      const trimmedHotelName = hotelName.trim()
+
+      // Check if accommodation with this name exists for the client
+      const [existingAccommodation] = await tx
+        .select({ id: accommodations.id })
+        .from(accommodations)
+        .where(
+          and(
+            eq(accommodations.clientId, clientId),
+            eq(accommodations.name, trimmedHotelName),
+            isNull(accommodations.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existingAccommodation) {
+        // Create new accommodation record
+        const [newAccommodation] = await tx
+          .insert(accommodations)
+          .values({
+            clientId,
+            name: trimmedHotelName,
+          })
+          .returning({ id: accommodations.id })
+
+        if (newAccommodation) {
+          await tx
+            .update(hotels)
+            .set({ accommodationId: newAccommodation.id })
+            .where(eq(hotels.id, hotel.id))
+
+          cascadeActions.push({ module: 'accommodation', action: 'created', count: 1 })
+          console.log(`[Accommodation] Auto-created accommodation: ${trimmedHotelName}`)
+        }
+      } else {
+        // Link hotel to existing accommodation
+        await tx
+          .update(hotels)
+          .set({ accommodationId: existingAccommodation.id })
+          .where(eq(hotels.id, hotel.id))
+
+        console.log(`[Accommodation] Linked hotel to existing accommodation: ${trimmedHotelName}`)
+      }
+    }
+
+    // 3. TIMELINE SYNC: Create timeline entry for check-in (within transaction)
+    if (checkIn) {
+      const checkInDateTime = new Date(checkIn)
+      checkInDateTime.setHours(15, 0, 0, 0) // Default check-in time is 3 PM
+
+      await tx.insert(timeline).values({
+        id: crypto.randomUUID(),
+        clientId,
+        title: `Hotel Check-in: ${guestDisplayName}`,
+        description: hotelName ? `Check-in at ${hotelName}` : 'Guest hotel check-in',
+        startTime: checkInDateTime,
+        location: hotelName || null,
+        notes: notes || null,
+        sourceModule: 'hotels',
+        sourceId: hotel.id,
+        metadata: JSON.stringify({
+          guestId: targetGuestId,
+          type: 'check-in',
+        }),
+      })
+      cascadeActions.push({ module: 'timeline', action: 'created', count: 1 })
+      console.log(`[Timeline] Created hotel check-in entry: ${guestDisplayName}`)
+    }
+
+    // 4. Update guest hotelRequired flag if guest was specified
+    if (targetGuestId) {
+      await tx
+        .update(guests)
+        .set({ hotelRequired: false }) // Fulfilled
+        .where(eq(guests.id, targetGuestId))
+    }
+
+    return { hotel, cascadeActions }
+  })
+
+  console.log(`[Hotel Create] Created hotel ${result.hotel.id} with cascade:`, result.cascadeActions)
 
   return {
     success: true,
     toolName: 'add_hotel_booking',
-    data: newHotelBooking,
+    data: result.hotel,
     message: `Added hotel booking at ${hotelName} (${checkIn} to ${checkOut})`,
+    cascadeResults: result.cascadeActions.map(a => ({
+      action: `${a.module} record ${a.action}`,
+      entityType: a.module,
+      entityId: result.hotel.id,
+    })),
   }
 }
 
@@ -2424,11 +2899,109 @@ async function executeUpdateBudgetItem(
     updateValues.notes = args.notes
   }
 
-  const [updatedItem] = await db
-    .update(budget)
-    .set(updateValues)
-    .where(eq(budget.id, targetItemId))
-    .returning()
+  // Update budget + vendor sync + timeline atomically
+  const updatedItem = await withTransaction(async (tx) => {
+    const [updated] = await tx
+      .update(budget)
+      .set(updateValues)
+      .where(eq(budget.id, targetItemId))
+      .returning()
+
+    if (!updated) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Budget item not found',
+      })
+    }
+
+    // BIDIRECTIONAL SYNC: If this budget item is linked to a vendor, sync changes back
+    if (updated.vendorId) {
+      const syncData: Record<string, unknown> = {
+        updatedAt: new Date(),
+      }
+
+      if (args.estimatedCost !== undefined) {
+        syncData.contractAmount = (args.estimatedCost as number).toString()
+      }
+      if (args.paymentStatus !== undefined) {
+        syncData.paymentStatus = args.paymentStatus
+        if (args.paymentStatus === 'paid') {
+          syncData.depositPaid = true
+        }
+      }
+
+      if (Object.keys(syncData).length > 1) {
+        await tx
+          .update(clientVendors)
+          .set(syncData)
+          .where(eq(clientVendors.vendorId, updated.vendorId))
+
+        console.log(`[Budget] Synced budget changes to vendor ${updated.vendorId}:`, syncData)
+      }
+    }
+
+    // TIMELINE SYNC: Upsert or delete timeline entry for payment due date
+    const hasPaymentDate = updated.paymentDate
+
+    if (hasPaymentDate) {
+      const itemName = updated.item
+      const categoryName = updated.category
+      const estimatedCost = Number(updated.estimatedCost)
+      const notes = updated.notes
+
+      const paymentDateTime = new Date(hasPaymentDate as string)
+      paymentDateTime.setHours(17, 0, 0, 0)
+
+      const timelineData = {
+        title: `Payment Due: ${itemName}`,
+        description: `${categoryName} - ₹${estimatedCost.toLocaleString()}`,
+        startTime: paymentDateTime,
+        notes: notes || null,
+        updatedAt: new Date(),
+      }
+
+      const result = await tx
+        .update(timeline)
+        .set(timelineData)
+        .where(
+          and(
+            eq(timeline.sourceModule, 'budget'),
+            eq(timeline.sourceId, updated.id)
+          )
+        )
+        .returning({ id: timeline.id })
+
+      if (result.length === 0) {
+        await tx.insert(timeline).values({
+          id: crypto.randomUUID(),
+          clientId: updated.clientId,
+          ...timelineData,
+          sourceModule: 'budget',
+          sourceId: updated.id,
+          metadata: JSON.stringify({
+            vendorId: updated.vendorId,
+            type: 'payment-due',
+            amount: estimatedCost,
+          }),
+        })
+        console.log(`[Timeline] Created payment due entry: ${itemName}`)
+      } else {
+        console.log(`[Timeline] Updated payment due entry: ${itemName}`)
+      }
+    } else {
+      await tx
+        .delete(timeline)
+        .where(
+          and(
+            eq(timeline.sourceModule, 'budget'),
+            eq(timeline.sourceId, updated.id)
+          )
+        )
+      console.log(`[Timeline] Deleted payment due entry (date cleared)`)
+    }
+
+    return updated
+  })
 
   return {
     success: true,
@@ -2517,7 +3090,7 @@ async function executeSendCommunication(
     let targetGuestId = guestId
 
     if (!targetGuestId && guestName) {
-      const resolution = await resolveGuest(guestName, clientId)
+      const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
       if (resolution.isAmbiguous) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -3263,7 +3836,7 @@ async function executeCheckInGuest(
   let targetGuestId = guestId
 
   if (!targetGuestId && guestName) {
-    const resolution = await resolveGuest(guestName, clientId)
+    const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
     if (resolution.isAmbiguous) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
@@ -3398,7 +3971,7 @@ async function executeAssignTransport(
   let resolvedEventId = eventId
   let resolvedDropTo = dropTo
   if (!eventId && eventName) {
-    const eventResult = await resolveEvent(eventName, clientId)
+    const eventResult = await resolveEvent(eventName, clientId, ctx.companyId ?? undefined)
     if (!eventResult.isAmbiguous) {
       resolvedEventId = eventResult.entity.id
       // Use event venue as drop location if not specified
@@ -3584,7 +4157,7 @@ async function executeAssignGuestsToEvents(
   } else if (eventNames && eventNames.length > 0) {
     // Resolve by name
     for (const name of eventNames) {
-      const result = await resolveEvent(name, clientId)
+      const result = await resolveEvent(name, clientId, ctx.companyId ?? undefined)
       if (!result.isAmbiguous) {
         resolvedEventIds.push(result.entity.id)
         resolvedEventNames.push(result.entity.displayName)
@@ -4503,7 +5076,7 @@ async function executeAddSeatingConstraint(
 
   if (guestNames && guestNames.length > 0) {
     for (const name of guestNames) {
-      const resolution = await resolveGuest(name, clientId)
+      const resolution = await resolveGuest(name, clientId, ctx.companyId ?? undefined)
       if (!resolution.isAmbiguous && resolution.entity) {
         resolvedGuestIds.push(resolution.entity.id)
       }
@@ -4590,7 +5163,6 @@ async function executeAddGift(
   const name = args.name as string
   const type = (args.type as string) || 'physical'
   const value = args.value as number | undefined
-  const quantity = (args.quantity as number) || 1
   const notes = args.notes as string | undefined
 
   if (!clientId) {
@@ -4611,7 +5183,7 @@ async function executeAddGift(
   // Resolve guest
   let resolvedGuestId = guestId
   if (!resolvedGuestId && guestName) {
-    const resolution = await resolveGuest(guestName, clientId)
+    const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
     if (!resolution.isAmbiguous && resolution.entity) {
       resolvedGuestId = resolution.entity.id
     }
@@ -4664,7 +5236,7 @@ async function executeUpdateGift(
       .where(eq(giftsEnhanced.clientId, clientId))
 
     if (guestName) {
-      const resolution = await resolveGuest(guestName, clientId)
+      const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
       if (!resolution.isAmbiguous && resolution.entity) {
         const [found] = await db
           .select({ id: giftsEnhanced.id })
@@ -5529,7 +6101,7 @@ async function executeGenerateQrCodes(
   // Resolve event if needed
   let targetEventId = eventId
   if (!targetEventId && eventName) {
-    const resolution = await resolveEvent(eventName, clientId)
+    const resolution = await resolveEvent(eventName, clientId, ctx.companyId ?? undefined)
     if (!resolution.isAmbiguous && resolution.entity) {
       targetEventId = resolution.entity.id
     }
@@ -5942,5 +6514,521 @@ async function executeGetDocumentUploadUrl(
       requiresFileSelection: true,
     },
     message: `Ready to upload "${fileName}" (${fileType}) for ${clientDisplayName}. Please select the file to upload.`,
+  }
+}
+
+// ============================================
+// DELETE TOOLS
+// ============================================
+
+/**
+ * Delete a guest and all related records (hard delete with cascade)
+ * Replicates guests.router.ts delete procedure
+ */
+async function executeDeleteGuest(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const guestId = args.guestId as string | undefined
+  const guestName = args.guestName as string | undefined
+  const clientId = args.clientId as string | undefined
+
+  let targetGuestId = guestId
+
+  // Resolve by name if needed
+  if (!targetGuestId && guestName && clientId) {
+    const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
+    if (resolution.isAmbiguous) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: resolution.message,
+        cause: { options: resolution.options },
+      })
+    }
+    targetGuestId = resolution.entity.id
+  }
+
+  if (!targetGuestId) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Guest ID or guest name (with client context) is required',
+    })
+  }
+
+  // SECURITY: Verify guest belongs to company via client join
+  const [existingGuest] = await db
+    .select({
+      id: guests.id,
+      firstName: guests.firstName,
+      lastName: guests.lastName,
+      clientId: guests.clientId,
+      rsvpStatus: guests.rsvpStatus,
+    })
+    .from(guests)
+    .innerJoin(clients, eq(guests.clientId, clients.id))
+    .where(
+      and(
+        eq(guests.id, targetGuestId),
+        eq(clients.companyId, ctx.companyId!)
+      )
+    )
+    .limit(1)
+
+  if (!existingGuest) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found or access denied' })
+  }
+
+  const guestDisplayName = `${existingGuest.firstName}${existingGuest.lastName ? ` ${existingGuest.lastName}` : ''}`
+
+  // Execute cascade deletion atomically
+  const result = await withTransaction(async (tx) => {
+    const deletionCounts = {
+      floorPlanGuests: 0,
+      hotels: 0,
+      transport: 0,
+      guestGifts: 0,
+      gifts: 0,
+    }
+
+    // 1. Delete floor plan guest assignments
+    const fpResult = await tx
+      .delete(floorPlanGuests)
+      .where(eq(floorPlanGuests.guestId, targetGuestId))
+      .returning({ id: floorPlanGuests.id })
+    deletionCounts.floorPlanGuests = fpResult.length
+
+    // 2. Delete associated hotel entries
+    const hotelsResult = await tx
+      .delete(hotels)
+      .where(eq(hotels.guestId, targetGuestId))
+      .returning({ id: hotels.id })
+    deletionCounts.hotels = hotelsResult.length
+
+    // 3. Delete associated transport entries
+    const transportResult = await tx
+      .delete(guestTransport)
+      .where(eq(guestTransport.guestId, targetGuestId))
+      .returning({ id: guestTransport.id })
+    deletionCounts.transport = transportResult.length
+
+    // 4. Delete guest gifts (join table)
+    const ggResult = await tx
+      .delete(guestGifts)
+      .where(eq(guestGifts.guestId, targetGuestId))
+      .returning({ id: guestGifts.id })
+    deletionCounts.guestGifts = ggResult.length
+
+    // 5. Delete gifts linked to this guest
+    const giftsResult = await tx
+      .delete(gifts)
+      .where(eq(gifts.guestId, targetGuestId))
+      .returning({ id: gifts.id })
+    deletionCounts.gifts = giftsResult.length
+
+    // 6. Delete the guest
+    await tx
+      .delete(guests)
+      .where(eq(guests.id, targetGuestId))
+
+    // 7. Recalculate per-guest budget items if guest was confirmed
+    if (existingGuest.rsvpStatus === 'confirmed') {
+      await recalcPerGuestBudgetItems(tx, existingGuest.clientId)
+    }
+
+    return deletionCounts
+  })
+
+  const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
+  if (result.hotels > 0) cascadeResults.push({ action: `Deleted ${result.hotels} hotel booking(s)`, entityType: 'hotel', entityId: targetGuestId })
+  if (result.transport > 0) cascadeResults.push({ action: `Deleted ${result.transport} transport record(s)`, entityType: 'transport', entityId: targetGuestId })
+  if (result.gifts > 0) cascadeResults.push({ action: `Deleted ${result.gifts} gift(s)`, entityType: 'gift', entityId: targetGuestId })
+  if (result.floorPlanGuests > 0) cascadeResults.push({ action: `Removed from ${result.floorPlanGuests} seating assignment(s)`, entityType: 'seating', entityId: targetGuestId })
+
+  return {
+    success: true,
+    toolName: 'delete_guest',
+    data: { deletedGuestId: targetGuestId, cascadeCounts: result },
+    message: `Deleted guest "${guestDisplayName}" and ${Object.values(result).reduce((a, b) => a + b, 0)} related records`,
+    cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
+  }
+}
+
+/**
+ * Delete an event and its timeline entries (hard delete with cascade)
+ * Replicates events.router.ts delete procedure
+ */
+async function executeDeleteEvent(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const eventId = args.eventId as string | undefined
+  const eventName = args.eventName as string | undefined
+  const clientId = args.clientId as string | undefined
+
+  let targetEventId = eventId
+
+  // Resolve by name if needed
+  if (!targetEventId && eventName && clientId) {
+    const resolution = await resolveEvent(eventName, clientId, ctx.companyId ?? undefined)
+    if (resolution.isAmbiguous) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: resolution.message,
+        cause: { options: resolution.options },
+      })
+    }
+    targetEventId = resolution.entity.id
+  }
+
+  if (!targetEventId) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Event ID or event name (with client context) is required',
+    })
+  }
+
+  // SECURITY: Verify event belongs to company via client join
+  const [existingEvent] = await db
+    .select({ id: events.id, title: events.title, clientId: events.clientId })
+    .from(events)
+    .innerJoin(clients, eq(events.clientId, clients.id))
+    .where(
+      and(
+        eq(events.id, targetEventId),
+        eq(clients.companyId, ctx.companyId!)
+      )
+    )
+    .limit(1)
+
+  if (!existingEvent) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Event not found or access denied' })
+  }
+
+  // Atomic deletion: cleanup references + delete event
+  await withTransaction(async (tx) => {
+    // 1. Remove event from guest attendingEvents arrays
+    await tx.execute(sql`
+      UPDATE guests
+      SET attending_events = array_remove(attending_events, ${targetEventId}),
+          updated_at = NOW()
+      WHERE client_id = ${existingEvent.clientId}
+        AND ${targetEventId} = ANY(attending_events)
+    `)
+
+    // 2. Delete linked timeline entries
+    await tx
+      .delete(timeline)
+      .where(
+        and(
+          eq(timeline.sourceModule, 'events'),
+          eq(timeline.sourceId, targetEventId)
+        )
+      )
+
+    // 3. Delete the event
+    await tx
+      .delete(events)
+      .where(eq(events.id, targetEventId))
+  })
+
+  return {
+    success: true,
+    toolName: 'delete_event',
+    data: { deletedEventId: targetEventId },
+    message: `Deleted event "${existingEvent.title}" and its timeline entries. Guest attending lists updated.`,
+    cascadeResults: [
+      { action: 'Deleted linked timeline entries', entityType: 'timeline', entityId: targetEventId },
+      { action: 'Updated guest attending lists', entityType: 'guests', entityId: targetEventId },
+    ],
+  }
+}
+
+/**
+ * Delete a vendor relationship (clientVendor) and linked budget/timeline entries (hard delete)
+ * Replicates vendors.router.ts delete procedure
+ * Note: The vendor record itself remains for reuse; only the client-vendor link is removed.
+ */
+async function executeDeleteVendor(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const vendorId = args.vendorId as string | undefined
+  const vendorName = args.vendorName as string | undefined
+  const clientId = args.clientId as string | undefined
+
+  let targetVendorId = vendorId
+
+  // Resolve by name if needed
+  if (!targetVendorId && vendorName) {
+    const resolution = await resolveVendor(vendorName, ctx.companyId!, clientId)
+    if (resolution.isAmbiguous) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: resolution.message,
+        cause: { options: resolution.options },
+      })
+    }
+    targetVendorId = resolution.entity.id
+  }
+
+  if (!targetVendorId) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Vendor ID or vendor name is required',
+    })
+  }
+
+  // Find the clientVendor relationship for this vendor
+  // The UI router deletes by clientVendors.id; we resolve from vendors.id
+  const [cvRecord] = await db
+    .select({
+      cvId: clientVendors.id,
+      vendorId: clientVendors.vendorId,
+      clientId: clientVendors.clientId,
+    })
+    .from(clientVendors)
+    .innerJoin(vendors, eq(clientVendors.vendorId, vendors.id))
+    .innerJoin(clients, eq(clientVendors.clientId, clients.id))
+    .where(
+      and(
+        eq(vendors.id, targetVendorId),
+        eq(vendors.companyId, ctx.companyId!),
+        ...(clientId ? [eq(clientVendors.clientId, clientId)] : [])
+      )
+    )
+    .limit(1)
+
+  if (!cvRecord) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Vendor relationship not found or access denied' })
+  }
+
+  // Get vendor name for message
+  const [vendorRecord] = await db
+    .select({ name: vendors.name })
+    .from(vendors)
+    .where(eq(vendors.id, targetVendorId))
+    .limit(1)
+
+  // Cascade deletion atomically
+  const result = await withTransaction(async (tx) => {
+    const deletionCounts = { clientVendors: 0, budget: 0, timeline: 0 }
+
+    // 1. Delete client_vendor relationship
+    const cvResult = await tx
+      .delete(clientVendors)
+      .where(eq(clientVendors.id, cvRecord.cvId))
+      .returning({ id: clientVendors.id })
+    deletionCounts.clientVendors = cvResult.length
+
+    // 2. Delete linked budget entries
+    const budgetResult = await tx
+      .delete(budget)
+      .where(eq(budget.vendorId, cvRecord.vendorId))
+      .returning({ id: budget.id })
+    deletionCounts.budget = budgetResult.length
+
+    // 3. Delete linked timeline entries
+    const timelineResult = await tx
+      .delete(timeline)
+      .where(
+        and(
+          eq(timeline.sourceModule, 'vendors'),
+          eq(timeline.sourceId, cvRecord.cvId)
+        )
+      )
+      .returning({ id: timeline.id })
+    deletionCounts.timeline = timelineResult.length
+
+    return deletionCounts
+  })
+
+  const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
+  if (result.budget > 0) cascadeResults.push({ action: `Deleted ${result.budget} budget item(s)`, entityType: 'budget', entityId: cvRecord.cvId })
+  if (result.timeline > 0) cascadeResults.push({ action: `Deleted ${result.timeline} timeline entry(ies)`, entityType: 'timeline', entityId: cvRecord.cvId })
+
+  return {
+    success: true,
+    toolName: 'delete_vendor',
+    data: { deletedClientVendorId: cvRecord.cvId, cascadeCounts: result },
+    message: `Removed vendor "${vendorRecord?.name || targetVendorId}" from client. Deleted ${result.budget} budget item(s) and ${result.timeline} timeline entry(ies).`,
+    cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
+  }
+}
+
+/**
+ * Delete a budget item and linked timeline payment entries (hard delete)
+ * Replicates budget.router.ts delete procedure
+ */
+async function executeDeleteBudgetItem(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const budgetItemId = args.budgetItemId as string
+
+  if (!budgetItemId) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Budget item ID is required' })
+  }
+
+  // SECURITY: Verify budget item belongs to company via client join
+  const [existing] = await db
+    .select({ id: budget.id, item: budget.item, clientId: budget.clientId })
+    .from(budget)
+    .innerJoin(clients, eq(budget.clientId, clients.id))
+    .where(
+      and(
+        eq(budget.id, budgetItemId),
+        eq(clients.companyId, ctx.companyId!),
+        isNull(clients.deletedAt)
+      )
+    )
+    .limit(1)
+
+  if (!existing) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found or access denied' })
+  }
+
+  // Delete budget item + linked timeline atomically
+  await withTransaction(async (tx) => {
+    // 1. Delete linked timeline payment entries
+    await tx
+      .delete(timeline)
+      .where(
+        and(
+          eq(timeline.sourceModule, 'budget'),
+          eq(timeline.sourceId, budgetItemId)
+        )
+      )
+
+    // 2. Delete the budget item
+    await tx
+      .delete(budget)
+      .where(eq(budget.id, budgetItemId))
+  })
+
+  return {
+    success: true,
+    toolName: 'delete_budget_item',
+    data: { deletedBudgetItemId: budgetItemId },
+    message: `Deleted budget item "${existing.item || budgetItemId}" and linked timeline entries.`,
+    cascadeResults: [
+      { action: 'Deleted linked timeline payment entries', entityType: 'timeline', entityId: budgetItemId },
+    ],
+  }
+}
+
+/**
+ * Delete a timeline item (hard delete, no cascade)
+ * Replicates timeline.router.ts delete procedure
+ */
+async function executeDeleteTimelineItem(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const timelineItemId = args.timelineItemId as string
+
+  if (!timelineItemId) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Timeline item ID is required' })
+  }
+
+  // SECURITY: Verify timeline item belongs to company via client join
+  const [existing] = await db
+    .select({ id: timeline.id, title: timeline.title, clientId: timeline.clientId })
+    .from(timeline)
+    .innerJoin(clients, eq(timeline.clientId, clients.id))
+    .where(
+      and(
+        eq(timeline.id, timelineItemId),
+        eq(clients.companyId, ctx.companyId!),
+        isNull(clients.deletedAt)
+      )
+    )
+    .limit(1)
+
+  if (!existing) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found or access denied' })
+  }
+
+  await db
+    .delete(timeline)
+    .where(eq(timeline.id, timelineItemId))
+
+  return {
+    success: true,
+    toolName: 'delete_timeline_item',
+    data: { deletedTimelineItemId: timelineItemId },
+    message: `Deleted timeline item "${existing.title || timelineItemId}".`,
+  }
+}
+
+/**
+ * Delete a gift record (hard delete, no cascade)
+ * Replicates gifts.router.ts delete procedure
+ */
+async function executeDeleteGift(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const giftId = args.giftId as string
+
+  if (!giftId) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Gift ID is required' })
+  }
+
+  // SECURITY: Verify gift belongs to company via client join
+  // Use giftsEnhanced (chatbot gift table) with fallback to gifts (UI gift table)
+  let giftName = ''
+  let found = false
+
+  // Try giftsEnhanced first (chatbot-created gifts)
+  const [enhancedGift] = await db
+    .select({ id: giftsEnhanced.id, name: giftsEnhanced.name, clientId: giftsEnhanced.clientId })
+    .from(giftsEnhanced)
+    .innerJoin(clients, eq(giftsEnhanced.clientId, clients.id))
+    .where(
+      and(
+        eq(giftsEnhanced.id, giftId),
+        eq(clients.companyId, ctx.companyId!),
+        isNull(clients.deletedAt)
+      )
+    )
+    .limit(1)
+
+  if (enhancedGift) {
+    await db.delete(giftsEnhanced).where(eq(giftsEnhanced.id, giftId))
+    giftName = enhancedGift.name
+    found = true
+  }
+
+  // Try gifts table (UI-created gifts)
+  if (!found) {
+    const [giftRecord] = await db
+      .select({ id: gifts.id, clientId: gifts.clientId })
+      .from(gifts)
+      .innerJoin(clients, eq(gifts.clientId, clients.id))
+      .where(
+        and(
+          eq(gifts.id, giftId),
+          eq(clients.companyId, ctx.companyId!),
+          isNull(clients.deletedAt)
+        )
+      )
+      .limit(1)
+
+    if (giftRecord) {
+      await db.delete(gifts).where(eq(gifts.id, giftId))
+      giftName = giftId
+      found = true
+    }
+  }
+
+  if (!found) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found or access denied' })
+  }
+
+  return {
+    success: true,
+    toolName: 'delete_gift',
+    data: { deletedGiftId: giftId },
+    message: `Deleted gift "${giftName}".`,
   }
 }

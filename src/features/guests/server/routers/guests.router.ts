@@ -1147,6 +1147,26 @@ export const guestsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // SECURITY: Verify guest belongs to company via client join
+      const [ownershipCheck] = await ctx.db
+        .select({ guestId: guests.id })
+        .from(guests)
+        .innerJoin(clients, eq(guests.clientId, clients.id))
+        .where(
+          and(
+            eq(guests.id, input.guestId),
+            eq(clients.companyId, ctx.companyId)
+          )
+        )
+        .limit(1)
+
+      if (!ownershipCheck) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Guest not found or access denied',
+        })
+      }
+
       // Execute RSVP update and budget sync atomically within a transaction
       const result = await withTransaction(async (tx) => {
         // Track cascade actions for frontend notification

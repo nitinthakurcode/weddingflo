@@ -85,6 +85,10 @@ export async function POST(request: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
+        // FIX S5-M07: Abort controller with 30s timeout for OpenAI API call
+        const abortController = new AbortController()
+        const timeout = setTimeout(() => abortController.abort(), 30000)
+
         try {
           const client = getAIClient()
 
@@ -99,20 +103,31 @@ export async function POST(request: NextRequest) {
               max_tokens: AI_CONFIG.maxTokens,
               temperature: 0.7,
               stream: true,
-            })
+            }, { signal: abortController.signal })
           } catch (primaryError) {
             console.warn('[Chatbot Stream] Primary AI failed, falling back to GPT-4o:', primaryError)
 
-            // Fallback to GPT-4o
-            streamResponse = await fallbackAI.chat.completions.create({
-              model: AI_CONFIG.fallbackModel,
-              messages: apiMessages,
-              tools: CHATBOT_TOOLS,
-              tool_choice: 'auto' as ChatCompletionToolChoiceOption,
-              max_tokens: AI_CONFIG.maxTokens,
-              temperature: 0.7,
-              stream: true,
-            })
+            // FIX S5-M12: Wrap fallback in its own try-catch
+            try {
+              streamResponse = await fallbackAI.chat.completions.create({
+                model: AI_CONFIG.fallbackModel,
+                messages: apiMessages,
+                tools: CHATBOT_TOOLS,
+                tool_choice: 'auto' as ChatCompletionToolChoiceOption,
+                max_tokens: AI_CONFIG.maxTokens,
+                temperature: 0.7,
+                stream: true,
+              }, { signal: abortController.signal })
+            } catch (fallbackError) {
+              console.error('[Chatbot Stream] Fallback AI also failed:', fallbackError)
+              const sseData = JSON.stringify({
+                type: 'error',
+                error: 'An error occurred while generating the response. Please try again.',
+              })
+              controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
+              controller.close()
+              return
+            }
           }
 
           // Track tool calls
@@ -189,15 +204,23 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (error) {
+          // FIX S5-M06: Log real error server-side, send generic message to client
           console.error('[Chatbot Stream] Error:', error)
 
-          const errorMessage = error instanceof Error ? error.message : 'Stream failed'
+          // Detect timeout vs other errors
+          const isTimeout = error instanceof Error && error.name === 'AbortError'
+          const clientMessage = isTimeout
+            ? 'The response timed out. Please try a simpler request or try again.'
+            : 'An error occurred while generating the response. Please try again.'
+
           const sseData = JSON.stringify({
             type: 'error',
-            error: errorMessage,
+            error: clientMessage,
           })
           controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
           controller.close()
+        } finally {
+          clearTimeout(timeout)
         }
       },
     })
@@ -215,7 +238,7 @@ export async function POST(request: NextRequest) {
     console.error('[Chatbot Stream] Request error:', error)
 
     return new NextResponse(
-      error instanceof Error ? error.message : 'Internal server error',
+      'An error occurred processing your request. Please try again.',
       { status: 500 }
     )
   }
