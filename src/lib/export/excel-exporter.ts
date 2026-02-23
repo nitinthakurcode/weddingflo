@@ -4,6 +4,7 @@
  */
 
 import ExcelJS from 'exceljs';
+import { RSVP_STATUS_VALUES, GUEST_SIDE_VALUES } from '@/lib/constants/enums';
 
 export interface ExcelColumn {
   header: string;
@@ -74,6 +75,7 @@ export function generateExcel(
     worksheet.addRow(rowData);
   });
 
+  addTemplateMetadata(workbook);
   return workbook;
 }
 
@@ -190,11 +192,62 @@ export function generateExcelWithHints(
     };
   }
 
+  addTemplateMetadata(workbook);
   return workbook;
+}
+
+// ── Shared sheet formatting helper ──
+
+/**
+ * Apply consistent WeddingFlo styling to a worksheet.
+ * - Row 1: Blue header with white bold text, centered, frozen
+ * - Row 2 (if hasHints): Light yellow hint row with italic gray text
+ * - Auto-filter on header row
+ */
+function applyStandardSheetFormatting(
+  worksheet: ExcelJS.Worksheet,
+  columns: ExcelColumn[],
+  hasHints: boolean,
+): void {
+  // Header row (row 1)
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF4472C4' },
+  };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  headerRow.height = 25;
+
+  // Hint/description row (row 2)
+  if (hasHints) {
+    const hintRow = worksheet.getRow(2);
+    hintRow.font = { italic: true, size: 9, color: { argb: 'FF888888' } };
+    hintRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFF2CC' },
+    };
+    hintRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    hintRow.height = 20;
+  }
+
+  // Freeze header + hint rows
+  worksheet.views = [{ state: 'frozen', xSplit: 0, ySplit: hasHints ? 2 : 1 }];
+
+  // Auto-filter on headers
+  if (columns.length > 0) {
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: columns.length },
+    };
+  }
 }
 
 /**
  * Generate Excel workbook with multiple sheets
+ * Supports optional hint rows from ExcelColumn.hint definitions
  */
 export function generateMultiSheetExcel(sheets: ExcelSheet[]): ExcelJS.Workbook {
   const workbook = new ExcelJS.Workbook();
@@ -211,13 +264,17 @@ export function generateMultiSheetExcel(sheets: ExcelSheet[]): ExcelJS.Workbook 
       width: col.width || 15,
     }));
 
-    // Style header row
-    worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFE0E0E0' },
-    };
+    // Check if any columns have hints
+    const hasHints = sheet.columns.some(col => col.hint);
+
+    // Add hint row (row 2) before data if hints exist
+    if (hasHints) {
+      const hintData: Record<string, string> = {};
+      sheet.columns.forEach((col) => {
+        hintData[col.key] = col.hint || '';
+      });
+      worksheet.addRow(hintData);
+    }
 
     // Add data rows
     sheet.data.forEach((row) => {
@@ -227,15 +284,46 @@ export function generateMultiSheetExcel(sheets: ExcelSheet[]): ExcelJS.Workbook 
       });
       worksheet.addRow(rowData);
     });
+
+    // Apply standard formatting (skip _Metadata sheet)
+    if (!sheet.name.startsWith('_')) {
+      applyStandardSheetFormatting(worksheet, sheet.columns, hasHints);
+    }
   });
 
+  addTemplateMetadata(workbook);
   return workbook;
+}
+
+// ── Template version metadata helper ──
+
+/**
+ * Add a hidden _metadata worksheet to the workbook with template version info.
+ * Idempotent — skips if _metadata already exists.
+ */
+function addTemplateMetadata(workbook: ExcelJS.Workbook): void {
+  if (workbook.getWorksheet('_metadata')) return; // already added
+
+  workbook.creator = 'WeddingFlo Pro';
+  workbook.created = new Date();
+
+  const metaSheet = workbook.addWorksheet('_metadata', {
+    state: 'hidden' as any,
+  });
+  metaSheet.getCell('A1').value = 'template_version';
+  metaSheet.getCell('B1').value = '3.0';
+  metaSheet.getCell('A2').value = 'exported_at';
+  metaSheet.getCell('B2').value = new Date().toISOString();
+  metaSheet.getCell('A3').value = 'app_version';
+  metaSheet.getCell('B3').value = 'weddingflo-2026.02';
 }
 
 /**
  * Download Excel file (browser)
  */
 export async function downloadExcel(workbook: ExcelJS.Workbook, filename: string = 'export.xlsx'): Promise<void> {
+  addTemplateMetadata(workbook);
+
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
@@ -253,6 +341,7 @@ export async function downloadExcel(workbook: ExcelJS.Workbook, filename: string
  * Get Excel buffer (for server-side use)
  */
 export async function getExcelBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
+  addTemplateMetadata(workbook);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
@@ -368,8 +457,8 @@ export async function exportGuestListExcel(
     { header: 'Email', key: 'email', width: 28, hint: 'email@example.com' },
     { header: 'Phone', key: 'phone', width: 18, hint: '+1234567890' },
     { header: 'Group', key: 'group', width: 18, hint: 'Family name or group' },
-    { header: 'Side', key: 'side', width: 12, hint: 'bride_side/groom_side/mutual' },
-    { header: 'RSVP', key: 'rsvp', width: 12, hint: 'pending/accepted/declined' },
+    { header: 'Side', key: 'side', width: 12, hint: 'partner1/partner2/mutual' },
+    { header: 'RSVP', key: 'rsvp', width: 12, hint: 'pending/confirmed/declined/maybe' },
     { header: 'Party Size', key: 'partySize', width: 12, hint: 'Number (1, 2, 3...)' },
     { header: 'Additional Guests', key: 'additionalGuests', width: 35, hint: 'Comma-separated names' },
     { header: 'Relationship', key: 'relationship', width: 20, hint: 'e.g. friend, cousin, uncle' },
@@ -513,7 +602,7 @@ export async function exportGuestListExcel(
         worksheet.getCell(row, rsvpCol).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: ['"pending,accepted,declined"'],
+          formulae: ['"' + RSVP_STATUS_VALUES.join(',') + '"'],
         };
       }
     }
@@ -525,7 +614,7 @@ export async function exportGuestListExcel(
         worksheet.getCell(row, sideCol).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: ['"bride_side,groom_side,mutual"'],
+          formulae: ['"' + GUEST_SIDE_VALUES.join(',') + '"'],
         };
       }
     }
@@ -866,6 +955,9 @@ export async function exportHotelListExcel(
     });
     worksheet.addRow(rowData);
   });
+
+  // Hide ID columns — internal keys not needed for user-facing editing
+  worksheet.getColumn(1).hidden = true;
 
   // Add cell comments to Room Number and Guests in Room columns
   const roomNumberCol = columns.findIndex(c => c.key === 'roomNumber') + 1;
@@ -1414,7 +1506,6 @@ export async function exportGiftsRegistryExcel(
     delivery_status?: string | null;
     thank_you_sent?: boolean | null;
     thank_you_sent_date?: string | null;
-    notes?: string | null;
   }>,
   options: ExcelOptions = {}
 ): Promise<void> {
@@ -1426,7 +1517,6 @@ export async function exportGiftsRegistryExcel(
     { header: 'Status', key: 'deliveryStatus', width: 15 },
     { header: 'Thank You Sent', key: 'thankYouSent', width: 18 },
     { header: 'Thank You Sent On', key: 'thankYouSentDate', width: 18 },
-    { header: 'Special Notes', key: 'notes', width: 40 },
   ];
 
   const data = gifts.map((gift) => ({
@@ -1437,7 +1527,6 @@ export async function exportGiftsRegistryExcel(
     deliveryStatus: gift.delivery_status || 'pending',
     thankYouSent: gift.thank_you_sent ? 'Yes' : 'No',
     thankYouSentDate: gift.thank_you_sent_date || '',
-    notes: gift.notes || '',
   }));
 
   const workbook = generateExcelWithHints(columns.map(c => ({
@@ -1702,7 +1791,6 @@ export interface MasterExportData {
     deliveryLocation?: string | null;
     deliveryStatus?: string;
     deliveredBy?: string | null;
-    notes?: string | null;
     guest?: { firstName?: string | null; lastName?: string | null } | null;
     updatedAt?: Date | string | null;
   }>;
@@ -1826,20 +1914,20 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Guests',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'First Name', key: 'firstName', width: 20 },
-      { header: 'Last Name', key: 'lastName', width: 20 },
-      { header: 'Email', key: 'email', width: 30 },
-      { header: 'Phone', key: 'phone', width: 18 },
-      { header: 'Group', key: 'group', width: 20 },
-      { header: 'RSVP Status', key: 'rsvpStatus', width: 15 },
-      { header: 'Party Size', key: 'partySize', width: 12 },
-      { header: 'Dietary Restrictions', key: 'dietary', width: 25 },
-      { header: 'Meal Preference', key: 'mealPref', width: 18 },
-      { header: 'Hotel Required', key: 'hotelRequired', width: 15 },
-      { header: 'Transport Required', key: 'transportRequired', width: 18 },
-      { header: 'Notes', key: 'notes', width: 40 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'First Name', key: 'firstName', width: 20, hint: 'Required' },
+      { header: 'Last Name', key: 'lastName', width: 20, hint: 'Optional' },
+      { header: 'Email', key: 'email', width: 30, hint: 'email@example.com' },
+      { header: 'Phone', key: 'phone', width: 18, hint: '+1 555-0100' },
+      { header: 'Group', key: 'group', width: 20, hint: 'e.g. Family, College' },
+      { header: 'RSVP Status', key: 'rsvpStatus', width: 15, hint: 'pending/confirmed/declined' },
+      { header: 'Party Size', key: 'partySize', width: 12, hint: 'Numbers only' },
+      { header: 'Dietary Restrictions', key: 'dietary', width: 25, hint: 'e.g. Vegetarian, Gluten-free' },
+      { header: 'Meal Preference', key: 'mealPref', width: 18, hint: 'e.g. Veg, Non-veg' },
+      { header: 'Hotel Required', key: 'hotelRequired', width: 15, hint: 'Yes/No' },
+      { header: 'Transport Required', key: 'transportRequired', width: 18, hint: 'Yes/No' },
+      { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.guests.map((g) => ({
       id: g.id,
@@ -1863,19 +1951,19 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Hotels',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'Guest ID (Ref)', key: 'guestId', width: 38 },
-      { header: 'Guest Name', key: 'guestName', width: 25 },
-      { header: 'Accommodation Needed', key: 'accommodationNeeded', width: 22 },
-      { header: 'Hotel Name', key: 'hotelName', width: 25 },
-      { header: 'Room Number', key: 'roomNumber', width: 15 },
-      { header: 'Room Type', key: 'roomType', width: 15 },
-      { header: 'Check-in Date', key: 'checkInDate', width: 15 },
-      { header: 'Check-out Date', key: 'checkOutDate', width: 15 },
-      { header: 'Booking Confirmed', key: 'bookingConfirmed', width: 18 },
-      { header: 'Checked In', key: 'checkedIn', width: 12 },
-      { header: 'Notes', key: 'notes', width: 40 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Guest ID (Ref)', key: 'guestId', width: 38, hint: 'Do not modify' },
+      { header: 'Guest Name', key: 'guestName', width: 25, hint: 'Required' },
+      { header: 'Accommodation Needed', key: 'accommodationNeeded', width: 22, hint: 'Yes/No' },
+      { header: 'Hotel Name', key: 'hotelName', width: 25, hint: 'e.g. Grand Hyatt' },
+      { header: 'Room Number', key: 'roomNumber', width: 15, hint: 'e.g. 201' },
+      { header: 'Room Type', key: 'roomType', width: 15, hint: 'e.g. Suite, Deluxe' },
+      { header: 'Check-in Date', key: 'checkInDate', width: 15, hint: 'YYYY-MM-DD' },
+      { header: 'Check-out Date', key: 'checkOutDate', width: 15, hint: 'YYYY-MM-DD' },
+      { header: 'Booking Confirmed', key: 'bookingConfirmed', width: 18, hint: 'Yes/No' },
+      { header: 'Checked In', key: 'checkedIn', width: 12, hint: 'Yes/No' },
+      { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.hotels.map((h) => ({
       id: h.id,
@@ -1898,19 +1986,18 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Gifts Given',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'Guest ID (Ref)', key: 'guestId', width: 38 },
-      { header: 'Guest Name', key: 'guestName', width: 25 },
-      { header: 'Gift Name', key: 'giftName', width: 25 },
-      { header: 'Gift Type', key: 'giftType', width: 20 },
-      { header: 'Quantity', key: 'quantity', width: 10 },
-      { header: 'Delivery Date', key: 'deliveryDate', width: 15 },
-      { header: 'Delivery Time', key: 'deliveryTime', width: 12 },
-      { header: 'Delivery Location', key: 'deliveryLocation', width: 25 },
-      { header: 'Delivery Status', key: 'deliveryStatus', width: 15 },
-      { header: 'Delivered By', key: 'deliveredBy', width: 20 },
-      { header: 'Notes', key: 'notes', width: 40 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Guest ID (Ref)', key: 'guestId', width: 38, hint: 'Do not modify' },
+      { header: 'Guest Name', key: 'guestName', width: 25, hint: 'Required' },
+      { header: 'Gift Name', key: 'giftName', width: 25, hint: 'Required' },
+      { header: 'Gift Type', key: 'giftType', width: 20, hint: 'e.g. Cash, Registry' },
+      { header: 'Quantity', key: 'quantity', width: 10, hint: 'Numbers only' },
+      { header: 'Delivery Date', key: 'deliveryDate', width: 15, hint: 'YYYY-MM-DD' },
+      { header: 'Delivery Time', key: 'deliveryTime', width: 12, hint: 'HH:MM AM/PM' },
+      { header: 'Delivery Location', key: 'deliveryLocation', width: 25, hint: 'e.g. Venue, Home' },
+      { header: 'Delivery Status', key: 'deliveryStatus', width: 15, hint: 'pending/delivered' },
+      { header: 'Delivered By', key: 'deliveredBy', width: 20, hint: 'Person name' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.guestGifts.map((g) => {
       const guestName = g.guest
@@ -1928,7 +2015,6 @@ export async function exportMasterPlanningExcel(
         deliveryLocation: g.deliveryLocation || '',
         deliveryStatus: g.deliveryStatus || 'pending',
         deliveredBy: g.deliveredBy || '',
-        notes: g.notes || '',
         updatedAt: formatDate(g.updatedAt),
       };
     }),
@@ -1938,14 +2024,14 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Events',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'Event Title', key: 'title', width: 30 },
-      { header: 'Event Date', key: 'eventDate', width: 15 },
-      { header: 'Start Time', key: 'startTime', width: 12 },
-      { header: 'End Time', key: 'endTime', width: 12 },
-      { header: 'Venue', key: 'venue', width: 30 },
-      { header: 'Description', key: 'description', width: 50 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Event Title', key: 'title', width: 30, hint: 'Required' },
+      { header: 'Event Date', key: 'eventDate', width: 15, hint: 'YYYY-MM-DD' },
+      { header: 'Start Time', key: 'startTime', width: 12, hint: 'HH:MM AM/PM' },
+      { header: 'End Time', key: 'endTime', width: 12, hint: 'HH:MM AM/PM' },
+      { header: 'Venue', key: 'venue', width: 30, hint: 'Venue name' },
+      { header: 'Description', key: 'description', width: 50, hint: 'Event details' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.events.map((e) => ({
       id: e.id,
@@ -1963,16 +2049,16 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Timeline',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'Activity', key: 'title', width: 35 },
-      { header: 'Start Time', key: 'startTime', width: 12 },
-      { header: 'End Time', key: 'endTime', width: 12 },
-      { header: 'Duration (min)', key: 'duration', width: 15 },
-      { header: 'Location', key: 'location', width: 25 },
-      { header: 'Responsible Person', key: 'responsible', width: 25 },
-      { header: 'Description', key: 'description', width: 40 },
-      { header: 'Completed', key: 'completed', width: 12 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Activity', key: 'title', width: 35, hint: 'Required' },
+      { header: 'Start Time', key: 'startTime', width: 12, hint: 'HH:MM AM/PM' },
+      { header: 'End Time', key: 'endTime', width: 12, hint: 'HH:MM AM/PM' },
+      { header: 'Duration (min)', key: 'duration', width: 15, hint: 'Numbers only' },
+      { header: 'Location', key: 'location', width: 25, hint: 'Venue/room name' },
+      { header: 'Responsible Person', key: 'responsible', width: 25, hint: 'Person in charge' },
+      { header: 'Description', key: 'description', width: 40, hint: 'Activity details' },
+      { header: 'Completed', key: 'completed', width: 12, hint: 'Yes/No' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.timeline.map((t) => ({
       id: t.id,
@@ -1992,16 +2078,16 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Budget',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'Expense Item', key: 'item', width: 35 },
-      { header: 'Category', key: 'category', width: 18 },
-      { header: 'Event', key: 'event', width: 25 },
-      { header: 'Estimated Cost', key: 'estimated', width: 18 },
-      { header: 'Actual Cost', key: 'actual', width: 15 },
-      { header: 'Variance', key: 'variance', width: 12 },
-      { header: 'Payment Status', key: 'paymentStatus', width: 15 },
-      { header: 'Notes', key: 'notes', width: 40 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Expense Item', key: 'item', width: 35, hint: 'Required' },
+      { header: 'Category', key: 'category', width: 18, hint: 'e.g. Venue, Catering' },
+      { header: 'Event', key: 'event', width: 25, hint: 'Associated event name' },
+      { header: 'Estimated Cost', key: 'estimated', width: 18, hint: 'Numbers only' },
+      { header: 'Actual Cost', key: 'actual', width: 15, hint: 'Numbers only' },
+      { header: 'Variance', key: 'variance', width: 12, hint: 'Auto-calculated' },
+      { header: 'Payment Status', key: 'paymentStatus', width: 15, hint: 'pending/partial/paid' },
+      { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.budget.map((b) => {
       const estimated = b.estimatedCost || 0;
@@ -2025,17 +2111,17 @@ export async function exportMasterPlanningExcel(
   sheets.push({
     name: 'Vendors',
     columns: [
-      { header: 'ID (Do Not Modify)', key: 'id', width: 38 },
-      { header: 'Vendor Name', key: 'name', width: 30 },
-      { header: 'Category', key: 'category', width: 18 },
-      { header: 'Contact Person', key: 'contactName', width: 25 },
-      { header: 'Phone', key: 'phone', width: 18 },
-      { header: 'Email', key: 'email', width: 30 },
-      { header: 'Contract Amount', key: 'contractAmount', width: 18 },
-      { header: 'Service Date', key: 'serviceDate', width: 15 },
-      { header: 'Payment Status', key: 'paymentStatus', width: 15 },
-      { header: 'Notes', key: 'notes', width: 40 },
-      { header: 'Last Updated', key: 'updatedAt', width: 18 },
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Vendor Name', key: 'name', width: 30, hint: 'Required' },
+      { header: 'Category', key: 'category', width: 18, hint: 'e.g. Catering, Photo' },
+      { header: 'Contact Person', key: 'contactName', width: 25, hint: 'Primary contact name' },
+      { header: 'Phone', key: 'phone', width: 18, hint: '+1 555-0100' },
+      { header: 'Email', key: 'email', width: 30, hint: 'email@example.com' },
+      { header: 'Contract Amount', key: 'contractAmount', width: 18, hint: 'Numbers only' },
+      { header: 'Service Date', key: 'serviceDate', width: 15, hint: 'YYYY-MM-DD' },
+      { header: 'Payment Status', key: 'paymentStatus', width: 15, hint: 'pending/partial/paid' },
+      { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
     ],
     data: data.vendors.map((v) => ({
       id: v.id,
@@ -2078,6 +2164,15 @@ export async function exportMasterPlanningExcel(
 
   // Generate multi-sheet workbook
   const workbook = generateMultiSheetExcel(sheets);
+
+  // Hide ID columns on sheets that don't need visible IDs for round-trip import
+  // Guests, Gifts Given, and Timeline need visible IDs for re-import matching
+  const budgetWs = workbook.getWorksheet('Budget');
+  if (budgetWs) budgetWs.getColumn(1).hidden = true;
+  const hotelsWs = workbook.getWorksheet('Hotels');
+  if (hotelsWs) hotelsWs.getColumn(1).hidden = true;
+  const vendorsWs = workbook.getWorksheet('Vendors');
+  if (vendorsWs) vendorsWs.getColumn(1).hidden = true;
 
   // Generate filename with client name and date
   const safeClientName = data.clientName.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 30);

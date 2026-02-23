@@ -3,6 +3,8 @@
  * Simple CSV generation and download
  */
 
+import { RSVP_STATUS_VALUES } from '@/lib/constants/enums';
+
 export interface CSVColumn {
   header: string;
   key: string;
@@ -197,7 +199,7 @@ export function exportGuestListCSV(
     { header: 'Email Address', key: 'email', hint: 'email@example.com' },
     { header: 'Phone Number', key: 'phone', hint: '+1234567890' },
     { header: 'Guest Group', key: 'group', hint: 'e.g. Family, Friends' },
-    { header: 'RSVP Status', key: 'rsvp', hint: 'pending/accepted/declined' },
+    { header: 'RSVP Status', key: 'rsvp', hint: 'pending/confirmed/declined/maybe' },
     { header: '# of Guests', key: 'partySize', hint: 'Numbers only (1+)' },
     { header: 'Additional Guests', key: 'additionalGuests', hint: 'Name1, Name2, ...' },
     { header: 'Relationship', key: 'relationship', hint: 'e.g. Cousin, Friend' },

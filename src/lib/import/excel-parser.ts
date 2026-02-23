@@ -6,12 +6,190 @@
 import ExcelJS from 'exceljs';
 import type { CSVParseResult, CSVFieldMapping } from './csv-parser';
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
+import { db, eq, and } from '@/lib/db';
+import { budget, hotels, guestTransport, vendors, clientVendors } from '@/lib/db/schema';
 
 export interface ExcelParseOptions {
   sheetName?: string;
   sheetIndex?: number;
   hasHeaders?: boolean;
   skipEmptyLines?: boolean;
+}
+
+// ── Expected header arrays for upfront validation ──
+
+const EXPECTED_GUEST_HEADERS = [
+  'ID', 'Guest Name', 'Email', 'Phone', 'Group', 'Side', 'RSVP',
+  'Party Size', 'Additional Guests', 'Relationship', 'Events',
+  'Arrival Date', 'Arrival Time', 'Arrival Mode',
+  'Departure Date', 'Departure Time', 'Departure Mode',
+  'Meal', 'Dietary', 'Hotel (Primary)', 'Transport (Primary)',
+  'Per-Member Hotel', 'Per-Member Transport',
+  'Gift Received', 'Notes', 'Checked In',
+];
+const REQUIRED_GUEST_HEADERS = ['Guest Name'];
+
+const EXPECTED_GIFT_HEADERS = [
+  'Guest Name', 'Gift Item', 'Gift Type', 'Quantity',
+  'Delivery Date', 'Delivery Time', 'Delivery Location',
+  'Delivery Status', 'Delivered By', 'Notes',
+];
+const REQUIRED_GIFT_HEADERS = ['Guest Name'];
+
+const EXPECTED_TIMELINE_HEADERS = [
+  'ID', 'Event ID', 'Event Name', 'Title', 'Description', 'Phase',
+  'Date', 'Start Time', 'End Time', 'Duration (Min)',
+  'Location', 'Participants', 'Responsible Person',
+  'Completed', 'Sort Order', 'Notes',
+];
+const REQUIRED_TIMELINE_HEADERS = ['Title'];
+
+const EXPECTED_BUDGET_HEADERS = [
+  'ID', 'Category', 'Item', 'Description', 'Estimated Cost',
+  'Actual Cost', 'Paid Amount', 'Payment Status', 'Transaction Date',
+  'Per Guest Cost', 'Notes',
+];
+const REQUIRED_BUDGET_HEADERS = ['Item'];
+
+const EXPECTED_HOTEL_HEADERS = [
+  'ID', 'Guest Name', 'Hotel Name', 'Room Number', 'Room Type',
+  'Check In Date', 'Check Out Date', 'Accommodation Needed', 'Booking Confirmed',
+  'Checked In', 'Cost', 'Currency', 'Payment Status', 'Party Size', 'Notes',
+];
+const REQUIRED_HOTEL_HEADERS = ['Guest Name'];
+
+const EXPECTED_TRANSPORT_HEADERS = [
+  'ID', 'Guest Name', 'Pickup Date', 'Pickup Time', 'Pickup From',
+  'Drop To', 'Transport Status', 'Vehicle Info', 'Vehicle Type',
+  'Driver Phone', 'Leg Type', 'Leg Sequence', 'Notes',
+];
+const REQUIRED_TRANSPORT_HEADERS = ['Guest Name'];
+
+const EXPECTED_VENDOR_HEADERS = [
+  'ID', 'Name', 'Category', 'Contact Name', 'Email', 'Phone',
+  'Website', 'Address', 'Contract Signed', 'Contract Date',
+  'Rating', 'Is Preferred', 'Notes',
+];
+const REQUIRED_VENDOR_HEADERS = ['Name'];
+
+// ── Shared parsing helpers (used by hotels, transport imports) ──
+
+/** Parse boolean: handles 'true'/'false'/'yes'/'no'/1/0 */
+function parseExcelBoolean(value: any): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const strVal = String(value).toLowerCase().trim();
+  if (strVal === 'true' || strVal === 'yes' || strVal === '1') return true;
+  if (strVal === 'false' || strVal === 'no' || strVal === '0') return false;
+  return undefined;
+}
+
+/** Parse currency/numeric values (handles both string and number cell values) */
+function parseExcelCurrency(value: any): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return String(value);
+  const cleaned = String(value).replace(/[^0-9.-]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : String(num);
+}
+
+/** Parse date values (handles ExcelJS Date objects, ISO strings, formatted dates) */
+function parseExcelDate(value: any): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) return value.toISOString().split('T')[0];
+  const strVal = String(value).trim();
+  if (!strVal) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(strVal)) return strVal;
+  const parsed = new Date(strVal);
+  return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+}
+
+/** Parse time string (handles HH:MM format, ExcelJS Date objects) */
+function parseExcelTime(value: any): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  const strVal = String(value).trim();
+  if (/^\d{1,2}:\d{2}$/.test(strVal)) return strVal.padStart(5, '0');
+  if (value instanceof Date) return value.toTimeString().slice(0, 5);
+  return strVal || null;
+}
+
+/** Parse integer value with optional default */
+function parseExcelInteger(value: any, defaultVal?: number): number | null {
+  if (value === null || value === undefined || value === '') return defaultVal ?? null;
+  const num = typeof value === 'number' ? Math.round(value) : parseInt(String(value), 10);
+  return isNaN(num) ? (defaultVal ?? null) : num;
+}
+
+// ── Header & metadata validation helper ──
+
+interface ExcelValidationResult {
+  templateVersion?: string;
+  headerMap: Map<string, number>;
+}
+
+/**
+ * Validate an Excel file's headers and read template metadata.
+ * Loads the workbook, checks for a hidden _metadata sheet, reads row-1
+ * headers, and throws if any required column is missing.
+ */
+async function validateExcelFile(
+  file: File | Buffer,
+  expectedHeaders: string[],
+  requiredHeaders: string[],
+  sheetName?: string,
+): Promise<ExcelValidationResult> {
+  const workbook = new ExcelJS.Workbook();
+  if (Buffer.isBuffer(file)) {
+    // Convert Buffer to ArrayBuffer to avoid Node.js Buffer<ArrayBufferLike> generic mismatch
+    const ab = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
+    await workbook.xlsx.load(ab as ArrayBuffer);
+  } else {
+    const arrayBuffer = await file.arrayBuffer();
+    await workbook.xlsx.load(arrayBuffer);
+  }
+
+  // ── Template version check ──
+  let templateVersion: string | undefined;
+  const metaSheet = workbook.getWorksheet('_metadata');
+  if (metaSheet) {
+    templateVersion = metaSheet.getCell('B1').value?.toString();
+    console.log(`[Excel Import] Template version: ${templateVersion || 'unknown'}`);
+  }
+
+  // ── Resolve target worksheet ──
+  const worksheet = sheetName
+    ? workbook.getWorksheet(sheetName)
+    : workbook.getWorksheet(1);
+
+  if (!worksheet) {
+    throw new Error(
+      sheetName ? `Sheet "${sheetName}" not found` : 'No worksheet found',
+    );
+  }
+
+  // ── Build header map from row 1 (case-insensitive, trimmed) ──
+  const headerMap = new Map<string, number>();
+  const headerRow = worksheet.getRow(1);
+  headerRow.eachCell((cell, colNumber) => {
+    const name = String(cell.value || '').toLowerCase().trim();
+    if (name) {
+      headerMap.set(name, colNumber);
+    }
+  });
+
+  // ── Validate required headers ──
+  const missing = requiredHeaders.filter(
+    (h) => !headerMap.has(h.toLowerCase().trim()),
+  );
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required column${missing.length > 1 ? 's' : ''}: ` +
+      `${missing.map((h) => `'${h}'`).join(', ')}. ` +
+      `Expected columns: ${expectedHeaders.join(', ')}`,
+    );
+  }
+
+  return { templateVersion, headerMap };
 }
 
 /**
@@ -233,6 +411,9 @@ export async function importGuestListExcel(file: File): Promise<CSVParseResult<{
   notes?: string;
   checked_in?: boolean;
 }>> {
+  // ── Upfront header validation ──
+  await validateExcelFile(file, EXPECTED_GUEST_HEADERS, REQUIRED_GUEST_HEADERS);
+
   // Helper to parse boolean values
   const parseBoolean = (value: any): boolean | undefined => {
     if (value === undefined || value === null || value === '') return undefined;
@@ -565,6 +746,9 @@ export async function importGiftsExcel(file: File): Promise<CSVParseResult<{
   delivered_by?: string;
   notes?: string;
 }>> {
+  // ── Upfront header validation ──
+  await validateExcelFile(file, EXPECTED_GIFT_HEADERS, REQUIRED_GIFT_HEADERS);
+
   const fieldMapping: CSVFieldMapping[] = [
     {
       csvColumn: 'Guest Name',
@@ -702,6 +886,11 @@ export async function importTimelineExcel(
   file: File,
   events: Array<{ id: string; title: string }>
 ): Promise<CSVParseResult<TimelineImportItem>> {
+  // ── Upfront header validation ──
+  await validateExcelFile(
+    file, EXPECTED_TIMELINE_HEADERS, REQUIRED_TIMELINE_HEADERS, 'Timeline',
+  );
+
   // Parse the Excel file
   const rawData = await parseExcelFile(file, {
     sheetName: 'Timeline',
@@ -854,4 +1043,564 @@ export async function importTimelineExcel(
     totalRows: rawData.length,
     validRows: data.length,
   };
+}
+
+/**
+ * Import Budget from Excel
+ * February 2026 - Full round-trip import with upsert support
+ *
+ * Reads budget rows from the 'Budget' sheet, validates headers,
+ * and upserts into the budget table (update if ID matches, insert otherwise).
+ */
+export async function importBudgetExcel(
+  buffer: Buffer,
+  clientId: string,
+  companyId: string,
+): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+
+  // ── Upfront header validation ──
+  const { headerMap } = await validateExcelFile(
+    buffer, EXPECTED_BUDGET_HEADERS, REQUIRED_BUDGET_HEADERS, 'Budget',
+  );
+
+  // ── Load workbook for data processing ──
+  const workbook = new ExcelJS.Workbook();
+  const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  await workbook.xlsx.load(ab as ArrayBuffer);
+  const worksheet = workbook.getWorksheet('Budget') || workbook.getWorksheet(1);
+
+  if (!worksheet) {
+    results.errors.push('No worksheet found');
+    return results;
+  }
+
+  // Helper to get raw cell value by header name (case-insensitive)
+  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+    const colIndex = headerMap.get(header.toLowerCase());
+    if (!colIndex) return null;
+    return row.getCell(colIndex).value ?? null;
+  };
+
+  // Helper to get cell as trimmed string
+  const getCell = (row: ExcelJS.Row, header: string): string => {
+    const raw = getRawCell(row, header);
+    if (raw === null || raw === undefined) return '';
+    return String(raw).trim();
+  };
+
+  // Helper to parse date values (handles ExcelJS Date objects, ISO strings, formatted dates)
+  const parseDate = (value: any): string | null => {
+    if (value === null || value === undefined || value === '') return null;
+    if (value instanceof Date) return value.toISOString().split('T')[0];
+    const strVal = String(value).trim();
+    if (!strVal) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(strVal)) return strVal;
+    const parsed = new Date(strVal);
+    return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+  };
+
+  // Helper to parse currency/numeric values (handles both string and number cell values)
+  const parseCurrency = (value: any): string | null => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return String(value);
+    const cleaned = String(value).replace(/[^0-9.-]/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? null : String(num);
+  };
+
+  // ── Get existing budget items for upsert matching ──
+  const existingItems = await db
+    .select({ id: budget.id })
+    .from(budget)
+    .where(eq(budget.clientId, clientId));
+  const existingIds = new Set(existingItems.map((b) => b.id));
+
+  // ── Process data rows (row 1 = headers, row 2+ = data/hints) ──
+  const totalRows = worksheet.rowCount;
+
+  for (let rowIdx = 2; rowIdx <= totalRows; rowIdx++) {
+    const row = worksheet.getRow(rowIdx);
+
+    // Skip empty rows
+    if (!row.hasValues) continue;
+
+    // Skip hints row (row 2 in enhanced export format)
+    const firstCellStr = String(row.getCell(1).value || '').toLowerCase();
+    const secondCellStr = String(row.getCell(2).value || '').toLowerCase();
+    const hintsPatterns = [
+      'do not modify', 'required', 'yyyy-mm-dd', 'numbers only',
+      'optional', 'e.g.', 'pending/', 'format:',
+    ];
+    if (hintsPatterns.some((p) => firstCellStr.includes(p) || secondCellStr.includes(p))) {
+      continue;
+    }
+
+    try {
+      const id = getCell(row, 'id');
+      const item = getCell(row, 'item');
+      const category = getCell(row, 'category');
+      const description = getCell(row, 'description');
+      const estimatedCost = parseCurrency(getRawCell(row, 'estimated cost'));
+      const actualCost = parseCurrency(getRawCell(row, 'actual cost'));
+      const paidAmount = parseCurrency(getRawCell(row, 'paid amount'));
+      const paymentStatus = getCell(row, 'payment status');
+      const transactionDate = parseDate(getRawCell(row, 'transaction date'));
+      const perGuestCost = parseCurrency(getRawCell(row, 'per guest cost'));
+      const notes = getCell(row, 'notes');
+
+      // Skip rows where item is empty (required field)
+      if (!item) {
+        results.skipped++;
+        continue;
+      }
+
+      const budgetData = {
+        item,
+        category: category || 'other',
+        description: description || null,
+        estimatedCost: estimatedCost || '0',
+        actualCost,
+        paidAmount: paidAmount || '0',
+        paymentStatus: paymentStatus || 'pending',
+        transactionDate,
+        perGuestCost,
+        notes: notes || null,
+        updatedAt: new Date(),
+      };
+
+      // Upsert: if ID matches existing record for this clientId → UPDATE
+      if (id && existingIds.has(id)) {
+        await db.update(budget)
+          .set(budgetData)
+          .where(and(eq(budget.id, id), eq(budget.clientId, clientId)));
+        results.updated++;
+      } else {
+        // INSERT with new generated ID
+        await db.insert(budget).values({
+          id: id || crypto.randomUUID(),
+          clientId,
+          companyId,
+          ...budgetData,
+        });
+        results.inserted++;
+      }
+    } catch (error: any) {
+      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Import Hotels from Excel
+ * February 2026 - Full round-trip import with upsert support
+ *
+ * Reads hotel rows from the 'Hotels' sheet, validates headers,
+ * and upserts into the hotels table (update if ID matches, insert otherwise).
+ */
+export async function importHotelsExcel(
+  buffer: Buffer,
+  clientId: string,
+  companyId: string,
+): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+
+  // ── Upfront header validation ──
+  const { headerMap } = await validateExcelFile(
+    buffer, EXPECTED_HOTEL_HEADERS, REQUIRED_HOTEL_HEADERS, 'Hotels',
+  );
+
+  // ── Load workbook for data processing ──
+  const workbook = new ExcelJS.Workbook();
+  const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  await workbook.xlsx.load(ab as ArrayBuffer);
+  const worksheet = workbook.getWorksheet('Hotels');
+
+  if (!worksheet) {
+    results.errors.push('No "Hotels" sheet found');
+    return results;
+  }
+
+  // Helper to get raw cell value by header name (case-insensitive)
+  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+    const colIndex = headerMap.get(header.toLowerCase());
+    if (!colIndex) return null;
+    return row.getCell(colIndex).value ?? null;
+  };
+
+  // Helper to get cell as trimmed string
+  const getCell = (row: ExcelJS.Row, header: string): string => {
+    const raw = getRawCell(row, header);
+    if (raw === null || raw === undefined) return '';
+    return String(raw).trim();
+  };
+
+  // ── Get existing hotel items for upsert matching ──
+  const existingItems = await db
+    .select({ id: hotels.id })
+    .from(hotels)
+    .where(eq(hotels.clientId, clientId));
+  const existingIds = new Set(existingItems.map((h) => h.id));
+
+  // ── Process data rows (row 1 = headers, row 2+ = data/hints) ──
+  const totalRows = worksheet.rowCount;
+
+  for (let rowIdx = 2; rowIdx <= totalRows; rowIdx++) {
+    const row = worksheet.getRow(rowIdx);
+
+    // Skip empty rows
+    if (!row.hasValues) continue;
+
+    // Skip hints row (row 2 in enhanced export format)
+    const firstCellStr = String(row.getCell(1).value || '').toLowerCase();
+    const secondCellStr = String(row.getCell(2).value || '').toLowerCase();
+    const hintsPatterns = [
+      'do not modify', 'required', 'yyyy-mm-dd', 'numbers only',
+      'optional', 'e.g.', 'true/false', 'format:',
+    ];
+    if (hintsPatterns.some((p) => firstCellStr.includes(p) || secondCellStr.includes(p))) {
+      continue;
+    }
+
+    try {
+      const id = getCell(row, 'id');
+      const guestName = getCell(row, 'guest name');
+
+      // Skip rows where guestName is empty (required field)
+      if (!guestName) {
+        results.skipped++;
+        continue;
+      }
+
+      const hotelData = {
+        guestName,
+        hotelName: getCell(row, 'hotel name') || null,
+        roomNumber: getCell(row, 'room number') || null,
+        roomType: getCell(row, 'room type') || null,
+        checkInDate: parseExcelDate(getRawCell(row, 'check in date')),
+        checkOutDate: parseExcelDate(getRawCell(row, 'check out date')),
+        accommodationNeeded: parseExcelBoolean(getRawCell(row, 'accommodation needed')) ?? true,
+        bookingConfirmed: parseExcelBoolean(getRawCell(row, 'booking confirmed')) ?? false,
+        checkedIn: parseExcelBoolean(getRawCell(row, 'checked in')) ?? false,
+        cost: parseExcelCurrency(getRawCell(row, 'cost')),
+        currency: getCell(row, 'currency') || 'USD',
+        paymentStatus: getCell(row, 'payment status') || 'pending',
+        partySize: parseExcelInteger(getRawCell(row, 'party size'), 1),
+        notes: getCell(row, 'notes') || null,
+        updatedAt: new Date(),
+      };
+
+      // Upsert: if ID matches existing record for this clientId → UPDATE
+      if (id && existingIds.has(id)) {
+        await db.update(hotels)
+          .set(hotelData)
+          .where(and(eq(hotels.id, id), eq(hotels.clientId, clientId)));
+        results.updated++;
+      } else {
+        // INSERT with new generated ID
+        await db.insert(hotels).values({
+          id: id || crypto.randomUUID(),
+          clientId,
+          companyId,
+          ...hotelData,
+        });
+        results.inserted++;
+      }
+    } catch (error: any) {
+      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Import Transport from Excel
+ * February 2026 - Full round-trip import with upsert support
+ *
+ * Reads transport rows from the 'Guest Transport' (or 'Transport') sheet,
+ * validates headers, and upserts into the guest_transport table.
+ */
+export async function importTransportExcel(
+  buffer: Buffer,
+  clientId: string,
+  companyId: string,
+): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+
+  // ── Detect sheet name — exporter uses 'Guest Transport', also accept 'Transport' ──
+  let headerMap: Map<string, number>;
+  let sheetName = 'Guest Transport';
+  try {
+    ({ headerMap } = await validateExcelFile(
+      buffer, EXPECTED_TRANSPORT_HEADERS, REQUIRED_TRANSPORT_HEADERS, 'Guest Transport',
+    ));
+  } catch (e: any) {
+    if (!e.message?.includes('not found')) throw e;
+    ({ headerMap } = await validateExcelFile(
+      buffer, EXPECTED_TRANSPORT_HEADERS, REQUIRED_TRANSPORT_HEADERS, 'Transport',
+    ));
+    sheetName = 'Transport';
+  }
+
+  // ── Load workbook for data processing ──
+  const workbook = new ExcelJS.Workbook();
+  const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  await workbook.xlsx.load(ab as ArrayBuffer);
+  const worksheet = workbook.getWorksheet(sheetName);
+
+  if (!worksheet) {
+    results.errors.push(`No "${sheetName}" sheet found`);
+    return results;
+  }
+
+  // Helper to get raw cell value by header name (case-insensitive)
+  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+    const colIndex = headerMap.get(header.toLowerCase());
+    if (!colIndex) return null;
+    return row.getCell(colIndex).value ?? null;
+  };
+
+  // Helper to get cell as trimmed string
+  const getCell = (row: ExcelJS.Row, header: string): string => {
+    const raw = getRawCell(row, header);
+    if (raw === null || raw === undefined) return '';
+    return String(raw).trim();
+  };
+
+  const VALID_LEG_TYPES = ['arrival', 'departure', 'inter_event'];
+
+  // ── Get existing transport items for upsert matching ──
+  const existingItems = await db
+    .select({ id: guestTransport.id })
+    .from(guestTransport)
+    .where(eq(guestTransport.clientId, clientId));
+  const existingIds = new Set(existingItems.map((t) => t.id));
+
+  // ── Process data rows (row 1 = headers, row 2+ = data/hints) ──
+  const totalRows = worksheet.rowCount;
+
+  for (let rowIdx = 2; rowIdx <= totalRows; rowIdx++) {
+    const row = worksheet.getRow(rowIdx);
+
+    // Skip empty rows
+    if (!row.hasValues) continue;
+
+    // Skip hints row (row 2 in enhanced export format)
+    const firstCellStr = String(row.getCell(1).value || '').toLowerCase();
+    const secondCellStr = String(row.getCell(2).value || '').toLowerCase();
+    const hintsPatterns = [
+      'do not modify', 'required', 'yyyy-mm-dd', 'hh:mm',
+      'optional', 'e.g.', 'format:', 'arrival/',
+    ];
+    if (hintsPatterns.some((p) => firstCellStr.includes(p) || secondCellStr.includes(p))) {
+      continue;
+    }
+
+    try {
+      const id = getCell(row, 'id');
+      const guestName = getCell(row, 'guest name');
+
+      // Skip rows where guestName is empty (required field)
+      if (!guestName) {
+        results.skipped++;
+        continue;
+      }
+
+      // Validate legType — must be one of the enum values, default to 'arrival'
+      const rawLegType = getCell(row, 'leg type').toLowerCase();
+      const legType = VALID_LEG_TYPES.includes(rawLegType)
+        ? (rawLegType as 'arrival' | 'departure' | 'inter_event')
+        : 'arrival';
+
+      const transportData = {
+        guestName,
+        pickupDate: parseExcelDate(getRawCell(row, 'pickup date')),
+        pickupTime: parseExcelTime(getRawCell(row, 'pickup time')),
+        pickupFrom: getCell(row, 'pickup from') || null,
+        dropTo: getCell(row, 'drop to') || null,
+        transportStatus: getCell(row, 'transport status') || 'scheduled',
+        vehicleInfo: getCell(row, 'vehicle info') || null,
+        vehicleType: getCell(row, 'vehicle type') || null,
+        driverPhone: getCell(row, 'driver phone') || null,
+        legType,
+        legSequence: parseExcelInteger(getRawCell(row, 'leg sequence'), 1),
+        notes: getCell(row, 'notes') || null,
+        updatedAt: new Date(),
+      };
+
+      // Upsert: if ID matches existing record for this clientId → UPDATE
+      if (id && existingIds.has(id)) {
+        await db.update(guestTransport)
+          .set(transportData)
+          .where(and(eq(guestTransport.id, id), eq(guestTransport.clientId, clientId)));
+        results.updated++;
+      } else {
+        // INSERT with new generated ID
+        await db.insert(guestTransport).values({
+          id: id || crypto.randomUUID(),
+          clientId,
+          companyId,
+          ...transportData,
+        });
+        results.inserted++;
+      }
+    } catch (error: any) {
+      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Import Vendors from Excel
+ * February 2026 - Full round-trip import with upsert support
+ *
+ * Reads vendor rows from the 'Vendors' sheet, validates headers,
+ * and upserts into the vendors table (update if ID matches, insert otherwise).
+ * On INSERT of a new vendor, also inserts into clientVendors bridge table.
+ */
+export async function importVendorsExcel(
+  buffer: Buffer,
+  clientId: string,
+  companyId: string,
+): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+
+  // ── Upfront header validation ──
+  const { headerMap } = await validateExcelFile(
+    buffer, EXPECTED_VENDOR_HEADERS, REQUIRED_VENDOR_HEADERS, 'Vendors',
+  );
+
+  // ── Load workbook for data processing ──
+  const workbook = new ExcelJS.Workbook();
+  const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  await workbook.xlsx.load(ab as ArrayBuffer);
+  const worksheet = workbook.getWorksheet('Vendors');
+
+  if (!worksheet) {
+    results.errors.push('No "Vendors" sheet found');
+    return results;
+  }
+
+  // Helper to get raw cell value by header name (case-insensitive)
+  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+    const colIndex = headerMap.get(header.toLowerCase());
+    if (!colIndex) return null;
+    return row.getCell(colIndex).value ?? null;
+  };
+
+  // Helper to get cell as trimmed string
+  const getCell = (row: ExcelJS.Row, header: string): string => {
+    const raw = getRawCell(row, header);
+    if (raw === null || raw === undefined) return '';
+    return String(raw).trim();
+  };
+
+  // ── Get existing vendors for upsert matching ──
+  const existingItems = await db
+    .select({ id: vendors.id })
+    .from(vendors)
+    .where(eq(vendors.companyId, companyId));
+  const existingIds = new Set(existingItems.map((v) => v.id));
+
+  // ── Get existing clientVendors links to avoid duplicates ──
+  const existingLinks = await db
+    .select({ vendorId: clientVendors.vendorId })
+    .from(clientVendors)
+    .where(eq(clientVendors.clientId, clientId));
+  const linkedVendorIds = new Set(existingLinks.map((l) => l.vendorId));
+
+  // ── Process data rows (row 1 = headers, row 2+ = data/hints) ──
+  const totalRows = worksheet.rowCount;
+
+  for (let rowIdx = 2; rowIdx <= totalRows; rowIdx++) {
+    const row = worksheet.getRow(rowIdx);
+
+    // Skip empty rows
+    if (!row.hasValues) continue;
+
+    // Skip hints row (row 2 in enhanced export format)
+    const firstCellStr = String(row.getCell(1).value || '').toLowerCase();
+    const secondCellStr = String(row.getCell(2).value || '').toLowerCase();
+    const hintsPatterns = [
+      'do not modify', 'required', 'yyyy-mm-dd', 'numbers only',
+      'optional', 'e.g.', 'true/false', 'format:',
+    ];
+    if (hintsPatterns.some((p) => firstCellStr.includes(p) || secondCellStr.includes(p))) {
+      continue;
+    }
+
+    try {
+      const id = getCell(row, 'id');
+      const name = getCell(row, 'name');
+
+      // Skip rows where name is empty (required field)
+      if (!name) {
+        results.skipped++;
+        continue;
+      }
+
+      // Parse rating as float, clamp between 0-5, round to integer (schema uses integer)
+      const rawRating = getRawCell(row, 'rating');
+      let rating: number | null = null;
+      if (rawRating !== null && rawRating !== undefined && rawRating !== '') {
+        const parsed = typeof rawRating === 'number' ? rawRating : parseFloat(String(rawRating));
+        if (!isNaN(parsed)) {
+          rating = Math.round(Math.max(0, Math.min(5, parsed)));
+        }
+      }
+
+      const vendorData = {
+        name,
+        category: getCell(row, 'category') || 'other',
+        contactName: getCell(row, 'contact name') || null,
+        email: getCell(row, 'email') || null,
+        phone: getCell(row, 'phone') || null,
+        website: getCell(row, 'website') || null,
+        address: getCell(row, 'address') || null,
+        contractSigned: parseExcelBoolean(getRawCell(row, 'contract signed')) ?? false,
+        contractDate: parseExcelDate(getRawCell(row, 'contract date')),
+        rating,
+        isPreferred: parseExcelBoolean(getRawCell(row, 'is preferred')) ?? false,
+        notes: getCell(row, 'notes') || null,
+        updatedAt: new Date(),
+      };
+
+      // Upsert: if ID matches existing vendor for this companyId → UPDATE
+      if (id && existingIds.has(id)) {
+        await db.update(vendors)
+          .set(vendorData)
+          .where(and(eq(vendors.id, id), eq(vendors.companyId, companyId)));
+        results.updated++;
+      } else {
+        // INSERT with new generated ID
+        const newVendorId = id || crypto.randomUUID();
+        await db.insert(vendors).values({
+          id: newVendorId,
+          companyId,
+          ...vendorData,
+        });
+
+        // Also insert into clientVendors bridge table to link vendor to current client
+        if (!linkedVendorIds.has(newVendorId)) {
+          await db.insert(clientVendors).values({
+            id: crypto.randomUUID(),
+            clientId,
+            vendorId: newVendorId,
+          }).onConflictDoNothing();
+          linkedVendorIds.add(newVendorId);
+        }
+
+        results.inserted++;
+      }
+    } catch (error: any) {
+      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    }
+  }
+
+  return results;
 }

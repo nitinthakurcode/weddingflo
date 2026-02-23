@@ -2,7 +2,7 @@
  * CSV Import and Parsing utilities
  */
 
-import { normalizeRsvpStatus } from '@/lib/constants/enums';
+import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
 
 export interface CSVParseResult<T = any> {
   data: T[];
@@ -295,6 +295,15 @@ export function importGuestListCSV(content: string): CSVParseResult<{
       transformer: (value) => {
         if (!value) return 'pending';
         return normalizeRsvpStatus(String(value));
+      },
+    },
+    {
+      csvColumn: 'Side',
+      dataField: 'guest_side',
+      required: false,
+      transformer: (value) => {
+        if (!value) return 'mutual';
+        return normalizeGuestSide(String(value));
       },
     },
     {

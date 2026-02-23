@@ -5,7 +5,6 @@ import ExcelJS from 'exceljs'
 import { eq, and, isNull } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
 import {
-  triggerBatchSync,
   syncGuestsToHotelsAndTransportTx,
   syncHotelsToTimelineTx,
   syncTransportToTimelineTx,
@@ -13,8 +12,15 @@ import {
   type SyncResult,
 } from '@/lib/backup/auto-sync-trigger'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
-import { normalizeRsvpStatus } from '@/lib/constants/enums'
+import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import {
+  importBudgetExcel,
+  importHotelsExcel,
+  importTransportExcel,
+  importVendorsExcel,
+} from '@/lib/import/excel-parser'
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts'])
@@ -733,8 +739,94 @@ export const importRouter = router({
 
       if (!client) throw new TRPCError({ code: 'FORBIDDEN' })
 
-      // Parse uploaded file using ExcelJS (secure)
+      // Parse uploaded file
       const buffer = Buffer.from(input.fileData, 'base64')
+
+      // ── Buffer-based import for modules with dedicated excel-parser functions ──
+      // These handle their own Excel parsing, header validation, and DB upsert.
+      if (input.module === 'budget') {
+        const result = await importBudgetExcel(buffer, input.clientId, companyId)
+        if (result.inserted > 0 || result.updated > 0) {
+          await broadcastSync({
+            type: 'insert',
+            module: 'budget',
+            entityId: 'bulk-import',
+            companyId,
+            clientId: input.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['budget.list', 'budget.overview'],
+          })
+        }
+        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
+      }
+
+      if (input.module === 'hotels') {
+        const result = await importHotelsExcel(buffer, input.clientId, companyId)
+        const cascadeActions: { module: string; action: string; count: number }[] = []
+        // Cross-module: sync hotels to timeline
+        if (result.inserted > 0 || result.updated > 0) {
+          const syncRes: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] }
+          await withTransaction(async (tx) => {
+            await syncHotelsToTimelineTx(tx, input.clientId, syncRes)
+          })
+          if (syncRes.created.timeline > 0) {
+            cascadeActions.push({ module: 'timeline', action: 'hotel_checkins_created', count: syncRes.created.timeline })
+          }
+          await broadcastSync({
+            type: 'insert',
+            module: 'hotels',
+            entityId: 'bulk-import',
+            companyId,
+            clientId: input.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['hotels.list', 'hotels.getStats', 'timeline.list'],
+          })
+        }
+        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
+      }
+
+      if (input.module === 'transport') {
+        const result = await importTransportExcel(buffer, input.clientId, companyId)
+        const cascadeActions: { module: string; action: string; count: number }[] = []
+        // Cross-module: sync transport to timeline
+        if (result.inserted > 0 || result.updated > 0) {
+          const syncRes: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] }
+          await withTransaction(async (tx) => {
+            await syncTransportToTimelineTx(tx, input.clientId, syncRes)
+          })
+          if (syncRes.created.timeline > 0) {
+            cascadeActions.push({ module: 'timeline', action: 'transport_entries_created', count: syncRes.created.timeline })
+          }
+          await broadcastSync({
+            type: 'insert',
+            module: 'transport',
+            entityId: 'bulk-import',
+            companyId,
+            clientId: input.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['guestTransport.list', 'guestTransport.getStats', 'timeline.list'],
+          })
+        }
+        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
+      }
+
+      if (input.module === 'vendors') {
+        const result = await importVendorsExcel(buffer, input.clientId, companyId)
+        if (result.inserted > 0 || result.updated > 0) {
+          await broadcastSync({
+            type: 'insert',
+            module: 'vendors',
+            entityId: 'bulk-import',
+            companyId,
+            clientId: input.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['vendors.list', 'vendors.getStats', 'budget.list'],
+          })
+        }
+        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
+      }
+
+      // ── Inline import for guests, gifts, guestGifts (row-by-row within transaction) ──
       const workbook = new ExcelJS.Workbook()
       await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength))
 
@@ -857,6 +949,7 @@ export const importRouter = router({
       const results = {
         updated: 0,
         created: 0,
+        skipped: 0,
         errors: [] as string[],
         cascadeActions: [] as { module: string; action: string; count: number }[]
       }
@@ -914,7 +1007,7 @@ export const importRouter = router({
           }
         }
 
-        console.log(`[Import] Rows processed: ${results.created} created, ${results.updated} updated, ${results.errors.length} errors`)
+        console.log(`[Import] Rows processed: ${results.created} created, ${results.updated} updated, ${results.skipped} skipped, ${results.errors.length} errors`)
 
         // ===== ATOMIC CASCADE SYNC =====
         // Run cascade sync operations WITHIN the same transaction for atomicity
@@ -963,8 +1056,32 @@ export const importRouter = router({
           console.log(`[Import] Cascade sync completed: hotels=${syncResult.created.hotels}, transport=${syncResult.created.transport}, timeline=${syncResult.created.timeline}, budget=${syncResult.created.budget}`)
         }
 
-        console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.cascadeActions.length} cascade actions`)
+        console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.skipped} skipped, ${results.cascadeActions.length} cascade actions`)
       })
+
+      // Broadcast real-time sync after successful import (outside transaction)
+      if (results.created > 0 || results.updated > 0) {
+        // Module-specific queryPaths for targeted cache invalidation
+        const queryPathsMap: Record<string, string[]> = {
+          guests: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview', 'budget.list'],
+          vendors: ['vendors.list', 'vendors.getStats', 'budget.list'],
+          budget: ['budget.list', 'budget.overview'],
+          gifts: ['gifts.list', 'gifts.getStats'],
+          hotels: ['hotels.list', 'hotels.getStats', 'timeline.list'],
+          transport: ['guestTransport.list', 'guestTransport.getStats', 'timeline.list'],
+          guestGifts: ['gifts.list', 'gifts.getStats'],
+        }
+
+        await broadcastSync({
+          type: 'insert',
+          module: input.module === 'guestGifts' ? 'gifts' : input.module,
+          entityId: 'bulk-import',
+          companyId,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: queryPathsMap[input.module] || ['guests.list'],
+        })
+      }
 
       return results
     }),
@@ -976,7 +1093,7 @@ async function importGuest(
   companyId: string,
   clientId: string,
   row: any,
-  results: { updated: number; created: number; errors: string[] }
+  results: { updated: number; created: number; skipped: number; errors: string[] }
 ) {
   const id = row['ID (Do not modify)']
 
@@ -993,6 +1110,15 @@ async function importGuest(
     const nameParts = fullName.trim().split(/\s+/)
     firstName = nameParts[0] || ''
     lastName = nameParts.slice(1).join(' ') || '' // Last name is optional
+  }
+
+  // Parse email early for empty-row detection and email-based matching
+  const email = getRowValue(row, 'Email', 'email', 'E-mail', 'Email Address') || null
+
+  // Skip empty rows (no name and no email — likely blank Excel row)
+  if (!firstName && !lastName && !email) {
+    results.skipped++
+    return
   }
 
   if (!firstName) throw new Error('Name is required')
@@ -1111,10 +1237,11 @@ async function importGuest(
   const guestData = {
     firstName,
     lastName,
-    email: getRowValue(row, 'Email', 'email', 'E-mail', 'Email Address') || null,
+    email,
     phone: getRowValue(row, 'Phone', 'phone', 'Phone Number', 'Mobile', 'Contact') || null,
     groupName: getRowValue(row, 'Group', 'group', 'Group Name', 'Category') || null,
     rsvpStatus: normalizeRsvpStatus(getRowValue(row, 'RSVP Status', 'rsvp_status', 'RSVP', 'Status') || 'pending'),
+    guestSide: normalizeGuestSide(getRowValue(row, 'Side', 'guest_side', 'Guest Side', 'Party Side') || 'mutual'),
     partySize: parsePartySize(getRowValue(row, 'Party Size', 'party_size', '# of Guests', 'Number of Guests')),
     additionalGuestNames: parseCommaSeparated(getRowValue(row, 'Additional Guest Names', 'additional_guests', 'Plus Ones', 'Additional Guests')),
     relationshipToFamily: getRowValue(row, 'Relationship to Family', 'relationship', 'Relationship', 'Relation') || null,
@@ -1147,7 +1274,18 @@ async function importGuest(
     })
   }
 
-  // If no ID or ID not found, try to match by name (case-insensitive)
+  // If no ID match, try to match by email
+  if (!existingGuest && email) {
+    const allGuestsForEmail = await db.query.guests.findMany({
+      where: and(
+        eq(schema.guests.clientId, clientId),
+        eq(schema.guests.email, email)
+      ),
+    })
+    existingGuest = allGuestsForEmail[0] || null
+  }
+
+  // If no ID or email match, try to match by name (case-insensitive)
   if (!existingGuest && firstName) {
     const allGuests = await db.query.guests.findMany({
       where: eq(schema.guests.clientId, clientId),
@@ -1200,104 +1338,8 @@ async function importGuest(
     results.created++
   }
 
-  // ==========================================
-  // CROSS-MODULE SYNC: Hotels & Transport
-  // ==========================================
-
-  // Sync to Hotels table if hotelRequired is true
-  if (guestData.hotelRequired) {
-    // Check if hotel entry already exists for this guest
-    const existingHotel = await db.query.hotels.findFirst({
-      where: eq(schema.hotels.guestId, guestId),
-    })
-
-    // Parse check-in/out dates
-    const checkInDate = guestData.arrivalDatetime
-      ? (guestData.arrivalDatetime instanceof Date ? guestData.arrivalDatetime.toISOString().split('T')[0] : null)
-      : null
-    const checkOutDate = guestData.departureDatetime
-      ? (guestData.departureDatetime instanceof Date ? guestData.departureDatetime.toISOString().split('T')[0] : null)
-      : null
-
-    if (existingHotel) {
-      // Update existing hotel entry
-      await db
-        .update(schema.hotels)
-        .set({
-          guestName: guestFullName,
-          checkInDate,
-          checkOutDate,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.hotels.id, existingHotel.id))
-    } else {
-      // Create new hotel entry
-      await db.insert(schema.hotels).values({
-        clientId,
-        guestId,
-        guestName: guestFullName,
-        checkInDate,
-        checkOutDate,
-        accommodationNeeded: true,
-      })
-    }
-  } else if (guestData.hotelRequired === false) {
-    // Remove hotel entry if no longer required
-    await db.delete(schema.hotels).where(eq(schema.hotels.guestId, guestId))
-  }
-
-  // Sync to Transport table if transportRequired is true
-  if (guestData.transportRequired) {
-    // Check if transport entry already exists for this guest
-    const existingTransport = await db.query.guestTransport.findFirst({
-      where: eq(schema.guestTransport.guestId, guestId),
-    })
-
-    // Parse pickup date/time from arrival datetime
-    let pickupDate: string | null = null
-    let pickupTime: string | null = null
-    if (guestData.arrivalDatetime instanceof Date) {
-      pickupDate = guestData.arrivalDatetime.toISOString().split('T')[0]
-      pickupTime = guestData.arrivalDatetime.toTimeString().slice(0, 5) // HH:MM
-    }
-
-    // Build vehicle info from arrival/departure modes
-    const vehicleParts: string[] = []
-    if (guestData.arrivalMode) vehicleParts.push(guestData.arrivalMode)
-    if (guestData.departureMode && guestData.departureMode !== guestData.arrivalMode) {
-      vehicleParts.push(`(Depart: ${guestData.departureMode})`)
-    }
-    const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
-
-    if (existingTransport) {
-      // Update existing transport entry
-      // Note: pickupFrom and notes are not available in guest import data
-      await db
-        .update(schema.guestTransport)
-        .set({
-          guestName: guestFullName,
-          pickupDate,
-          vehicleInfo,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.guestTransport.id, existingTransport.id))
-    } else {
-      // Create new transport entry
-      await db.insert(schema.guestTransport).values({
-        clientId,
-        guestId,
-        guestName: guestFullName,
-        legType: 'arrival',
-        legSequence: 1,
-        pickupDate,
-        vehicleInfo,
-        transportStatus: 'scheduled',
-      })
-    }
-  } else if (guestData.transportRequired === false) {
-    // Remove transport entry if no longer required
-    await db.delete(schema.guestTransport).where(eq(schema.guestTransport.guestId, guestId))
-  }
+  // Hotel/transport cascade is handled by syncGuestsToHotelsAndTransportTx()
+  // after all guest rows are processed (see ATOMIC CASCADE SYNC block).
 }
 
 // Helper: Find a value from row with multiple possible header names (case-insensitive)

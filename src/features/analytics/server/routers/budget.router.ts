@@ -193,47 +193,46 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Create budget item
-      const [budgetItem] = await ctx.db
-        .insert(budget)
-        .values({
-          id: nanoid(),
-          clientId: input.clientId,
-          category: input.category,
-          segment: input.segment,
-          item: input.itemName,
-          expenseDetails: input.expenseDetails || null,
-          estimatedCost: input.estimatedCost.toString(),
-          actualCost: input.actualCost?.toString() || null,
-          eventId: input.eventId || null,
-          vendorId: input.vendorId || null,
-          transactionDate: input.transactionDate || null,
-          paymentStatus: input.paymentStatus,
-          paymentDate: input.paymentDate ? new Date(input.paymentDate) : null,
-          notes: input.notes || null,
-          clientVisible: input.clientVisible,
-          isLumpSum: input.isLumpSum,
-          // Per-guest cost tracking
-          perGuestCost: input.perGuestCost?.toString() || null,
-          isPerGuestItem: input.isPerGuestItem,
-        })
-        .returning()
+      // Create budget item + timeline entry atomically
+      const budgetItem = await ctx.db.transaction(async (tx) => {
+        const [newItem] = await tx
+          .insert(budget)
+          .values({
+            id: nanoid(),
+            clientId: input.clientId,
+            category: input.category,
+            segment: input.segment,
+            item: input.itemName,
+            expenseDetails: input.expenseDetails || null,
+            estimatedCost: input.estimatedCost.toString(),
+            actualCost: input.actualCost?.toString() || null,
+            eventId: input.eventId || null,
+            vendorId: input.vendorId || null,
+            transactionDate: input.transactionDate || null,
+            paymentStatus: input.paymentStatus,
+            paymentDate: input.paymentDate ? new Date(input.paymentDate) : null,
+            notes: input.notes || null,
+            clientVisible: input.clientVisible,
+            isLumpSum: input.isLumpSum,
+            // Per-guest cost tracking
+            perGuestCost: input.perGuestCost?.toString() || null,
+            isPerGuestItem: input.isPerGuestItem,
+          })
+          .returning()
 
-      if (!budgetItem) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create budget item'
-        })
-      }
+        if (!newItem) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create budget item'
+          })
+        }
 
-      // TIMELINE SYNC: Create timeline entry for payment due date
-      if (input.paymentDate && budgetItem) {
-        try {
+        // TIMELINE SYNC: Create timeline entry for payment due date
+        if (input.paymentDate) {
           const paymentDateTime = new Date(input.paymentDate)
-          // Payment reminders are typically end of business day
           paymentDateTime.setHours(17, 0, 0, 0)
 
-          await ctx.db.insert(timeline).values({
+          await tx.insert(timeline).values({
             id: nanoid(),
             clientId: input.clientId,
             title: `Payment Due: ${input.itemName}`,
@@ -241,7 +240,7 @@ export const budgetRouter = router({
             startTime: paymentDateTime,
             notes: input.notes || null,
             sourceModule: 'budget',
-            sourceId: budgetItem.id,
+            sourceId: newItem.id,
             metadata: JSON.stringify({
               vendorId: input.vendorId,
               type: 'payment-due',
@@ -249,12 +248,12 @@ export const budgetRouter = router({
             }),
           })
           console.log(`[Timeline] Created payment due entry: ${input.itemName}`)
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to create timeline entry for budget:', timelineError)
         }
-      }
 
-      // Broadcast real-time sync
+        return newItem
+      })
+
+      // Broadcast real-time sync (outside transaction)
       await broadcastSync({
         type: 'insert',
         module: 'budget',
@@ -340,70 +339,58 @@ export const budgetRouter = router({
       if (input.data.perGuestCost !== undefined) updateData.perGuestCost = input.data.perGuestCost?.toString() || null
       if (input.data.isPerGuestItem !== undefined) updateData.isPerGuestItem = input.data.isPerGuestItem
 
-      // Update budget item
-      const [budgetItem] = await ctx.db
-        .update(budget)
-        .set(updateData)
-        .where(eq(budget.id, input.id))
-        .returning()
+      // Update budget + vendor sync + timeline atomically
+      const budgetItem = await ctx.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(budget)
+          .set(updateData)
+          .where(eq(budget.id, input.id))
+          .returning()
 
-      if (!budgetItem) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Budget item not found'
-        })
-      }
+        if (!updated) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Budget item not found'
+          })
+        }
 
-      // BIDIRECTIONAL SYNC: If this budget item is linked to a vendor, sync changes back
-      if (budgetItem.vendorId) {
-        try {
+        // BIDIRECTIONAL SYNC: If this budget item is linked to a vendor, sync changes back
+        if (updated.vendorId) {
           const syncData: Record<string, any> = {
             updatedAt: new Date(),
           }
 
-          // Sync estimatedCost → contractAmount
           if (input.data.estimatedCost !== undefined) {
             syncData.contractAmount = input.data.estimatedCost.toString()
           }
-
-          // Sync paymentStatus
           if (input.data.paymentStatus !== undefined) {
             syncData.paymentStatus = input.data.paymentStatus
-            // If paid, mark depositPaid as true
             if (input.data.paymentStatus === 'paid') {
               syncData.depositPaid = true
             }
           }
-
-          // Sync eventId
           if (input.data.eventId !== undefined) {
             syncData.eventId = input.data.eventId
           }
 
-          // Update clientVendors if there are fields to sync
           if (Object.keys(syncData).length > 1) {
-            await ctx.db
+            await tx
               .update(clientVendors)
               .set(syncData)
-              .where(eq(clientVendors.vendorId, budgetItem.vendorId))
+              .where(eq(clientVendors.vendorId, updated.vendorId))
 
-            console.log(`[Budget] Synced budget changes to vendor ${budgetItem.vendorId}:`, syncData)
+            console.log(`[Budget] Synced budget changes to vendor ${updated.vendorId}:`, syncData)
           }
-        } catch (syncError) {
-          // Log but don't fail - budget update succeeded
-          console.warn('[Budget] Failed to sync budget changes to vendor:', syncError)
         }
-      }
 
-      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
-      try {
-        const hasPaymentDate = input.data.paymentDate !== undefined ? input.data.paymentDate : budgetItem.paymentDate
+        // TIMELINE SYNC: Update linked timeline entry
+        const hasPaymentDate = input.data.paymentDate !== undefined ? input.data.paymentDate : updated.paymentDate
 
         if (hasPaymentDate) {
-          const itemName = input.data.itemName || budgetItem.item
-          const category = input.data.category || budgetItem.category
-          const estimatedCost = input.data.estimatedCost !== undefined ? input.data.estimatedCost : Number(budgetItem.estimatedCost)
-          const notes = input.data.notes !== undefined ? input.data.notes : budgetItem.notes
+          const itemName = input.data.itemName || updated.item
+          const category = input.data.category || updated.category
+          const estimatedCost = input.data.estimatedCost !== undefined ? input.data.estimatedCost : Number(updated.estimatedCost)
+          const notes = input.data.notes !== undefined ? input.data.notes : updated.notes
 
           const paymentDateTime = new Date(hasPaymentDate as string)
           paymentDateTime.setHours(17, 0, 0, 0)
@@ -416,8 +403,7 @@ export const budgetRouter = router({
             updatedAt: new Date(),
           }
 
-          // Try to update existing entry first
-          const result = await ctx.db
+          const result = await tx
             .update(timeline)
             .set(timelineData)
             .where(
@@ -429,15 +415,14 @@ export const budgetRouter = router({
             .returning({ id: timeline.id })
 
           if (result.length === 0) {
-            // No existing entry - create new one
-            await ctx.db.insert(timeline).values({
+            await tx.insert(timeline).values({
               id: nanoid(),
-              clientId: budgetItem.clientId,
+              clientId: updated.clientId,
               ...timelineData,
               sourceModule: 'budget',
-              sourceId: budgetItem.id,
+              sourceId: updated.id,
               metadata: JSON.stringify({
-                vendorId: budgetItem.vendorId,
+                vendorId: updated.vendorId,
                 type: 'payment-due',
                 amount: estimatedCost,
               }),
@@ -447,8 +432,7 @@ export const budgetRouter = router({
             console.log(`[Timeline] Updated payment due entry: ${itemName}`)
           }
         } else {
-          // Payment date cleared - delete timeline entry
-          await ctx.db
+          await tx
             .delete(timeline)
             .where(
               and(
@@ -458,11 +442,11 @@ export const budgetRouter = router({
             )
           console.log(`[Timeline] Deleted payment due entry (date cleared)`)
         }
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to sync timeline with budget update:', timelineError)
-      }
 
-      // Broadcast real-time sync
+        return updated
+      })
+
+      // Broadcast real-time sync (outside transaction)
       await broadcastSync({
         type: 'update',
         module: 'budget',
@@ -504,13 +488,9 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
 
-      await ctx.db
-        .delete(budget)
-        .where(eq(budget.id, input.id))
-
-      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
-      try {
-        await ctx.db
+      // Delete budget item + linked timeline atomically
+      await ctx.db.transaction(async (tx) => {
+        await tx
           .delete(timeline)
           .where(
             and(
@@ -518,12 +498,15 @@ export const budgetRouter = router({
               eq(timeline.sourceId, input.id)
             )
           )
-        console.log(`[Timeline] Deleted payment due entry`)
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to delete timeline entry for budget:', timelineError)
-      }
 
-      // Broadcast real-time sync
+        await tx
+          .delete(budget)
+          .where(eq(budget.id, input.id))
+
+        console.log(`[Timeline] Deleted payment due entry`)
+      })
+
+      // Broadcast real-time sync (outside transaction)
       await broadcastSync({
         type: 'delete',
         module: 'budget',
@@ -572,48 +555,48 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
 
-      // Create advance payment
-      const [advance] = await ctx.db
-        .insert(advancePayments)
-        .values({
-          id: nanoid(),
-          budgetItemId: input.budgetItemId,
-          amount: input.amount.toString(),
-          paymentDate: input.paymentDate,
-          paymentMode: input.paymentMode || null,
-          paidBy: input.paidBy,
-          notes: input.notes || null,
-        })
-        .returning()
+      // Create advance payment + update budget + sync vendor atomically
+      const advance = await ctx.db.transaction(async (tx) => {
+        const [newAdvance] = await tx
+          .insert(advancePayments)
+          .values({
+            id: nanoid(),
+            budgetItemId: input.budgetItemId,
+            amount: input.amount.toString(),
+            paymentDate: input.paymentDate,
+            paymentMode: input.paymentMode || null,
+            paidBy: input.paidBy,
+            notes: input.notes || null,
+          })
+          .returning()
 
-      if (!advance) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create advance payment'
-        })
-      }
+        if (!newAdvance) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create advance payment'
+          })
+        }
 
-      // Update budget's paidAmount to reflect total advances
-      const allAdvances = await ctx.db
-        .select({ amount: advancePayments.amount })
-        .from(advancePayments)
-        .where(eq(advancePayments.budgetItemId, input.budgetItemId))
+        // Update budget's paidAmount to reflect total advances
+        const allAdvances = await tx
+          .select({ amount: advancePayments.amount })
+          .from(advancePayments)
+          .where(eq(advancePayments.budgetItemId, input.budgetItemId))
 
-      const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+        const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-      const [updatedBudget] = await ctx.db
-        .update(budget)
-        .set({
-          paidAmount: totalPaid.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(budget.id, input.budgetItemId))
-        .returning()
+        const [updatedBudget] = await tx
+          .update(budget)
+          .set({
+            paidAmount: totalPaid.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(budget.id, input.budgetItemId))
+          .returning()
 
-      // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
-      if (updatedBudget?.vendorId) {
-        try {
-          await ctx.db
+        // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+        if (updatedBudget?.vendorId) {
+          await tx
             .update(clientVendors)
             .set({
               depositAmount: totalPaid.toString(),
@@ -623,10 +606,10 @@ export const budgetRouter = router({
             .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
 
           console.log(`[Budget] Synced advance payment to vendor ${updatedBudget.vendorId}: total paid = ${totalPaid}`)
-        } catch (syncError) {
-          console.warn('[Budget] Failed to sync advance payment to vendor:', syncError)
         }
-      }
+
+        return newAdvance
+      })
 
       return advance
     }),
@@ -657,58 +640,54 @@ export const budgetRouter = router({
       if (input.data.paidBy !== undefined) updateData.paidBy = input.data.paidBy
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
-      const [advance] = await ctx.db
-        .update(advancePayments)
-        .set(updateData)
-        .where(eq(advancePayments.id, input.id))
-        .returning()
-
-      if (!advance) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Advance payment not found'
-        })
-      }
-
-      // Update budget's paidAmount to reflect total advances if budgetItemId exists
-      let totalPaid = 0
-      let updatedBudget: typeof budget.$inferSelect | null = null
-
-      if (advance.budgetItemId) {
-        const allAdvances = await ctx.db
-          .select({ amount: advancePayments.amount })
-          .from(advancePayments)
-          .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
-
-        totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
-
-        const [updated] = await ctx.db
-          .update(budget)
-          .set({
-            paidAmount: totalPaid.toString(),
-            updatedAt: new Date(),
-          })
-          .where(eq(budget.id, advance.budgetItemId))
+      // Update advance + recalc budget + sync vendor atomically
+      const advance = await ctx.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(advancePayments)
+          .set(updateData)
+          .where(eq(advancePayments.id, input.id))
           .returning()
 
-        updatedBudget = updated || null
-      }
+        if (!updated) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Advance payment not found'
+          })
+        }
 
-      // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
-      if (updatedBudget?.vendorId) {
-        try {
-          await ctx.db
-            .update(clientVendors)
+        // Update budget's paidAmount to reflect total advances if budgetItemId exists
+        if (updated.budgetItemId) {
+          const allAdvances = await tx
+            .select({ amount: advancePayments.amount })
+            .from(advancePayments)
+            .where(eq(advancePayments.budgetItemId, updated.budgetItemId))
+
+          const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+
+          const [updatedBudget] = await tx
+            .update(budget)
             .set({
-              depositAmount: totalPaid.toString(),
-              depositPaid: totalPaid > 0,
+              paidAmount: totalPaid.toString(),
               updatedAt: new Date(),
             })
-            .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
-        } catch (syncError) {
-          console.warn('[Budget] Failed to sync advance payment update to vendor:', syncError)
+            .where(eq(budget.id, updated.budgetItemId))
+            .returning()
+
+          // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+          if (updatedBudget?.vendorId) {
+            await tx
+              .update(clientVendors)
+              .set({
+                depositAmount: totalPaid.toString(),
+                depositPaid: totalPaid > 0,
+                updatedAt: new Date(),
+              })
+              .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
+          }
         }
-      }
+
+        return updated
+      })
 
       return advance
     }),
@@ -731,33 +710,33 @@ export const budgetRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
       }
 
-      // Delete the advance payment
-      await ctx.db
-        .delete(advancePayments)
-        .where(eq(advancePayments.id, input.id))
+      // Delete advance + recalc budget + sync vendor atomically
+      await ctx.db.transaction(async (tx) => {
+        await tx
+          .delete(advancePayments)
+          .where(eq(advancePayments.id, input.id))
 
-      // Update budget's paidAmount to reflect remaining advances if budgetItemId exists
-      if (advance.budgetItemId) {
-        const remainingAdvances = await ctx.db
-          .select({ amount: advancePayments.amount })
-          .from(advancePayments)
-          .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
+        // Update budget's paidAmount to reflect remaining advances if budgetItemId exists
+        if (advance.budgetItemId) {
+          const remainingAdvances = await tx
+            .select({ amount: advancePayments.amount })
+            .from(advancePayments)
+            .where(eq(advancePayments.budgetItemId, advance.budgetItemId))
 
-        const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
+          const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-        const [updatedBudget] = await ctx.db
-          .update(budget)
-          .set({
-            paidAmount: totalPaid.toString(),
-            updatedAt: new Date(),
-          })
-          .where(eq(budget.id, advance.budgetItemId))
-          .returning()
+          const [updatedBudget] = await tx
+            .update(budget)
+            .set({
+              paidAmount: totalPaid.toString(),
+              updatedAt: new Date(),
+            })
+            .where(eq(budget.id, advance.budgetItemId))
+            .returning()
 
-        // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
-        if (updatedBudget?.vendorId) {
-          try {
-            await ctx.db
+          // BIDIRECTIONAL SYNC: Update vendor's deposit amount if budget is linked to a vendor
+          if (updatedBudget?.vendorId) {
+            await tx
               .update(clientVendors)
               .set({
                 depositAmount: totalPaid.toString(),
@@ -765,11 +744,9 @@ export const budgetRouter = router({
                 updatedAt: new Date(),
               })
               .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
-          } catch (syncError) {
-            console.warn('[Budget] Failed to sync advance payment deletion to vendor:', syncError)
           }
         }
-      }
+      })
 
       return { success: true }
     }),
