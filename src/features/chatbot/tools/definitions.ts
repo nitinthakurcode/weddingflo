@@ -689,7 +689,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           },
           side: {
             type: 'string',
-            enum: ['bride', 'groom', 'mutual'],
+            enum: ['partner1', 'partner2', 'mutual'],
             description: 'Which side the guest belongs to',
           },
           eventId: {
@@ -1677,7 +1677,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           },
           side: {
             type: 'string',
-            enum: ['bride', 'groom', 'mutual'],
+            enum: ['partner1', 'partner2', 'mutual'],
             description: 'Filter guests by side',
           },
           rsvpStatus: {
@@ -1771,7 +1771,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
               },
               side: {
                 type: 'string',
-                enum: ['bride', 'groom', 'mutual'],
+                enum: ['partner1', 'partner2', 'mutual'],
                 description: 'Filter by guest side',
               },
             },
@@ -1939,7 +1939,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           },
           side: {
             type: 'string',
-            enum: ['bride', 'groom', 'mutual'],
+            enum: ['partner1', 'partner2', 'mutual'],
             description: 'Filter guests by side',
           },
           needsHotelOnly: {

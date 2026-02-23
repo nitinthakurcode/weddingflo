@@ -64,8 +64,8 @@ export type NewGuest = InferInsertModel<typeof guests>;
 // Guest RSVP status
 export type RsvpStatus = 'pending' | 'confirmed' | 'declined' | 'maybe';
 
-// Guest side (for Indian weddings)
-export type GuestSide = 'bride' | 'groom' | 'both' | 'mutual';
+// Guest side (gender-neutral for same-sex weddings)
+export type { GuestSide } from '@/lib/constants/enums'
 
 // ============================================================================
 // WEDDING WEBSITE TYPES

@@ -367,8 +367,8 @@ export function GuestForm({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="bride_side">Bride&apos;s Side</SelectItem>
-                      <SelectItem value="groom_side">Groom&apos;s Side</SelectItem>
+                      <SelectItem value="partner1">Partner 1&apos;s Side</SelectItem>
+                      <SelectItem value="partner2">Partner 2&apos;s Side</SelectItem>
                       <SelectItem value="mutual">Mutual (Both)</SelectItem>
                     </SelectContent>
                   </Select>

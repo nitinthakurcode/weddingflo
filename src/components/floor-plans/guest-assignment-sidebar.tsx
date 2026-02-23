@@ -16,7 +16,7 @@ interface Guest {
   plusOnes: number
   rsvpStatus: string
   relation?: string // bride_family, groom_family, friends, colleagues, etc.
-  guestSide?: string // bride, groom, both
+  guestSide?: string // partner1, partner2, mutual
   tableAssignment?: {
     tableId: string
     tableName: string

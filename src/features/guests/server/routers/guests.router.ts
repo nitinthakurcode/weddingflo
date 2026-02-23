@@ -5,7 +5,7 @@ import { eq, and, isNull, asc, sql, or } from 'drizzle-orm'
 import { guests, hotels, clients, guestTransport, budget, floorPlanGuests, guestGifts, gifts, timeline } from '@/lib/db/schema'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
-import { RSVP_STATUS, RSVP_STATUS_VALUES } from '@/lib/constants/enums'
+import { RSVP_STATUS, RSVP_STATUS_VALUES, GUEST_SIDE, GUEST_SIDE_VALUES, normalizeGuestSide } from '@/lib/constants/enums'
 
 /**
  * Sync per-guest budget items with confirmed RSVP count.
@@ -131,7 +131,7 @@ export const guestsRouter = router({
       email: z.string().email().optional().nullable().transform(val => val || undefined),
       phone: z.string().optional().nullable().transform(val => val || undefined),
       groupName: z.string().optional().nullable().transform(val => val || undefined),
-      guestSide: z.enum(['bride_side', 'groom_side', 'mutual']).default('mutual'),
+      guestSide: z.enum(GUEST_SIDE_VALUES).default('mutual'),
       plusOne: z.boolean().default(false),
       dietaryRestrictions: z.string().optional(),
       notes: z.string().optional(),
@@ -195,14 +195,9 @@ export const guestsRouter = router({
       // Determine default guestSide based on client's planningSide
       // If planner is working for one side, default new guests to that side
       let effectiveGuestSide = input.guestSide
-      if (input.guestSide === 'mutual' && client.planningSide) {
-        // Map planningSide to guestSide
-        if (client.planningSide === 'bride_side') {
-          effectiveGuestSide = 'bride_side'
-        } else if (client.planningSide === 'groom_side') {
-          effectiveGuestSide = 'groom_side'
-        }
-        // If planningSide is 'both', keep it as 'mutual'
+      if (input.guestSide === GUEST_SIDE.MUTUAL && client.planningSide) {
+        // Map planningSide to canonical guestSide
+        effectiveGuestSide = normalizeGuestSide(client.planningSide)
       }
 
       // Create guest - split name into first/last
@@ -345,7 +340,7 @@ export const guestsRouter = router({
         email: z.string().email().optional().nullable().transform(val => val || undefined),
         phone: z.string().optional().nullable().transform(val => val || undefined),
         groupName: z.string().optional().nullable().transform(val => val || undefined),
-        guestSide: z.enum(['bride_side', 'groom_side', 'mutual']).optional(),
+        guestSide: z.enum(GUEST_SIDE_VALUES).optional(),
         rsvpStatus: z.enum(RSVP_STATUS_VALUES).optional(),
         dietaryRestrictions: z.string().optional(),
         mealPreference: z.string().optional(),

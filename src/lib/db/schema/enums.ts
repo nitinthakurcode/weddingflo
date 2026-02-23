@@ -136,10 +136,9 @@ export const RSVP_STATUSES: RsvpStatus[] = [
   'no_response',
 ];
 
-// Guest side
-export type GuestSide = 'bride' | 'groom' | 'both' | 'mutual';
-
-export const GUEST_SIDES: GuestSide[] = ['bride', 'groom', 'both', 'mutual'];
+// Guest side (gender-neutral for same-sex weddings)
+export type { GuestSide } from '@/lib/constants/enums'
+export { GUEST_SIDE_VALUES as GUEST_SIDES } from '@/lib/constants/enums'
 
 // Payment status
 export type PaymentStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'refunded' | 'cancelled';

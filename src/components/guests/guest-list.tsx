@@ -113,14 +113,14 @@ export function GuestList({
         return (
           <Badge
             variant={
-              side === 'bride'
+              side === 'partner1'
                 ? 'default'
-                : side === 'groom'
+                : side === 'partner2'
                 ? 'secondary'
                 : 'outline'
             }
           >
-            {side.charAt(0).toUpperCase() + side.slice(1)}
+            {side === 'partner1' ? 'Partner 1' : side === 'partner2' ? 'Partner 2' : 'Mutual'}
           </Badge>
         );
       },
@@ -237,18 +237,19 @@ export function GuestList({
           column: 'relationshipToFamily',
           title: 'Side',
           options: [
-            { label: 'Bride', value: 'bride' },
-            { label: 'Groom', value: 'groom' },
-            { label: 'Neutral', value: 'neutral' },
+            { label: 'Partner 1', value: 'partner1' },
+            { label: 'Partner 2', value: 'partner2' },
+            { label: 'Mutual', value: 'mutual' },
           ],
         },
         {
           column: 'rsvpStatus',
           title: 'RSVP',
           options: [
-            { label: 'Accepted', value: 'accepted' },
+            { label: 'Confirmed', value: 'confirmed' },
             { label: 'Pending', value: 'pending' },
             { label: 'Declined', value: 'declined' },
+            { label: 'Maybe', value: 'maybe' },
           ],
         },
       ]}

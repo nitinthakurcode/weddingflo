@@ -43,6 +43,7 @@ import { pipelineLeads, pipelineStages, pipelineActivities } from '@/lib/db/sche
 import { proposals, proposalTemplates } from '@/lib/db/schema-proposals'
 import { workflows, workflowSteps } from '@/lib/db/schema-workflows'
 import type { WeddingType } from '@/lib/db/schema/enums'
+import { normalizeGuestSide } from '@/lib/constants/enums'
 import { withTransaction, withCascadeTransaction } from './transaction-wrapper'
 import {
   TOOL_METADATA,
@@ -1431,7 +1432,7 @@ async function executeAddGuest(
       tableNumber: tableNumber || undefined,
       hotelRequired: hotelRequired || false,
       transportRequired: needsTransport || false,
-      guestSide: (side as 'bride' | 'groom' | 'mutual') || 'mutual',
+      guestSide: side ? normalizeGuestSide(side as string) : 'mutual',
       attendingEvents: eventId ? [eventId] : undefined,
     })
     .returning()

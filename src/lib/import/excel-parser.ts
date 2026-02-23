@@ -5,7 +5,7 @@
 
 import ExcelJS from 'exceljs';
 import type { CSVParseResult, CSVFieldMapping } from './csv-parser';
-import { normalizeRsvpStatus } from '@/lib/constants/enums';
+import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
 
 export interface ExcelParseOptions {
   sheetName?: string;
@@ -301,9 +301,7 @@ export async function importGuestListExcel(file: File): Promise<CSVParseResult<{
       required: false,
       transformer: (value) => {
         if (!value) return undefined;
-        const val = String(value).toLowerCase().trim();
-        if (['bride_side', 'groom_side', 'mutual'].includes(val)) return val;
-        return undefined;
+        return normalizeGuestSide(String(value));
       },
     },
     {

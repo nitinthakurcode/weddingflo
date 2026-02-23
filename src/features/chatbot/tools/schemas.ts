@@ -64,7 +64,7 @@ export const addGuestSchema = z.object({
   tableNumber: z.number().int().positive().optional().describe('Assigned table number'),
   needsHotel: z.boolean().optional().default(false).describe('Whether guest needs hotel accommodation'),
   needsTransport: z.boolean().optional().default(false).describe('Whether guest needs transportation'),
-  side: z.enum(['bride', 'groom', 'mutual']).optional().describe('Which side the guest belongs to'),
+  side: z.enum(['partner1', 'partner2', 'mutual']).optional().describe('Which side the guest belongs to'),
   eventId: z.string().uuid().optional().describe('Specific event UUID to associate guest with'),
 })
 
@@ -328,7 +328,7 @@ export const assignGuestsToEventsSchema = z.object({
   lastName: z.string().optional().describe('Filter by last name'),
   groupName: z.string().optional().describe('Filter by group'),
   guestIds: z.array(z.string().uuid()).optional().describe('Specific guest UUIDs'),
-  side: z.enum(['bride', 'groom', 'mutual']).optional(),
+  side: z.enum(['partner1', 'partner2', 'mutual']).optional(),
   rsvpStatus: z.enum(['pending', 'confirmed', 'declined', 'maybe']).optional(),
   replaceExisting: z.boolean().optional().default(false),
 })
@@ -352,7 +352,7 @@ export const queryDataSchema = z.object({
     rsvpStatus: z.enum(['pending', 'confirmed', 'declined', 'maybe']).optional(),
     mealPreference: z.enum(['standard', 'vegetarian', 'vegan', 'gluten_free', 'kosher', 'halal', 'other']).optional(),
     eventId: z.string().uuid().optional(),
-    side: z.enum(['bride', 'groom', 'mutual']).optional(),
+    side: z.enum(['partner1', 'partner2', 'mutual']).optional(),
   }).optional(),
   limit: z.number().int().positive().max(100).optional().default(20),
 })
@@ -393,7 +393,7 @@ export const bulkAddHotelBookingsSchema = z.object({
   roomRate: z.number().positive().optional(),
   guestIds: z.array(z.string().uuid()).optional(),
   groupName: z.string().optional(),
-  side: z.enum(['bride', 'groom', 'mutual']).optional(),
+  side: z.enum(['partner1', 'partner2', 'mutual']).optional(),
   needsHotelOnly: z.boolean().optional().default(true),
   roomCount: z.number().int().positive().optional(),
   notes: z.string().max(500).optional(),
