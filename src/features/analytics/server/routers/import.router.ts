@@ -14,6 +14,7 @@ import {
 } from '@/lib/backup/auto-sync-trigger'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { normalizeRsvpStatus } from '@/lib/constants/enums'
+import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts'])
@@ -950,7 +951,16 @@ export const importRouter = router({
             }
           }
 
-          console.log(`[Import] Cascade sync completed: hotels=${syncResult.created.hotels}, transport=${syncResult.created.transport}, timeline=${syncResult.created.timeline}`)
+          // Recalculate per-guest budget items once after all guest changes
+          if (input.module === 'guests') {
+            const { updatedItems } = await recalcPerGuestBudgetItems(tx, input.clientId)
+            if (updatedItems > 0) {
+              results.cascadeActions.push({ module: 'budget', action: 'recalculated', count: updatedItems })
+              syncResult.created.budget = updatedItems
+            }
+          }
+
+          console.log(`[Import] Cascade sync completed: hotels=${syncResult.created.hotels}, transport=${syncResult.created.transport}, timeline=${syncResult.created.timeline}, budget=${syncResult.created.budget}`)
         }
 
         console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.cascadeActions.length} cascade actions`)

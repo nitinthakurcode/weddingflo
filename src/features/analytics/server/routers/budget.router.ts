@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
 import { budget, advancePayments, clients, events, clientUsers, user, clientVendors, vendors, timeline } from '@/lib/db/schema'
 import { nanoid } from 'nanoid'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 /**
  * Budget tRPC Router - Drizzle ORM Version
@@ -253,6 +254,17 @@ export const budgetRouter = router({
         }
       }
 
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'insert',
+        module: 'budget',
+        entityId: budgetItem.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['budget.list', 'budget.overview'],
+      })
+
       return budgetItem
     }),
 
@@ -450,6 +462,17 @@ export const budgetRouter = router({
         console.warn('[Timeline] Failed to sync timeline with budget update:', timelineError)
       }
 
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'update',
+        module: 'budget',
+        entityId: budgetItem.id,
+        companyId: ctx.companyId!,
+        clientId: budgetItem.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['budget.list', 'budget.overview'],
+      })
+
       return budgetItem
     }),
 
@@ -499,6 +522,16 @@ export const budgetRouter = router({
       } catch (timelineError) {
         console.warn('[Timeline] Failed to delete timeline entry for budget:', timelineError)
       }
+
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'delete',
+        module: 'budget',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['budget.list', 'budget.overview'],
+      })
 
       return { success: true }
     }),

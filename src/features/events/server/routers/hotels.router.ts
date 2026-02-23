@@ -5,6 +5,7 @@ import { eq, and, isNull, asc, sql } from 'drizzle-orm'
 import { hotels, clients, guests, timeline, accommodations } from '@/lib/db/schema'
 import { randomUUID } from 'crypto'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 /**
  * Hotels tRPC Router - Drizzle ORM Version
@@ -261,6 +262,16 @@ export const hotelsRouter = router({
 
       console.log(`[Hotel Create] Created hotel ${result.hotel.id} with cascade:`, result.cascadeActions)
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'hotels',
+        entityId: result.hotel.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['hotels.list'],
+      })
+
       return {
         ...result.hotel,
         cascadeActions: result.cascadeActions,
@@ -487,6 +498,16 @@ export const hotelsRouter = router({
 
       console.log(`[Hotel Update] Updated hotel ${result.hotel.id} with cascade:`, result.cascadeActions)
 
+      await broadcastSync({
+        type: 'update',
+        module: 'hotels',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existing.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['hotels.list'],
+      })
+
       return {
         ...result.hotel,
         cascadeActions: result.cascadeActions,
@@ -506,7 +527,7 @@ export const hotelsRouter = router({
 
       // Verify hotel belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: hotels.id })
+        .select({ id: hotels.id, clientId: hotels.clientId })
         .from(hotels)
         .innerJoin(clients, eq(hotels.clientId, clients.id))
         .where(
@@ -551,6 +572,16 @@ export const hotelsRouter = router({
       })
 
       console.log(`[Hotel Delete] Deleted hotel ${input.id} with cascade:`, result.cascadeActions)
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'hotels',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existing.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['hotels.list'],
+      })
 
       return { success: true, cascadeActions: result.cascadeActions }
     }),

@@ -19,7 +19,9 @@ import {
   importTimelineFromSheet,
   importGiftsFromSheet,
   importAllFromSheets,
+  broadcastSheetSync,
 } from '@/lib/google/sheets-sync';
+import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
 
 /**
  * Google Sheets Router
@@ -367,7 +369,8 @@ export const googleSheetsRouter = router({
           sheetsClient,
           settings.spreadsheetId,
           input.clientId,
-          ctx.companyId!
+          ctx.companyId!,
+          ctx.userId!
         );
 
         return {
@@ -407,6 +410,26 @@ export const googleSheetsRouter = router({
             code: 'BAD_REQUEST',
             message: `Import for module '${input.module}' not supported`,
           });
+      }
+
+      // Budget recalc after guest import
+      if (input.module === 'guests' && result.imported > 0) {
+        try {
+          await recalcPerGuestBudgetItems(db, input.clientId);
+        } catch (err) {
+          console.error('[Sheets Router] Budget recalc failed:', err);
+        }
+      }
+
+      // Broadcast sync action for real-time updates
+      if (result.imported > 0) {
+        await broadcastSheetSync({
+          module: input.module,
+          companyId: ctx.companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          count: result.imported,
+        });
       }
 
       return {

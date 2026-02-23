@@ -5,6 +5,7 @@ import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
 import { clients, vendors, clientVendors, events, vendorComments, vendorReviews, budget, advancePayments, timeline } from '@/lib/db/schema'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 /**
  * Auto-link vendor to event by matching service date with event date.
@@ -486,6 +487,16 @@ export const vendorsRouter = router({
 
       console.log(`[Vendor Create] Created vendor ${result.vendor.id} with cascade:`, result.cascadeActions)
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'vendors',
+        entityId: result.clientVendor.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.list'],
+      })
+
       return {
         ...result.clientVendor,
         ...result.vendor,
@@ -616,6 +627,16 @@ export const vendorsRouter = router({
       } catch (budgetError) {
         console.warn('Failed to sync budget item with vendor update:', budgetError)
       }
+
+      await broadcastSync({
+        type: 'update',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: clientVendorRecord.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.list'],
+      })
 
       // TIMELINE SYNC: Update or create timeline entry if service date changes
       if (input.data.serviceDate !== undefined) {
@@ -761,8 +782,20 @@ export const vendorsRouter = router({
         deletionCounts.timeline = timelineResult.length
 
         console.log(`[Vendor Delete] Vendor ${input.id} deleted with cascade:`, deletionCounts)
-        return deletionCounts
+        return { ...deletionCounts, clientId: clientVendorRecord?.clientId }
       })
+
+      if (result.clientId) {
+        await broadcastSync({
+          type: 'delete',
+          module: 'vendors',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          clientId: result.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['vendors.list'],
+        })
+      }
 
       return { success: true, deleted: result }
     }),

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 const tableShapeEnum = z.enum(['round', 'rectangle', 'square']);
 
@@ -194,6 +195,16 @@ export const floorPlansRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'floorPlans',
+          entityId: floorPlan.id,
+          companyId: companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list'],
+        })
+
         return floorPlan;
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -286,6 +297,16 @@ export const floorPlansRouter = router({
           })
           .where(eq(schema.floorPlans.id, input.id))
           .returning();
+
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: input.id,
+          companyId: companyId!,
+          clientId: existing.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list'],
+        })
 
         return updated;
       } catch (error) {
@@ -814,6 +835,16 @@ export const floorPlansRouter = router({
         await db
           .delete(schema.floorPlans)
           .where(eq(schema.floorPlans.id, input.id));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'floorPlans',
+          entityId: input.id,
+          companyId: companyId!,
+          clientId: floorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list'],
+        })
 
         return { success: true };
       } catch (error) {

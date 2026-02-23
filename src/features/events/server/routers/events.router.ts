@@ -7,6 +7,7 @@ import {
   getDefaultTemplate,
   type TimelineTemplateItem,
 } from '@/lib/templates/timeline-defaults'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 /**
  * Events tRPC Router - Drizzle ORM Version
@@ -117,39 +118,13 @@ export const eventsRouter = router({
       // Default status is 'planned' unless explicitly provided (synced with pipeline)
       const eventStatus = input.status || 'planned'
 
-      // Generate UUID for new event
+      // Generate UUID for new event (needed before transaction for timeline item generation)
       const { v4: uuidv4 } = await import('uuid')
+      const eventId = uuidv4()
 
-      // Create event
-      const [event] = await ctx.db
-        .insert(events)
-        .values({
-          id: uuidv4(),
-          clientId: input.clientId,
-          title: input.title,
-          description: input.description || null,
-          eventType: input.eventType || null,
-          eventDate: input.eventDate,
-          startTime: input.startTime || null,
-          endTime: input.endTime || null,
-          location: input.location || null,
-          venueName: input.venueName || null,
-          address: input.address || null,
-          guestCount: input.guestCount || null,
-          notes: input.notes || null,
-          status: eventStatus,
-        })
-        .returning()
-
-      if (!event) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create event'
-        })
-      }
-
-      // TIMELINE SYNC: Auto-generate timeline items for this event based on event type
-      // January 2026 - Uses company-customized templates when available, falls back to defaults
+      // TIMELINE TEMPLATE LOOKUP: Prepare timeline items before transaction (read-only)
+      // If template preparation fails, event still creates without timeline items
+      let preparedTimelineItems: Array<typeof timeline.$inferInsert> = []
       try {
         // Parse event date and time for timeline
         let eventStartDateTime = new Date(input.eventDate)
@@ -180,7 +155,6 @@ export const eventsRouter = router({
             .orderBy(asc(timelineTemplates.sortOrder))
 
           if (customTemplates.length > 0) {
-            // Use custom templates
             templateItems = customTemplates.map((t) => ({
               title: t.title,
               description: t.description || '',
@@ -202,37 +176,80 @@ export const eventsRouter = router({
         const eventLocation = input.location || input.venueName || null
 
         // Generate timeline items from template
-        const timelineItems = templateItems.map((item, index) => {
+        preparedTimelineItems = templateItems.map((item, index) => {
           const itemStartTime = new Date(eventStartDateTime.getTime() + item.offsetMinutes * 60 * 1000)
           const itemEndTime = new Date(itemStartTime.getTime() + item.durationMinutes * 60 * 1000)
 
           return {
-            id: uuidv4(), // Generate unique ID for each timeline item
+            id: uuidv4(),
             clientId: input.clientId,
-            eventId: event.id, // Link to specific event
+            eventId: eventId,
             title: item.title,
             description: item.description,
-            phase: item.phase, // setup | showtime | wrapup
+            phase: item.phase,
             startTime: itemStartTime,
             endTime: itemEndTime,
             durationMinutes: item.durationMinutes,
-            location: item.location || eventLocation, // Use item location if specified, else event location
+            location: item.location || eventLocation,
             sortOrder: index,
             sourceModule: 'events',
-            sourceId: event.id,
+            sourceId: eventId,
             metadata: JSON.stringify({ eventType: input.eventType || 'Wedding Event', eventTitle: input.title }),
           }
         })
-
-        // Insert all timeline items
-        if (timelineItems.length > 0) {
-          await ctx.db.insert(timeline).values(timelineItems)
-          console.log(`[Timeline] Auto-created ${timelineItems.length} items for event: ${input.title} (${input.eventType})`)
-        }
       } catch (timelineError) {
-        // Log but don't fail - event was created successfully
-        console.warn('[Timeline] Failed to auto-create timeline entries for event:', timelineError)
+        // Template preparation failed - event will still be created without timeline items
+        console.warn('[Timeline] Failed to prepare timeline entries for event:', timelineError)
       }
+
+      // ATOMIC CREATE: Event + timeline items in a single transaction
+      const event = await ctx.db.transaction(async (tx) => {
+        const [newEvent] = await tx
+          .insert(events)
+          .values({
+            id: eventId,
+            clientId: input.clientId,
+            title: input.title,
+            description: input.description || null,
+            eventType: input.eventType || null,
+            eventDate: input.eventDate,
+            startTime: input.startTime || null,
+            endTime: input.endTime || null,
+            location: input.location || null,
+            venueName: input.venueName || null,
+            address: input.address || null,
+            guestCount: input.guestCount || null,
+            notes: input.notes || null,
+            status: eventStatus,
+          })
+          .returning()
+
+        if (!newEvent) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create event'
+          })
+        }
+
+        // Insert timeline items if template preparation succeeded
+        if (preparedTimelineItems.length > 0) {
+          await tx.insert(timeline).values(preparedTimelineItems)
+          console.log(`[Timeline] Auto-created ${preparedTimelineItems.length} items for event: ${input.title} (${input.eventType})`)
+        }
+
+        return newEvent
+      })
+
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'insert',
+        module: 'events',
+        entityId: event.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['events.list', 'timeline.list'],
+      })
 
       return event
     }),
@@ -298,35 +315,35 @@ export const eventsRouter = router({
       if (input.data.guestCount !== undefined) updateData.guestCount = input.data.guestCount
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
-      // Update event (already verified ownership)
-      const [event] = await ctx.db
-        .update(events)
-        .set(updateData)
-        .where(eq(events.id, input.id))
-        .returning()
-
-      if (!event) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to update event'
-        })
+      // Prepare timeline update data (before transaction, no DB access needed)
+      const timelineUpdate: Record<string, any> = { updatedAt: new Date() }
+      if (input.data.title !== undefined) timelineUpdate.title = input.data.title
+      if (input.data.description !== undefined) timelineUpdate.description = input.data.description
+      if (input.data.location !== undefined || input.data.venueName !== undefined) {
+        timelineUpdate.location = input.data.location || input.data.venueName
       }
+      if (input.data.notes !== undefined) timelineUpdate.notes = input.data.notes
 
-      // TIMELINE SYNC: Update linked timeline entry using efficient DB query
-      try {
-        const timelineUpdate: Record<string, any> = { updatedAt: new Date() }
+      // ATOMIC UPDATE: Event + timeline sync in a single transaction
+      const event = await ctx.db.transaction(async (tx) => {
+        const [updatedEvent] = await tx
+          .update(events)
+          .set(updateData)
+          .where(eq(events.id, input.id))
+          .returning()
 
-        if (input.data.title !== undefined) timelineUpdate.title = input.data.title
-        if (input.data.description !== undefined) timelineUpdate.description = input.data.description
-        if (input.data.location !== undefined || input.data.venueName !== undefined) {
-          timelineUpdate.location = input.data.location || input.data.venueName
+        if (!updatedEvent) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to update event'
+          })
         }
-        if (input.data.notes !== undefined) timelineUpdate.notes = input.data.notes
 
-        // Update date/time if changed
+        // TIMELINE SYNC: Update linked timeline entry
+        // Update date/time if changed (needs updatedEvent for fallback values)
         if (input.data.eventDate !== undefined || input.data.startTime !== undefined) {
-          const eventDate = input.data.eventDate || event.eventDate
-          const startTime = input.data.startTime || event.startTime
+          const eventDate = input.data.eventDate || updatedEvent.eventDate
+          const startTime = input.data.startTime || updatedEvent.startTime
           if (eventDate) {
             let startDateTime = new Date(eventDate)
             if (startTime) {
@@ -338,7 +355,7 @@ export const eventsRouter = router({
         }
 
         if (input.data.endTime !== undefined) {
-          const eventDate = input.data.eventDate || event.eventDate
+          const eventDate = input.data.eventDate || updatedEvent.eventDate
           if (eventDate) {
             let endDateTime = new Date(eventDate)
             const [hours, minutes] = input.data.endTime.split(':').map(Number)
@@ -347,8 +364,7 @@ export const eventsRouter = router({
           }
         }
 
-        // Direct DB update using sourceModule and sourceId columns
-        await ctx.db
+        await tx
           .update(timeline)
           .set(timelineUpdate)
           .where(
@@ -358,10 +374,20 @@ export const eventsRouter = router({
             )
           )
 
-        console.log(`[Timeline] Updated entry for event: ${event.title}`)
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to sync timeline entry for event update:', timelineError)
-      }
+        console.log(`[Timeline] Updated entry for event: ${updatedEvent.title}`)
+        return updatedEvent
+      })
+
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'update',
+        module: 'events',
+        entityId: event.id,
+        companyId: ctx.companyId!,
+        clientId: existingEvent.event.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['events.list', 'timeline.list'],
+      })
 
       return event
     }),
@@ -393,29 +419,20 @@ export const eventsRouter = router({
         })
       }
 
-      // GUEST CLEANUP: Remove deleted eventId from all guests' attendingEvents arrays
-      // This prevents orphaned references when events are deleted
-      try {
-        await ctx.db.execute(sql`
+      // ATOMIC DELETE: All cleanup + delete in a transaction for data consistency
+      // Order: clean up references first, then delete the entity
+      await ctx.db.transaction(async (tx) => {
+        // 1. GUEST CLEANUP: Remove deleted eventId from all guests' attendingEvents arrays
+        await tx.execute(sql`
           UPDATE guests
           SET attending_events = array_remove(attending_events, ${input.id}),
               updated_at = NOW()
           WHERE client_id = ${existingEvent.event.clientId}
             AND ${input.id} = ANY(attending_events)
-        `);
-        console.log(`[Event Delete] Cleaned up attendingEvents for event: ${input.id}`);
-      } catch (cleanupError) {
-        console.warn('[Event Delete] Failed to cleanup guest attendingEvents:', cleanupError);
-      }
+        `)
 
-      // Delete event (already verified ownership)
-      await ctx.db
-        .delete(events)
-        .where(eq(events.id, input.id))
-
-      // TIMELINE SYNC: Delete linked timeline entry using efficient DB query
-      try {
-        await ctx.db
+        // 2. TIMELINE CLEANUP: Delete linked timeline entries
+        await tx
           .delete(timeline)
           .where(
             and(
@@ -423,10 +440,25 @@ export const eventsRouter = router({
               eq(timeline.sourceId, input.id)
             )
           )
-        console.log(`[Timeline] Deleted entry for event: ${input.id}`)
-      } catch (timelineError) {
-        console.warn('[Timeline] Failed to delete timeline entry for event:', timelineError)
-      }
+
+        // 3. DELETE EVENT (last - after all references are cleaned up)
+        await tx
+          .delete(events)
+          .where(eq(events.id, input.id))
+      })
+
+      console.log(`[Event Delete] Atomically deleted event ${input.id} with cleanup`)
+
+      // Broadcast real-time sync (OUTSIDE transaction - best-effort, shouldn't block delete)
+      await broadcastSync({
+        type: 'delete',
+        module: 'events',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existingEvent.event.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['events.list', 'timeline.list', 'guests.list'],
+      })
 
       return { success: true }
     }),

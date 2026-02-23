@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc } from 'drizzle-orm'
 import { clients, gifts, guests } from '@/lib/db/schema'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 export const giftsRouter = router({
   /**
@@ -142,6 +143,16 @@ export const giftsRouter = router({
         })
         .returning()
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'gifts',
+        entityId: gift.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['gifts.list'],
+      })
+
       return gift
     }),
 
@@ -192,6 +203,16 @@ export const giftsRouter = router({
         .where(eq(gifts.id, input.id))
         .returning()
 
+      await broadcastSync({
+        type: 'update',
+        module: 'gifts',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: gift.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['gifts.list'],
+      })
+
       return gift
     }),
 
@@ -208,7 +229,7 @@ export const giftsRouter = router({
 
       // Verify gift belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: gifts.id })
+        .select({ id: gifts.id, clientId: gifts.clientId })
         .from(gifts)
         .innerJoin(clients, eq(gifts.clientId, clients.id))
         .where(
@@ -227,6 +248,16 @@ export const giftsRouter = router({
       await ctx.db
         .delete(gifts)
         .where(eq(gifts.id, input.id))
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'gifts',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existing.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['gifts.list'],
+      })
 
       return { success: true }
     }),

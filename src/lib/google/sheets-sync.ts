@@ -23,6 +23,8 @@ import {
 } from '@/lib/db/schema';
 import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-client';
 import { normalizeRsvpStatus } from '@/lib/constants/enums';
+import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
+import { publishSyncAction, storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
 
 export interface SyncStats {
   exported: number;
@@ -74,6 +76,49 @@ const GIFT_HEADERS = [
   'ID', 'Gift Name', 'Guest ID', 'Value', 'Status',
   'Last Updated'
 ];
+
+// Query paths to invalidate per module after import
+function getQueryPathsForModule(module: string): string[] {
+  const map: Record<string, string[]> = {
+    guests: ['guests.getAll', 'guests.getStats', 'guests.getDietaryStats'],
+    budget: ['budget.getAll', 'budget.getStats'],
+    timeline: ['timeline.getAll'],
+    hotels: ['hotels.getAll'],
+    transport: ['guestTransport.getAll'],
+    vendors: ['vendors.getAll'],
+    gifts: ['gifts.getAll'],
+  };
+  return map[module] ?? [`${module}.getAll`];
+}
+
+/**
+ * Broadcast a sync action to Redis for real-time updates
+ */
+export async function broadcastSheetSync(params: {
+  module: string;
+  companyId: string;
+  clientId: string;
+  userId: string;
+  count: number;
+}): Promise<void> {
+  if (params.count === 0) return;
+
+  const syncAction: SyncAction = {
+    id: crypto.randomUUID(),
+    type: 'update',
+    module: params.module as SyncAction['module'],
+    entityId: 'sheets-import',
+    companyId: params.companyId,
+    clientId: params.clientId,
+    userId: params.userId,
+    timestamp: Date.now(),
+    queryPaths: getQueryPathsForModule(params.module),
+  };
+  await Promise.all([
+    publishSyncAction(syncAction),
+    storeSyncAction(syncAction),
+  ]).catch(err => console.error('[Sheets Sync] Broadcast failed:', err));
+}
 
 /**
  * Export guests to Google Sheet
@@ -1212,7 +1257,8 @@ export async function importAllFromSheets(
   sheetsClient: sheets_v4.Sheets,
   spreadsheetId: string,
   clientId: string,
-  companyId: string
+  companyId: string,
+  userId?: string
 ): Promise<{
   success: boolean;
   totalImported: number;
@@ -1228,6 +1274,15 @@ export async function importAllFromSheets(
   totalImported += guestStats.imported;
   byModule.guests = guestStats.imported;
   allErrors.push(...guestStats.errors);
+
+  // Recalculate per-guest budget items after guest import
+  if (guestStats.imported > 0) {
+    try {
+      await recalcPerGuestBudgetItems(db, clientId);
+    } catch (err) {
+      console.error('[Sheets Sync] Budget recalc failed:', err);
+    }
+  }
 
   const budgetStats = await importBudgetFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += budgetStats.imported;
@@ -1260,6 +1315,22 @@ export async function importAllFromSheets(
   allErrors.push(...giftStats.errors);
 
   console.log(`[Sheets Sync] Import complete: ${totalImported} records imported, ${allErrors.length} errors`);
+
+  // Broadcast sync actions for each module that had imports
+  if (userId && totalImported > 0) {
+    const modules = ['guests', 'budget', 'vendors', 'hotels', 'transport', 'timeline', 'gifts'] as const;
+    for (const mod of modules) {
+      if (byModule[mod] && byModule[mod] > 0) {
+        await broadcastSheetSync({
+          module: mod,
+          companyId,
+          clientId,
+          userId,
+          count: byModule[mod],
+        });
+      }
+    }
+  }
 
   return {
     success: allErrors.length === 0,

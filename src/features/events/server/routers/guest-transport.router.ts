@@ -13,6 +13,7 @@ import { eq, and, isNull, asc, or, lte } from 'drizzle-orm'
 import { guestTransport, guests, clients, timeline, vehicles } from '@/lib/db/schema'
 import { nanoid } from 'nanoid'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 // Vehicle types available for selection
 const VEHICLE_TYPES = ['sedan', 'suv', 'bus', 'van', 'tempo', 'minibus', 'luxury', 'other'] as const
@@ -241,6 +242,16 @@ export const guestTransportRouter = router({
       })
 
       console.log(`[Transport Create] Created transport ${result.transport.id} with cascade:`, result.cascadeActions)
+
+      await broadcastSync({
+        type: 'insert',
+        module: 'transport',
+        entityId: result.transport.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guestTransport.list'],
+      })
 
       return {
         ...result.transport,
@@ -510,6 +521,16 @@ export const guestTransportRouter = router({
 
       console.log(`[Transport Update] Updated transport ${result.transport.id} with cascade:`, result.cascadeActions)
 
+      await broadcastSync({
+        type: 'update',
+        module: 'transport',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: result.transport.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guestTransport.list'],
+      })
+
       return {
         ...result.transport,
         cascadeActions: result.cascadeActions,
@@ -527,7 +548,7 @@ export const guestTransportRouter = router({
 
       // Get transport to release vehicle if assigned
       const [existingTransport] = await ctx.db
-        .select({ vehicleId: guestTransport.vehicleId })
+        .select({ vehicleId: guestTransport.vehicleId, clientId: guestTransport.clientId })
         .from(guestTransport)
         .where(eq(guestTransport.id, input.id))
         .limit(1)
@@ -575,6 +596,16 @@ export const guestTransportRouter = router({
       })
 
       console.log(`[Transport Delete] Deleted transport ${input.id} with cascade:`, result.cascadeActions)
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'transport',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existingTransport?.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guestTransport.list'],
+      })
 
       return { success: true, cascadeActions: result.cascadeActions }
     }),

@@ -1,12 +1,13 @@
 import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { eq, and, isNull, asc } from 'drizzle-orm'
+import { eq, and, or, isNull, asc, inArray } from 'drizzle-orm'
 import { guests, hotels, clients, guestTransport, floorPlanGuests, guestGifts, gifts } from '@/lib/db/schema'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { RSVP_STATUS, RSVP_STATUS_VALUES, GUEST_SIDE, GUEST_SIDE_VALUES, normalizeGuestSide } from '@/lib/constants/enums'
 import { cascadeGuestSideEffects } from '../utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 /**
  * Guests tRPC Router - Drizzle ORM Version
@@ -245,6 +246,17 @@ export const guestsRouter = router({
       })
 
       console.log(`[Guest Create] Created guest ${result.guest.id} with cascade:`, result.cascadeActions)
+
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'insert',
+        module: 'guests',
+        entityId: result.guest.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+      })
 
       return {
         ...result.guest,
@@ -677,6 +689,17 @@ export const guestsRouter = router({
 
       console.log(`[Guest Update] Updated guest ${result.guest.id} with cascade:`, result.cascadeActions)
 
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'update',
+        module: 'guests',
+        entityId: result.guest.id,
+        companyId: ctx.companyId!,
+        clientId: existingGuest.guest.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+      })
+
       return {
         ...result.guest,
         cascadeActions: result.cascadeActions,
@@ -790,6 +813,17 @@ export const guestsRouter = router({
         return deletionCounts
       })
 
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'delete',
+        module: 'guests',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existingGuest.guest.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+      })
+
       return { success: true, deleted: result }
     }),
 
@@ -872,15 +906,87 @@ export const guestsRouter = router({
         }
       })
 
-      // Bulk insert
-      const data = await ctx.db
-        .insert(guests)
-        .values(guestRecords)
-        .returning()
+      // Bulk insert + cascade within a transaction
+      const result = await withTransaction(async (tx) => {
+        const data = await tx
+          .insert(guests)
+          .values(guestRecords)
+          .returning()
+
+        if (!data || data.length === 0) {
+          return { data: [], cascadeActions: [] as { module: string; action: string; count: number }[] }
+        }
+
+        const cascadeActions: { module: string; action: string; count: number }[] = []
+        const insertedIds = data.map((g: { id: string }) => g.id)
+
+        // Cascade hotel/transport for guests that need it (subset of all inserted)
+        const guestsNeedingCascade = await tx
+          .select()
+          .from(guests)
+          .where(
+            and(
+              eq(guests.clientId, input.clientId),
+              inArray(guests.id, insertedIds),
+              or(
+                eq(guests.hotelRequired, true),
+                eq(guests.transportRequired, true)
+              )
+            )
+          )
+
+        for (const guest of guestsNeedingCascade) {
+          const fullName = `${guest.firstName} ${guest.lastName || ''}`.trim()
+          const actions = await cascadeGuestSideEffects({
+            guest: {
+              ...guest,
+              hotelName: guest.hotelName || null,
+              hotelCheckIn: guest.hotelCheckIn || null,
+              hotelCheckOut: guest.hotelCheckOut || null,
+              hotelRoomType: guest.hotelRoomType || null,
+              transportType: guest.transportType || null,
+              transportPickupLocation: guest.transportPickupLocation || null,
+              transportPickupTime: guest.transportPickupTime || null,
+              transportNotes: guest.transportNotes || null,
+              arrivalDatetime: guest.arrivalDatetime ? new Date(guest.arrivalDatetime) : null,
+              arrivalMode: guest.arrivalMode || null,
+            },
+            fullName,
+            tx,
+          })
+          cascadeActions.push(...actions)
+        }
+
+        // Budget recalc once for all guests
+        const { updatedItems } = await recalcPerGuestBudgetItems(tx, input.clientId)
+        if (updatedItems > 0) {
+          cascadeActions.push({ module: 'budget', action: 'recalculated', count: updatedItems })
+        }
+
+        if (cascadeActions.length > 0) {
+          console.log(`[Bulk Import] Cascade for ${data.length} guests:`, cascadeActions)
+        }
+
+        return { data, cascadeActions }
+      })
+
+      // Broadcast real-time sync for bulk import
+      if (result.data.length > 0) {
+        await broadcastSync({
+          type: 'insert',
+          module: 'guests',
+          entityId: 'bulk',
+          companyId: ctx.companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+        })
+      }
 
       return {
-        count: data?.length || 0,
-        guests: data || []
+        count: result.data.length,
+        guests: result.data,
+        cascadeActions: result.cascadeActions,
       }
     }),
 
@@ -1075,6 +1181,17 @@ export const guestsRouter = router({
       })
 
       console.log(`[RSVP Update] Updated guest ${result.guest.id} RSVP to ${input.rsvpStatus} with cascade:`, result.cascadeActions)
+
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'update',
+        module: 'guests',
+        entityId: result.guest.id,
+        companyId: ctx.companyId!,
+        clientId: result.guest.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guests.list', 'guests.getStats', 'budget.overview'],
+      })
 
       return {
         ...result.guest,

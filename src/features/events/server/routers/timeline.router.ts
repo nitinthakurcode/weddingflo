@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
 import { timeline, clients, user, clientUsers, events } from '@/lib/db/schema'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 /**
  * Timeline tRPC Router - Drizzle ORM Version
@@ -146,6 +147,16 @@ export const timelineRouter = router({
         })
       }
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'timeline',
+        entityId: timelineItem.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['timeline.list'],
+      })
+
       return timelineItem
     }),
 
@@ -214,6 +225,16 @@ export const timelineRouter = router({
         .where(eq(timeline.id, input.id))
         .returning()
 
+      await broadcastSync({
+        type: 'update',
+        module: 'timeline',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: timelineItem.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['timeline.list'],
+      })
+
       return timelineItem
     }),
 
@@ -229,7 +250,7 @@ export const timelineRouter = router({
 
       // Verify timeline item belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: timeline.id })
+        .select({ id: timeline.id, clientId: timeline.clientId })
         .from(timeline)
         .innerJoin(clients, eq(timeline.clientId, clients.id))
         .where(
@@ -248,6 +269,16 @@ export const timelineRouter = router({
       await ctx.db
         .delete(timeline)
         .where(eq(timeline.id, input.id))
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'timeline',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existing.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['timeline.list'],
+      })
 
       return { success: true }
     }),
@@ -676,6 +707,16 @@ export const timelineRouter = router({
           })
         }
       }
+
+      await broadcastSync({
+        type: 'insert',
+        module: 'timeline',
+        entityId: 'bulk',
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['timeline.list'],
+      })
 
       return results
     }),
