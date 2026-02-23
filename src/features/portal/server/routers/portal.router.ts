@@ -45,8 +45,8 @@ export const portalRouter = router({
       const guestStats = await db
         .select({
           total: sql<number>`count(*)::int`,
-          attending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'attending')::int`,
-          notAttending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'not_attending')::int`,
+          attending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'confirmed')::int`,
+          notAttending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'declined')::int`,
           responded: sql<number>`count(*) filter (where ${guests.rsvpStatus} != 'pending' and ${guests.rsvpStatus} is not null)::int`,
         })
         .from(guests)

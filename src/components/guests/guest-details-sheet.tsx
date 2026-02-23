@@ -77,7 +77,7 @@ export function GuestDetailsSheet({
                 {guest.groupName}
               </Badge>
             )}
-            {guest.rsvpStatus === 'accepted' && (
+            {guest.rsvpStatus === 'confirmed' && (
               <Badge className="bg-green-600">RSVP Confirmed</Badge>
             )}
             {guest.checkedIn && (

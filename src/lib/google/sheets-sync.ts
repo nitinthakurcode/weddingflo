@@ -22,6 +22,7 @@ import {
   clients,
 } from '@/lib/db/schema';
 import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-client';
+import { normalizeRsvpStatus } from '@/lib/constants/enums';
 
 export interface SyncStats {
   exported: number;
@@ -539,7 +540,7 @@ export async function importGuestsFromSheet(
           email: getValue('Email') || null,
           phone: getValue('Phone') || null,
           groupName: getValue('Group') || null,
-          rsvpStatus: getValue('RSVP Status') || 'pending',
+          rsvpStatus: normalizeRsvpStatus(getValue('RSVP Status') || 'pending'),
           partySize: parseInt(getValue('Party Size') || '1') || 1,
           relationshipToFamily: getValue('Relationship') || null,
           arrivalDatetime: getValue('Arrival Date') ? new Date(getValue('Arrival Date')!) : null,

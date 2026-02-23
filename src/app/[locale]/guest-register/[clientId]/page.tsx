@@ -59,7 +59,7 @@ const guestFormSchema = z.object({
   additionalGuests: z.array(guestDataSchema).default([]),
 
   // RSVP Status
-  rsvpStatus: z.enum(['pending', 'accepted', 'declined']).default('accepted'),
+  rsvpStatus: z.enum(['pending', 'confirmed', 'declined', 'maybe']).default('confirmed'),
 });
 
 // Use z.input for form type to preserve optional/default handling
@@ -184,7 +184,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
     resolver: zodResolver(guestFormSchema),
     defaultValues: {
       partySize: 1,
-      rsvpStatus: 'accepted',
+      rsvpStatus: 'confirmed',
       attendingEvents: [],
       additionalGuests: [],
     },
@@ -729,7 +729,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
-                      value="accepted"
+                      value="confirmed"
                       {...register('rsvpStatus')}
                       defaultChecked
                       className="w-4 h-4 accent-pink-500"

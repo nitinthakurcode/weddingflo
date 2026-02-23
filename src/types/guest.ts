@@ -1,3 +1,6 @@
+import type { RsvpStatus } from '@/lib/constants/enums'
+export type { RsvpStatus }
+
 // Drizzle types - camelCase naming convention
 export type GuestCategory =
   | 'bride_family'
@@ -19,8 +22,6 @@ export type MealPreference =
   | 'vegan'
   | 'jain'
   | 'custom';
-
-export type RsvpStatus = 'pending' | 'accepted' | 'declined';
 
 export type TravelMode = 'flight' | 'car' | 'train' | 'bus' | 'other';
 

@@ -52,7 +52,7 @@ const guestFormSchema = z.object({
   // Meal Preference
   mealPreference: z.enum(['standard', 'vegetarian', 'vegan', 'kosher', 'halal', 'gluten_free', 'other']).optional().default('standard'),
   // RSVP Status
-  rsvpStatus: z.enum(['pending', 'accepted', 'declined']).optional().default('accepted'),
+  rsvpStatus: z.enum(['pending', 'confirmed', 'declined', 'maybe']).optional().default('confirmed'),
 });
 
 type GuestFormData = z.input<typeof guestFormSchema>;
@@ -477,7 +477,7 @@ export default function QRLandingPage({ params }: PageProps) {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
-                        value="accepted"
+                        value="confirmed"
                         {...register('rsvpStatus')}
                         defaultChecked
                         className="w-4 h-4"

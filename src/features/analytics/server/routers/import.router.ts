@@ -13,6 +13,7 @@ import {
   type SyncResult,
 } from '@/lib/backup/auto-sync-trigger'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
+import { normalizeRsvpStatus } from '@/lib/constants/enums'
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts'])
@@ -1103,7 +1104,7 @@ async function importGuest(
     email: getRowValue(row, 'Email', 'email', 'E-mail', 'Email Address') || null,
     phone: getRowValue(row, 'Phone', 'phone', 'Phone Number', 'Mobile', 'Contact') || null,
     groupName: getRowValue(row, 'Group', 'group', 'Group Name', 'Category') || null,
-    rsvpStatus: getRowValue(row, 'RSVP Status', 'rsvp_status', 'RSVP', 'Status') || 'pending',
+    rsvpStatus: normalizeRsvpStatus(getRowValue(row, 'RSVP Status', 'rsvp_status', 'RSVP', 'Status') || 'pending'),
     partySize: parsePartySize(getRowValue(row, 'Party Size', 'party_size', '# of Guests', 'Number of Guests')),
     additionalGuestNames: parseCommaSeparated(getRowValue(row, 'Additional Guest Names', 'additional_guests', 'Plus Ones', 'Additional Guests')),
     relationshipToFamily: getRowValue(row, 'Relationship to Family', 'relationship', 'Relationship', 'Relation') || null,

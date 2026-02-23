@@ -144,10 +144,12 @@ export function GuestList({
       header: 'RSVP',
       cell: ({ row }) => {
         const status = row.getValue('rsvpStatus') as string;
-        if (status === 'accepted') {
-          return <Badge className="bg-green-600">Accepted</Badge>;
+        if (status === 'confirmed') {
+          return <Badge className="bg-green-600">Confirmed</Badge>;
         } else if (status === 'declined') {
           return <Badge variant="destructive">Declined</Badge>;
+        } else if (status === 'maybe') {
+          return <Badge variant="outline" className="border-amber-400 text-amber-600">Maybe</Badge>;
         }
         return <Badge variant="outline">Pending</Badge>;
       },

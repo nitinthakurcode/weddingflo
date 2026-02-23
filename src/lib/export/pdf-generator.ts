@@ -131,7 +131,7 @@ export function exportGuestListPDF(
     checkedIn: guest.checked_in ? 'Yes' : 'No',
   }));
 
-  const attending = guests.filter(g => g.rsvp_status === 'accepted').length;
+  const attending = guests.filter(g => g.rsvp_status === 'confirmed').length;
 
   const doc = generatePDFWithTable(columns, data, {
     title: 'Guest List',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RSVP_STATUS_VALUES } from '@/lib/constants/enums';
 
 export const guestCategorySchema = z.enum([
   'bride_family',
@@ -10,7 +11,7 @@ export const guestCategorySchema = z.enum([
   'vip',
 ]);
 
-export const rsvpStatusSchema = z.enum(['pending', 'accepted', 'declined']);
+export const rsvpStatusSchema = z.enum(RSVP_STATUS_VALUES);
 
 export const mealPreferenceSchema = z.enum([
   'veg',

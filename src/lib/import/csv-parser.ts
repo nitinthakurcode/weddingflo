@@ -2,6 +2,8 @@
  * CSV Import and Parsing utilities
  */
 
+import { normalizeRsvpStatus } from '@/lib/constants/enums';
+
 export interface CSVParseResult<T = any> {
   data: T[];
   errors: Array<{ row: number; field: string; message: string }>;
@@ -291,11 +293,8 @@ export function importGuestListCSV(content: string): CSVParseResult<{
       dataField: 'rsvp_status',
       required: false,
       transformer: (value) => {
-        const status = value?.toLowerCase();
-        if (status === 'accepted' || status === 'declined' || status === 'pending') {
-          return status;
-        }
-        return 'pending';
+        if (!value) return 'pending';
+        return normalizeRsvpStatus(String(value));
       },
     },
     {

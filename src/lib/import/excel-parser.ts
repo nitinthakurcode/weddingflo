@@ -5,6 +5,7 @@
 
 import ExcelJS from 'exceljs';
 import type { CSVParseResult, CSVFieldMapping } from './csv-parser';
+import { normalizeRsvpStatus } from '@/lib/constants/enums';
 
 export interface ExcelParseOptions {
   sheetName?: string;
@@ -311,9 +312,7 @@ export async function importGuestListExcel(file: File): Promise<CSVParseResult<{
       required: false,
       transformer: (value) => {
         if (!value) return 'pending';
-        const val = String(value).toLowerCase().trim();
-        if (['pending', 'accepted', 'declined'].includes(val)) return val;
-        return 'pending';
+        return normalizeRsvpStatus(String(value));
       },
     },
     {

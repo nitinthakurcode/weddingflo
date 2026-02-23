@@ -103,7 +103,7 @@ export async function generateDigestForClient(
   const guestStats = await db
     .select({
       total: sql<number>`count(*)::int`,
-      attending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'attending')::int`,
+      attending: sql<number>`count(*) filter (where ${guests.rsvpStatus} = 'confirmed')::int`,
       responded: sql<number>`count(*) filter (where ${guests.rsvpStatus} != 'pending' and ${guests.rsvpStatus} is not null)::int`,
       newRsvps: sql<number>`count(*) filter (where ${guests.updatedAt} >= ${oneWeekAgo} and ${guests.rsvpStatus} != 'pending')::int`,
     })

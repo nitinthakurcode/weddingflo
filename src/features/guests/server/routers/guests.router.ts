@@ -5,10 +5,11 @@ import { eq, and, isNull, asc, sql, or } from 'drizzle-orm'
 import { guests, hotels, clients, guestTransport, budget, floorPlanGuests, guestGifts, gifts, timeline } from '@/lib/db/schema'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
+import { RSVP_STATUS, RSVP_STATUS_VALUES } from '@/lib/constants/enums'
 
 /**
  * Sync per-guest budget items with confirmed RSVP count.
- * Called when RSVP status changes to 'accepted' or 'declined'.
+ * Called when RSVP status changes to 'confirmed' or 'declined'.
  * Updates budget items marked as isPerGuestItem to reflect current guest count.
  */
 async function syncBudgetWithRsvpCount(
@@ -19,7 +20,7 @@ async function syncBudgetWithRsvpCount(
   const guestList = await db
     .select({ partySize: guests.partySize })
     .from(guests)
-    .where(and(eq(guests.clientId, clientId), eq(guests.rsvpStatus, 'accepted')));
+    .where(and(eq(guests.clientId, clientId), eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)));
 
   // Sum up all party sizes (default to 1 if not set)
   const confirmedCount = guestList.reduce((sum, g) => sum + (g.partySize || 1), 0);
@@ -146,7 +147,7 @@ export const guestsRouter = router({
       relationshipToFamily: z.string().optional(),
       attendingEvents: z.array(z.string()).default([]),
       // RSVP
-      rsvpStatus: z.enum(['pending', 'accepted', 'declined']).default('pending'),
+      rsvpStatus: z.enum(RSVP_STATUS_VALUES).default('pending'),
       mealPreference: z.string().optional(),
       // Hotel requirements
       hotelRequired: z.boolean().default(false),
@@ -345,7 +346,7 @@ export const guestsRouter = router({
         phone: z.string().optional().nullable().transform(val => val || undefined),
         groupName: z.string().optional().nullable().transform(val => val || undefined),
         guestSide: z.enum(['bride_side', 'groom_side', 'mutual']).optional(),
-        rsvpStatus: z.enum(['pending', 'accepted', 'declined']).optional(),
+        rsvpStatus: z.enum(RSVP_STATUS_VALUES).optional(),
         dietaryRestrictions: z.string().optional(),
         mealPreference: z.string().optional(),
         plusOne: z.boolean().optional(),
@@ -744,10 +745,10 @@ export const guestsRouter = router({
         // This ensures budget estimates stay in sync with confirmed guest counts
         const rsvpStatusChanged = input.data.rsvpStatus !== undefined;
         const partySizeChanged = input.data.partySize !== undefined;
-        const isConfirmedStatus = (status: string | null) => status === 'accepted';
+        const isConfirmedStatus = (status: string | null) => status === RSVP_STATUS.CONFIRMED;
 
         const shouldSyncBudget =
-          (rsvpStatusChanged && (input.data.rsvpStatus === 'accepted' || input.data.rsvpStatus === 'declined')) ||
+          (rsvpStatusChanged && (input.data.rsvpStatus === RSVP_STATUS.CONFIRMED || input.data.rsvpStatus === RSVP_STATUS.DECLINED)) ||
           (partySizeChanged && isConfirmedStatus(guest.rsvpStatus));
 
         if (shouldSyncBudget) {
@@ -758,7 +759,7 @@ export const guestsRouter = router({
             .where(
               and(
                 eq(guests.clientId, guest.clientId),
-                eq(guests.rsvpStatus, 'accepted')
+                eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)
               )
             );
 
@@ -1034,9 +1035,9 @@ export const guestsRouter = router({
 
       const stats = {
         total: guestList.length,
-        attending: guestList.filter(g => g.rsvpStatus === 'accepted').length,
-        declined: guestList.filter(g => g.rsvpStatus === 'declined').length,
-        pending: guestList.filter(g => !g.rsvpStatus || g.rsvpStatus === 'pending').length,
+        attending: guestList.filter(g => g.rsvpStatus === RSVP_STATUS.CONFIRMED).length,
+        declined: guestList.filter(g => g.rsvpStatus === RSVP_STATUS.DECLINED).length,
+        pending: guestList.filter(g => !g.rsvpStatus || g.rsvpStatus === RSVP_STATUS.PENDING).length,
         checkedIn: guestList.filter(g => g.checkedIn === true).length,
       }
 
@@ -1084,7 +1085,7 @@ export const guestsRouter = router({
         .where(
           and(
             eq(guests.clientId, input.clientId),
-            eq(guests.rsvpStatus, 'accepted')
+            eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)
           )
         )
 
@@ -1149,7 +1150,7 @@ export const guestsRouter = router({
   updateRSVP: protectedProcedure
     .input(z.object({
       guestId: z.string().uuid(),
-      rsvpStatus: z.enum(['pending', 'accepted', 'declined']),
+      rsvpStatus: z.enum(RSVP_STATUS_VALUES),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1180,12 +1181,12 @@ export const guestsRouter = router({
 
         // 2. RSVP→BUDGET SYNC: Update per-guest budget items when RSVP changes (within transaction)
         // This is now atomic - if budget sync fails, RSVP update is also rolled back
-        if (input.rsvpStatus === 'accepted' || input.rsvpStatus === 'declined') {
-          // Get confirmed guest count (including party sizes for each accepted guest)
+        if (input.rsvpStatus === RSVP_STATUS.CONFIRMED || input.rsvpStatus === RSVP_STATUS.DECLINED) {
+          // Get confirmed guest count (including party sizes for each confirmed guest)
           const guestList = await tx
             .select({ partySize: guests.partySize })
             .from(guests)
-            .where(and(eq(guests.clientId, guest.clientId), eq(guests.rsvpStatus, 'accepted')));
+            .where(and(eq(guests.clientId, guest.clientId), eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)));
 
           // Sum up all party sizes (default to 1 if not set)
           const confirmedCount = guestList.reduce((sum: number, g: { partySize: number | null }) => sum + (g.partySize || 1), 0);

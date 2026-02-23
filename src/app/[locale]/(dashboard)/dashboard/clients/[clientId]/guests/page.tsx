@@ -57,7 +57,7 @@ export default function GuestsPage() {
     dietaryRestrictions: '',
     mealPreference: '',
     plusOne: false,
-    rsvpStatus: 'pending' as 'pending' | 'accepted' | 'declined',
+    rsvpStatus: 'pending' as 'pending' | 'confirmed' | 'declined' | 'maybe',
     notes: '',
     // Party info
     partySize: 1,
@@ -625,11 +625,12 @@ export default function GuestsPage() {
                             </Badge>
                           )}
                           <Badge
-                            variant={guest.rsvpStatus === 'accepted' ? 'success' : guest.rsvpStatus === 'declined' ? 'destructive' : 'warning'}
+                            variant={guest.rsvpStatus === 'confirmed' ? 'success' : guest.rsvpStatus === 'declined' ? 'destructive' : guest.rsvpStatus === 'maybe' ? 'outline' : 'warning'}
                             className="text-xs"
                           >
-                            {guest.rsvpStatus === 'accepted' ? t('accepted') :
-                             guest.rsvpStatus === 'declined' ? t('declined') : t('pending')}
+                            {guest.rsvpStatus === 'confirmed' ? t('confirmed') :
+                             guest.rsvpStatus === 'declined' ? t('declined') :
+                             guest.rsvpStatus === 'maybe' ? t('maybe') : t('pending')}
                           </Badge>
                         </div>
                         {/* Additional Guest Names Row */}
@@ -1110,8 +1111,9 @@ export default function GuestsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="pending">{t('pending')}</SelectItem>
-                      <SelectItem value="accepted">{t('accepted')}</SelectItem>
+                      <SelectItem value="confirmed">{t('confirmed')}</SelectItem>
                       <SelectItem value="declined">{t('declined')}</SelectItem>
+                      <SelectItem value="maybe">{t('maybe')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

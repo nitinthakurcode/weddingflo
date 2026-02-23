@@ -13,6 +13,7 @@ import { Upload, FileText, Download, AlertCircle, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BulkImportRow } from '@/types/guest';
 import { trpc } from '@/lib/trpc/client';
+import { normalizeRsvpStatus } from '@/lib/constants/enums';
 
 interface BulkImportDialogProps {
   open: boolean;
@@ -215,7 +216,7 @@ Mary Smith,+1234567891,mary@example.com,1,,2024-12-14 18:00,Car,2024-12-19 12:00
             group_name: (rowData['Group'] || rowData.groupName || '').trim() || undefined,
             attending_events: attendingEvents,
             // RSVP
-            rsvp_status: (rowData['RSVP Status'] || 'pending').toLowerCase(),
+            rsvp_status: normalizeRsvpStatus(rowData['RSVP Status'] || 'pending'),
             meal_preference: (rowData['Meal Preference'] || '').toLowerCase() || undefined,
             dietary_restrictions: (rowData['Dietary Restrictions'] || '').trim() || undefined,
             plus_one_allowed: rowData['Plus One']?.toLowerCase() === 'yes' || rowData.plusOne_allowed === 'true',
