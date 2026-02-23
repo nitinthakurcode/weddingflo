@@ -1,54 +1,12 @@
 import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { eq, and, isNull, asc, sql, or } from 'drizzle-orm'
-import { guests, hotels, clients, guestTransport, budget, floorPlanGuests, guestGifts, gifts, timeline } from '@/lib/db/schema'
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import { eq, and, isNull, asc } from 'drizzle-orm'
+import { guests, hotels, clients, guestTransport, floorPlanGuests, guestGifts, gifts } from '@/lib/db/schema'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { RSVP_STATUS, RSVP_STATUS_VALUES, GUEST_SIDE, GUEST_SIDE_VALUES, normalizeGuestSide } from '@/lib/constants/enums'
-
-/**
- * Sync per-guest budget items with confirmed RSVP count.
- * Called when RSVP status changes to 'confirmed' or 'declined'.
- * Updates budget items marked as isPerGuestItem to reflect current guest count.
- */
-async function syncBudgetWithRsvpCount(
-  db: PostgresJsDatabase<Record<string, unknown>>,
-  clientId: string
-) {
-  // Get confirmed guest count (including party sizes for each accepted guest)
-  const guestList = await db
-    .select({ partySize: guests.partySize })
-    .from(guests)
-    .where(and(eq(guests.clientId, clientId), eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)));
-
-  // Sum up all party sizes (default to 1 if not set)
-  const confirmedCount = guestList.reduce((sum, g) => sum + (g.partySize || 1), 0);
-
-  // Get per-guest budget items for this client
-  const perGuestItems = await db
-    .select()
-    .from(budget)
-    .where(and(eq(budget.clientId, clientId), eq(budget.isPerGuestItem, true)));
-
-  // Update each per-guest item: estimatedCost = perGuestCost * confirmedCount
-  for (const item of perGuestItems) {
-    const perGuestCost = Number(item.perGuestCost || 0);
-    const newEstimatedCost = perGuestCost * confirmedCount;
-
-    await db
-      .update(budget)
-      .set({
-        estimatedCost: String(newEstimatedCost),
-        updatedAt: new Date(),
-      })
-      .where(eq(budget.id, item.id));
-  }
-
-  if (perGuestItems.length > 0) {
-    console.log(`[RSVP→Budget Sync] Updated ${perGuestItems.length} per-guest budget items for client ${clientId}: confirmedGuests=${confirmedCount}`);
-  }
-}
+import { cascadeGuestSideEffects } from '../utils/guest-cascade'
+import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 
 /**
  * Guests tRPC Router - Drizzle ORM Version
@@ -263,63 +221,25 @@ export const guestsRouter = router({
           })
         }
 
-        // 2. Auto-create hotel entry if hotel is required (within transaction)
-        if (input.hotelRequired) {
-          await tx
-            .insert(hotels)
-            .values({
-              clientId: input.clientId,
-              guestId: guest.id,
-              guestName: fullName,
-              hotelName: input.hotelName || null,
-              roomType: input.hotelRoomType || null,
-              checkInDate: input.hotelCheckIn || null,
-              checkOutDate: input.hotelCheckOut || null,
-              accommodationNeeded: true,
-            })
-          cascadeActions.push({ module: 'hotels', action: 'created', count: 1 })
-          console.log(`[Guest Create] Auto-created hotel record for guest: ${fullName}`)
-        }
-
-        // 3. Auto-create transport entry if transport is required (within transaction)
-        if (input.transportRequired) {
-          // Extract date and time from arrivalDatetime if available
-          let pickupDate: string | null = null
-          let pickupTime: string | null = input.transportPickupTime || null
-
-          if (input.arrivalDatetime) {
-            const arrivalDate = new Date(input.arrivalDatetime)
-            pickupDate = arrivalDate.toISOString().split('T')[0] // YYYY-MM-DD
-            if (!pickupTime) {
-              pickupTime = arrivalDate.toTimeString().slice(0, 5) // HH:MM
-            }
-          }
-
-          // Build vehicle/transport info
-          const vehicleParts: string[] = []
-          if (input.transportType) vehicleParts.push(input.transportType)
-          if (input.arrivalMode) vehicleParts.push(`(${input.arrivalMode})`)
-          const vehicleInfo = vehicleParts.length > 0 ? vehicleParts.join(' ') : null
-
-          await tx
-            .insert(guestTransport)
-            .values({
-              clientId: input.clientId,
-              guestId: guest.id,
-              guestName: fullName,
-              legType: 'arrival',
-              legSequence: 1,
-              pickupDate,
-              pickupTime,
-              pickupFrom: input.transportPickupLocation || null,
-              dropTo: input.hotelName || null, // Default drop to hotel if available
-              vehicleInfo,
-              transportStatus: 'scheduled',
-              notes: input.transportNotes || null,
-            })
-          cascadeActions.push({ module: 'transport', action: 'created', count: 1 })
-          console.log(`[Guest Create] Auto-created transport record for guest: ${fullName}`)
-        }
+        // 2. Auto-create hotel and transport entries via shared cascade utility
+        const sideEffects = await cascadeGuestSideEffects({
+          guest: {
+            ...guest,
+            hotelName: input.hotelName || null,
+            hotelCheckIn: input.hotelCheckIn || null,
+            hotelCheckOut: input.hotelCheckOut || null,
+            hotelRoomType: input.hotelRoomType || null,
+            transportType: input.transportType || null,
+            transportPickupLocation: input.transportPickupLocation || null,
+            transportPickupTime: input.transportPickupTime || null,
+            transportNotes: input.transportNotes || null,
+            arrivalDatetime: input.arrivalDatetime ? new Date(input.arrivalDatetime) : null,
+            arrivalMode: input.arrivalMode || null,
+          },
+          fullName,
+          tx,
+        })
+        cascadeActions.push(...sideEffects)
 
         return { guest, cascadeActions }
       })
@@ -737,7 +657,6 @@ export const guestsRouter = router({
         }
 
         // 5. BUDGET SYNC: Update per-guest budget items when RSVP or partySize changes
-        // This ensures budget estimates stay in sync with confirmed guest counts
         const rsvpStatusChanged = input.data.rsvpStatus !== undefined;
         const partySizeChanged = input.data.partySize !== undefined;
         const isConfirmedStatus = (status: string | null) => status === RSVP_STATUS.CONFIRMED;
@@ -747,44 +666,9 @@ export const guestsRouter = router({
           (partySizeChanged && isConfirmedStatus(guest.rsvpStatus));
 
         if (shouldSyncBudget) {
-          // Get confirmed guest count (sum of party sizes for all accepted guests)
-          const guestList = await tx
-            .select({ partySize: guests.partySize })
-            .from(guests)
-            .where(
-              and(
-                eq(guests.clientId, guest.clientId),
-                eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)
-              )
-            );
-
-          const confirmedCount = guestList.reduce((sum: number, g: { partySize: number | null }) => sum + (g.partySize || 1), 0);
-          console.log(`[Budget Sync] Confirmed guest count: ${confirmedCount}`);
-
-          // Update per-guest budget items
-          const perGuestItems = await tx
-            .select()
-            .from(budget)
-            .where(
-              and(
-                eq(budget.clientId, guest.clientId),
-                eq(budget.isPerGuestItem, true)
-              )
-            );
-
-          let budgetUpdates = 0;
-          for (const item of perGuestItems) {
-            const newEstimatedCost = Number(item.perGuestCost || 0) * confirmedCount;
-            await tx.update(budget).set({
-              estimatedCost: String(newEstimatedCost),
-              updatedAt: new Date(),
-            }).where(eq(budget.id, item.id));
-            budgetUpdates++;
-          }
-
-          if (budgetUpdates > 0) {
-            cascadeActions.push({ module: 'budget', action: 'recalculated', count: budgetUpdates });
-            console.log(`[Budget Sync] Updated ${budgetUpdates} per-guest budget items`);
+          const { updatedItems } = await recalcPerGuestBudgetItems(tx, guest.clientId)
+          if (updatedItems > 0) {
+            cascadeActions.push({ module: 'budget', action: 'recalculated', count: updatedItems })
           }
         }
 
@@ -896,6 +780,11 @@ export const guestsRouter = router({
         await tx
           .delete(guests)
           .where(eq(guests.id, input.id))
+
+        // 8. Recalculate per-guest budget items (confirmed count changed)
+        if (existingGuest.guest.rsvpStatus === RSVP_STATUS.CONFIRMED) {
+          await recalcPerGuestBudgetItems(tx, existingGuest.guest.clientId)
+        }
 
         console.log(`[Guest Delete] Guest ${input.id} deleted with cascade:`, deletionCounts)
         return deletionCounts
@@ -1174,43 +1063,11 @@ export const guestsRouter = router({
           })
         }
 
-        // 2. RSVP→BUDGET SYNC: Update per-guest budget items when RSVP changes (within transaction)
-        // This is now atomic - if budget sync fails, RSVP update is also rolled back
+        // 2. RSVP→BUDGET SYNC: Recalculate per-guest budget items (atomic with RSVP update)
         if (input.rsvpStatus === RSVP_STATUS.CONFIRMED || input.rsvpStatus === RSVP_STATUS.DECLINED) {
-          // Get confirmed guest count (including party sizes for each confirmed guest)
-          const guestList = await tx
-            .select({ partySize: guests.partySize })
-            .from(guests)
-            .where(and(eq(guests.clientId, guest.clientId), eq(guests.rsvpStatus, RSVP_STATUS.CONFIRMED)));
-
-          // Sum up all party sizes (default to 1 if not set)
-          const confirmedCount = guestList.reduce((sum: number, g: { partySize: number | null }) => sum + (g.partySize || 1), 0);
-
-          // Get per-guest budget items for this client
-          const perGuestItems = await tx
-            .select()
-            .from(budget)
-            .where(and(eq(budget.clientId, guest.clientId), eq(budget.isPerGuestItem, true)));
-
-          // Update each per-guest item: estimatedCost = perGuestCost * confirmedCount
-          let updatedCount = 0
-          for (const item of perGuestItems) {
-            const perGuestCost = Number(item.perGuestCost || 0);
-            const newEstimatedCost = perGuestCost * confirmedCount;
-
-            await tx
-              .update(budget)
-              .set({
-                estimatedCost: String(newEstimatedCost),
-                updatedAt: new Date(),
-              })
-              .where(eq(budget.id, item.id));
-            updatedCount++
-          }
-
-          if (updatedCount > 0) {
-            cascadeActions.push({ module: 'budget', action: 'updated_per_guest_items', count: updatedCount })
-            console.log(`[RSVP→Budget Sync] Updated ${updatedCount} per-guest budget items for client ${guest.clientId}: confirmedGuests=${confirmedCount}`);
+          const { updatedItems } = await recalcPerGuestBudgetItems(tx, guest.clientId)
+          if (updatedItems > 0) {
+            cascadeActions.push({ module: 'budget', action: 'updated_per_guest_items', count: updatedItems })
           }
         }
 

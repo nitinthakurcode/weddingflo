@@ -44,6 +44,8 @@ import { proposals, proposalTemplates } from '@/lib/db/schema-proposals'
 import { workflows, workflowSteps } from '@/lib/db/schema-workflows'
 import type { WeddingType } from '@/lib/db/schema/enums'
 import { normalizeGuestSide } from '@/lib/constants/enums'
+import { cascadeGuestSideEffects } from '@/features/guests/server/utils/guest-cascade'
+import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { withTransaction, withCascadeTransaction } from './transaction-wrapper'
 import {
   TOOL_METADATA,
@@ -1415,54 +1417,76 @@ async function executeAddGuest(
     })
   }
 
-  // Insert guest
-  const [newGuest] = await db
-    .insert(guests)
-    .values({
-      clientId,
-      firstName,
-      lastName: lastName || '',
-      email: email || undefined,
-      phone: phone || undefined,
-      rsvpStatus: rsvpStatus || 'pending',
-      mealPreference: mealPreference || undefined,
-      dietaryRestrictions: dietaryRestrictions || undefined,
-      groupName: groupName || undefined,
-      plusOneAllowed: plusOne || false,
-      tableNumber: tableNumber || undefined,
-      hotelRequired: hotelRequired || false,
-      transportRequired: needsTransport || false,
-      guestSide: side ? normalizeGuestSide(side as string) : 'mutual',
-      attendingEvents: eventId ? [eventId] : undefined,
+  const fullName = `${firstName}${lastName ? ` ${lastName}` : ''}`
+
+  // Execute guest creation and cascade side effects atomically
+  const result = await withTransaction(async (tx) => {
+    // 1. Insert guest
+    const [newGuest] = await tx
+      .insert(guests)
+      .values({
+        clientId,
+        firstName,
+        lastName: lastName || '',
+        email: email || undefined,
+        phone: phone || undefined,
+        rsvpStatus: rsvpStatus || 'pending',
+        mealPreference: mealPreference || undefined,
+        dietaryRestrictions: dietaryRestrictions || undefined,
+        groupName: groupName || undefined,
+        plusOneAllowed: plusOne || false,
+        tableNumber: tableNumber || undefined,
+        hotelRequired: hotelRequired || false,
+        transportRequired: needsTransport || false,
+        guestSide: side ? normalizeGuestSide(side as string) : 'mutual',
+        attendingEvents: eventId ? [eventId] : undefined,
+      })
+      .returning()
+
+    if (!newGuest) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to create guest',
+      })
+    }
+
+    // 2. Cascade: Create hotel and transport records via shared utility
+    const cascadeActions = await cascadeGuestSideEffects({
+      guest: {
+        ...newGuest,
+        // These fields aren't on the guest record but needed for cascade
+        hotelName: null,
+        hotelCheckIn: null,
+        hotelCheckOut: null,
+        hotelRoomType: null,
+        transportType: null,
+        transportPickupLocation: null,
+        transportPickupTime: null,
+        transportNotes: null,
+        arrivalDatetime: null,
+        arrivalMode: null,
+      },
+      fullName,
+      tx,
     })
-    .returning()
+
+    return { newGuest, cascadeActions }
+  })
 
   const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
-
-  // Cascade: Create hotel booking if hotelRequired
-  if (hotelRequired && newGuest) {
-    // For now, just mark that hotel is needed - actual booking requires more info
+  for (const action of result.cascadeActions) {
     cascadeResults.push({
-      action: 'Hotel accommodation marked as needed',
-      entityType: 'accommodation_flag',
-      entityId: newGuest.id,
-    })
-  }
-
-  // Cascade: Create transport record if needsTransport
-  if (needsTransport && newGuest) {
-    cascadeResults.push({
-      action: 'Transportation marked as needed',
-      entityType: 'transport_flag',
-      entityId: newGuest.id,
+      action: `${action.module} record ${action.action}`,
+      entityType: action.module,
+      entityId: result.newGuest.id,
     })
   }
 
   return {
     success: true,
     toolName: 'add_guest',
-    data: newGuest,
-    message: `Added guest: ${firstName}${lastName ? ` ${lastName}` : ''}`,
+    data: result.newGuest,
+    message: `Added guest: ${fullName}`,
     cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
   }
 }
@@ -1507,28 +1531,49 @@ async function executeUpdateGuestRsvp(
     })
   }
 
-  // Update guest
-  const [updatedGuest] = await db
-    .update(guests)
-    .set({
-      rsvpStatus: rsvpStatus as 'pending' | 'confirmed' | 'declined' | 'maybe',
-      updatedAt: new Date(),
-    })
-    .where(eq(guests.id, targetGuestId))
-    .returning()
+  // Update guest RSVP and recalculate budget atomically
+  const result = await withTransaction(async (tx) => {
+    const [updatedGuest] = await tx
+      .update(guests)
+      .set({
+        rsvpStatus: rsvpStatus as 'pending' | 'confirmed' | 'declined' | 'maybe',
+        updatedAt: new Date(),
+      })
+      .where(eq(guests.id, targetGuestId))
+      .returning()
 
-  if (!updatedGuest) {
-    throw new TRPCError({
-      code: 'NOT_FOUND',
-      message: 'Guest not found',
+    if (!updatedGuest) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Guest not found',
+      })
+    }
+
+    // Recalculate per-guest budget items when RSVP changes to confirmed/declined
+    let budgetUpdated = 0
+    if (rsvpStatus === 'confirmed' || rsvpStatus === 'declined') {
+      const { updatedItems } = await recalcPerGuestBudgetItems(tx, updatedGuest.clientId)
+      budgetUpdated = updatedItems
+    }
+
+    return { updatedGuest, budgetUpdated }
+  })
+
+  const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
+  if (result.budgetUpdated > 0) {
+    cascadeResults.push({
+      action: `budget recalculated (${result.budgetUpdated} items)`,
+      entityType: 'budget',
+      entityId: result.updatedGuest.id,
     })
   }
 
   return {
     success: true,
     toolName: 'update_guest_rsvp',
-    data: updatedGuest,
-    message: `Updated RSVP status to ${rsvpStatus} for ${updatedGuest.firstName}${updatedGuest.lastName ? ` ${updatedGuest.lastName}` : ''}`,
+    data: result.updatedGuest,
+    message: `Updated RSVP status to ${rsvpStatus} for ${result.updatedGuest.firstName}${result.updatedGuest.lastName ? ` ${result.updatedGuest.lastName}` : ''}`,
+    cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
   }
 }
 
