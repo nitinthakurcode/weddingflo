@@ -531,6 +531,7 @@ export async function importVendorsExcel(
             id: crypto.randomUUID(),
             clientId,
             vendorId: newVendorId,
+            companyId,
           }).onConflictDoNothing();
           linkedVendorIds.add(newVendorId);
         }

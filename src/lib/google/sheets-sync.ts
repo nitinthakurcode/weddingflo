@@ -907,6 +907,7 @@ export async function importVendorsFromSheet(
               id: randomUUID(),
               clientId,
               vendorId: id,
+              companyId,
               contractAmount: contractAmount || null,
               serviceDate: serviceDate || null,
               paymentStatus: paymentStatus as any,

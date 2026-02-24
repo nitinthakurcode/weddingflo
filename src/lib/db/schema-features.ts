@@ -384,6 +384,7 @@ export const clientVendors = pgTable('client_vendors', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   vendorId: text('vendor_id').notNull().references(() => vendors.id, { onDelete: 'cascade' }),
+  companyId: text('company_id'),
   eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }), // Links vendor to specific event
   status: text('status').default('active'),
   // Contract & Payment Details
@@ -410,6 +411,7 @@ export const clientVendors = pgTable('client_vendors', {
 }, (table) => [
   index('client_vendors_client_id_idx').on(table.clientId),
   index('client_vendors_vendor_id_idx').on(table.vendorId),
+  index('client_vendors_company_id_idx').on(table.companyId),
 ]);
 
 // Vendor Comments

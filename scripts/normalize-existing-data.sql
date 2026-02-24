@@ -125,6 +125,10 @@ UPDATE hotels h SET company_id = c.company_id
 FROM clients c, guests g
 WHERE h.guest_id = g.id AND g.client_id = c.id AND h.company_id IS NULL AND c.company_id IS NOT NULL;
 
+UPDATE client_vendors cv SET company_id = c.company_id
+FROM clients c
+WHERE cv.client_id = c.id AND cv.company_id IS NULL AND c.company_id IS NOT NULL;
+
 UPDATE guest_transport gt SET company_id = c.company_id
 FROM clients c
 WHERE gt.client_id = c.id AND gt.company_id IS NULL AND c.company_id IS NOT NULL;

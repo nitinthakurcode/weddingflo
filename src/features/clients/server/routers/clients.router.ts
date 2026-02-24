@@ -753,6 +753,7 @@ export const clientsRouter = router({
                       id: crypto.randomUUID(),
                       clientId: client.id,
                       vendorId: vendor.id,
+                      companyId: effectiveCompanyId,
                       eventId: mainEventId,
                       paymentStatus: 'pending',
                       approvalStatus: 'pending',
