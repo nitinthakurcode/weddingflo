@@ -184,13 +184,13 @@ export const floorPlansRouter = router({
           .insert(schema.floorPlans)
           .values({
             clientId: input.clientId,
+            companyId,
             name: input.name,
             width: input.canvasWidth,
             height: input.canvasHeight,
             metadata: {
               venueName: input.venueName,
               eventDate: input.eventDate,
-              companyId, // Store for future reference
             },
           })
           .returning();

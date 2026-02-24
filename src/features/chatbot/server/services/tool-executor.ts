@@ -1607,6 +1607,7 @@ async function executeAddGuest(
         arrivalMode: null,
       },
       fullName,
+      companyId: ctx.companyId!,
       tx,
     })
 

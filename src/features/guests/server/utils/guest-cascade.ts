@@ -44,6 +44,8 @@ interface CascadeGuestParams {
   }
   /** Full display name for the guest (e.g. "John Smith") */
   fullName: string
+  /** Company ID for multi-tenant isolation */
+  companyId: string
   tx: TransactionClient
 }
 
@@ -56,7 +58,7 @@ interface CascadeGuestParams {
 export async function cascadeGuestSideEffects(
   params: CascadeGuestParams
 ): Promise<CascadeAction[]> {
-  const { guest, fullName, tx } = params
+  const { guest, fullName, companyId, tx } = params
   const cascadeActions: CascadeAction[] = []
 
   // 1. Auto-create hotel entry if hotel is required
@@ -73,6 +75,7 @@ export async function cascadeGuestSideEffects(
         .insert(hotels)
         .values({
           clientId: guest.clientId,
+          companyId,
           guestId: guest.id,
           guestName: fullName,
           hotelName: guest.hotelName || null,
@@ -118,6 +121,7 @@ export async function cascadeGuestSideEffects(
         .insert(guestTransport)
         .values({
           clientId: guest.clientId,
+          companyId,
           guestId: guest.id,
           guestName: fullName,
           legType: 'arrival',

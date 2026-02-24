@@ -68,6 +68,7 @@ export function GuestDialog({
         mealPreference: data.meal_preference || undefined,
         dietaryRestrictions: data.dietary_restrictions || undefined,
         plusOne: data.plus_one_allowed || false,
+        plusOneName: data.plus_one_name || undefined,
         hotelRequired: data.hotel_required || false,
         hotelName: data.hotel_name || undefined,
         hotelCheckIn: data.hotel_check_in || undefined,

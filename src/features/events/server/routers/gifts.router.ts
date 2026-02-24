@@ -136,6 +136,7 @@ export const giftsRouter = router({
         .values({
           id: crypto.randomUUID(),
           clientId: input.clientId,
+          companyId: ctx.companyId!,
           guestId: input.guestId || null,
           name: input.name,
           value: input.value || null,

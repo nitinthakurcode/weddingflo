@@ -183,6 +183,7 @@ export const eventsRouter = router({
           return {
             id: uuidv4(),
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             eventId: eventId,
             title: item.title,
             description: item.description,
@@ -209,6 +210,7 @@ export const eventsRouter = router({
           .values({
             id: eventId,
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             title: input.title,
             description: input.description || null,
             eventType: input.eventType || null,

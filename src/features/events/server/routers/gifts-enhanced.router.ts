@@ -167,6 +167,7 @@ export const giftsEnhancedRouter = router({
           name: input.name,
           type: input.type || 'physical',
           value: input.value,
+          thankYouSent: false,
         })
         .returning()
 

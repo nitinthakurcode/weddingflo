@@ -174,6 +174,7 @@ export const guestTransportRouter = router({
           .insert(guestTransport)
           .values({
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             guestId: input.guestId || null,
             guestName: input.guestName,
             pickupDate: input.pickupDate || null,

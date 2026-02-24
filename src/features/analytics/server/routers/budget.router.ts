@@ -201,6 +201,7 @@ export const budgetRouter = router({
           .values({
             id: nanoid(),
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             category: input.category,
             segment: input.segment,
             item: input.itemName,

@@ -93,6 +93,7 @@ export const guestsRouter = router({
       groupName: z.string().optional().nullable().transform(val => val || undefined),
       guestSide: z.enum(GUEST_SIDE_VALUES).default('mutual'),
       plusOne: z.boolean().default(false),
+      plusOneName: z.string().optional().nullable(),
       dietaryRestrictions: z.string().optional(),
       notes: z.string().optional(),
       // Party info
@@ -176,6 +177,7 @@ export const guestsRouter = router({
           .insert(guests)
           .values({
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             firstName,
             lastName,
             email: input.email || null,
@@ -183,6 +185,7 @@ export const guestsRouter = router({
             groupName: input.groupName || null,
             guestSide: effectiveGuestSide,
             plusOneAllowed: input.plusOne,
+            plusOneName: input.plusOneName || null,
             dietaryRestrictions: input.dietaryRestrictions || null,
             notes: input.notes || null,
             // Party info
@@ -239,6 +242,7 @@ export const guestsRouter = router({
             arrivalMode: input.arrivalMode || null,
           },
           fullName,
+          companyId: ctx.companyId!,
           tx,
         })
         cascadeActions.push(...sideEffects)
@@ -281,6 +285,7 @@ export const guestsRouter = router({
         dietaryRestrictions: z.string().optional(),
         mealPreference: z.string().optional(),
         plusOne: z.boolean().optional(),
+        plusOneName: z.string().optional().nullable(),
         checkedIn: z.boolean().optional(),
         notes: z.string().optional(),
         // Party info
@@ -361,6 +366,7 @@ export const guestsRouter = router({
       if (input.data.mealPreference !== undefined) updateData.mealPreference = input.data.mealPreference
       if (input.data.dietaryRestrictions !== undefined) updateData.dietaryRestrictions = input.data.dietaryRestrictions
       if (input.data.plusOne !== undefined) updateData.plusOneAllowed = input.data.plusOne
+      if (input.data.plusOneName !== undefined) updateData.plusOneName = input.data.plusOneName
       if (input.data.checkedIn !== undefined) updateData.checkedIn = input.data.checkedIn
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
       // Party info
@@ -445,6 +451,7 @@ export const guestsRouter = router({
               .insert(hotels)
               .values({
                 clientId: guest.clientId,
+                companyId: ctx.companyId!,
                 guestId: guest.id,
                 guestName: guestName,
                 hotelName: input.data.hotelName || null,
@@ -515,6 +522,7 @@ export const guestsRouter = router({
               .insert(guestTransport)
               .values({
                 clientId: guest.clientId,
+                companyId: ctx.companyId!,
                 guestId: guest.id,
                 guestName: guestName,
                 legType: 'arrival',
@@ -588,6 +596,7 @@ export const guestsRouter = router({
                 .insert(hotels)
                 .values({
                   clientId: guest.clientId,
+                  companyId: ctx.companyId!,
                   guestId: guest.id, // Link to primary guest
                   guestName: memberName,
                   partySize: 1,
@@ -658,6 +667,7 @@ export const guestsRouter = router({
                 .insert(guestTransport)
                 .values({
                   clientId: guest.clientId,
+                  companyId: ctx.companyId!,
                   guestId: guest.id, // Link to primary guest
                   guestName: memberName,
                   legType: 'arrival',
@@ -912,6 +922,7 @@ export const guestsRouter = router({
         const nameParts = g.name.trim().split(' ')
         return {
           clientId: input.clientId,
+          companyId: ctx.companyId!,
           firstName: nameParts[0] || g.name,
           lastName: nameParts.length > 1 ? nameParts.slice(1).join(' ') : '',
           email: g.email || null,
@@ -983,6 +994,7 @@ export const guestsRouter = router({
               arrivalMode: guest.arrivalMode || null,
             },
             fullName,
+            companyId: ctx.companyId!,
             tx,
           })
           cascadeActions.push(...actions)

@@ -157,6 +157,7 @@ export const hotelsRouter = router({
           .insert(hotels)
           .values({
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             guestId: input.guestId || null,
             guestName: input.guestName,
             partySize: input.partySize || 1,
@@ -753,6 +754,7 @@ export const hotelsRouter = router({
 
           return {
             clientId: input.clientId,
+            companyId: ctx.companyId!,
             guestId: guest.id,
             guestName: `${guest.firstName} ${guest.lastName || ''}`.trim(),
             partySize: guest.partySize || 1,

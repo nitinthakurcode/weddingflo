@@ -127,6 +127,7 @@ export const timelineRouter = router({
         .values({
           id: uuidv4(),
           clientId: input.clientId,
+          companyId: ctx.companyId!,
           eventId: input.eventId || null, // Link to specific event if provided
           title: input.title,
           description: input.description || null,
@@ -702,6 +703,7 @@ export const timelineRouter = router({
                 .values({
                   id: uuidv4(),
                   clientId: input.clientId,
+                  companyId: ctx.companyId!,
                   eventId: item.eventId || null,
                   title: item.title,
                   description: item.description || null,
