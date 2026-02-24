@@ -1,3 +1,14 @@
+### First Steps for Every Session
+1. Read docs/DEVELOPER_HANDBOOK.md — this is the complete app reference. Understand the architecture, data flows, and module connections BEFORE making any change.
+2. Read docs/audit/session-8-final-report.md Section 7 (Danger Zones) if making backend changes.
+3. Read docs/DEPLOYMENT_RUNBOOK.md if preparing a deployment.
+
+The handbook covers: architecture (A), all 77 database tables (B), user auth flows (C), all 10 feature modules with full data paths (D), cross-module sync (E), change propagation checklists (F), import/export header mappings (G), security model (H), real-time sync (I), chatbot architecture (J), data loss prevention (K), debugging guide (L), environment variables (M), i18n (N), file uploads (O), payments/notifications/portal (P), testing/deployment (Q), third-party integrations (R).
+
+Do NOT make changes without understanding the full context from the handbook. When in doubt, search the handbook first.
+
+---
+
 # WeddingFlo Pro — Claude Code Rules
 
 > Multilingual wedding planning SaaS.
