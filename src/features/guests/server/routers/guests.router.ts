@@ -1283,6 +1283,16 @@ export const guestsRouter = router({
         })
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'guests',
+        entityId: input.guestId,
+        companyId: ctx.companyId!,
+        clientId: guest.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['guests.getAll', 'guests.getStats'],
+      })
+
       return guest
     }),
 })

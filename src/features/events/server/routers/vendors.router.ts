@@ -6,6 +6,7 @@ import { clients, vendors, clientVendors, events, vendorComments, vendorReviews,
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 
 /**
  * Auto-link vendor to event by matching service date with event date.
@@ -477,6 +478,9 @@ export const vendorsRouter = router({
           }
         }
 
+        // Recalculate client stats after budget insert
+        await recalcClientStats(tx, input.clientId)
+
         return {
           vendor,
           clientVendor,
@@ -717,6 +721,9 @@ export const vendorsRouter = router({
             console.warn('[Timeline] Failed to sync timeline with vendor update:', timelineError)
           }
         }
+
+        // Recalculate client stats after budget update
+        await recalcClientStats(tx, clientVendorRecord.clientId)
       })
 
       // Broadcast real-time sync after successful transaction
@@ -786,6 +793,11 @@ export const vendorsRouter = router({
           )
           .returning({ id: timeline.id })
         deletionCounts.timeline = timelineResult.length
+
+        // Recalculate client stats after budget delete
+        if (clientVendorRecord?.clientId) {
+          await recalcClientStats(tx, clientVendorRecord.clientId)
+        }
 
         console.log(`[Vendor Delete] Vendor ${input.id} deleted with cascade:`, deletionCounts)
         return { ...deletionCounts, clientId: clientVendorRecord?.clientId }
@@ -1289,7 +1301,10 @@ export const vendorsRouter = router({
 
       console.log(`[Vendors] Bulk created ${createdVendors.length} vendors from comma list for client ${input.clientId}`)
 
+      // Recalculate client stats after bulk budget inserts
       if (createdVendors.length > 0) {
+        await recalcClientStats(ctx.db, input.clientId)
+
         await broadcastSync({
           type: 'insert',
           module: 'vendors',
