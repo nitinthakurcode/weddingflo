@@ -183,17 +183,28 @@ export async function importHotelsExcel(
 ): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
   const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
 
-  const { headerMap } = await validateExcelFile(
-    buffer, EXPECTED_HOTEL_HEADERS, REQUIRED_HOTEL_HEADERS, 'Hotels',
-  );
+  // Support both "Hotels" (master export / standard) and "Hotel Accommodations" (individual export)
+  let headerMap: Map<string, number>;
+  let hotelSheetName = 'Hotels';
+  try {
+    ({ headerMap } = await validateExcelFile(
+      buffer, EXPECTED_HOTEL_HEADERS, REQUIRED_HOTEL_HEADERS, 'Hotels',
+    ));
+  } catch (e: any) {
+    if (!e.message?.includes('not found')) throw e;
+    ({ headerMap } = await validateExcelFile(
+      buffer, EXPECTED_HOTEL_HEADERS, REQUIRED_HOTEL_HEADERS, 'Hotel Accommodations',
+    ));
+    hotelSheetName = 'Hotel Accommodations';
+  }
 
   const workbook = new ExcelJS.Workbook();
   const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
   await workbook.xlsx.load(ab as ArrayBuffer);
-  const worksheet = workbook.getWorksheet('Hotels');
+  const worksheet = workbook.getWorksheet(hotelSheetName);
 
   if (!worksheet) {
-    results.errors.push('No "Hotels" sheet found');
+    results.errors.push(`No "${hotelSheetName}" sheet found`);
     return results;
   }
 

@@ -70,6 +70,94 @@ export const EXPECTED_VENDOR_HEADERS = [
 ];
 export const REQUIRED_VENDOR_HEADERS = ['Name'];
 
+// ── Header alias map for round-trip import/export compatibility ──
+// Maps canonical import header names (lowercased) → known export header variants (lowercased).
+// When an export header doesn't directly match an import lookup, aliases resolve the gap.
+// Used by validateExcelFile (server-side) and parseExcelFile (client-side).
+
+export const IMPORT_HEADER_ALIASES: Record<string, string[]> = {
+  // Budget: individual export uses display names
+  'item': ['expense name', 'expense item'],
+  'description': ['expense details'],
+  'estimated cost': ['budgeted amount'],
+  'paid amount': ['total paid'],
+  // Hotels: individual export uses annotated / alternate names
+  'check in date': ['check-in date', 'check-in'],
+  'check out date': ['check-out date', 'check-out'],
+  'accommodation needed': ['need hotel?', 'need hotel'],
+  'cost': ['room cost'],
+  'party size': ['total party size'],
+  // Transport: individual export uses display names
+  'leg type': ['journey type'],
+  'leg sequence': ['trip #', 'trip'],
+  'pickup from': ['pickup location'],
+  'drop to': ['drop-off location', 'dropoff location'],
+  'transport status': ['status'],
+  'vehicle info': ['vehicle/shuttle'],
+  // Vendors: individual export uses display names
+  'name': ['vendor name'],
+  'contact name': ['contact person'],
+  // Gifts: individual export uses "Gift Category" instead of "Gift Type"
+  'gift type': ['gift category'],
+  'gift item': ['gift name'],
+  // Timeline: master export uses "Activity" instead of "Title"
+  'title': ['activity'],
+  // Common: many exports use "Special Notes" or descriptive variants
+  'notes': ['special notes'],
+  'phone': ['phone number'],
+  'email': ['email address'],
+  'category': ['service category'],
+  'payment status': ['payment'],
+};
+
+/**
+ * Normalize an Excel header by stripping parenthetical annotations and special prefixes.
+ * Returns the cleaned lowercase base name.
+ * Examples:
+ *   "ID (Do not modify)"          → "id"
+ *   "Guest Name * (Required)"     → "guest name"
+ *   "# Total Party Size"          → "total party size"
+ *   "Check-In (YYYY-MM-DD)"       → "check-in"
+ *   "Room Cost (numbers only)"    → "room cost"
+ */
+function stripHeaderAnnotations(rawHeader: string): string {
+  return rawHeader
+    .toLowerCase()
+    .replace(/\s*\(.*?\)\s*/g, ' ')  // Remove parenthetical annotations
+    .replace(/[*#]+\s*/g, '')         // Remove * and # prefixes
+    .trim()
+    .replace(/\s+/g, ' ');            // Collapse whitespace
+}
+
+/**
+ * Resolve aliases for a headerMap.
+ * For each canonical import name that isn't already in the map,
+ * check if any of its known aliases exist and add the canonical entry.
+ * Also adds annotation-stripped base names for annotated headers.
+ */
+export function resolveHeaderAliases(headerMap: Map<string, number>): void {
+  // Phase 1: Strip annotations — add base names as additional entries
+  const entries = Array.from(headerMap.entries());
+  for (const [rawName, colIndex] of entries) {
+    const baseName = stripHeaderAnnotations(rawName);
+    if (baseName && baseName !== rawName && !headerMap.has(baseName)) {
+      headerMap.set(baseName, colIndex);
+    }
+  }
+
+  // Phase 2: Apply explicit aliases — resolve export names → canonical import names
+  for (const [canonical, aliases] of Object.entries(IMPORT_HEADER_ALIASES)) {
+    if (!headerMap.has(canonical)) {
+      for (const alias of aliases) {
+        if (headerMap.has(alias)) {
+          headerMap.set(canonical, headerMap.get(alias)!);
+          break;
+        }
+      }
+    }
+  }
+}
+
 // ── Shared parsing helpers (used by hotels, transport imports) ──
 
 /** Parse boolean: handles 'true'/'false'/'yes'/'no'/1/0 */
@@ -174,6 +262,10 @@ export async function validateExcelFile(
     }
   });
 
+  // ── Normalize headers and resolve aliases for round-trip compatibility ──
+  // This ensures exported files (with descriptive headers) can be re-imported
+  resolveHeaderAliases(headerMap);
+
   // ── Validate required headers ──
   const missing = requiredHeaders.filter(
     (h) => !headerMap.has(h.toLowerCase().trim()),
@@ -235,11 +327,58 @@ export async function parseExcelFile(file: File, options: ExcelParseOptions = {}
     );
   };
 
+  // Build alias lookup: maps original header (lowercase) → canonical import name (title-cased).
+  // Populated after row 1 is read, used when building data row objects.
+  const headerAliasMap = new Map<string, string>();
+
+  // Helper: given an original header string, return its canonical alias (title-cased) or null.
+  const resolveAlias = (original: string): string | null => {
+    const lower = original.toLowerCase().trim();
+    // Strip annotations to get base name
+    const base = stripHeaderAnnotations(original);
+    if (base === lower) {
+      // No annotations stripped — check direct alias only
+      for (const [canonical, aliases] of Object.entries(IMPORT_HEADER_ALIASES)) {
+        if (aliases.includes(lower)) {
+          return canonical.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        }
+      }
+      return null;
+    }
+    // Annotations were stripped — check alias on the base name
+    for (const [canonical, aliases] of Object.entries(IMPORT_HEADER_ALIASES)) {
+      if (aliases.includes(base)) {
+        return canonical.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      }
+    }
+    // Return stripped base as title-cased if different from original (handles annotation-only normalization)
+    return base.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+
+  // Helper: add row data with both original and aliased keys
+  const addRowData = (row: ExcelJS.Row, rowData: any) => {
+    row.eachCell((cell, colNumber) => {
+      const key = headers[colNumber - 1] || `Column${colNumber}`;
+      rowData[key] = cell.value ?? '';
+      // Add canonical alias key so import field mappings match export headers
+      const alias = headerAliasMap.get(key);
+      if (alias && alias !== key) {
+        rowData[alias] = cell.value ?? '';
+      }
+    });
+  };
+
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1 && options.hasHeaders !== false) {
       // First row is headers
       row.eachCell((cell, colNumber) => {
-        headers[colNumber - 1] = String(cell.value || `Column${colNumber}`);
+        const headerText = String(cell.value || `Column${colNumber}`);
+        headers[colNumber - 1] = headerText;
+        // Build alias lookup for data rows
+        const alias = resolveAlias(headerText);
+        if (alias && alias.toLowerCase() !== headerText.toLowerCase()) {
+          headerAliasMap.set(headerText, alias);
+        }
       });
     } else if (rowNumber === 2 && options.hasHeaders !== false) {
       // Check if row 2 is a hints row (January 2026 enhanced export format)
@@ -249,10 +388,7 @@ export async function parseExcelFile(file: File, options: ExcelParseOptions = {}
       } else {
         // Row 2 is actual data, process it
         const rowData: any = {};
-        row.eachCell((cell, colNumber) => {
-          const key = headers[colNumber - 1] || `Column${colNumber}`;
-          rowData[key] = cell.value ?? '';
-        });
+        addRowData(row, rowData);
 
         if (options.skipEmptyLines) {
           const hasValues = Object.values(rowData).some(v => v !== '' && v !== null && v !== undefined);
@@ -263,12 +399,13 @@ export async function parseExcelFile(file: File, options: ExcelParseOptions = {}
       }
     } else {
       const rowData: any = {};
-      row.eachCell((cell, colNumber) => {
-        const key = options.hasHeaders !== false && headers[colNumber - 1]
-          ? headers[colNumber - 1]
-          : `Column${colNumber}`;
-        rowData[key] = cell.value ?? '';
-      });
+      if (options.hasHeaders !== false) {
+        addRowData(row, rowData);
+      } else {
+        row.eachCell((cell, colNumber) => {
+          rowData[`Column${colNumber}`] = cell.value ?? '';
+        });
+      }
 
       // Skip empty rows if option is set
       if (options.skipEmptyLines) {
