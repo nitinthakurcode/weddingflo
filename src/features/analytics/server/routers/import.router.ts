@@ -756,7 +756,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['budget.getAll', 'budget.getSummary'],
+            queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
@@ -822,7 +822,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll'],
+            queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
@@ -1070,9 +1070,9 @@ export const importRouter = router({
       if (results.created > 0 || results.updated > 0) {
         // Module-specific queryPaths for targeted cache invalidation
         const queryPathsMap: Record<string, string[]> = {
-          guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary', 'budget.getAll', 'timeline.getAll'],
-          vendors: ['vendors.getAll', 'vendors.getStats', 'budget.getAll'],
-          budget: ['budget.getAll', 'budget.getSummary'],
+          guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'budget.getAll', 'clients.list', 'clients.getAll'],
+          vendors: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+          budget: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
           gifts: ['gifts.getAll', 'gifts.getStats'],
           hotels: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll'],
           transport: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll'],

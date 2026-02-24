@@ -88,16 +88,16 @@ const GIFT_HEADERS = [
   'Value', 'Status', 'Last Updated'
 ];
 
-// Query paths to invalidate per module after import
+// Query paths to invalidate per module after import (includes cascade paths)
 function getQueryPathsForModule(module: string): string[] {
   const map: Record<string, string[]> = {
-    guests: ['guests.getAll', 'guests.getStats', 'guests.getDietaryStats'],
-    budget: ['budget.getAll', 'budget.getSummary'],
-    timeline: ['timeline.getAll'],
-    hotels: ['hotels.getAll'],
-    transport: ['guestTransport.getAll'],
-    vendors: ['vendors.getAll'],
-    gifts: ['gifts.getAll'],
+    guests: ['guests.getAll', 'guests.getStats', 'guests.getDietaryStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+    budget: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+    timeline: ['timeline.getAll', 'timeline.getStats'],
+    hotels: ['hotels.getAll', 'timeline.getAll'],
+    transport: ['guestTransport.getAll', 'timeline.getAll'],
+    vendors: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+    gifts: ['gifts.getAll', 'gifts.getStats'],
   };
   return map[module] ?? [`${module}.getAll`];
 }

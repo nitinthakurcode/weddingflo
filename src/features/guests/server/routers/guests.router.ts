@@ -259,7 +259,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return {
@@ -704,7 +704,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingGuest.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return {
@@ -852,7 +852,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingGuest.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return { success: true, deleted: result }
@@ -1013,7 +1013,7 @@ export const guestsRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+          queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
         })
       }
 
@@ -1247,7 +1247,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: result.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'budget.getSummary'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return {
