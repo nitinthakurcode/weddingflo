@@ -494,7 +494,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.getAll'],
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
       })
 
       return {
@@ -727,7 +727,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: clientVendorRecord.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.getAll'],
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
       })
 
       return { success: true }
@@ -799,7 +799,7 @@ export const vendorsRouter = router({
           companyId: ctx.companyId!,
           clientId: result.clientId,
           userId: ctx.userId!,
-          queryPaths: ['vendors.getAll'],
+          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
         })
       }
 
@@ -843,6 +843,16 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: clientVendor.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats'],
+      })
+
       return clientVendor
     }),
 
@@ -859,9 +869,9 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
-      // Get vendorId from clientVendor record
+      // Get vendorId and clientId from clientVendor record
       const [clientVendor] = await ctx.db
-        .select({ vendorId: clientVendors.vendorId })
+        .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
         .from(clientVendors)
         .where(eq(clientVendors.id, input.clientVendorId))
         .limit(1)
@@ -886,6 +896,16 @@ export const vendorsRouter = router({
           message: 'Failed to create comment'
         })
       }
+
+      await broadcastSync({
+        type: 'insert',
+        module: 'vendors',
+        entityId: comment.id,
+        companyId: ctx.companyId!,
+        clientId: clientVendor.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll'],
+      })
 
       return comment
     }),
@@ -930,6 +950,15 @@ export const vendorsRouter = router({
         .delete(vendorComments)
         .where(eq(vendorComments.id, input.id))
 
+      await broadcastSync({
+        type: 'delete',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll'],
+      })
+
       return { success: true }
     }),
 
@@ -962,6 +991,16 @@ export const vendorsRouter = router({
       if (!clientVendor) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
+
+      await broadcastSync({
+        type: 'update',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: clientVendor.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats'],
+      })
 
       return clientVendor
     }),
@@ -1252,6 +1291,18 @@ export const vendorsRouter = router({
 
       console.log(`[Vendors] Bulk created ${createdVendors.length} vendors from comma list for client ${input.clientId}`)
 
+      if (createdVendors.length > 0) {
+        await broadcastSync({
+          type: 'insert',
+          module: 'vendors',
+          entityId: 'bulk',
+          companyId: ctx.companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary'],
+        })
+      }
+
       return {
         created: createdVendors.length,
         vendors: createdVendors,
@@ -1327,7 +1378,7 @@ export const vendorsRouter = router({
 
       // Find the budget entry linked to this vendor
       const [budgetItem] = await ctx.db
-        .select({ id: budget.id })
+        .select({ id: budget.id, clientId: budget.clientId })
         .from(budget)
         .where(eq(budget.vendorId, input.vendorId))
         .limit(1)
@@ -1375,6 +1426,16 @@ export const vendorsRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(budget.id, budgetItem.id))
+
+      await broadcastSync({
+        type: 'insert',
+        module: 'vendors',
+        entityId: advance.id,
+        companyId: ctx.companyId!,
+        clientId: budgetItem.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary'],
+      })
 
       return advance
     }),
@@ -1426,6 +1487,7 @@ export const vendorsRouter = router({
       }
 
       // Update budget's paidAmount to reflect total advances
+      let advanceClientId: string | undefined
       if (advance.budgetItemId) {
         const allAdvances = await ctx.db
           .select({ amount: advancePayments.amount })
@@ -1434,14 +1496,27 @@ export const vendorsRouter = router({
 
         const totalPaid = allAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-        await ctx.db
+        const [updatedBudgetItem] = await ctx.db
           .update(budget)
           .set({
             paidAmount: totalPaid.toString(),
             updatedAt: new Date(),
           })
           .where(eq(budget.id, advance.budgetItemId))
+          .returning({ clientId: budget.clientId })
+
+        advanceClientId = updatedBudgetItem?.clientId
       }
+
+      await broadcastSync({
+        type: 'update',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: advanceClientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary'],
+      })
 
       return advance
     }),
@@ -1473,6 +1548,7 @@ export const vendorsRouter = router({
         .where(eq(advancePayments.id, input.id))
 
       // Update budget's paidAmount to reflect remaining advances
+      let deleteClientId: string | undefined
       if (advance.budgetItemId) {
         const remainingAdvances = await ctx.db
           .select({ amount: advancePayments.amount })
@@ -1481,14 +1557,27 @@ export const vendorsRouter = router({
 
         const totalPaid = remainingAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
 
-        await ctx.db
+        const [updatedBudgetItem] = await ctx.db
           .update(budget)
           .set({
             paidAmount: totalPaid.toString(),
             updatedAt: new Date(),
           })
           .where(eq(budget.id, advance.budgetItemId))
+          .returning({ clientId: budget.clientId })
+
+        deleteClientId = updatedBudgetItem?.clientId
       }
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: deleteClientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary'],
+      })
 
       return { success: true }
     }),
@@ -1574,6 +1663,16 @@ export const vendorsRouter = router({
 
       console.log(`[Vendor Reviews] Added review for vendor ${input.vendorId}: rating=${input.rating}, avgRating=${avgRating}, totalReviews=${allReviews.length}`)
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'vendors',
+        entityId: review.id,
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats'],
+      })
+
       return review
     }),
 
@@ -1640,6 +1739,15 @@ export const vendorsRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(vendors.id, review.vendorId))
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'vendors',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['vendors.getAll', 'vendors.getStats'],
+      })
 
       return { success: true }
     }),

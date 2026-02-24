@@ -250,7 +250,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.getAll'],
+        queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
       })
 
       return {
@@ -528,7 +528,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: result.transport.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.getAll'],
+        queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
       })
 
       return {
@@ -604,7 +604,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: existingTransport?.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.getAll'],
+        queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
       })
 
       return { success: true, cascadeActions: result.cascadeActions }
@@ -751,6 +751,16 @@ export const guestTransportRouter = router({
 
       if (newTransportRecords.length > 0) {
         await ctx.db.insert(guestTransport).values(newTransportRecords)
+
+        await broadcastSync({
+          type: 'insert',
+          module: 'transport',
+          entityId: 'bulk',
+          companyId: ctx.companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
+        })
       }
 
       return {

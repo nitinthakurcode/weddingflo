@@ -1255,6 +1255,7 @@ export const clientsRouter = router({
         module: 'clients',
         entityId: input.id,
         companyId: ctx.companyId!,
+        clientId: input.id,
         userId: ctx.userId!,
         queryPaths: ['clients.list', 'clients.getAll'],
       });

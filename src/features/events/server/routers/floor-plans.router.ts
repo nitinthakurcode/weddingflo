@@ -1093,6 +1093,16 @@ export const floorPlansRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'floorPlans',
+          entityId: version.id,
+          companyId: companyId!,
+          clientId: floorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+        });
+
         return version;
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -1201,6 +1211,16 @@ export const floorPlansRouter = router({
             })));
         }
 
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: input.floorPlanId,
+          companyId: companyId!,
+          clientId: floorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+        });
+
         return {
           success: true,
           restoredTables: tablePositions.length,
@@ -1259,6 +1279,18 @@ export const floorPlansRouter = router({
         await db
           .delete(schema.seatingVersions)
           .where(eq(schema.seatingVersions.id, input.versionId));
+
+        if (floorPlan) {
+          await broadcastSync({
+            type: 'delete',
+            module: 'floorPlans',
+            entityId: input.versionId,
+            companyId: companyId!,
+            clientId: floorPlan.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+          });
+        }
 
         return { success: true };
       } catch (error) {
@@ -1337,6 +1369,15 @@ export const floorPlansRouter = router({
             newData: input.newState as Record<string, unknown> | null,
           })
           .returning();
+
+        await broadcastSync({
+          type: 'insert',
+          module: 'floorPlans',
+          entityId: log.id,
+          companyId: companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.getById'],
+        });
 
         return log;
       } catch (error) {
@@ -1422,6 +1463,16 @@ export const floorPlansRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'floorPlans',
+          entityId: conflict.id,
+          companyId: companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.getById'],
+        });
+
         return conflict;
       } catch (error) {
         console.error('Error adding guest conflict:', error);
@@ -1457,6 +1508,15 @@ export const floorPlansRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'floorPlans',
+          entityId: preference.id,
+          companyId: companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.getById'],
+        });
+
         return preference;
       } catch (error) {
         console.error('Error adding guest preference:', error);
@@ -1484,6 +1544,15 @@ export const floorPlansRouter = router({
           .delete(schema.guestConflicts)
           .where(eq(schema.guestConflicts.id, input.conflictId));
 
+        await broadcastSync({
+          type: 'delete',
+          module: 'floorPlans',
+          entityId: input.conflictId,
+          companyId: companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.getById'],
+        });
+
         return { success: true };
       } catch (error) {
         console.error('Error removing guest conflict:', error);
@@ -1510,6 +1579,15 @@ export const floorPlansRouter = router({
         await db
           .delete(schema.guestPreferences)
           .where(eq(schema.guestPreferences.id, input.preferenceId));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'floorPlans',
+          entityId: input.preferenceId,
+          companyId: companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.getById'],
+        });
 
         return { success: true };
       } catch (error) {

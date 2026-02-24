@@ -265,7 +265,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary'],
+        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return budgetItem
@@ -461,7 +461,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: budgetItem.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary'],
+        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return budgetItem
@@ -522,8 +522,9 @@ export const budgetRouter = router({
         module: 'budget',
         entityId: input.id,
         companyId: ctx.companyId!,
+        clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary'],
+        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return { success: true }
@@ -624,6 +625,16 @@ export const budgetRouter = router({
         return newAdvance
       })
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'budget',
+        entityId: advance.id,
+        companyId: ctx.companyId!,
+        clientId: budgetItem.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+      })
+
       return advance
     }),
 
@@ -654,7 +665,7 @@ export const budgetRouter = router({
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
       // Update advance + recalc budget + sync vendor atomically
-      const advance = await ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const [updated] = await tx
           .update(advancePayments)
           .set(updateData)
@@ -667,6 +678,8 @@ export const budgetRouter = router({
             message: 'Advance payment not found'
           })
         }
+
+        let txClientId: string | undefined
 
         // Update budget's paidAmount to reflect total advances if budgetItemId exists
         if (updated.budgetItemId) {
@@ -701,13 +714,24 @@ export const budgetRouter = router({
           // Recalculate client cached budget total
           if (updatedBudget?.clientId) {
             await recalcClientStats(tx, updatedBudget.clientId)
+            txClientId = updatedBudget.clientId
           }
         }
 
-        return updated
+        return { advance: updated, clientId: txClientId }
       })
 
-      return advance
+      await broadcastSync({
+        type: 'update',
+        module: 'budget',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: result.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+      })
+
+      return result.advance
     }),
 
   deleteAdvancePayment: adminProcedure
@@ -729,10 +753,12 @@ export const budgetRouter = router({
       }
 
       // Delete advance + recalc budget + sync vendor atomically
-      await ctx.db.transaction(async (tx) => {
+      const deleteResult = await ctx.db.transaction(async (tx) => {
         await tx
           .delete(advancePayments)
           .where(eq(advancePayments.id, input.id))
+
+        let txClientId: string | undefined
 
         // Update budget's paidAmount to reflect remaining advances if budgetItemId exists
         if (advance.budgetItemId) {
@@ -767,8 +793,21 @@ export const budgetRouter = router({
           // Recalculate client cached budget total
           if (updatedBudget?.clientId) {
             await recalcClientStats(tx, updatedBudget.clientId)
+            txClientId = updatedBudget.clientId
           }
         }
+
+        return { clientId: txClientId }
+      })
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'budget',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: deleteResult.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
       })
 
       return { success: true }

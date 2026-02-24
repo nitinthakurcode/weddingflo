@@ -269,7 +269,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll'],
+        queryPaths: ['hotels.getAll', 'timeline.getAll'],
       })
 
       return {
@@ -505,7 +505,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll'],
+        queryPaths: ['hotels.getAll', 'timeline.getAll'],
       })
 
       return {
@@ -580,7 +580,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll'],
+        queryPaths: ['hotels.getAll', 'timeline.getAll'],
       })
 
       return { success: true, cascadeActions: result.cascadeActions }
@@ -598,7 +598,7 @@ export const hotelsRouter = router({
 
       // Verify hotel belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: hotels.id })
+        .select({ id: hotels.id, clientId: hotels.clientId })
         .from(hotels)
         .innerJoin(clients, eq(hotels.clientId, clients.id))
         .where(
@@ -622,6 +622,16 @@ export const hotelsRouter = router({
         })
         .where(eq(hotels.id, input.id))
         .returning()
+
+      await broadcastSync({
+        type: 'update',
+        module: 'hotels',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: existing.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['hotels.getAll'],
+      })
 
       return hotel
     }),
@@ -758,6 +768,16 @@ export const hotelsRouter = router({
         await ctx.db
           .insert(hotels)
           .values(newHotelRecords)
+
+        await broadcastSync({
+          type: 'insert',
+          module: 'hotels',
+          entityId: 'bulk',
+          companyId: ctx.companyId!,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['hotels.getAll', 'timeline.getAll'],
+        })
       }
 
       return {

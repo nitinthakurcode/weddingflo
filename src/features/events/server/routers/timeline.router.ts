@@ -154,7 +154,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.getAll'],
+        queryPaths: ['timeline.getAll', 'timeline.getStats'],
       })
 
       return timelineItem
@@ -232,7 +232,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: timelineItem.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.getAll'],
+        queryPaths: ['timeline.getAll', 'timeline.getStats'],
       })
 
       return timelineItem
@@ -277,7 +277,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.getAll'],
+        queryPaths: ['timeline.getAll', 'timeline.getStats'],
       })
 
       return { success: true }
@@ -321,6 +321,16 @@ export const timelineRouter = router({
       // Execute all updates
       await Promise.all(updates)
 
+      await broadcastSync({
+        type: 'update',
+        module: 'timeline',
+        entityId: 'bulk',
+        companyId: ctx.companyId!,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['timeline.getAll', 'timeline.getStats'],
+      })
+
       return { success: true }
     }),
 
@@ -363,6 +373,16 @@ export const timelineRouter = router({
         })
         .where(eq(timeline.id, input.id))
         .returning()
+
+      await broadcastSync({
+        type: 'update',
+        module: 'timeline',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: timelineItem.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['timeline.getAll', 'timeline.getStats'],
+      })
 
       return timelineItem
     }),
@@ -715,7 +735,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.getAll'],
+        queryPaths: ['timeline.getAll', 'timeline.getStats'],
       })
 
       return results
