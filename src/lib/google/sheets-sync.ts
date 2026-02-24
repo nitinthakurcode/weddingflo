@@ -583,7 +583,8 @@ export async function syncAllToSheets(
 export async function importGuestsFromSheet(
   sheetsClient: sheets_v4.Sheets,
   spreadsheetId: string,
-  clientId: string
+  clientId: string,
+  companyId?: string | null
 ): Promise<SyncStats> {
   const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
 
@@ -681,6 +682,7 @@ export async function importGuestsFromSheet(
             await tx.insert(guests).values({
               id,
               clientId,
+              companyId: companyId || undefined,
               ...guestData,
             });
           }
@@ -1395,7 +1397,7 @@ export async function importAllFromSheets(
   const allErrors: string[] = [];
 
   // Import each module
-  const guestStats = await importGuestsFromSheet(sheetsClient, spreadsheetId, clientId);
+  const guestStats = await importGuestsFromSheet(sheetsClient, spreadsheetId, clientId, companyId);
   totalImported += guestStats.imported;
   byModule.guests = guestStats.imported;
   allErrors.push(...guestStats.errors);

@@ -787,6 +787,7 @@ async function executeCreateClient(
         .values({
           id: crypto.randomUUID(),
           clientId: newClient.id,
+          companyId: ctx.companyId || undefined,
           title: eventTitle,
           eventType: 'Wedding',
           eventDate: args.weddingDate as string,
@@ -815,6 +816,7 @@ async function executeCreateClient(
       const budgetItems = budgetTemplate.map((item) => ({
         id: crypto.randomUUID(),
         clientId: newClient.id,
+        companyId: ctx.companyId || undefined,
         category: item.category,
         segment: item.segment,
         item: item.item,
@@ -898,6 +900,7 @@ async function executeCreateClient(
             await tx.insert(budget).values({
               id: crypto.randomUUID(),
               clientId: newClient.id,
+              companyId: ctx.companyId || undefined,
               vendorId: vendor.id,
               eventId: mainEventId,
               category,
@@ -1056,6 +1059,7 @@ async function executeUpdateClient(
           .values({
             id: crypto.randomUUID(),
             clientId,
+            companyId: ctx.companyId || undefined,
             title: eventTitle,
             eventType: 'Wedding',
             eventDate: parseNaturalDate(args.weddingDate as string) || (args.weddingDate as string),
@@ -1566,6 +1570,7 @@ async function executeAddGuest(
       .insert(guests)
       .values({
         clientId,
+        companyId: ctx.companyId || undefined,
         firstName,
         lastName: lastName || '',
         email: email || undefined,
@@ -1841,24 +1846,26 @@ async function executeBulkUpdateGuests(
     })
   }
 
-  // Update all matched guests
-  const updatedCount = await db
-    .update(guests)
-    .set(updateValues)
-    .where(
-      and(
-        eq(guests.clientId, clientId),
-        sql`${guests.id} = any(${targetGuests.map(g => g.id)})`
+  // Update all matched guests atomically with budget/stats recalc
+  await withTransaction(async (tx) => {
+    await tx
+      .update(guests)
+      .set(updateValues)
+      .where(
+        and(
+          eq(guests.clientId, clientId),
+          sql`${guests.id} = any(${targetGuests.map(g => g.id)})`
+        )
       )
-    )
 
-  // Recalculate per-guest budget items when RSVP status changes (parity with guests.router.ts)
-  if (updates.rsvpStatus !== undefined) {
-    await recalcPerGuestBudgetItems(db, clientId)
-  }
+    // Recalculate per-guest budget items when RSVP status changes (parity with guests.router.ts)
+    if (updates.rsvpStatus !== undefined) {
+      await recalcPerGuestBudgetItems(tx, clientId)
+    }
 
-  // Recalculate client cached guest count and budget total
-  await recalcClientStats(db, clientId)
+    // Recalculate client cached guest count and budget total
+    await recalcClientStats(tx, clientId)
+  })
 
   return {
     success: true,
@@ -1973,6 +1980,7 @@ async function executeCreateEvent(
       return {
         id: crypto.randomUUID(),
         clientId,
+        companyId: ctx.companyId || undefined,
         eventId,
         title: item.title,
         description: item.description,
@@ -1998,6 +2006,7 @@ async function executeCreateEvent(
       .values({
         id: eventId,
         clientId,
+        companyId: ctx.companyId || undefined,
         title,
         eventType: eventType || undefined,
         eventDate: parsedDate,
@@ -2230,6 +2239,7 @@ async function executeAddTimelineItem(
     .values({
       id: crypto.randomUUID(),
       clientId,
+      companyId: ctx.companyId || undefined,
       eventId: eventId || undefined,
       title,
       description: description || undefined,
@@ -2439,6 +2449,7 @@ async function executeAddVendor(
           .values({
             id: crypto.randomUUID(),
             clientId,
+            companyId: ctx.companyId || undefined,
             vendorId: newVendor.id,
             eventId: eventId || null,
             category: category,
@@ -2466,6 +2477,7 @@ async function executeAddVendor(
         const [timelineEntry] = await tx.insert(timeline).values({
           id: crypto.randomUUID(),
           clientId,
+          companyId: ctx.companyId || undefined,
           title: `${name} - ${category || 'Vendor Service'}`,
           description: `Vendor service: ${name}`,
           startTime: serviceDateTime,
@@ -2719,6 +2731,7 @@ async function executeAddHotelBooking(
       .insert(hotels)
       .values({
         clientId,
+        companyId: ctx.companyId || undefined,
         guestId: targetGuestId || undefined,
         guestName: guestDisplayName,
         hotelName: hotelName || undefined,
@@ -2793,6 +2806,7 @@ async function executeAddHotelBooking(
       await tx.insert(timeline).values({
         id: crypto.randomUUID(),
         clientId,
+        companyId: ctx.companyId || undefined,
         title: `Hotel Check-in: ${guestDisplayName}`,
         description: hotelName ? `Check-in at ${hotelName}` : 'Guest hotel check-in',
         startTime: checkInDateTime,
@@ -2996,6 +3010,7 @@ async function executeUpdateBudgetItem(
         await tx.insert(timeline).values({
           id: crypto.randomUUID(),
           clientId: updated.clientId,
+          companyId: ctx.companyId || undefined,
           ...timelineData,
           sourceModule: 'budget',
           sourceId: updated.id,
@@ -4051,6 +4066,7 @@ async function executeAssignTransport(
       .insert(guestTransport)
       .values({
         clientId,
+        companyId: ctx.companyId || undefined,
         guestId: guest.id,
         guestName,
         vehicleInfo,
@@ -4956,6 +4972,7 @@ async function executeBulkAddHotelBookings(
       const guestFullName = `${guest.firstName} ${guest.lastName || ''}`.trim()
       await db.insert(hotels).values({
         clientId,
+        companyId: ctx.companyId || undefined,
         guestId: guest.id,
         guestName: guestFullName,
         accommodationId: accommodation.id,
@@ -5124,6 +5141,7 @@ async function executeAddSeatingConstraint(
       .values({
         id: crypto.randomUUID(),
         clientId,
+        companyId: ctx.companyId || undefined,
         name: 'Main Floor Plan',
         width: 1200,
         height: 800,
