@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/schema';
 import type { SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 // Budget category segment type (different from BudgetSegment which is budget tier)
 type BudgetCategorySegment = 'vendors' | 'artists' | 'creatives' | 'travel' | 'accommodation' | 'other';
@@ -535,129 +536,131 @@ export const clientsRouter = router({
         dbUser = refreshedUser;
       }
 
-      // Create client
-      const [data] = await ctx.db
-        .insert(clients)
-        .values({
-          id: crypto.randomUUID(),
-          companyId: effectiveCompanyId,
-          partner1FirstName: input.partner1_first_name,
-          partner1LastName: input.partner1_last_name || null,
-          partner1Email: input.partner1_email,
-          partner1Phone: input.partner1_phone || null,
-          partner1FatherName: input.partner1_father_name || null,
-          partner1MotherName: input.partner1_mother_name || null,
-          partner2FirstName: input.partner2_first_name || null,
-          partner2LastName: input.partner2_last_name || null,
-          partner2Email: input.partner2_email || null,
-          partner2Phone: input.partner2_phone || null,
-          partner2FatherName: input.partner2_father_name || null,
-          partner2MotherName: input.partner2_mother_name || null,
-          weddingName: input.wedding_name || null,
-          weddingDate: input.wedding_date || null,
-          venue: input.venue || null,
-          budget: input.budget?.toString() || null,
-          guestCount: input.guest_count || null,
-          status: 'planning',
-          notes: input.notes || null,
-          planningSide: input.planning_side || 'both',
-          weddingType: input.wedding_type || 'traditional',
-          createdBy: dbUser.id,
-          metadata: {},
-        })
-        .returning();
-
-      if (!data) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to create client',
-        });
-      }
-
-      // If we used self-heal, remind user to refresh for new JWT
-      if (usedSelfHeal) {
-        console.log('[Clients Router] Client created via self-heal. User should refresh page to get new JWT.');
-      }
-
-      // Auto-create "Main Wedding" event if wedding_date is provided
-      let mainEventId: string | null = null;
-      if (data && input.wedding_date) {
-        const eventTitle = input.wedding_name ||
-          `${input.partner1_first_name}${input.partner2_first_name ? ` & ${input.partner2_first_name}` : ''}'s Wedding`;
-
-        try {
-          const [createdEvent] = await ctx.db
-            .insert(events)
-            .values({
-              id: crypto.randomUUID(),
-              clientId: data.id,
-              title: eventTitle,
-              eventType: 'Wedding',
-              eventDate: input.wedding_date,
-              venueName: input.venue || null,
-              guestCount: input.guest_count || null,
-              status: 'planned',
-              notes: input.notes || null,
-              description: `Main wedding ceremony for ${eventTitle}`,
-            })
-            .returning({ id: events.id });
-
-          if (createdEvent) {
-            mainEventId = createdEvent.id;
-          }
-          console.log('[Clients Router] Auto-created Main Wedding event for client:', data.id, 'eventId:', mainEventId);
-        } catch (eventError) {
-          // Log but don't fail - client creation succeeded
-          console.error('[Clients Router] Failed to auto-create wedding event:', eventError);
-        }
-      }
-
-      // Auto-populate budget categories based on wedding type and budget amount
-      if (data && input.budget && input.budget > 0) {
-        const weddingType = (input.wedding_type || 'traditional') as WeddingType;
-        const budgetTemplate = BUDGET_TEMPLATES[weddingType] || BUDGET_TEMPLATES.traditional;
-
-        try {
-          const budgetItems = budgetTemplate.map((item, index) => ({
+      // Wrap all writes in a transaction for atomicity
+      const data = await ctx.db.transaction(async (tx) => {
+        // Create client
+        const [client] = await tx
+          .insert(clients)
+          .values({
             id: crypto.randomUUID(),
-            clientId: data.id,
-            category: item.category,
-            segment: item.segment,
-            item: item.item,
-            estimatedCost: ((input.budget! * item.percentage) / 100).toFixed(2),
-            paidAmount: '0',
-            paymentStatus: 'pending',
-            clientVisible: true,
-            notes: `Auto-generated based on ${weddingType} wedding budget allocation`,
-          }));
+            companyId: effectiveCompanyId,
+            partner1FirstName: input.partner1_first_name,
+            partner1LastName: input.partner1_last_name || null,
+            partner1Email: input.partner1_email,
+            partner1Phone: input.partner1_phone || null,
+            partner1FatherName: input.partner1_father_name || null,
+            partner1MotherName: input.partner1_mother_name || null,
+            partner2FirstName: input.partner2_first_name || null,
+            partner2LastName: input.partner2_last_name || null,
+            partner2Email: input.partner2_email || null,
+            partner2Phone: input.partner2_phone || null,
+            partner2FatherName: input.partner2_father_name || null,
+            partner2MotherName: input.partner2_mother_name || null,
+            weddingName: input.wedding_name || null,
+            weddingDate: input.wedding_date || null,
+            venue: input.venue || null,
+            budget: input.budget?.toString() || null,
+            guestCount: input.guest_count || null,
+            status: 'planning',
+            notes: input.notes || null,
+            planningSide: input.planning_side || 'both',
+            weddingType: input.wedding_type || 'traditional',
+            createdBy: dbUser.id,
+            metadata: {},
+          })
+          .returning();
 
-          await ctx.db.insert(budget).values(budgetItems);
-          console.log('[Clients Router] Auto-created', budgetItems.length, 'budget categories for client:', data.id);
-        } catch (budgetError) {
-          // Log but don't fail - client creation succeeded
-          console.error('[Clients Router] Failed to auto-create budget categories:', budgetError);
+        if (!client) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create client',
+          });
         }
-      }
+
+        // If we used self-heal, remind user to refresh for new JWT
+        if (usedSelfHeal) {
+          console.log('[Clients Router] Client created via self-heal. User should refresh page to get new JWT.');
+        }
+
+        // Auto-create "Main Wedding" event if wedding_date is provided
+        let mainEventId: string | null = null;
+        if (input.wedding_date) {
+          const eventTitle = input.wedding_name ||
+            `${input.partner1_first_name}${input.partner2_first_name ? ` & ${input.partner2_first_name}` : ''}'s Wedding`;
+
+          try {
+            const [createdEvent] = await tx
+              .insert(events)
+              .values({
+                id: crypto.randomUUID(),
+                clientId: client.id,
+                title: eventTitle,
+                eventType: 'Wedding',
+                eventDate: input.wedding_date,
+                venueName: input.venue || null,
+                guestCount: input.guest_count || null,
+                status: 'planned',
+                notes: input.notes || null,
+                description: `Main wedding ceremony for ${eventTitle}`,
+              })
+              .returning({ id: events.id });
+
+            if (createdEvent) {
+              mainEventId = createdEvent.id;
+            }
+            console.log('[Clients Router] Auto-created Main Wedding event for client:', client.id, 'eventId:', mainEventId);
+          } catch (eventError) {
+            // Log but don't fail - client creation succeeded
+            console.error('[Clients Router] Failed to auto-create wedding event:', eventError);
+          }
+        }
+
+        // Auto-populate budget categories based on wedding type and budget amount
+        if (input.budget && input.budget > 0) {
+          const weddingType = (input.wedding_type || 'traditional') as WeddingType;
+          const budgetTemplate = BUDGET_TEMPLATES[weddingType] || BUDGET_TEMPLATES.traditional;
+
+          try {
+            const budgetItems = budgetTemplate.map((item, index) => ({
+              id: crypto.randomUUID(),
+              clientId: client.id,
+              category: item.category,
+              segment: item.segment,
+              item: item.item,
+              estimatedCost: ((input.budget! * item.percentage) / 100).toFixed(2),
+              paidAmount: '0',
+              paymentStatus: 'pending',
+              clientVisible: true,
+              notes: `Auto-generated based on ${weddingType} wedding budget allocation`,
+            }));
+
+            await tx.insert(budget).values(budgetItems);
+            console.log('[Clients Router] Auto-created', budgetItems.length, 'budget categories for client:', client.id);
+          } catch (budgetError) {
+            // Log but don't fail - client creation succeeded
+            console.error('[Clients Router] Failed to auto-create budget categories:', budgetError);
+          }
+        }
 
       // NOTE: Timeline items are no longer auto-generated at client creation.
       // They are now generated per-event when events are created via the events router.
       // This allows for date-specific and event-type-specific timelines.
 
-      // Auto-create vendors from comma-separated list
-      // Format: "Category: Vendor Name" or just "Vendor Name"
-      // e.g., "Venue: Grand Hotel, Catering: Tasty Foods, Photography"
-      if (data && input.vendors && input.vendors.trim()) {
-        try {
-          // Parse vendor entries - each can be "Category: Name" or just "Name"
-          const vendorEntries = input.vendors
-            .split(',')
-            .map(entry => entry.trim())
-            .filter(entry => entry.length > 0);
+        // Auto-create vendors from comma-separated list
+        // Format: "Category: Vendor Name" or just "Vendor Name"
+        // e.g., "Venue: Grand Hotel, Catering: Tasty Foods, Photography"
+        if (input.vendors && input.vendors.trim()) {
+          try {
+            // Parse vendor entries - each can be "Category: Name" or just "Name"
+            const vendorEntries = input.vendors
+              .split(',')
+              .map(entry => entry.trim())
+              .filter(entry => entry.length > 0);
 
-          // Get event title for budget category
-          const budgetCategory = mainEventId
-            ? (input.wedding_name || `${input.partner1_first_name}'s Wedding`)
-            : 'Unassigned';
+            // Get event title for budget category
+            const budgetCategory = mainEventId
+              ? (input.wedding_name || `${input.partner1_first_name}'s Wedding`)
+              : 'Unassigned';
 
           // Category mapping for recognized keywords
           const categoryKeywords: Record<string, string> = {
@@ -728,65 +731,79 @@ export const clientsRouter = router({
 
             if (!vendorName) continue;
 
-            try {
-              // Create vendor in vendors table
-              const [vendor] = await ctx.db
-                .insert(vendors)
-                .values({
-                  id: crypto.randomUUID(),
-                  companyId: effectiveCompanyId,
-                  name: vendorName,
-                  category: category,
-                  isPreferred: false,
-                })
-                .returning();
-
-              if (vendor) {
-                // Create client_vendor relationship
-                await ctx.db
-                  .insert(clientVendors)
+              try {
+                // Create vendor in vendors table
+                const [vendor] = await tx
+                  .insert(vendors)
                   .values({
                     id: crypto.randomUUID(),
-                    clientId: data.id,
+                    companyId: effectiveCompanyId,
+                    name: vendorName,
+                    category: category,
+                    isPreferred: false,
+                  })
+                  .returning();
+
+                if (vendor) {
+                  // Create client_vendor relationship
+                  await tx
+                    .insert(clientVendors)
+                    .values({
+                      id: crypto.randomUUID(),
+                      clientId: client.id,
+                      vendorId: vendor.id,
+                      eventId: mainEventId,
+                      paymentStatus: 'pending',
+                      approvalStatus: 'pending',
+                    });
+
+                  // Auto-create budget item for this vendor (seamless module integration)
+                  await tx.insert(budget).values({
+                    id: crypto.randomUUID(),
+                    clientId: client.id,
                     vendorId: vendor.id,
                     eventId: mainEventId,
+                    category: budgetCategory,
+                    segment: 'vendors',
+                    item: vendorName,
+                    estimatedCost: '0',
+                    actualCost: null,
+                    paidAmount: '0',
                     paymentStatus: 'pending',
-                    approvalStatus: 'pending',
+                    clientVisible: true,
+                    isLumpSum: false,
+                    notes: `Auto-created from vendor: ${vendorName}`,
                   });
 
-                // Auto-create budget item for this vendor (seamless module integration)
-                await ctx.db.insert(budget).values({
-                  id: crypto.randomUUID(),
-                  clientId: data.id,
-                  vendorId: vendor.id,
-                  eventId: mainEventId,
-                  category: budgetCategory,
-                  segment: 'vendors',
-                  item: vendorName,
-                  estimatedCost: '0',
-                  actualCost: null,
-                  paidAmount: '0',
-                  paymentStatus: 'pending',
-                  clientVisible: true,
-                  isLumpSum: false,
-                  notes: `Auto-created from vendor: ${vendorName}`,
-                });
-
-                createdVendors.push(vendorName);
+                  createdVendors.push(vendorName);
+                }
+              } catch (vendorErr) {
+                console.warn(`[Clients Router] Failed to create vendor "${vendorName}":`, vendorErr);
               }
-            } catch (vendorErr) {
-              console.warn(`[Clients Router] Failed to create vendor "${vendorName}":`, vendorErr);
-            }
           }
 
           if (createdVendors.length > 0) {
-            console.log('[Clients Router] Auto-created', createdVendors.length, 'vendors for client:', data.id, createdVendors);
+            console.log('[Clients Router] Auto-created', createdVendors.length, 'vendors for client:', client.id, createdVendors);
           }
         } catch (vendorsError) {
           // Log but don't fail - client creation succeeded
           console.error('[Clients Router] Failed to auto-create vendors:', vendorsError);
         }
       }
+
+        return client;
+      });
+
+      // Broadcast real-time sync after successful transaction
+      await broadcastSync({
+        type: 'insert',
+        module: 'clients',
+        entityId: data.id,
+        companyId: effectiveCompanyId,
+        clientId: data.id,
+        userId: ctx.userId,
+        queryPaths: ['clients.list', 'clients.getAll'],
+      });
 
       return data;
     }),
@@ -892,91 +909,110 @@ export const clientsRouter = router({
       if (input.wedding_type !== undefined) updateData.weddingType = input.wedding_type;
       updateData.updatedAt = new Date();
 
-      const [data] = await ctx.db
-        .update(clients)
-        .set(updateData)
-        .where(
-          and(
-            eq(clients.id, input.id),
-            eq(clients.companyId, ctx.companyId)
-          )
-        )
-        .returning();
+      // Capture companyId before callback (TS narrowing doesn't cross async boundaries)
+      const companyId = ctx.companyId;
 
-      if (!data) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to update client',
-        });
-      }
-
-      // Sync wedding details to main event if wedding-related fields were updated
-      const weddingFieldsUpdated = input.wedding_date !== undefined ||
-        input.venue !== undefined ||
-        input.guest_count !== undefined ||
-        input.wedding_name !== undefined;
-
-      if (weddingFieldsUpdated) {
-        // Find the main wedding event (event_type = 'Wedding') for this client
-        const [mainEvent] = await ctx.db
-          .select({ id: events.id })
-          .from(events)
+      // Wrap all writes in a transaction for atomicity
+      const data = await ctx.db.transaction(async (tx) => {
+        const [result] = await tx
+          .update(clients)
+          .set(updateData)
           .where(
             and(
-              eq(events.clientId, input.id),
-              eq(events.eventType, 'Wedding'),
-              isNull(events.deletedAt)
+              eq(clients.id, input.id),
+              eq(clients.companyId, companyId)
             )
           )
-          .limit(1);
+          .returning();
 
-        if (mainEvent) {
-          // Update existing main event with new wedding details
-          const eventUpdate: Record<string, any> = {};
-          if (input.wedding_date !== undefined) eventUpdate.eventDate = input.wedding_date;
-          if (input.venue !== undefined) eventUpdate.venueName = input.venue;
-          if (input.guest_count !== undefined) eventUpdate.guestCount = input.guest_count;
-          if (input.wedding_name !== undefined) {
-            eventUpdate.title = input.wedding_name || data.weddingName ||
-              `${data.partner1FirstName}${data.partner2FirstName ? ` & ${data.partner2FirstName}` : ''}'s Wedding`;
-          }
+        if (!result) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to update client',
+          });
+        }
 
-          try {
-            await ctx.db
-              .update(events)
-              .set(eventUpdate)
-              .where(eq(events.id, mainEvent.id));
+        // Sync wedding details to main event if wedding-related fields were updated
+        const weddingFieldsUpdated = input.wedding_date !== undefined ||
+          input.venue !== undefined ||
+          input.guest_count !== undefined ||
+          input.wedding_name !== undefined;
 
-            console.log('[Clients Router] Synced wedding details to main event:', mainEvent.id);
-          } catch (eventUpdateError) {
-            console.error('[Clients Router] Failed to sync wedding details to event:', eventUpdateError);
-          }
-        } else if (input.wedding_date) {
-          // No main event exists but wedding_date was provided - create one
-          const eventTitle = input.wedding_name || data.weddingName ||
-            `${data.partner1FirstName}${data.partner2FirstName ? ` & ${data.partner2FirstName}` : ''}'s Wedding`;
+        if (weddingFieldsUpdated) {
+          // Find the main wedding event (event_type = 'Wedding') for this client
+          const [mainEvent] = await tx
+            .select({ id: events.id })
+            .from(events)
+            .where(
+              and(
+                eq(events.clientId, input.id),
+                eq(events.eventType, 'Wedding'),
+                isNull(events.deletedAt)
+              )
+            )
+            .limit(1);
 
-          try {
-            await ctx.db
-              .insert(events)
-              .values({
-                id: crypto.randomUUID(),
-                clientId: input.id,
-                title: eventTitle,
-                eventType: 'Wedding',
-                eventDate: input.wedding_date, // Already checked that input.wedding_date is defined above
-                venueName: input.venue || data.venue || undefined,
-                guestCount: input.guest_count || data.guestCount || undefined,
-                status: 'planned',
-                description: `Main wedding ceremony for ${eventTitle}`,
-              });
+          if (mainEvent) {
+            // Update existing main event with new wedding details
+            const eventUpdate: Record<string, any> = {};
+            if (input.wedding_date !== undefined) eventUpdate.eventDate = input.wedding_date;
+            if (input.venue !== undefined) eventUpdate.venueName = input.venue;
+            if (input.guest_count !== undefined) eventUpdate.guestCount = input.guest_count;
+            if (input.wedding_name !== undefined) {
+              eventUpdate.title = input.wedding_name || result.weddingName ||
+                `${result.partner1FirstName}${result.partner2FirstName ? ` & ${result.partner2FirstName}` : ''}'s Wedding`;
+            }
 
-            console.log('[Clients Router] Created main wedding event during client update');
-          } catch (eventCreateError) {
-            console.error('[Clients Router] Failed to create wedding event during update:', eventCreateError);
+            try {
+              await tx
+                .update(events)
+                .set(eventUpdate)
+                .where(eq(events.id, mainEvent.id));
+
+              console.log('[Clients Router] Synced wedding details to main event:', mainEvent.id);
+            } catch (eventUpdateError) {
+              console.error('[Clients Router] Failed to sync wedding details to event:', eventUpdateError);
+            }
+          } else if (input.wedding_date) {
+            // No main event exists but wedding_date was provided - create one
+            const eventTitle = input.wedding_name || result.weddingName ||
+              `${result.partner1FirstName}${result.partner2FirstName ? ` & ${result.partner2FirstName}` : ''}'s Wedding`;
+
+            try {
+              await tx
+                .insert(events)
+                .values({
+                  id: crypto.randomUUID(),
+                  clientId: input.id,
+                  title: eventTitle,
+                  eventType: 'Wedding',
+                  eventDate: input.wedding_date,
+                  venueName: input.venue || result.venue || undefined,
+                  guestCount: input.guest_count || result.guestCount || undefined,
+                  status: 'planned',
+                  description: `Main wedding ceremony for ${eventTitle}`,
+                });
+
+              console.log('[Clients Router] Created main wedding event during client update');
+            } catch (eventCreateError) {
+              console.error('[Clients Router] Failed to create wedding event during update:', eventCreateError);
+            }
           }
         }
-      }
+
+        return result;
+      });
+
+      // Broadcast real-time sync
+      await broadcastSync({
+        type: 'update',
+        module: 'clients',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        clientId: input.id,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list', 'clients.getAll', 'clients.getById'],
+      });
 
       return data;
     }),
@@ -1207,6 +1243,16 @@ export const clientsRouter = router({
 
         console.log(`[Client Delete] Client ${input.id} deleted with cascade:`, deletionCounts);
         return deletionCounts;
+      });
+
+      // Broadcast real-time sync after successful transaction
+      await broadcastSync({
+        type: 'delete',
+        module: 'clients',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list', 'clients.getAll'],
       });
 
       return { success: true, deleted: result };

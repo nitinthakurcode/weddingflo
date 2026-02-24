@@ -563,14 +563,7 @@ export const vendorsRouter = router({
       if (input.data.contractDate !== undefined) vendorUpdateData.contractDate = emptyToNull(input.data.contractDate)
       if (input.data.isPreferred !== undefined) vendorUpdateData.isPreferred = input.data.isPreferred
 
-      if (Object.keys(vendorUpdateData).length > 1) {
-        await ctx.db
-          .update(vendors)
-          .set(vendorUpdateData)
-          .where(eq(vendors.id, clientVendorRecord.vendorId))
-      }
-
-      // Update client_vendors table fields
+      // Build client_vendors update data
       const cvUpdateData: Record<string, any> = { updatedAt: new Date() }
       if (input.data.cost !== undefined && input.data.cost !== null) cvUpdateData.contractAmount = String(input.data.cost)
       if (input.data.depositAmount !== undefined && input.data.depositAmount !== null) cvUpdateData.depositAmount = String(input.data.depositAmount)
@@ -586,48 +579,147 @@ export const vendorsRouter = router({
       if (input.data.onsitePocNotes !== undefined) cvUpdateData.onsitePocNotes = emptyToNull(input.data.onsitePocNotes)
       if (input.data.deliverables !== undefined) cvUpdateData.deliverables = emptyToNull(input.data.deliverables)
 
-      if (Object.keys(cvUpdateData).length > 1) {
-        await ctx.db
-          .update(clientVendors)
-          .set(cvUpdateData)
-          .where(eq(clientVendors.id, input.id))
-      }
+      // Wrap all writes in a transaction for atomicity
+      await withTransaction(async (tx) => {
+        // 1. Update vendor table fields
+        if (Object.keys(vendorUpdateData).length > 1) {
+          await tx
+            .update(vendors)
+            .set(vendorUpdateData)
+            .where(eq(vendors.id, clientVendorRecord.vendorId))
+        }
 
-      // Sync budget entry with vendor updates
-      try {
-        const budgetUpdateData: Record<string, any> = { updatedAt: new Date() }
-        if (input.data.vendorName !== undefined) budgetUpdateData.item = input.data.vendorName
-        if (input.data.cost !== undefined) budgetUpdateData.estimatedCost = input.data.cost ? String(input.data.cost) : '0'
-        if (input.data.depositAmount !== undefined) budgetUpdateData.paidAmount = input.data.depositAmount ? String(input.data.depositAmount) : '0'
-        if (input.data.paymentStatus !== undefined) budgetUpdateData.paymentStatus = input.data.paymentStatus
+        // 2. Update client_vendors table fields
+        if (Object.keys(cvUpdateData).length > 1) {
+          await tx
+            .update(clientVendors)
+            .set(cvUpdateData)
+            .where(eq(clientVendors.id, input.id))
+        }
 
-        // When event changes, update budget category to event name
-        if (input.data.eventId !== undefined) {
-          const eventIdValue = emptyToNull(input.data.eventId)
-          budgetUpdateData.eventId = eventIdValue
+        // 3. Sync budget entry with vendor updates
+        try {
+          const budgetUpdateData: Record<string, any> = { updatedAt: new Date() }
+          if (input.data.vendorName !== undefined) budgetUpdateData.item = input.data.vendorName
+          if (input.data.cost !== undefined) budgetUpdateData.estimatedCost = input.data.cost ? String(input.data.cost) : '0'
+          if (input.data.depositAmount !== undefined) budgetUpdateData.paidAmount = input.data.depositAmount ? String(input.data.depositAmount) : '0'
+          if (input.data.paymentStatus !== undefined) budgetUpdateData.paymentStatus = input.data.paymentStatus
 
-          if (eventIdValue) {
-            const [eventData] = await ctx.db
-              .select({ title: events.title })
-              .from(events)
-              .where(eq(events.id, eventIdValue))
-              .limit(1)
-            budgetUpdateData.category = eventData?.title || 'Unassigned'
-          } else {
-            budgetUpdateData.category = 'Unassigned'
+          // When event changes, update budget category to event name
+          if (input.data.eventId !== undefined) {
+            const eventIdValue = emptyToNull(input.data.eventId)
+            budgetUpdateData.eventId = eventIdValue
+
+            if (eventIdValue) {
+              const [eventData] = await tx
+                .select({ title: events.title })
+                .from(events)
+                .where(eq(events.id, eventIdValue))
+                .limit(1)
+              budgetUpdateData.category = eventData?.title || 'Unassigned'
+            } else {
+              budgetUpdateData.category = 'Unassigned'
+            }
+          }
+
+          if (Object.keys(budgetUpdateData).length > 1) {
+            await tx
+              .update(budget)
+              .set(budgetUpdateData)
+              .where(eq(budget.vendorId, clientVendorRecord.vendorId))
+          }
+        } catch (budgetError) {
+          console.warn('Failed to sync budget item with vendor update:', budgetError)
+        }
+
+        // 4. TIMELINE SYNC: Update or create timeline entry if service date changes
+        if (input.data.serviceDate !== undefined) {
+          try {
+            if (input.data.serviceDate) {
+              // Fetch the actual vendor name if not provided in update
+              let vendorName = input.data.vendorName
+              let category = ''
+              if (!vendorName) {
+                const [vendorInfo] = await tx
+                  .select({ name: vendors.name, category: vendors.category })
+                  .from(vendors)
+                  .where(eq(vendors.id, clientVendorRecord.vendorId))
+                  .limit(1)
+                vendorName = vendorInfo?.name || 'Vendor'
+                category = vendorInfo?.category || ''
+              }
+
+              const serviceDateTime = new Date(input.data.serviceDate)
+              const timelineData = {
+                title: `${vendorName}${category ? ` (${category})` : ''}`,
+                description: `Vendor service date`,
+                startTime: serviceDateTime,
+                location: input.data.venueAddress || null,
+                responsiblePerson: input.data.contactName || input.data.onsitePocName || null,
+                notes: input.data.notes || null,
+                updatedAt: new Date(),
+              }
+
+              // Try to update existing entry first
+              const timelineResult = await tx
+                .update(timeline)
+                .set(timelineData)
+                .where(
+                  and(
+                    eq(timeline.sourceModule, 'vendors'),
+                    eq(timeline.sourceId, input.id)
+                  )
+                )
+                .returning({ id: timeline.id })
+
+              if (timelineResult.length === 0) {
+                // No existing entry - create new one
+                await tx.insert(timeline).values({
+                  id: crypto.randomUUID(),
+                  clientId: clientVendorRecord.clientId,
+                  ...timelineData,
+                  sourceModule: 'vendors',
+                  sourceId: input.id,
+                  metadata: JSON.stringify({ vendorId: clientVendorRecord.vendorId, category }),
+                })
+                console.log(`[Timeline] Created vendor service entry: ${vendorName}`)
+              } else {
+                console.log(`[Timeline] Updated vendor service entry: ${vendorName}`)
+              }
+
+              // AUTO-LINK: If serviceDate changed and no eventId set, try to auto-link
+              if (!input.data.eventId) {
+                try {
+                  await autoLinkVendorToEvent(
+                    tx as any,
+                    input.id,
+                    clientVendorRecord.clientId,
+                    input.data.serviceDate,
+                    clientVendorRecord.vendorId
+                  );
+                } catch (linkError) {
+                  console.warn('[Vendor Auto-Link] Failed to auto-link vendor to event:', linkError);
+                }
+              }
+            } else {
+              // Service date cleared - delete timeline entry
+              await tx
+                .delete(timeline)
+                .where(
+                  and(
+                    eq(timeline.sourceModule, 'vendors'),
+                    eq(timeline.sourceId, input.id)
+                  )
+                )
+              console.log(`[Timeline] Deleted vendor service entry (date cleared)`)
+            }
+          } catch (timelineError) {
+            console.warn('[Timeline] Failed to sync timeline with vendor update:', timelineError)
           }
         }
+      })
 
-        if (Object.keys(budgetUpdateData).length > 1) {
-          await ctx.db
-            .update(budget)
-            .set(budgetUpdateData)
-            .where(eq(budget.vendorId, clientVendorRecord.vendorId))
-        }
-      } catch (budgetError) {
-        console.warn('Failed to sync budget item with vendor update:', budgetError)
-      }
-
+      // Broadcast real-time sync after successful transaction
       await broadcastSync({
         type: 'update',
         module: 'vendors',
@@ -637,92 +729,6 @@ export const vendorsRouter = router({
         userId: ctx.userId!,
         queryPaths: ['vendors.list'],
       })
-
-      // TIMELINE SYNC: Update or create timeline entry if service date changes
-      if (input.data.serviceDate !== undefined) {
-        try {
-          if (input.data.serviceDate) {
-            // Fetch the actual vendor name if not provided in update
-            let vendorName = input.data.vendorName
-            let category = ''
-            if (!vendorName) {
-              const [vendorInfo] = await ctx.db
-                .select({ name: vendors.name, category: vendors.category })
-                .from(vendors)
-                .where(eq(vendors.id, clientVendorRecord.vendorId))
-                .limit(1)
-              vendorName = vendorInfo?.name || 'Vendor'
-              category = vendorInfo?.category || ''
-            }
-
-            const serviceDateTime = new Date(input.data.serviceDate)
-            const timelineData = {
-              title: `${vendorName}${category ? ` (${category})` : ''}`,
-              description: `Vendor service date`,
-              startTime: serviceDateTime,
-              location: input.data.venueAddress || null,
-              responsiblePerson: input.data.contactName || input.data.onsitePocName || null,
-              notes: input.data.notes || null,
-              updatedAt: new Date(),
-            }
-
-            // Try to update existing entry first
-            const result = await ctx.db
-              .update(timeline)
-              .set(timelineData)
-              .where(
-                and(
-                  eq(timeline.sourceModule, 'vendors'),
-                  eq(timeline.sourceId, input.id)
-                )
-              )
-              .returning({ id: timeline.id })
-
-            if (result.length === 0) {
-              // No existing entry - create new one
-              await ctx.db.insert(timeline).values({
-                id: crypto.randomUUID(),
-                clientId: clientVendorRecord.clientId,
-                ...timelineData,
-                sourceModule: 'vendors',
-                sourceId: input.id,
-                metadata: JSON.stringify({ vendorId: clientVendorRecord.vendorId, category }),
-              })
-              console.log(`[Timeline] Created vendor service entry: ${vendorName}`)
-            } else {
-              console.log(`[Timeline] Updated vendor service entry: ${vendorName}`)
-            }
-
-            // AUTO-LINK: If serviceDate changed and no eventId set, try to auto-link
-            if (!input.data.eventId) {
-              try {
-                await autoLinkVendorToEvent(
-                  ctx.db as any,
-                  input.id,
-                  clientVendorRecord.clientId,
-                  input.data.serviceDate,
-                  clientVendorRecord.vendorId
-                );
-              } catch (linkError) {
-                console.warn('[Vendor Auto-Link] Failed to auto-link vendor to event:', linkError);
-              }
-            }
-          } else {
-            // Service date cleared - delete timeline entry
-            await ctx.db
-              .delete(timeline)
-              .where(
-                and(
-                  eq(timeline.sourceModule, 'vendors'),
-                  eq(timeline.sourceId, input.id)
-                )
-              )
-            console.log(`[Timeline] Deleted vendor service entry (date cleared)`)
-          }
-        } catch (timelineError) {
-          console.warn('[Timeline] Failed to sync timeline with vendor update:', timelineError)
-        }
-      }
 
       return { success: true }
     }),

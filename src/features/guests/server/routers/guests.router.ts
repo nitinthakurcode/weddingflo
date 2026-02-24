@@ -2,7 +2,7 @@ import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, or, isNull, asc, inArray } from 'drizzle-orm'
-import { guests, hotels, clients, guestTransport, floorPlanGuests, guestGifts, gifts } from '@/lib/db/schema'
+import { guests, hotels, clients, guestTransport, floorPlanGuests, guestGifts, gifts, timeline } from '@/lib/db/schema'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { RSVP_STATUS, RSVP_STATUS_VALUES, GUEST_SIDE, GUEST_SIDE_VALUES, normalizeGuestSide } from '@/lib/constants/enums'
 import { cascadeGuestSideEffects } from '../utils/guest-cascade'
@@ -789,14 +789,35 @@ export const guestsRouter = router({
           .returning({ id: gifts.id })
         deletionCounts.gifts = giftsResult.length
 
-        // 6. Delete timeline entries linked to this guest (via metadata)
-        // Note: Timeline entries may reference guest in sourceId when sourceModule is 'hotels' or 'transport'
-        // These are already deleted via hotels/transport cascade, but explicit cleanup is safer
-        try {
-          // Delete any direct guest references in timeline (if implemented)
-          // Currently hotels/transport timeline entries have guestId in metadata, not as sourceId
-        } catch {
-          // Ignore timeline cleanup errors - not critical
+        // 6. Delete timeline entries linked to this guest's hotels and transport
+        // sourceId/sourceModule are polymorphic text columns (no FK cascade), so manual cleanup needed
+        const hotelIds = hotelsResult.map((h: { id: string }) => h.id)
+        const transportIds = transportResult.map((t: { id: string }) => t.id)
+
+        if (hotelIds.length > 0) {
+          const hotelTimeline = await tx
+            .delete(timeline)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'hotels'),
+                inArray(timeline.sourceId, hotelIds)
+              )
+            )
+            .returning({ id: timeline.id })
+          deletionCounts.timeline += hotelTimeline.length
+        }
+
+        if (transportIds.length > 0) {
+          const transportTimeline = await tx
+            .delete(timeline)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'transport'),
+                inArray(timeline.sourceId, transportIds)
+              )
+            )
+            .returning({ id: timeline.id })
+          deletionCounts.timeline += transportTimeline.length
         }
 
         // 7. Finally delete the guest
