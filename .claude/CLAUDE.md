@@ -1,11 +1,33 @@
-### First Steps for Every Session
-1. Read docs/DEVELOPER_HANDBOOK.md — this is the complete app reference. Understand the architecture, data flows, and module connections BEFORE making any change.
-2. Read docs/audit/session-8-final-report.md Section 7 (Danger Zones) if making backend changes.
-3. Read docs/DEPLOYMENT_RUNBOOK.md if preparing a deployment.
+### How to Use Project Documentation
 
-The handbook covers: architecture (A), all 77 database tables (B), user auth flows (C), all 10 feature modules with full data paths (D), cross-module sync (E), change propagation checklists (F), import/export header mappings (G), security model (H), real-time sync (I), chatbot architecture (J), data loss prevention (K), debugging guide (L), environment variables (M), i18n (N), file uploads (O), payments/notifications/portal (P), testing/deployment (Q), third-party integrations (R).
+This project has comprehensive documentation. Read what's relevant to your current task.
 
-Do NOT make changes without understanding the full context from the handbook. When in doubt, search the handbook first.
+**Always loaded:** This file (mandatory rules and canonical paths below).
+
+**Before making changes, read the relevant section of docs/DEVELOPER_HANDBOOK.md:**
+
+- Changing any database table → Section B (Table Reference) + Section F (Change Propagation)
+- Changing guest module → Section D.1 + Section E (Sync Matrix) + Section G (Headers)
+- Changing budget module → Section D.2 + Section E + Section G
+- Changing timeline or events → Section D.3-D.4 + Section E
+- Changing vendors → Section D.5 + Section E + Section G
+- Changing hotels or transport → Section D.6-D.7 + Section E + Section G
+- Changing floor plans or gifts → Section D.8-D.9
+- Changing clients module → Section D.10 + Section K (Data Loss Prevention)
+- Changing Excel import/export → Section G (Header Mapping) + Section F
+- Changing Google Sheets sync → Section G + the relevant module section in D
+- Changing chatbot tools → Section J (Chatbot Architecture) + Section E (Sync Matrix)
+- Changing auth or security → Section C (User Flows) + Section H (Security Model)
+- Changing real-time sync → Section I (Real-Time Sync)
+- Changing i18n → Section N
+- Changing file uploads → Section O
+- Changing payments or notifications → Section P
+- Writing or fixing tests → Section Q
+- Debugging any issue → Section L (Debugging Guide)
+- Deploying → Read docs/DEPLOYMENT_RUNBOOK.md
+- Understanding what was fixed in audit → Read docs/audit/session-8-final-report.md
+
+When a change touches multiple areas (e.g. adding a guest field affects schema, router, Excel, Sheets, chatbot), read ALL relevant sections before starting.
 
 ---
 
