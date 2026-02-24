@@ -342,6 +342,11 @@ export const floorPlansRouter = router({
       const { db } = ctx;
 
       try {
+        // Look up floor plan for broadcastSync clientId
+        const floorPlan = await db.query.floorPlans.findFirst({
+          where: eq(schema.floorPlans.id, input.floorPlanId),
+        });
+
         const [table] = await db
           .insert(schema.floorPlanTables)
           .values({
@@ -364,8 +369,21 @@ export const floorPlansRouter = router({
           })
           .returning();
 
+        if (floorPlan) {
+          await broadcastSync({
+            type: 'update',
+            module: 'floorPlans',
+            entityId: input.floorPlanId,
+            companyId: ctx.companyId!,
+            clientId: floorPlan.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+          });
+        }
+
         return table;
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error('Error adding table:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -436,6 +454,24 @@ export const floorPlansRouter = router({
           .where(eq(schema.floorPlanTables.id, input.id))
           .returning();
 
+        // Broadcast real-time sync
+        if (existing.floorPlanId) {
+          const floorPlan = await db.query.floorPlans.findFirst({
+            where: eq(schema.floorPlans.id, existing.floorPlanId),
+          });
+          if (floorPlan) {
+            await broadcastSync({
+              type: 'update',
+              module: 'floorPlans',
+              entityId: existing.floorPlanId,
+              companyId: ctx.companyId!,
+              clientId: floorPlan.clientId,
+              userId: ctx.userId!,
+              queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+            });
+          }
+        }
+
         return updated;
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -456,12 +492,35 @@ export const floorPlansRouter = router({
       const { db } = ctx;
 
       try {
+        // Look up table → floor plan for broadcastSync
+        const table = await db.query.floorPlanTables.findFirst({
+          where: eq(schema.floorPlanTables.id, input.id),
+        });
+
         await db
           .delete(schema.floorPlanTables)
           .where(eq(schema.floorPlanTables.id, input.id));
 
+        if (table?.floorPlanId) {
+          const floorPlan = await db.query.floorPlans.findFirst({
+            where: eq(schema.floorPlans.id, table.floorPlanId),
+          });
+          if (floorPlan) {
+            await broadcastSync({
+              type: 'update',
+              module: 'floorPlans',
+              entityId: table.floorPlanId,
+              companyId: ctx.companyId!,
+              clientId: floorPlan.clientId,
+              userId: ctx.userId!,
+              queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+            });
+          }
+        }
+
         return { success: true };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error('Error deleting table:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -565,6 +624,22 @@ export const floorPlansRouter = router({
           })
           .returning();
 
+        // Broadcast floor plan update for real-time sync
+        const floorPlan = await db.query.floorPlans.findFirst({
+          where: eq(schema.floorPlans.id, input.floorPlanId),
+        });
+        if (floorPlan) {
+          await broadcastSync({
+            type: 'update',
+            module: 'floorPlans',
+            entityId: input.floorPlanId,
+            companyId: ctx.companyId!,
+            clientId: floorPlan.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+          });
+        }
+
         return assignment;
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -594,6 +669,22 @@ export const floorPlansRouter = router({
             eq(schema.floorPlanGuests.floorPlanId, input.floorPlanId),
             eq(schema.floorPlanGuests.guestId, input.guestId)
           ));
+
+        // Broadcast floor plan update for real-time sync
+        const floorPlan = await db.query.floorPlans.findFirst({
+          where: eq(schema.floorPlans.id, input.floorPlanId),
+        });
+        if (floorPlan) {
+          await broadcastSync({
+            type: 'update',
+            module: 'floorPlans',
+            entityId: input.floorPlanId,
+            companyId: ctx.companyId!,
+            clientId: floorPlan.clientId,
+            userId: ctx.userId!,
+            queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+          });
+        }
 
         return { success: true };
       } catch (error) {
@@ -724,6 +815,17 @@ export const floorPlansRouter = router({
         await db
           .insert(schema.floorPlanGuests)
           .values(insertValues);
+
+        // Broadcast floor plan update for real-time sync
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: input.floorPlanId,
+          companyId: ctx.companyId!,
+          clientId: floorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+        });
 
         return {
           success: true,

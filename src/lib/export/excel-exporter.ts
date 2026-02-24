@@ -1780,6 +1780,18 @@ export interface MasterExportData {
     notes?: string | null;
     updatedAt?: Date | string | null;
   }>;
+  transport: Array<{
+    id: string;
+    guestName?: string | null;
+    pickupDate?: string | null;
+    pickupTime?: string | null;
+    pickupFrom?: string | null;
+    dropTo?: string | null;
+    vehicleInfo?: string | null;
+    transportStatus?: string | null;
+    notes?: string | null;
+    updatedAt?: Date | string | null;
+  }>;
   guestGifts: Array<{
     id: string;
     guestId?: string | null;
@@ -1982,7 +1994,36 @@ export async function exportMasterPlanningExcel(
     })),
   });
 
-  // ============= SHEET 3: GIFTS GIVEN =============
+  // ============= SHEET 3: TRANSPORT =============
+  sheets.push({
+    name: 'Transport',
+    columns: [
+      { header: 'ID (Do Not Modify)', key: 'id', width: 38, hint: 'Auto-generated' },
+      { header: 'Guest Name', key: 'guestName', width: 25, hint: 'Required' },
+      { header: 'Pickup Date', key: 'pickupDate', width: 15, hint: 'YYYY-MM-DD' },
+      { header: 'Pickup Time', key: 'pickupTime', width: 12, hint: 'HH:MM AM/PM' },
+      { header: 'Pickup From', key: 'pickupFrom', width: 25, hint: 'Location name' },
+      { header: 'Drop To', key: 'dropTo', width: 25, hint: 'Destination' },
+      { header: 'Vehicle Info', key: 'vehicleInfo', width: 20, hint: 'e.g. Sedan, Bus' },
+      { header: 'Status', key: 'transportStatus', width: 15, hint: 'scheduled/completed' },
+      { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+      { header: 'Last Updated', key: 'updatedAt', width: 18, hint: 'Auto-generated' },
+    ],
+    data: data.transport.map((t) => ({
+      id: t.id,
+      guestName: t.guestName || '',
+      pickupDate: t.pickupDate || '',
+      pickupTime: formatTime(t.pickupTime),
+      pickupFrom: t.pickupFrom || '',
+      dropTo: t.dropTo || '',
+      vehicleInfo: t.vehicleInfo || '',
+      transportStatus: t.transportStatus || 'scheduled',
+      notes: t.notes || '',
+      updatedAt: formatDate(t.updatedAt),
+    })),
+  });
+
+  // ============= SHEET 4: GIFTS GIVEN =============
   sheets.push({
     name: 'Gifts Given',
     columns: [
@@ -2152,6 +2193,7 @@ export async function exportMasterPlanningExcel(
       { property: 'Export Date', value: exportDate },
       { property: 'Total Guests', value: data.guests.length },
       { property: 'Total Hotels', value: data.hotels.length },
+      { property: 'Total Transport', value: data.transport.length },
       { property: 'Total Gifts', value: data.guestGifts.length },
       { property: 'Total Events', value: data.events.length },
       { property: 'Total Timeline Items', value: data.timeline.length },
@@ -2171,6 +2213,8 @@ export async function exportMasterPlanningExcel(
   if (budgetWs) budgetWs.getColumn(1).hidden = true;
   const hotelsWs = workbook.getWorksheet('Hotels');
   if (hotelsWs) hotelsWs.getColumn(1).hidden = true;
+  const transportWs = workbook.getWorksheet('Transport');
+  if (transportWs) transportWs.getColumn(1).hidden = true;
   const vendorsWs = workbook.getWorksheet('Vendors');
   if (vendorsWs) vendorsWs.getColumn(1).hidden = true;
 

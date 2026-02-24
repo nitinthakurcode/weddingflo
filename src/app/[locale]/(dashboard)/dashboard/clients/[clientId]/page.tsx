@@ -55,6 +55,7 @@ export default function ClientDetailPage() {
   const timelineQuery = trpc.timeline.getAll.useQuery({ clientId }, { enabled: false })
   const budgetQuery = trpc.budget.getAll.useQuery({ clientId }, { enabled: false })
   const vendorsQuery = trpc.vendors.getAll.useQuery({ clientId }, { enabled: false })
+  const transportQuery = trpc.guestTransport.getAll.useQuery({ clientId }, { enabled: false })
 
   // Google Sheets Sync mutation
   const syncMutation = trpc.googleSheets.syncNow.useMutation({
@@ -91,7 +92,7 @@ export default function ClientDetailPage() {
     setIsExporting(true)
     try {
       // Refetch all data
-      const [guests, hotels, guestGifts, events, timeline, budget, vendors] = await Promise.all([
+      const [guests, hotels, guestGifts, events, timeline, budget, vendors, transport] = await Promise.all([
         guestsQuery.refetch(),
         hotelsQuery.refetch(),
         guestGiftsQuery.refetch(),
@@ -99,6 +100,7 @@ export default function ClientDetailPage() {
         timelineQuery.refetch(),
         budgetQuery.refetch(),
         vendorsQuery.refetch(),
+        transportQuery.refetch(),
       ])
 
       const clientName = client.weddingName ||
@@ -143,6 +145,18 @@ export default function ClientDetailPage() {
           checkedIn: h.checkedIn,
           notes: h.notes,
           updatedAt: h.updatedAt,
+        })),
+        transport: (transport.data || []).map((t: any) => ({
+          id: t.id,
+          guestName: t.guestName,
+          pickupDate: t.pickupDate,
+          pickupTime: t.pickupTime,
+          pickupFrom: t.pickupFrom,
+          dropTo: t.dropTo,
+          vehicleInfo: t.vehicleInfo,
+          transportStatus: t.transportStatus,
+          notes: t.notes,
+          updatedAt: t.updatedAt,
         })),
         guestGifts: (guestGifts.data || []).map((g: any) => ({
           id: g.id,
