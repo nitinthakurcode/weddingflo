@@ -1851,7 +1851,12 @@ async function executeBulkUpdateGuests(
       )
     )
 
-  // Recalculate client cached guest count
+  // Recalculate per-guest budget items when RSVP status changes (parity with guests.router.ts)
+  if (updates.rsvpStatus !== undefined) {
+    await recalcPerGuestBudgetItems(db, clientId)
+  }
+
+  // Recalculate client cached guest count and budget total
   await recalcClientStats(db, clientId)
 
   return {
@@ -2504,6 +2509,9 @@ async function executeAddVendor(
         }
       }
     }
+
+    // Recalculate client stats after budget insert (parity with vendors.router.ts)
+    await recalcClientStats(tx, clientId)
 
     return {
       success: true,
@@ -3898,19 +3906,15 @@ async function executeCheckInGuest(
     })
   }
 
-  // Update check-in status (using metadata or a custom field)
-  // For now, we'll update RSVP status to 'confirmed' if not already and log the check-in time
-  const checkInTime = new Date().toISOString()
+  // Update check-in status using proper schema fields (parity with guests.router.ts checkIn)
+  const checkInTime = new Date()
 
   await db
     .update(guests)
     .set({
-      rsvpStatus: 'confirmed',
-      updatedAt: new Date(),
-      // Store check-in time in notes or metadata (if available)
-      notes: guest.notes
-        ? `${guest.notes}\n[Checked in at ${checkInTime}]`
-        : `[Checked in at ${checkInTime}]`,
+      checkedIn: true,
+      checkedInAt: checkInTime,
+      updatedAt: checkInTime,
     })
     .where(eq(guests.id, targetGuestId))
 
@@ -3926,9 +3930,9 @@ async function executeCheckInGuest(
       dietaryRestrictions: guest.dietaryRestrictions,
       plusOneAllowed: guest.plusOneAllowed,
       plusOneName: guest.plusOneName,
-      checkedInAt: checkInTime,
+      checkedInAt: checkInTime.toISOString(),
     },
-    message: `✅ ${guestDisplayName} checked in at ${new Date(checkInTime).toLocaleTimeString()}. ${guest.tableNumber ? `Table ${guest.tableNumber}.` : ''} ${guest.dietaryRestrictions && guest.dietaryRestrictions !== 'none' ? `Dietary: ${guest.dietaryRestrictions}.` : ''} ${guest.plusOneAllowed && guest.plusOneName ? `+1: ${guest.plusOneName}.` : ''}`.trim(),
+    message: `✅ ${guestDisplayName} checked in at ${checkInTime.toLocaleTimeString()}. ${guest.tableNumber ? `Table ${guest.tableNumber}.` : ''} ${guest.dietaryRestrictions && guest.dietaryRestrictions !== 'none' ? `Dietary: ${guest.dietaryRestrictions}.` : ''} ${guest.plusOneAllowed && guest.plusOneName ? `+1: ${guest.plusOneName}.` : ''}`.trim(),
   }
 }
 
@@ -6856,6 +6860,9 @@ async function executeDeleteVendor(
       )
       .returning({ id: timeline.id })
     deletionCounts.timeline = timelineResult.length
+
+    // Recalculate client stats after budget delete (parity with vendors.router.ts)
+    await recalcClientStats(tx, cvRecord.clientId)
 
     return deletionCounts
   })
