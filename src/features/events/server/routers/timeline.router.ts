@@ -650,82 +650,85 @@ export const timelineRouter = router({
       // Generate UUIDs for new items
       const { v4: uuidv4 } = await import('uuid')
 
-      // Process each item
-      for (const item of input.items) {
-        try {
-          if (item._action === 'delete' && item.id) {
-            // Delete item (hard delete)
-            await ctx.db
-              .delete(timeline)
-              .where(
-                and(
-                  eq(timeline.id, item.id),
-                  eq(timeline.clientId, input.clientId)
+      // Process all items atomically (S7-M07)
+      try {
+        await ctx.db.transaction(async (tx) => {
+          for (const item of input.items) {
+            if (item._action === 'delete' && item.id) {
+              await tx
+                .delete(timeline)
+                .where(
+                  and(
+                    eq(timeline.id, item.id),
+                    eq(timeline.clientId, input.clientId)
+                  )
                 )
-              )
-            results.deleted++
-          } else if (item._action === 'update' && item.id) {
-            // Update existing item
-            const startDateTime = combineDateTime(item.date, item.startTime)
-            const endDateTime = combineDateTime(item.date, item.endTime)
+              results.deleted++
+            } else if (item._action === 'update' && item.id) {
+              const startDateTime = combineDateTime(item.date, item.startTime)
+              const endDateTime = combineDateTime(item.date, item.endTime)
 
-            await ctx.db
-              .update(timeline)
-              .set({
-                eventId: item.eventId || null,
-                title: item.title,
-                description: item.description || null,
-                phase: item.phase || 'showtime',
-                startTime: startDateTime || new Date(),
-                endTime: endDateTime,
-                durationMinutes: item.durationMinutes || null,
-                location: item.location || null,
-                participants: item.participants || null,
-                responsiblePerson: item.responsiblePerson || null,
-                completed: item.completed ?? false,
-                sortOrder: item.sortOrder ?? 0,
-                notes: item.notes || null,
-                updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  eq(timeline.id, item.id),
-                  eq(timeline.clientId, input.clientId)
+              await tx
+                .update(timeline)
+                .set({
+                  eventId: item.eventId || null,
+                  title: item.title,
+                  description: item.description || null,
+                  phase: item.phase || 'showtime',
+                  startTime: startDateTime || new Date(),
+                  endTime: endDateTime,
+                  durationMinutes: item.durationMinutes || null,
+                  location: item.location || null,
+                  participants: item.participants || null,
+                  responsiblePerson: item.responsiblePerson || null,
+                  completed: item.completed ?? false,
+                  sortOrder: item.sortOrder ?? 0,
+                  notes: item.notes || null,
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(timeline.id, item.id),
+                    eq(timeline.clientId, input.clientId)
+                  )
                 )
-              )
-            results.updated++
-          } else {
-            // Create new item
-            const startDateTime = combineDateTime(item.date, item.startTime)
-            const endDateTime = combineDateTime(item.date, item.endTime)
+              results.updated++
+            } else {
+              const startDateTime = combineDateTime(item.date, item.startTime)
+              const endDateTime = combineDateTime(item.date, item.endTime)
 
-            await ctx.db
-              .insert(timeline)
-              .values({
-                id: uuidv4(),
-                clientId: input.clientId,
-                eventId: item.eventId || null,
-                title: item.title,
-                description: item.description || null,
-                phase: item.phase || 'showtime',
-                startTime: startDateTime || new Date(),
-                endTime: endDateTime,
-                durationMinutes: item.durationMinutes || null,
-                location: item.location || null,
-                participants: item.participants || null,
-                responsiblePerson: item.responsiblePerson || null,
-                completed: item.completed ?? false,
-                sortOrder: item.sortOrder ?? 0,
-                notes: item.notes || null,
-              })
-            results.created++
+              await tx
+                .insert(timeline)
+                .values({
+                  id: uuidv4(),
+                  clientId: input.clientId,
+                  eventId: item.eventId || null,
+                  title: item.title,
+                  description: item.description || null,
+                  phase: item.phase || 'showtime',
+                  startTime: startDateTime || new Date(),
+                  endTime: endDateTime,
+                  durationMinutes: item.durationMinutes || null,
+                  location: item.location || null,
+                  participants: item.participants || null,
+                  responsiblePerson: item.responsiblePerson || null,
+                  completed: item.completed ?? false,
+                  sortOrder: item.sortOrder ?? 0,
+                  notes: item.notes || null,
+                })
+              results.created++
+            }
           }
-        } catch (error) {
-          results.errors.push({
-            item: item.title,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          })
-        }
+        })
+      } catch (error) {
+        // Transaction failed — all changes rolled back
+        results.created = 0
+        results.updated = 0
+        results.deleted = 0
+        results.errors.push({
+          item: 'bulk',
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
 
       await broadcastSync({

@@ -65,23 +65,6 @@ export interface SyncAction {
 }
 
 /**
- * Publish a sync action to Redis pub/sub
- * This broadcasts to ALL server instances subscribed to the company channel
- *
- * @param action - The sync action to publish
- */
-export async function publishSyncAction(action: SyncAction): Promise<void> {
-  const channel = `company:${action.companyId}:sync`
-
-  try {
-    await redis.publish(channel, JSON.stringify(action))
-  } catch (error) {
-    console.error('[Redis Pub/Sub] Failed to publish sync action:', error)
-    // Don't throw - broadcasting failure shouldn't break the main operation
-  }
-}
-
-/**
  * Store a sync action for offline recovery
  * Uses Redis sorted set with timestamp as score for efficient range queries
  * Keeps only the last 1000 actions per company

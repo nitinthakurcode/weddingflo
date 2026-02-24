@@ -63,15 +63,24 @@ export function useRealtimeSync(
   const { enabled = true, onSync, onConnectionChange } = options
   const queryClient = useQueryClient()
   const [isConnected, setIsConnected] = useState(false)
-  const [subscriptionKey, setSubscriptionKey] = useState(0)
+  const [pendingReconnect, setPendingReconnect] = useState(false)
   const onSyncRef = useRef(onSync)
   const onConnectionChangeRef = useRef(onConnectionChange)
+  const seenActionIds = useRef(new Set<string>())
 
   // Keep refs updated
   useEffect(() => {
     onSyncRef.current = onSync
     onConnectionChangeRef.current = onConnectionChange
   }, [onSync, onConnectionChange])
+
+  // Re-enable subscription after reconnect toggle (S7-L02)
+  useEffect(() => {
+    if (pendingReconnect) {
+      const timer = setTimeout(() => setPendingReconnect(false), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [pendingReconnect])
 
   // Get last sync timestamp from localStorage
   const [lastSync, setLastSync] = useState<number>(() => {
@@ -120,6 +129,15 @@ export function useRealtimeSync(
    */
   const handleSyncAction = useCallback(
     (action: SyncAction) => {
+      // Deduplicate — skip if already processed (S7-L05)
+      if (seenActionIds.current.has(action.id)) return
+      seenActionIds.current.add(action.id)
+      // Evict old IDs to prevent memory leak (keep last 250)
+      if (seenActionIds.current.size > 500) {
+        const ids = Array.from(seenActionIds.current)
+        seenActionIds.current = new Set(ids.slice(-250))
+      }
+
       // Update timestamp for offline recovery
       setLastSync(action.timestamp)
       if (typeof window !== 'undefined') {
@@ -147,7 +165,7 @@ export function useRealtimeSync(
   trpc.sync.onSync.useSubscription(
     { lastSyncTimestamp: lastSync || undefined },
     {
-      enabled: enabled,
+      enabled: enabled && !pendingReconnect,
       onStarted() {
         console.log('[Realtime Sync] Connected')
         setIsConnected(true)
@@ -170,17 +188,9 @@ export function useRealtimeSync(
    */
   const reconnect = useCallback(() => {
     console.log('[Realtime Sync] Manual reconnect triggered')
-    setSubscriptionKey((k) => k + 1)
+    setPendingReconnect(true)
     setIsConnected(false)
   }, [])
-
-  // Update connection status on unmount
-  useEffect(() => {
-    return () => {
-      setIsConnected(false)
-      onConnectionChangeRef.current?.(false)
-    }
-  }, [subscriptionKey])
 
   return {
     isConnected,

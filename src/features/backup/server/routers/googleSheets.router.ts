@@ -452,7 +452,10 @@ export const googleSheetsRouter = router({
         }
         try {
           const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
-          await syncGuestsToHotelsAndTransportTx(db, input.clientId, cascadeResult);
+          // S7-M09: use transaction client instead of bare db
+          await db.transaction(async (tx) => {
+            await syncGuestsToHotelsAndTransportTx(tx, input.clientId, cascadeResult);
+          });
         } catch (err) {
           console.error('[Sheets Router] Guest cascade sync failed:', err);
         }
@@ -462,7 +465,10 @@ export const googleSheetsRouter = router({
       if (input.module === 'hotels' && result.imported > 0) {
         try {
           const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
-          await syncHotelsToTimelineTx(db, input.clientId, cascadeResult);
+          // S7-M09: use transaction client instead of bare db
+          await db.transaction(async (tx) => {
+            await syncHotelsToTimelineTx(tx, input.clientId, cascadeResult);
+          });
         } catch (err) {
           console.error('[Sheets Router] Hotel cascade sync failed:', err);
         }
@@ -472,7 +478,10 @@ export const googleSheetsRouter = router({
       if (input.module === 'transport' && result.imported > 0) {
         try {
           const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
-          await syncTransportToTimelineTx(db, input.clientId, cascadeResult);
+          // S7-M09: use transaction client instead of bare db
+          await db.transaction(async (tx) => {
+            await syncTransportToTimelineTx(tx, input.clientId, cascadeResult);
+          });
         } catch (err) {
           console.error('[Sheets Router] Transport cascade sync failed:', err);
         }

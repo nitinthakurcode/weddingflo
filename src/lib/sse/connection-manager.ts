@@ -151,56 +151,86 @@ export class SSEConnectionManager {
    * @throws {SSEConnectionLimitError} If per-user or per-company limit is exceeded
    */
   async acquire(userId: string, companyId: string): Promise<ConnectionGuard> {
-    // Check limits before incrementing
-    const { allowed, counts } = await this.canConnect(userId, companyId);
-
-    if (!allowed) {
-      const reason = counts.userConnections >= this.maxPerUser
-        ? `Per-user limit reached (${counts.userConnections}/${this.maxPerUser})`
-        : `Per-company limit reached (${counts.companyConnections}/${this.maxPerCompany})`;
-
-      throw new SSEConnectionLimitError(reason, counts);
-    }
-
-    // Atomically increment both counters using pipeline
     const userKeyStr = this.userKey(userId);
     const companyKeyStr = this.companyKey(companyId);
 
-    const pipeline = this.redis.pipeline();
-    pipeline.incr(userKeyStr);
-    pipeline.expire(userKeyStr, this.counterTtl);
-    pipeline.incr(companyKeyStr);
-    pipeline.expire(companyKeyStr, this.counterTtl);
-    await pipeline.exec();
-
-    // Build release guard
-    let released = false;
-
-    const release = async (): Promise<void> => {
-      if (released) return; // Idempotent
-      released = true;
-
+    try {
+      // Increment first, then check limits (avoids TOCTOU race — S7-M01)
       const pipeline = this.redis.pipeline();
-      pipeline.decr(userKeyStr);
-      pipeline.decr(companyKeyStr);
+      pipeline.incr(userKeyStr);
+      pipeline.expire(userKeyStr, this.counterTtl);
+      pipeline.incr(companyKeyStr);
+      pipeline.expire(companyKeyStr, this.counterTtl);
       const results = await pipeline.exec();
 
-      // Clean up zero/negative counters (can happen if TTL expired mid-session)
-      const userVal = results[0] as number;
-      const companyVal = results[1] as number;
+      // Pipeline results: [INCR user, EXPIRE user, INCR company, EXPIRE company]
+      const newUserCount = results[0] as number;
+      const newCompanyCount = results[2] as number;
 
-      if (userVal <= 0) {
-        await this.redis.del(userKeyStr);
-      }
-      if (companyVal <= 0) {
-        await this.redis.del(companyKeyStr);
-      }
-    };
+      // Check if we've exceeded limits AFTER incrementing
+      if (newUserCount > this.maxPerUser || newCompanyCount > this.maxPerCompany) {
+        // Rollback: decrement both counters
+        const rollback = this.redis.pipeline();
+        rollback.decr(userKeyStr);
+        rollback.decr(companyKeyStr);
+        await rollback.exec();
 
-    return {
-      release,
-      get released() { return released; },
-    };
+        const reason = newUserCount > this.maxPerUser
+          ? `Per-user limit reached (${newUserCount}/${this.maxPerUser})`
+          : `Per-company limit reached (${newCompanyCount}/${this.maxPerCompany})`;
+
+        throw new SSEConnectionLimitError(reason, {
+          userConnections: newUserCount,
+          companyConnections: newCompanyCount,
+          userLimit: this.maxPerUser,
+          companyLimit: this.maxPerCompany,
+        });
+      }
+
+      // Build release guard
+      let released = false;
+
+      const release = async (): Promise<void> => {
+        if (released) return; // Idempotent
+        released = true;
+
+        try {
+          const pipeline = this.redis.pipeline();
+          pipeline.decr(userKeyStr);
+          pipeline.decr(companyKeyStr);
+          const results = await pipeline.exec();
+
+          // Clean up zero/negative counters (can happen if TTL expired mid-session)
+          const userVal = results[0] as number;
+          const companyVal = results[1] as number;
+
+          if (userVal <= 0) {
+            await this.redis.del(userKeyStr);
+          }
+          if (companyVal <= 0) {
+            await this.redis.del(companyKeyStr);
+          }
+        } catch (error) {
+          console.warn('[SSE Connection Manager] Release failed (non-fatal):', error);
+        }
+      };
+
+      return {
+        release,
+        get released() { return released; },
+      };
+    } catch (error) {
+      // Re-throw limit errors — those are intentional rejections
+      if (error instanceof SSEConnectionLimitError) {
+        throw error;
+      }
+      // Redis failure — degrade gracefully: allow connection without limits (S7-M08)
+      console.warn('[SSE Connection Manager] Redis unavailable, allowing connection without limit enforcement:', error);
+      return {
+        release: async () => {},
+        get released() { return true; },
+      };
+    }
   }
 
   /**

@@ -1224,46 +1224,46 @@ export const vendorsRouter = router({
 
       const createdVendors: any[] = []
 
-      // Create each vendor
+      // Create each vendor atomically (S7-M06: per-iteration transaction)
       for (const vendorName of vendorNamesList) {
         try {
-          // Create vendor in vendors table
-          const [vendor] = await ctx.db
-            .insert(vendors)
-            .values({
-              id: crypto.randomUUID(),
-              companyId: ctx.companyId,
-              name: vendorName,
-              category: input.defaultCategory,
-              isPreferred: false,
-            })
-            .returning()
-
-          if (vendor) {
-            // Create client_vendor relationship
-            const [clientVendor] = await ctx.db
-              .insert(clientVendors)
+          await ctx.db.transaction(async (tx) => {
+            // Create vendor in vendors table
+            const [vendor] = await tx
+              .insert(vendors)
               .values({
                 id: crypto.randomUUID(),
-                clientId: input.clientId,
-                vendorId: vendor.id,
-                eventId: input.eventId || null,
-                paymentStatus: 'pending' as any,
-                approvalStatus: 'pending' as any,
+                companyId: ctx.companyId!,
+                name: vendorName,
+                category: input.defaultCategory,
+                isPreferred: false,
               })
               .returning()
 
-            // Auto-create budget item for this vendor (seamless module integration)
-            try {
-              await ctx.db.insert(budget).values({
+            if (vendor) {
+              // Create client_vendor relationship
+              const [clientVendor] = await tx
+                .insert(clientVendors)
+                .values({
+                  id: crypto.randomUUID(),
+                  clientId: input.clientId,
+                  vendorId: vendor.id,
+                  eventId: input.eventId || null,
+                  paymentStatus: 'pending' as any,
+                  approvalStatus: 'pending' as any,
+                })
+                .returning()
+
+              // Auto-create budget item for this vendor
+              await tx.insert(budget).values({
                 id: crypto.randomUUID(),
                 clientId: input.clientId,
                 vendorId: vendor.id,
                 eventId: input.eventId || null,
-                category: budgetCategory, // Event name as category for clarity
+                category: budgetCategory,
                 segment: 'vendors',
                 item: vendorName,
-                estimatedCost: '0', // To be filled in later
+                estimatedCost: '0',
                 actualCost: null,
                 paidAmount: '0',
                 paymentStatus: 'pending',
@@ -1271,20 +1271,18 @@ export const vendorsRouter = router({
                 isLumpSum: false,
                 notes: `Auto-created from vendor: ${vendorName}`,
               })
-            } catch (budgetError) {
-              console.warn(`Failed to auto-create budget item for vendor "${vendorName}":`, budgetError)
-            }
 
-            createdVendors.push({
-              id: clientVendor?.id,
-              vendorId: vendor.id,
-              name: vendorName,
-              category: input.defaultCategory,
-              eventId: input.eventId,
-            })
-          }
+              createdVendors.push({
+                id: clientVendor?.id,
+                vendorId: vendor.id,
+                name: vendorName,
+                category: input.defaultCategory,
+                eventId: input.eventId,
+              })
+            }
+          })
         } catch (err) {
-          // Log error but continue with other vendors
+          // Log error but continue with other vendors (transaction rolls back this vendor only)
           console.warn(`Failed to create vendor "${vendorName}":`, err)
         }
       }

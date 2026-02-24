@@ -1383,7 +1383,7 @@ export async function importAllFromSheets(
   spreadsheetId: string,
   clientId: string,
   companyId: string,
-  userId?: string
+  userId: string
 ): Promise<{
   success: boolean;
   totalImported: number;
@@ -1409,7 +1409,10 @@ export async function importAllFromSheets(
     }
     try {
       const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
-      await syncGuestsToHotelsAndTransportTx(db, clientId, cascadeResult);
+      // S7-M09: use transaction client instead of bare db
+      await db.transaction(async (tx) => {
+        await syncGuestsToHotelsAndTransportTx(tx, clientId, cascadeResult);
+      });
     } catch (err) {
       console.error('[Sheets Sync] Guest cascade sync failed:', err);
     }
@@ -1433,7 +1436,10 @@ export async function importAllFromSheets(
   if (hotelStats.imported > 0) {
     try {
       const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
-      await syncHotelsToTimelineTx(db, clientId, cascadeResult);
+      // S7-M09: use transaction client instead of bare db
+      await db.transaction(async (tx) => {
+        await syncHotelsToTimelineTx(tx, clientId, cascadeResult);
+      });
     } catch (err) {
       console.error('[Sheets Sync] Hotel cascade sync failed:', err);
     }
@@ -1447,7 +1453,10 @@ export async function importAllFromSheets(
   if (transportStats.imported > 0) {
     try {
       const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
-      await syncTransportToTimelineTx(db, clientId, cascadeResult);
+      // S7-M09: use transaction client instead of bare db
+      await db.transaction(async (tx) => {
+        await syncTransportToTimelineTx(tx, clientId, cascadeResult);
+      });
     } catch (err) {
       console.error('[Sheets Sync] Transport cascade sync failed:', err);
     }
@@ -1465,8 +1474,8 @@ export async function importAllFromSheets(
 
   console.log(`[Sheets Sync] Import complete: ${totalImported} records imported, ${allErrors.length} errors`);
 
-  // Broadcast sync actions for each module that had imports
-  if (userId && totalImported > 0) {
+  // Broadcast sync actions for each module that had imports (S7-M10: userId now required)
+  if (totalImported > 0) {
     const modules = ['guests', 'budget', 'vendors', 'hotels', 'transport', 'timeline', 'gifts'] as const;
     for (const mod of modules) {
       if (byModule[mod] && byModule[mod] > 0) {

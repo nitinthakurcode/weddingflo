@@ -795,16 +795,8 @@ export const floorPlansRouter = router({
           }
         }
 
-        // Remove any existing assignments for these guests
+        // Atomic delete + insert (S7-M04)
         const guestIds = input.assignments.map(a => a.guestId);
-        await db
-          .delete(schema.floorPlanGuests)
-          .where(and(
-            eq(schema.floorPlanGuests.floorPlanId, input.floorPlanId),
-            inArray(schema.floorPlanGuests.guestId, guestIds)
-          ));
-
-        // Insert all new assignments
         const insertValues = input.assignments.map(a => ({
           floorPlanId: input.floorPlanId,
           tableId: a.tableId,
@@ -812,9 +804,20 @@ export const floorPlansRouter = router({
           seatNumber: a.seatNumber,
         }));
 
-        await db
-          .insert(schema.floorPlanGuests)
-          .values(insertValues);
+        await db.transaction(async (tx) => {
+          // Remove any existing assignments for these guests
+          await tx
+            .delete(schema.floorPlanGuests)
+            .where(and(
+              eq(schema.floorPlanGuests.floorPlanId, input.floorPlanId),
+              inArray(schema.floorPlanGuests.guestId, guestIds)
+            ));
+
+          // Insert all new assignments
+          await tx
+            .insert(schema.floorPlanGuests)
+            .values(insertValues);
+        });
 
         // Broadcast floor plan update for real-time sync
         await broadcastSync({
@@ -925,19 +928,20 @@ export const floorPlansRouter = router({
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
 
-        // Delete related data first
-        await db
-          .delete(schema.floorPlanGuests)
-          .where(eq(schema.floorPlanGuests.floorPlanId, input.id));
+        // Atomic cascade delete (S7-M05)
+        await db.transaction(async (tx) => {
+          await tx
+            .delete(schema.floorPlanGuests)
+            .where(eq(schema.floorPlanGuests.floorPlanId, input.id));
 
-        await db
-          .delete(schema.floorPlanTables)
-          .where(eq(schema.floorPlanTables.floorPlanId, input.id));
+          await tx
+            .delete(schema.floorPlanTables)
+            .where(eq(schema.floorPlanTables.floorPlanId, input.id));
 
-        // Delete floor plan
-        await db
-          .delete(schema.floorPlans)
-          .where(eq(schema.floorPlans.id, input.id));
+          await tx
+            .delete(schema.floorPlans)
+            .where(eq(schema.floorPlans.id, input.id));
+        });
 
         await broadcastSync({
           type: 'delete',
@@ -1179,37 +1183,40 @@ export const floorPlansRouter = router({
         const tablePositions = layout?.tablePositions || [];
         const guestAssignments = layout?.guestAssignments || [];
 
-        // Clear current assignments
-        await db
-          .delete(schema.floorPlanGuests)
-          .where(eq(schema.floorPlanGuests.floorPlanId, input.floorPlanId));
+        // Atomic version restore: delete + update + insert (S7-M03)
+        await db.transaction(async (tx) => {
+          // Clear current assignments
+          await tx
+            .delete(schema.floorPlanGuests)
+            .where(eq(schema.floorPlanGuests.floorPlanId, input.floorPlanId));
 
-        // Update table positions
-        for (const tableData of tablePositions) {
-          await db
-            .update(schema.floorPlanTables)
-            .set({
-              x: tableData.x,
-              y: tableData.y,
-              width: tableData.width,
-              height: tableData.height,
-              rotation: tableData.rotation || 0,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.floorPlanTables.id, tableData.id));
-        }
+          // Update table positions
+          for (const tableData of tablePositions) {
+            await tx
+              .update(schema.floorPlanTables)
+              .set({
+                x: tableData.x,
+                y: tableData.y,
+                width: tableData.width,
+                height: tableData.height,
+                rotation: tableData.rotation || 0,
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.floorPlanTables.id, tableData.id));
+          }
 
-        // Restore guest assignments
-        if (guestAssignments.length > 0) {
-          await db
-            .insert(schema.floorPlanGuests)
-            .values(guestAssignments.map(a => ({
-              floorPlanId: input.floorPlanId,
-              tableId: a.tableId,
-              guestId: a.guestId,
-              seatNumber: a.seatNumber,
-            })));
-        }
+          // Restore guest assignments
+          if (guestAssignments.length > 0) {
+            await tx
+              .insert(schema.floorPlanGuests)
+              .values(guestAssignments.map(a => ({
+                floorPlanId: input.floorPlanId,
+                tableId: a.tableId,
+                guestId: a.guestId,
+                seatNumber: a.seatNumber,
+              })));
+          }
+        });
 
         await broadcastSync({
           type: 'update',

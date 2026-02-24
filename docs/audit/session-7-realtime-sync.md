@@ -36,10 +36,10 @@
 | **Date** | 2026-02-24 |
 | **Session** | 7 of 8 |
 | **Scope** | Real-time sync: Redis pub/sub → SSE delivery → client cache invalidation |
-| **Type** | Audit + fixes (3 prompts) |
+| **Type** | Audit + fixes (4 prompts) |
 | **Total issues found** | 27 (2 CRITICAL, 9 HIGH, 10 MEDIUM, 6 LOW) |
-| **Issues FIXED** | 11 (2 CRITICAL, 9 HIGH) |
-| **Issues remaining** | 16 (10 MEDIUM, 6 LOW — deferred to Session 8) |
+| **Issues FIXED** | 23 (2 CRITICAL, 9 HIGH, 10 MEDIUM, 2 LOW) |
+| **Issues remaining** | 4 (2 LOW superseded/partial, 1 LOW by-design, 1 LOW not-found) |
 | **Files audited** | 23 |
 | **Lines audited** | ~25,000 |
 | **broadcastSync calls** | 70 call sites + 1 definition + 3 broadcastSheetSync |
@@ -63,6 +63,19 @@
 - Fixed Excel import broadcastSync in import.router.ts: budget (added clients paths), vendors (added budget.getSummary, timeline.getAll), inline queryPathsMap (full cascade paths)
 - Fixed phantom `budget.getStats` → `budget.getSummary` in sheets-sync.ts
 
+**P4 — All remaining MEDIUM + LOW fixes:**
+- S7-M01: TOCTOU race in connection limiter → increment-first-then-check pattern
+- S7-M02: `getModuleFromToolName` default `'guests'` → added 7 tool patterns, default changed to `'clients'`
+- S7-M03/M04/M05: Non-atomic floor plan operations → wrapped in `db.transaction()`
+- S7-M06: Vendor bulk create → per-iteration transactions
+- S7-M07: Timeline bulk import → single atomic transaction
+- S7-M08: Redis failure in connection limiter → graceful degradation (allow without limits)
+- S7-M09: Cascade sync with bare `db` → 6 calls wrapped in `db.transaction()` across 2 files
+- S7-M10: `importAllFromSheets` userId → made required, broadcast always fires
+- S7-L02: Manual reconnect → replaced `subscriptionKey` with `pendingReconnect` toggle
+- S7-L05: Duplicate events → `seenActionIds` dedup filter with auto-eviction
+- Dead code: removed unused `publishSyncAction` function from redis-pubsub.ts
+
 ---
 
 ## 2. Severity Breakdown
@@ -71,9 +84,9 @@
 |----------|-------|-------|-----------|---------|
 | **CRITICAL** | 2 | 2 | 0 | Phantom queryPaths ✅, publishSyncAction no-op ✅ |
 | **HIGH** | 9 | 9 | 0 | All coverage gaps, cascade paths, chatbot parity, import paths ✅ |
-| **MEDIUM** | 10 | 0 | 10 | TOCTOU race, non-atomic ops, Redis failure handling — deferred |
-| **LOW** | 6 | 0 | 6 | Duplicate line, subscriptionKey wiring, dedup, polling latency — deferred |
-| **TOTAL** | **27** | **11** | **16** | |
+| **MEDIUM** | 10 | 10 | 0 | TOCTOU race ✅, non-atomic ops ✅, Redis failure ✅, cascade tx ✅, userId ✅ |
+| **LOW** | 6 | 2 | 4 | Reconnect ✅, dedup ✅; logChange partial, L01 not-found, L06 by-design |
+| **TOTAL** | **27** | **23** | **4** | |
 
 ---
 
@@ -117,17 +130,32 @@
 | `src/lib/google/sheets-sync.ts` | `getQueryPathsForModule` rewritten with full cascade paths, `budget.getStats` → `budget.getSummary` |
 | `src/features/analytics/server/routers/import.router.ts` | Budget import +clients paths, vendor import +budget/timeline, queryPathsMap full cascade |
 
+### Prompt 4 (P4) — All remaining MEDIUM + LOW fixes
+
+| File | Changes |
+|------|---------|
+| `src/lib/sse/connection-manager.ts` | S7-M01: increment-first-then-check (TOCTOU fix); S7-M08: Redis failure graceful degradation |
+| `src/features/chatbot/server/services/tool-executor.ts` | S7-M02: added 7 tool patterns, changed default `'guests'` → `'clients'` |
+| `src/features/events/server/routers/floor-plans.router.ts` | S7-M03: loadVersion wrapped in tx; S7-M04: batchAssignGuests wrapped in tx; S7-M05: delete wrapped in tx |
+| `src/features/events/server/routers/vendors.router.ts` | S7-M06: bulkCreateFromCommaList per-iteration transactions |
+| `src/features/events/server/routers/timeline.router.ts` | S7-M07: bulkImport wrapped in single transaction |
+| `src/lib/google/sheets-sync.ts` | S7-M09: 3 cascade calls wrapped in db.transaction(); S7-M10: userId made required, broadcast guard simplified |
+| `src/features/backup/server/routers/googleSheets.router.ts` | S7-M09: 3 cascade calls wrapped in db.transaction() |
+| `src/lib/realtime/redis-pubsub.ts` | S7-L01: dead `publishSyncAction` function removed |
+| `src/features/realtime/hooks/use-realtime-sync.ts` | S7-L02: reconnect via pendingReconnect toggle; S7-L05: seenActionIds dedup filter |
+
 ---
 
 ## 4. Verification Results
 
-| Check | Result |
-|-------|--------|
-| `npx tsc --noEmit` | 0 errors |
-| `npx jest --passWithNoTests` | 373/373 tests pass |
-| `grep -r "broadcastSync" --include="*.ts" \| wc -l` | 71 (70 call sites + 1 definition) |
-| `grep -r "broadcastSheetSync" --include="*.ts" \| wc -l` | 3 calls |
-| P3 diff stats | 3 files changed, 18 insertions, 18 deletions |
+| Check | P3 Result | P4 Result |
+|-------|-----------|-----------|
+| `npx tsc --noEmit` | 0 errors | 0 errors |
+| `npx jest --passWithNoTests` | 373/373 pass | 373/373 pass |
+| `await broadcastSync(` call sites | 70 | 70 (unchanged) |
+| `broadcastSheetSync` calls | 3 | 3 (unchanged) |
+| P3 diff stats | 3 files, +18/-18 | — |
+| P4 diff stats | — | 9 files, +298/-246 |
 
 ### broadcastSync Count Progression
 
@@ -755,122 +783,133 @@ await broadcastSync({ ... })  // outside tx — CORRECT
 
 ---
 
-### S7-M01 MEDIUM — TOCTOU Race in Connection Limiter
+### S7-M01 ~~MEDIUM~~ → FIXED (P4) — TOCTOU Race in Connection Limiter
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | connection-manager.ts:151-172 |
-| **Problem** | `canConnect()` read and `pipeline.incr()` write are not atomic. Concurrent requests can exceed limit. |
-| **Impact** | Bounded overshoot. TTL auto-corrects. Low practical risk. |
+| **Status** | **FIXED** (P4) |
+| **File** | connection-manager.ts |
+| **Problem** | `canConnect()` read and `pipeline.incr()` write were not atomic. Concurrent requests could exceed limit. |
+| **Fix** | Replaced check-then-increment with increment-first-then-check pattern. INCR is atomic in Redis. If limits exceeded after increment, DECR rollback is issued. Eliminates TOCTOU window. |
 
 ---
 
-### S7-M02 MEDIUM — `getModuleFromToolName` Default `'guests'`
+### S7-M02 ~~MEDIUM~~ → FIXED (P4) — `getModuleFromToolName` Default `'guests'`
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | tool-executor.ts:618-630 |
-| **Problem** | 8+ tools fall through to default module `'guests'`. Corrupts SyncAction.module for logging. |
+| **Status** | **FIXED** (P4) |
+| **File** | tool-executor.ts |
+| **Problem** | 8+ tools fell through to default module `'guests'`. |
+| **Fix** | Added explicit patterns for `pipeline`, `team`, `proposal`, `invoice`, `communication`, `website`, `workflow` → `'clients'`. Changed default fallback from `'guests'` to `'clients'`. |
 
 ---
 
-### S7-M03 MEDIUM — `loadVersion` Non-Atomic
+### S7-M03 ~~MEDIUM~~ → FIXED (P4) — `loadVersion` Non-Atomic
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | floor-plans.router.ts:1110 |
-| **Problem** | Deletes + updates + inserts with no transaction. Partial failure leaves inconsistent state. |
+| **Status** | **FIXED** (P4) |
+| **File** | floor-plans.router.ts |
+| **Problem** | Delete + update loop + insert with no transaction. |
+| **Fix** | Wrapped all operations in `db.transaction()`. Delete, table position updates, and guest assignment inserts are now atomic. |
 
 ---
 
-### S7-M04 MEDIUM — `batchAssignGuests` Non-Atomic
+### S7-M04 ~~MEDIUM~~ → FIXED (P4) — `batchAssignGuests` Non-Atomic
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | floor-plans.router.ts:800-828 |
+| **Status** | **FIXED** (P4) |
+| **File** | floor-plans.router.ts |
 | **Problem** | Delete + insert without transaction. |
+| **Fix** | Wrapped delete + insert in `db.transaction()`. |
 
 ---
 
-### S7-M05 MEDIUM — `floor-plans.delete` Non-Atomic
+### S7-M05 ~~MEDIUM~~ → FIXED (P4) — `floor-plans.delete` Non-Atomic
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | floor-plans.router.ts:929-950 |
+| **Status** | **FIXED** (P4) |
+| **File** | floor-plans.router.ts |
 | **Problem** | Three sequential deletes without transaction. |
+| **Fix** | Wrapped all 3 deletes (floorPlanGuests, floorPlanTables, floorPlans) in `db.transaction()`. |
 
 ---
 
-### S7-M06 MEDIUM — `vendors.bulkCreateFromCommaList` Non-Atomic
+### S7-M06 ~~MEDIUM~~ → FIXED (P4) — `vendors.bulkCreateFromCommaList` Non-Atomic
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | vendors.router.ts:1130 |
-| **Problem** | For-loop of inserts without transaction. |
+| **Status** | **FIXED** (P4) |
+| **File** | vendors.router.ts |
+| **Problem** | For-loop of inserts (vendor + clientVendor + budget) without transaction. |
+| **Fix** | Per-iteration `db.transaction()`. Each vendor creation is atomic (vendor + clientVendor + budget all-or-nothing). Individual vendor failures don't affect others. |
 
 ---
 
-### S7-M07 MEDIUM — `timeline.bulkImport` Non-Atomic
+### S7-M07 ~~MEDIUM~~ → FIXED (P4) — `timeline.bulkImport` Non-Atomic
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | timeline.router.ts:568-719 |
-| **Problem** | Loop of individual inserts without transaction. |
+| **Status** | **FIXED** (P4) |
+| **File** | timeline.router.ts |
+| **Problem** | Loop of individual inserts/updates/deletes without transaction. |
+| **Fix** | Wrapped entire loop in single `db.transaction()`. All bulk import operations are atomic — either all succeed or all roll back. Error handler resets counts on failure. |
 
 ---
 
-### S7-M08 MEDIUM — sseConnections.acquire Throws on Redis Failure
+### S7-M08 ~~MEDIUM~~ → FIXED (P4) — sseConnections.acquire Throws on Redis Failure
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | connection-manager.ts:167-172 |
-| **Problem** | Redis down → no new SSE connections. Should degrade gracefully. |
+| **Status** | **FIXED** (P4) |
+| **File** | connection-manager.ts |
+| **Problem** | Redis down → `pipeline.exec()` throws → no new SSE connections possible. |
+| **Fix** | Wrapped acquire logic in try/catch. `SSEConnectionLimitError` is re-thrown (intentional rejection). All other errors (Redis failure) return a no-op guard — connection is allowed without limit enforcement. Graceful degradation. |
 
 ---
 
-### S7-M09 MEDIUM — Cascade Sync Called with Bare `db`
+### S7-M09 ~~MEDIUM~~ → FIXED (P4) — Cascade Sync Called with Bare `db`
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
+| **Status** | **FIXED** (P4) |
 | **Files** | googleSheets.router.ts, sheets-sync.ts |
-| **Problem** | Functions designed for `tx` called with bare `db`. Non-atomic with preceding import. |
+| **Problem** | `syncGuestsToHotelsAndTransportTx`, `syncHotelsToTimelineTx`, `syncTransportToTimelineTx` called with bare `db` instead of transaction client. |
+| **Fix** | All 6 cascade calls (3 in sheets-sync.ts, 3 in googleSheets.router.ts) now wrapped in `db.transaction(async (tx) => { ... })`. Transaction client passed to cascade function. |
 
 ---
 
-### S7-M10 MEDIUM — `importAllFromSheets` Broadcast Gated on Optional `userId`
+### S7-M10 ~~MEDIUM~~ → FIXED (P4) — `importAllFromSheets` Broadcast Gated on Optional `userId`
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | sheets-sync.ts:1389, 1472 |
-| **Problem** | If `userId` omitted, entire broadcast block is skipped. |
+| **Status** | **FIXED** (P4) |
+| **File** | sheets-sync.ts |
+| **Problem** | `userId` parameter was optional. If omitted, entire broadcast block was skipped. |
+| **Fix** | Made `userId` parameter required. Removed `if (userId && ...)` guard on broadcast block — now always broadcasts when imports occur. Only caller (`googleSheets.router.ts`) already passes `ctx.userId!`. |
 
 ---
 
-### S7-L01 LOW — Duplicate Line in redis-pubsub.ts
+### S7-L01 ~~LOW~~ → NOT_FOUND (P4) — Duplicate Line in redis-pubsub.ts
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | redis-pubsub.ts:136 |
+| **Status** | **NOT_FOUND** — no duplicate visible at line 136 in current code. Also removed dead `publishSyncAction` function (unused since P1). |
+| **File** | redis-pubsub.ts |
 
 ---
 
-### S7-L02 LOW — `subscriptionKey` Not Wired to Subscription
+### S7-L02 ~~LOW~~ → FIXED (P4) — `subscriptionKey` Not Wired to Subscription
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
-| **File** | use-realtime-sync.ts:66, 171 |
+| **Status** | **FIXED** (P4) |
+| **File** | use-realtime-sync.ts |
+| **Problem** | `subscriptionKey` state was incremented by `reconnect()` but never passed to `useSubscription`. Manual reconnect was non-functional. |
+| **Fix** | Replaced `subscriptionKey` with `pendingReconnect` toggle pattern. `reconnect()` sets `pendingReconnect=true` which disables the subscription via `enabled: enabled && !pendingReconnect`. After 100ms, re-enables — tRPC creates a new subscription. |
 
 ---
 
@@ -886,16 +925,18 @@ await broadcastSync({ ... })  // outside tx — CORRECT
 
 | Field | Value |
 |-------|-------|
-| **Status** | **PARTIALLY FIXED** (P2) — `addGuestConflict/Preference`, `removeGuestConflict/Preference` now have broadcastSync. `logChange` intentionally deferred (audit-log-only). |
+| **Status** | **PARTIALLY FIXED** (P2) — `addGuestConflict/Preference`, `removeGuestConflict/Preference` now have broadcastSync. `logChange` intentionally not broadcast (audit-log-only, not user-facing). |
 
 ---
 
-### S7-L05 LOW — No Duplicate Event Filtering
+### S7-L05 ~~LOW~~ → FIXED (P4) — No Duplicate Event Filtering
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (deferred) |
+| **Status** | **FIXED** (P4) |
 | **File** | use-realtime-sync.ts |
+| **Problem** | No deduplication by `action.id`. Same action received twice would invalidate queries twice. |
+| **Fix** | Added `seenActionIds` ref (Set) that tracks processed action IDs. Duplicate actions are skipped. Set auto-evicts when exceeding 500 entries (keeps last 250). |
 
 ---
 
@@ -903,7 +944,7 @@ await broadcastSync({ ... })  // outside tx — CORRECT
 
 | Field | Value |
 |-------|-------|
-| **Status** | OPEN (by design) |
+| **Status** | **BY DESIGN** — documented trade-off for Upstash REST API. Not fixable without switching to Upstash TCP for true pub/sub. |
 | **File** | redis-pubsub.ts:179 |
 
 ---
@@ -927,16 +968,14 @@ await broadcastSync({ ... })  // outside tx — CORRECT
 
 ### Session 7 → Session 8 (Final Review)
 
-| Finding | Action for Session 8 |
-|---------|---------------------|
-| S7-M01 | TOCTOU race in connection limiter — consider atomic Lua script |
-| S7-M02 | `getModuleFromToolName` default `'guests'` — add proper tool→module mapping |
-| S7-M03/M04/M05/M06/M07 | Non-atomic multi-write operations — wrap in transactions |
-| S7-M08 | `sseConnections.acquire` too aggressive on Redis failure — add graceful degradation |
-| S7-M09 | Cascade sync functions called with bare `db` — pass transaction client |
-| S7-M10 | `importAllFromSheets` broadcast gated on optional userId |
-| S7-L02 | `subscriptionKey` not wired to subscription — verify manual reconnect works |
+| Finding | Status |
+|---------|--------|
+| S7-M01 through S7-M10 | **ALL FIXED** (P4) |
+| S7-L02, S7-L05 | **FIXED** (P4) |
+| S7-L04 (`logChange`) | Intentionally not broadcast — audit-log-only, not user-facing |
+| S7-L06 (500ms polling) | By design — Upstash REST trade-off |
 | 3 deferred mutations | `guests.checkIn`, `events.updateStatus`, `floor-plans.logChange` — add broadcastSync if needed |
+| Dead code cleanup | `publishSyncAction` function removed from redis-pubsub.ts (unused since P1) |
 
 ---
 

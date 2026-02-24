@@ -620,9 +620,12 @@ function getModuleFromToolName(toolName: string): SyncAction['module'] {
   if (toolName.includes('transport')) return 'transport'
   if (toolName.includes('timeline')) return 'timeline'
   if (toolName.includes('gift')) return 'gifts'
-  if (toolName.includes('client')) return 'clients'
+  if (toolName.includes('client') || toolName.includes('pipeline') || toolName.includes('team')
+    || toolName.includes('proposal') || toolName.includes('invoice')
+    || toolName.includes('communication') || toolName.includes('website')
+    || toolName.includes('workflow')) return 'clients'
   if (toolName.includes('floor') || toolName.includes('table')) return 'floorPlans'
-  return 'guests' // Default
+  return 'clients' // Default fallback for unmatched tools (S7-M02)
 }
 
 // ============================================
