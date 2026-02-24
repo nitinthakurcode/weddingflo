@@ -122,23 +122,20 @@ FROM clients c
 WHERE t.client_id = c.id AND t.company_id IS NULL AND c.company_id IS NOT NULL;
 
 UPDATE hotels h SET company_id = c.company_id
-FROM clients c
-JOIN guests g ON h.guest_id = g.id
-WHERE g.client_id = c.id AND h.company_id IS NULL AND c.company_id IS NOT NULL;
+FROM clients c, guests g
+WHERE h.guest_id = g.id AND g.client_id = c.id AND h.company_id IS NULL AND c.company_id IS NOT NULL;
 
 UPDATE guest_transport gt SET company_id = c.company_id
 FROM clients c
 WHERE gt.client_id = c.id AND gt.company_id IS NULL AND c.company_id IS NOT NULL;
 
 UPDATE floor_plans fp SET company_id = c.company_id
-FROM clients c
-JOIN events e ON fp.event_id = e.id
-WHERE e.client_id = c.id AND fp.company_id IS NULL AND c.company_id IS NOT NULL;
+FROM clients c, events e
+WHERE fp.event_id = e.id AND e.client_id = c.id AND fp.company_id IS NULL AND c.company_id IS NOT NULL;
 
 UPDATE gifts gi SET company_id = c.company_id
-FROM clients c
-JOIN guests g ON gi.guest_id = g.id
-WHERE g.client_id = c.id AND gi.company_id IS NULL AND c.company_id IS NOT NULL;
+FROM clients c, guests g
+WHERE gi.guest_id = g.id AND g.client_id = c.id AND gi.company_id IS NULL AND c.company_id IS NOT NULL;
 
 -- Chatbot tables
 UPDATE chatbot_messages cm SET company_id = cc.company_id
