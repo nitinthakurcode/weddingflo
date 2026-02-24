@@ -5,6 +5,7 @@ import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
 import { budget, advancePayments, clients, events, clientUsers, user, clientVendors, vendors, timeline } from '@/lib/db/schema'
 import { nanoid } from 'nanoid'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 
 /**
  * Budget tRPC Router - Drizzle ORM Version
@@ -250,6 +251,9 @@ export const budgetRouter = router({
           console.log(`[Timeline] Created payment due entry: ${input.itemName}`)
         }
 
+        // Recalculate client cached budget total
+        await recalcClientStats(tx, input.clientId)
+
         return newItem
       })
 
@@ -443,6 +447,9 @@ export const budgetRouter = router({
           console.log(`[Timeline] Deleted payment due entry (date cleared)`)
         }
 
+        // Recalculate client cached budget total
+        await recalcClientStats(tx, updated.clientId)
+
         return updated
       })
 
@@ -472,7 +479,7 @@ export const budgetRouter = router({
 
       // Verify budget item belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: budget.id })
+        .select({ id: budget.id, clientId: budget.clientId })
         .from(budget)
         .innerJoin(clients, eq(budget.clientId, clients.id))
         .where(
@@ -502,6 +509,9 @@ export const budgetRouter = router({
         await tx
           .delete(budget)
           .where(eq(budget.id, input.id))
+
+        // Recalculate client cached budget total
+        await recalcClientStats(tx, existing.clientId)
 
         console.log(`[Timeline] Deleted payment due entry`)
       })
@@ -608,6 +618,9 @@ export const budgetRouter = router({
           console.log(`[Budget] Synced advance payment to vendor ${updatedBudget.vendorId}: total paid = ${totalPaid}`)
         }
 
+        // Recalculate client cached budget total
+        await recalcClientStats(tx, budgetItem.clientId)
+
         return newAdvance
       })
 
@@ -684,6 +697,11 @@ export const budgetRouter = router({
               })
               .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
           }
+
+          // Recalculate client cached budget total
+          if (updatedBudget?.clientId) {
+            await recalcClientStats(tx, updatedBudget.clientId)
+          }
         }
 
         return updated
@@ -744,6 +762,11 @@ export const budgetRouter = router({
                 updatedAt: new Date(),
               })
               .where(eq(clientVendors.vendorId, updatedBudget.vendorId))
+          }
+
+          // Recalculate client cached budget total
+          if (updatedBudget?.clientId) {
+            await recalcClientStats(tx, updatedBudget.clientId)
           }
         }
       })

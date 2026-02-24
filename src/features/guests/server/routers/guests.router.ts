@@ -8,6 +8,7 @@ import { RSVP_STATUS, RSVP_STATUS_VALUES, GUEST_SIDE, GUEST_SIDE_VALUES, normali
 import { cascadeGuestSideEffects } from '../utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 
 /**
  * Guests tRPC Router - Drizzle ORM Version
@@ -241,6 +242,9 @@ export const guestsRouter = router({
           tx,
         })
         cascadeActions.push(...sideEffects)
+
+        // Recalculate client cached guest count
+        await recalcClientStats(tx, input.clientId)
 
         return { guest, cascadeActions }
       })
@@ -684,6 +688,9 @@ export const guestsRouter = router({
           }
         }
 
+        // Recalculate client cached guest count
+        await recalcClientStats(tx, guest.clientId)
+
         return { guest, cascadeActions }
       })
 
@@ -829,6 +836,9 @@ export const guestsRouter = router({
         if (existingGuest.guest.rsvpStatus === RSVP_STATUS.CONFIRMED) {
           await recalcPerGuestBudgetItems(tx, existingGuest.guest.clientId)
         }
+
+        // 9. Recalculate client cached guest count
+        await recalcClientStats(tx, existingGuest.guest.clientId)
 
         console.log(`[Guest Delete] Guest ${input.id} deleted with cascade:`, deletionCounts)
         return deletionCounts
@@ -983,6 +993,9 @@ export const guestsRouter = router({
         if (updatedItems > 0) {
           cascadeActions.push({ module: 'budget', action: 'recalculated', count: updatedItems })
         }
+
+        // Recalculate client cached guest count
+        await recalcClientStats(tx, input.clientId)
 
         if (cascadeActions.length > 0) {
           console.log(`[Bulk Import] Cascade for ${data.length} guests:`, cascadeActions)
@@ -1217,6 +1230,9 @@ export const guestsRouter = router({
             cascadeActions.push({ module: 'budget', action: 'updated_per_guest_items', count: updatedItems })
           }
         }
+
+        // 3. Recalculate client cached guest count and budget total
+        await recalcClientStats(tx, guest.clientId)
 
         return { guest, cascadeActions }
       })

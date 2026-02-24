@@ -15,6 +15,7 @@ import { withTransaction } from '@/features/chatbot/server/services/transaction-
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 import {
   importBudgetExcel,
   importHotelsExcel,
@@ -747,6 +748,7 @@ export const importRouter = router({
       if (input.module === 'budget') {
         const result = await importBudgetExcel(buffer, input.clientId, companyId)
         if (result.inserted > 0 || result.updated > 0) {
+          await recalcClientStats(ctx.db, input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'budget',
@@ -1054,6 +1056,11 @@ export const importRouter = router({
           }
 
           console.log(`[Import] Cascade sync completed: hotels=${syncResult.created.hotels}, transport=${syncResult.created.transport}, timeline=${syncResult.created.timeline}, budget=${syncResult.created.budget}`)
+        }
+
+        // Recalculate client cached stats for guest/budget imports
+        if (input.module === 'guests' || input.module === 'budget') {
+          await recalcClientStats(tx, input.clientId)
         }
 
         console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.skipped} skipped, ${results.cascadeActions.length} cascade actions`)

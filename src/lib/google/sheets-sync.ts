@@ -27,6 +27,7 @@ import { inArray } from 'drizzle-orm';
 import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-client';
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
+import { recalcClientStats } from '@/lib/sync/client-stats-sync';
 import { publishSyncAction, storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
 import {
   syncGuestsToHotelsAndTransportTx,
@@ -694,6 +695,11 @@ export async function importGuestsFromSheet(
       }
     });
 
+    // Recalculate client cached guest count after import
+    if (stats.imported > 0) {
+      await recalcClientStats(db, clientId);
+    }
+
     console.log(`[Sheets Sync] Imported ${stats.imported} guests from sheet`);
   } catch (error: any) {
     stats.errors.push(`Import error: ${error.message}`);
@@ -786,6 +792,11 @@ export async function importBudgetFromSheet(
         }
       }
     });
+
+    // Recalculate client cached budget total after import
+    if (stats.imported > 0) {
+      await recalcClientStats(db, clientId);
+    }
 
     console.log(`[Sheets Sync] Imported ${stats.imported} budget items from sheet`);
   } catch (error: any) {

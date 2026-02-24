@@ -10,6 +10,7 @@ import {
 import type { SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+import { recalcClientStats } from '@/lib/sync/client-stats-sync';
 
 // Budget category segment type (different from BudgetSegment which is budget tier)
 type BudgetCategorySegment = 'vendors' | 'artists' | 'creatives' | 'travel' | 'accommodation' | 'other';
@@ -790,6 +791,9 @@ export const clientsRouter = router({
           console.error('[Clients Router] Failed to auto-create vendors:', vendorsError);
         }
       }
+
+        // Recalculate client cached budget total (from auto-generated budget categories)
+        await recalcClientStats(tx, client.id);
 
         return client;
       });

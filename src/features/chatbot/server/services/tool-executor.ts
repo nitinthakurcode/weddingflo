@@ -50,6 +50,7 @@ import { normalizeGuestSide, normalizeRsvpStatus } from '@/lib/constants/enums'
 import { getDefaultTemplate, type TimelineTemplateItem } from '@/lib/templates/timeline-defaults'
 import { cascadeGuestSideEffects } from '@/features/guests/server/utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
+import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 import { withTransaction, withCascadeTransaction } from './transaction-wrapper'
 import {
   TOOL_METADATA,
@@ -926,6 +927,9 @@ async function executeCreateClient(
       }
     }
 
+    // Recalculate client cached budget total and guest count
+    await recalcClientStats(tx, newClient.id)
+
     const displayName = `${partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}`
 
     return {
@@ -1607,6 +1611,9 @@ async function executeAddGuest(
       tx,
     })
 
+    // Recalculate client cached guest count
+    await recalcClientStats(tx, clientId)
+
     return { newGuest, cascadeActions }
   })
 
@@ -1716,6 +1723,9 @@ async function executeUpdateGuestRsvp(
       const { updatedItems } = await recalcPerGuestBudgetItems(tx, updatedGuest.clientId)
       budgetUpdated = updatedItems
     }
+
+    // Recalculate client cached guest count and budget total
+    await recalcClientStats(tx, updatedGuest.clientId)
 
     return { updatedGuest, budgetUpdated }
   })
@@ -1841,6 +1851,9 @@ async function executeBulkUpdateGuests(
         sql`${guests.id} = any(${targetGuests.map(g => g.id)})`
       )
     )
+
+  // Recalculate client cached guest count
+  await recalcClientStats(db, clientId)
 
   return {
     success: true,
@@ -2999,6 +3012,9 @@ async function executeUpdateBudgetItem(
         )
       console.log(`[Timeline] Deleted payment due entry (date cleared)`)
     }
+
+    // Recalculate client cached budget total
+    await recalcClientStats(tx, updated.clientId)
 
     return updated
   })
@@ -6635,6 +6651,9 @@ async function executeDeleteGuest(
       await recalcPerGuestBudgetItems(tx, existingGuest.clientId)
     }
 
+    // 8. Recalculate client cached guest count
+    await recalcClientStats(tx, existingGuest.clientId)
+
     return deletionCounts
   })
 
@@ -6903,6 +6922,9 @@ async function executeDeleteBudgetItem(
     await tx
       .delete(budget)
       .where(eq(budget.id, budgetItemId))
+
+    // 3. Recalculate client cached budget total
+    await recalcClientStats(tx, existing.clientId)
   })
 
   return {
