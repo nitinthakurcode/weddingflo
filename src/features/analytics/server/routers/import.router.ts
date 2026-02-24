@@ -21,7 +21,7 @@ import {
   importHotelsExcel,
   importTransportExcel,
   importVendorsExcel,
-} from '@/lib/import/excel-parser'
+} from '@/lib/import/excel-parser-server'
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts'])
