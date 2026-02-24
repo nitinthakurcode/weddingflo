@@ -150,7 +150,7 @@ export const giftsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['gifts.list'],
+        queryPaths: ['gifts.getAll'],
       })
 
       return gift
@@ -210,7 +210,7 @@ export const giftsRouter = router({
         companyId: ctx.companyId!,
         clientId: gift.clientId,
         userId: ctx.userId!,
-        queryPaths: ['gifts.list'],
+        queryPaths: ['gifts.getAll'],
       })
 
       return gift
@@ -256,7 +256,7 @@ export const giftsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['gifts.list'],
+        queryPaths: ['gifts.getAll'],
       })
 
       return { success: true }

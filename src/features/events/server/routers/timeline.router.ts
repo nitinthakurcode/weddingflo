@@ -154,7 +154,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.list'],
+        queryPaths: ['timeline.getAll'],
       })
 
       return timelineItem
@@ -232,7 +232,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: timelineItem.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.list'],
+        queryPaths: ['timeline.getAll'],
       })
 
       return timelineItem
@@ -277,7 +277,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.list'],
+        queryPaths: ['timeline.getAll'],
       })
 
       return { success: true }
@@ -715,7 +715,7 @@ export const timelineRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['timeline.list'],
+        queryPaths: ['timeline.getAll'],
       })
 
       return results

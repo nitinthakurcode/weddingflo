@@ -269,7 +269,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.list'],
+        queryPaths: ['hotels.getAll'],
       })
 
       return {
@@ -505,7 +505,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.list'],
+        queryPaths: ['hotels.getAll'],
       })
 
       return {
@@ -580,7 +580,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.list'],
+        queryPaths: ['hotels.getAll'],
       })
 
       return { success: true, cascadeActions: result.cascadeActions }

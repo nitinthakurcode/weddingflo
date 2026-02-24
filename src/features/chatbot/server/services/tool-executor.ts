@@ -74,7 +74,6 @@ import {
   isQueryOnlyTool,
 } from './query-invalidation-map'
 import {
-  publishSyncAction,
   storeSyncAction,
   type SyncAction,
 } from '@/lib/realtime/redis-pubsub'
@@ -584,16 +583,13 @@ export async function executeToolWithSync(
         toolName,
       }
 
-      // Publish to Redis (broadcasts to ALL instances) and store for recovery
-      // DESIGN: Sync broadcast is non-fatal. If Redis pub/sub fails, the mutation still succeeds.
-      // Other tabs will refresh on next navigation or manual refresh. This prevents Redis outages
-      // from blocking mutations and ensures the chatbot always returns success for completed DB writes.
+      // Store sync action in Redis sorted set for polling-based delivery.
+      // publishSyncAction (Redis PUBLISH) removed: Upstash REST API has no persistent
+      // subscribers; subscribeToCompany() polls the sorted set instead.
+      // DESIGN: Sync broadcast is non-fatal. If Redis fails, the mutation still succeeds.
       try {
-        await Promise.all([
-          publishSyncAction(action),
-          storeSyncAction(action),
-        ])
-        console.log(`[Tool Executor] Published sync action for ${toolName}: ${queryPaths.join(', ')}`)
+        await storeSyncAction(action)
+        console.log(`[Tool Executor] Stored sync action for ${toolName}: ${queryPaths.join(', ')}`)
       } catch (error) {
         console.warn(`[Tool Executor] Sync broadcast failed (non-fatal):`, error)
       }

@@ -250,7 +250,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.list'],
+        queryPaths: ['guestTransport.getAll'],
       })
 
       return {
@@ -528,7 +528,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: result.transport.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.list'],
+        queryPaths: ['guestTransport.getAll'],
       })
 
       return {
@@ -604,7 +604,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: existingTransport?.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.list'],
+        queryPaths: ['guestTransport.getAll'],
       })
 
       return { success: true, cascadeActions: result.cascadeActions }

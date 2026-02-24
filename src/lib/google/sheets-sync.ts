@@ -28,7 +28,7 @@ import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-clie
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
 import { recalcClientStats } from '@/lib/sync/client-stats-sync';
-import { publishSyncAction, storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
+import { storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
 import {
   syncGuestsToHotelsAndTransportTx,
   syncHotelsToTimelineTx,
@@ -92,7 +92,7 @@ const GIFT_HEADERS = [
 function getQueryPathsForModule(module: string): string[] {
   const map: Record<string, string[]> = {
     guests: ['guests.getAll', 'guests.getStats', 'guests.getDietaryStats'],
-    budget: ['budget.getAll', 'budget.getStats'],
+    budget: ['budget.getAll', 'budget.getSummary'],
     timeline: ['timeline.getAll'],
     hotels: ['hotels.getAll'],
     transport: ['guestTransport.getAll'],
@@ -125,10 +125,7 @@ export async function broadcastSheetSync(params: {
     timestamp: Date.now(),
     queryPaths: getQueryPathsForModule(params.module),
   };
-  await Promise.all([
-    publishSyncAction(syncAction),
-    storeSyncAction(syncAction),
-  ]).catch(err => console.error('[Sheets Sync] Broadcast failed:', err));
+  await storeSyncAction(syncAction).catch(err => console.error('[Sheets Sync] Broadcast failed:', err));
 }
 
 /**

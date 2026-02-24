@@ -16,45 +16,45 @@
  * queryPath names sourced from each module's router broadcastSync calls.
  */
 export const TOOL_QUERY_MAP: Record<string, string[]> = {
-  // Client tools (no broadcastSync in router — use conventional names)
-  create_client: ['clients.list'],
-  update_client: ['clients.list'],
+  // Client tools — matches clients.router.ts procedure names
+  create_client: ['clients.list', 'clients.getAll'],
+  update_client: ['clients.list', 'clients.getAll', 'clients.getById'],
 
-  // Guest tools (from guests.router.ts broadcastSync)
-  add_guest: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
-  update_guest_rsvp: ['guests.list', 'guests.getStats', 'budget.overview'],
-  bulk_update_guests: ['guests.list', 'guests.getStats'],
-  check_in_guest: ['guests.list', 'guests.getStats'],
-  assign_guests_to_events: ['guests.list', 'events.list'],
-  update_table_dietary: ['guests.list'],
+  // Guest tools — matches guests.router.ts procedure names
+  add_guest: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+  update_guest_rsvp: ['guests.getAll', 'guests.getStats', 'budget.getSummary'],
+  bulk_update_guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+  check_in_guest: ['guests.getAll', 'guests.getStats'],
+  assign_guests_to_events: ['guests.getAll', 'guests.getStats', 'events.getAll'],
+  update_table_dietary: ['guests.getAll', 'guests.getStats'],
 
-  // Event tools (from events.router.ts broadcastSync)
-  create_event: ['events.list', 'timeline.list'],
-  update_event: ['events.list', 'timeline.list'],
+  // Event tools — matches events.router.ts procedure names
+  create_event: ['events.getAll', 'timeline.getAll'],
+  update_event: ['events.getAll', 'timeline.getAll'],
 
-  // Timeline tools (from timeline.router.ts broadcastSync)
-  add_timeline_item: ['timeline.list'],
-  shift_timeline: ['timeline.list'],
+  // Timeline tools — matches timeline.router.ts procedure names
+  add_timeline_item: ['timeline.getAll'],
+  shift_timeline: ['timeline.getAll'],
 
-  // Vendor tools (from vendors.router.ts broadcastSync)
-  add_vendor: ['vendors.list', 'budget.list', 'timeline.list'],
-  update_vendor: ['vendors.list', 'budget.list'],
+  // Vendor tools — matches vendors.router.ts procedure names (includes cascade targets)
+  add_vendor: ['vendors.getAll', 'budget.getAll', 'timeline.getAll'],
+  update_vendor: ['vendors.getAll', 'budget.getAll'],
 
-  // Hotel tools (from hotels.router.ts broadcastSync)
-  add_hotel_booking: ['hotels.list'],
-  bulk_add_hotel_bookings: ['hotels.list'],
+  // Hotel tools — matches hotels.router.ts procedure names
+  add_hotel_booking: ['hotels.getAll'],
+  bulk_add_hotel_bookings: ['hotels.getAll'],
 
-  // Transport tools (from guest-transport.router.ts broadcastSync)
-  assign_transport: ['guestTransport.list'],
+  // Transport tools — matches guest-transport.router.ts procedure names
+  assign_transport: ['guestTransport.getAll'],
 
-  // Budget tools (from budget.router.ts broadcastSync)
-  update_budget_item: ['budget.list', 'budget.overview'],
+  // Budget tools — matches budget.router.ts procedure names
+  update_budget_item: ['budget.getAll', 'budget.getSummary'],
 
-  // Gift tools (from gifts.router.ts broadcastSync)
-  add_gift: ['gifts.list'],
-  update_gift: ['gifts.list'],
+  // Gift tools — matches gifts.router.ts procedure names
+  add_gift: ['gifts.getAll'],
+  update_gift: ['gifts.getAll'],
 
-  // Floor plan / Seating tools (from floor-plans.router.ts broadcastSync)
+  // Floor plan / Seating tools — matches floor-plans.router.ts procedure names
   add_seating_constraint: ['floorPlans.list'],
 
   // Communication tools (no broadcastSync in router)
@@ -79,13 +79,13 @@ export const TOOL_QUERY_MAP: Record<string, string[]> = {
   // Workflow tools (no broadcastSync in router)
   create_workflow: ['workflows.list'],
 
-  // Delete tools (from UI router broadcastSync queryPaths)
-  delete_guest: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
-  delete_event: ['events.list', 'timeline.list', 'guests.list'],
-  delete_vendor: ['vendors.list', 'budget.list', 'timeline.list'],
-  delete_budget_item: ['budget.list', 'budget.overview', 'timeline.list'],
-  delete_timeline_item: ['timeline.list'],
-  delete_gift: ['gifts.list'],
+  // Delete tools — matches UI router broadcastSync queryPaths
+  delete_guest: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+  delete_event: ['events.getAll', 'timeline.getAll', 'guests.getAll'],
+  delete_vendor: ['vendors.getAll', 'budget.getAll', 'timeline.getAll'],
+  delete_budget_item: ['budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+  delete_timeline_item: ['timeline.getAll'],
+  delete_gift: ['gifts.getAll'],
 
   // Side-effect-only tools (no cache invalidation needed)
   generate_qr_codes: [],
@@ -130,14 +130,14 @@ export function isQueryOnlyTool(toolName: string): boolean {
  * Uses the same queryPath names as UI router broadcastSync calls.
  */
 export const MODULE_PRIMARY_QUERIES: Record<string, string[]> = {
-  guests: ['guests.list', 'guests.getStats'],
-  events: ['events.list'],
-  budget: ['budget.list', 'budget.overview'],
-  vendors: ['vendors.list'],
-  hotels: ['hotels.list'],
-  transport: ['guestTransport.list'],
-  timeline: ['timeline.list'],
-  gifts: ['gifts.list'],
+  guests: ['guests.getAll', 'guests.getStats'],
+  events: ['events.getAll'],
+  budget: ['budget.getAll', 'budget.getSummary'],
+  vendors: ['vendors.getAll'],
+  hotels: ['hotels.getAll'],
+  transport: ['guestTransport.getAll'],
+  timeline: ['timeline.getAll'],
+  gifts: ['gifts.getAll'],
   floorPlan: ['floorPlans.list'],
   pipeline: ['pipeline.list'],
   communications: ['communications.list'],

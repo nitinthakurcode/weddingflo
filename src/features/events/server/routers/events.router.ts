@@ -248,7 +248,7 @@ export const eventsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['events.list', 'timeline.list'],
+        queryPaths: ['events.getAll', 'timeline.getAll'],
       })
 
       return event
@@ -386,7 +386,7 @@ export const eventsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingEvent.event.clientId,
         userId: ctx.userId!,
-        queryPaths: ['events.list', 'timeline.list'],
+        queryPaths: ['events.getAll', 'timeline.getAll'],
       })
 
       return event
@@ -457,7 +457,7 @@ export const eventsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingEvent.event.clientId,
         userId: ctx.userId!,
-        queryPaths: ['events.list', 'timeline.list', 'guests.list'],
+        queryPaths: ['events.getAll', 'timeline.getAll', 'guests.getAll'],
       })
 
       return { success: true }

@@ -265,7 +265,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.list', 'budget.overview'],
+        queryPaths: ['budget.getAll', 'budget.getSummary'],
       })
 
       return budgetItem
@@ -461,7 +461,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: budgetItem.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.list', 'budget.overview'],
+        queryPaths: ['budget.getAll', 'budget.getSummary'],
       })
 
       return budgetItem
@@ -523,7 +523,7 @@ export const budgetRouter = router({
         entityId: input.id,
         companyId: ctx.companyId!,
         userId: ctx.userId!,
-        queryPaths: ['budget.list', 'budget.overview'],
+        queryPaths: ['budget.getAll', 'budget.getSummary'],
       })
 
       return { success: true }

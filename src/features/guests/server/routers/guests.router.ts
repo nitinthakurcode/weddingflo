@@ -259,7 +259,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
       })
 
       return {
@@ -704,7 +704,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingGuest.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
       })
 
       return {
@@ -852,7 +852,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingGuest.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
       })
 
       return { success: true, deleted: result }
@@ -1013,7 +1013,7 @@ export const guestsRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview'],
+          queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
         })
       }
 
@@ -1247,7 +1247,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: result.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.list', 'guests.getStats', 'budget.overview'],
+        queryPaths: ['guests.getAll', 'guests.getStats', 'budget.getSummary'],
       })
 
       return {

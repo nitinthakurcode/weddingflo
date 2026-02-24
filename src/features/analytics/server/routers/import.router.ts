@@ -756,7 +756,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['budget.list', 'budget.overview'],
+            queryPaths: ['budget.getAll', 'budget.getSummary'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
@@ -781,7 +781,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['hotels.list', 'hotels.getStats', 'timeline.list'],
+            queryPaths: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
@@ -806,7 +806,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['guestTransport.list', 'guestTransport.getStats', 'timeline.list'],
+            queryPaths: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
@@ -822,7 +822,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['vendors.list', 'vendors.getStats', 'budget.list'],
+            queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
@@ -1070,13 +1070,13 @@ export const importRouter = router({
       if (results.created > 0 || results.updated > 0) {
         // Module-specific queryPaths for targeted cache invalidation
         const queryPathsMap: Record<string, string[]> = {
-          guests: ['guests.list', 'guests.getStats', 'hotels.list', 'guestTransport.list', 'budget.overview', 'budget.list'],
-          vendors: ['vendors.list', 'vendors.getStats', 'budget.list'],
-          budget: ['budget.list', 'budget.overview'],
-          gifts: ['gifts.list', 'gifts.getStats'],
-          hotels: ['hotels.list', 'hotels.getStats', 'timeline.list'],
-          transport: ['guestTransport.list', 'guestTransport.getStats', 'timeline.list'],
-          guestGifts: ['gifts.list', 'gifts.getStats'],
+          guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary', 'budget.getAll', 'timeline.getAll'],
+          vendors: ['vendors.getAll', 'vendors.getStats', 'budget.getAll'],
+          budget: ['budget.getAll', 'budget.getSummary'],
+          gifts: ['gifts.getAll', 'gifts.getStats'],
+          hotels: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll'],
+          transport: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll'],
+          guestGifts: ['gifts.getAll', 'gifts.getStats'],
         }
 
         await broadcastSync({
@@ -1086,7 +1086,7 @@ export const importRouter = router({
           companyId,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: queryPathsMap[input.module] || ['guests.list'],
+          queryPaths: queryPathsMap[input.module] || ['guests.getAll'],
         })
       }
 

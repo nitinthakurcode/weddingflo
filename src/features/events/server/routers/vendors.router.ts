@@ -494,7 +494,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.list'],
+        queryPaths: ['vendors.getAll'],
       })
 
       return {
@@ -727,7 +727,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: clientVendorRecord.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.list'],
+        queryPaths: ['vendors.getAll'],
       })
 
       return { success: true }
@@ -799,7 +799,7 @@ export const vendorsRouter = router({
           companyId: ctx.companyId!,
           clientId: result.clientId,
           userId: ctx.userId!,
-          queryPaths: ['vendors.list'],
+          queryPaths: ['vendors.getAll'],
         })
       }
 
