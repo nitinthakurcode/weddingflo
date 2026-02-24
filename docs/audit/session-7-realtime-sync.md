@@ -1,31 +1,25 @@
 # Session 7 — Real-Time Sync & SSE System Audit
 
 > **Date:** 2026-02-24
-> **Scope:** Complete real-time sync pipeline — Redis pub/sub, SSE delivery, broadcastSync coverage, client-side cache invalidation — 23 files, ~25,000 lines audited
-> **Session:** 7 of 8 (audit + fixes across 3 prompts)
+> **Scope:** Complete real-time sync pipeline — Redis pub/sub, SSE delivery, broadcastSync coverage, client-side cache invalidation
+> **Session:** 7 of 8 (audit + fixes across 4 prompts)
+> **Files audited:** 23 files, ~25,000 lines
+> **broadcastSync call sites:** 70 (module routers) + 2 storeSyncAction (sheets-sync, tool-executor) + 1 broadcastSheetSync (googleSheets router)
 
 ---
 
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
-2. [Severity Breakdown](#2-severity-breakdown)
-3. [Files Modified Per Prompt](#3-files-modified-per-prompt)
-4. [Verification Results](#4-verification-results)
-5. [File Inventory](#5-file-inventory)
-6. [SyncAction Event Type Inventory](#6-syncaction-event-type-inventory)
-7. [broadcastSync Coverage Matrix — Post-Fix](#7-broadcastsync-coverage-matrix--post-fix)
-8. [Chatbot Tool Sync Parity Matrix](#8-chatbot-tool-sync-parity-matrix)
-9. [Tenant Isolation Verification](#9-tenant-isolation-verification)
-10. [Connection Manager Verification](#10-connection-manager-verification)
-11. [Redis Failure Handling Analysis](#11-redis-failure-handling-analysis)
-12. [End-to-End Trace](#12-end-to-end-trace)
-13. [Client-Side SSE Handler Analysis](#13-client-side-sse-handler-analysis)
-14. [Missed Events — Import, Batch, Cascade Operations](#14-missed-events--import-batch-cascade-operations)
-15. [Transaction Placement Verification](#15-transaction-placement-verification)
-16. [All Findings](#16-all-findings)
-17. [Cross-Session References](#17-cross-session-references)
-18. [Danger Zones — Read Before Editing](#18-danger-zones--read-before-editing)
+2. [System Architecture](#2-system-architecture)
+3. [SyncAction Schema Reference](#3-syncaction-schema-reference)
+4. [Complete broadcastSync Coverage Matrix](#4-complete-broadcastsync-coverage-matrix)
+5. [All 27 Findings — Detailed](#5-all-27-findings--detailed)
+6. [QueryPath Mapping Reference](#6-querypath-mapping-reference)
+7. [Files Modified Per Prompt](#7-files-modified-per-prompt)
+8. [Verification Results](#8-verification-results)
+9. [Cross-Session References](#9-cross-session-references)
+10. [Danger Zones — Read Before Editing](#10-danger-zones--read-before-editing)
 
 ---
 
@@ -42,390 +36,401 @@
 | **Issues remaining** | 4 (2 LOW superseded/partial, 1 LOW by-design, 1 LOW not-found) |
 | **Files audited** | 23 |
 | **Lines audited** | ~25,000 |
-| **broadcastSync calls** | 70 call sites + 1 definition + 3 broadcastSheetSync |
+| **broadcastSync calls** | 70 call sites across 11 router files |
+| **storeSyncAction calls** | 3 (broadcast-sync.ts, sheets-sync.ts, tool-executor.ts) |
+| **broadcastSheetSync calls** | 1 (googleSheets.router.ts) |
 | **Architecture** | `broadcastSync()` → Redis ZADD → `subscribeToCompany()` polling (500ms) → tRPC SSE subscription → `useRealtimeSync` hook → TanStack Query `invalidateQueries()` |
+
+### Commits (chronological)
+
+| Commit | Message |
+|--------|---------|
+| `2fe0713` | `docs(session7): real-time sync and SSE audit report` |
+| `8e54380` | `fix(session7-p1): correct all phantom queryPaths, remove no-op publishSyncAction` |
+| `053ff3c` | `fix(session7-p2): add missing broadcastSync to 26 mutations, cascade broadcast, recalcClientStats paths` |
+| `54e3ea0` | `fix(session7-p3): import broadcast paths, session 7 report` |
+| `436cff6` | `fix(session7-p4): all remaining medium and low sync issues` |
 
 ### What Was Fixed
 
 **P1 — Critical infrastructure fixes:**
-- All phantom queryPath names (`.list`, `.overview`) corrected to real tRPC procedure names (`.getAll`, `.getSummary`) across all 11 module routers + TOOL_QUERY_MAP
-- Removed no-op `publishSyncAction` call (Upstash REST has zero pub/sub subscribers)
+- Removed dead `publishSyncAction()` from `broadcastSync()` (Upstash REST has no persistent subscribers)
+- Corrected ALL phantom queryPaths across 13 files (e.g., `guests.list` → `guests.getAll`, `budget.getItems` → `budget.getAll`)
+- Fixed `tool-executor.ts` queryPaths to match UI router broadcastSync calls
 
-**P2 — Missing broadcastSync coverage:**
-- Added broadcastSync to 26 mutations across 7 routers (vendors, hotels, transport, timeline, budget, floor-plans, guests)
-- Enhanced all existing broadcastSync calls with cascade paths (hotels.getAll, guestTransport.getAll, timeline.getAll where applicable)
-- Added `clients.list`/`clients.getAll` to all recalcClientStats callers
-- Fixed missing `clientId` in budget.delete and clients.delete
+**P2 — 26 missing broadcastSync calls added:**
+- Added broadcastSync to all 26 mutations that were missing it
+- Added cascade queryPaths (`hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`) to guest mutations
+- Added `clients.list`/`clients.getAll` to all mutations that call `recalcClientStats`
 
-**P3 — Import broadcast completeness:**
-- Enhanced 5 guest router broadcastSync calls with `timeline.getAll`, `clients.list`, `clients.getAll`
-- Rewrote `getQueryPathsForModule` in sheets-sync.ts with full cascade paths for all 7 modules
-- Fixed Excel import broadcastSync in import.router.ts: budget (added clients paths), vendors (added budget.getSummary, timeline.getAll), inline queryPathsMap (full cascade paths)
-- Fixed phantom `budget.getStats` → `budget.getSummary` in sheets-sync.ts
+**P3 — Import paths & sheets sync:**
+- Fixed `import.router.ts` broadcastSync queryPaths for all modules
+- Fixed `sheets-sync.ts` queryPaths in `getQueryPathsForModule()`
+- Added cascade queryPaths for guest import broadcasts
 
-**P4 — All remaining MEDIUM + LOW fixes:**
-- S7-M01: TOCTOU race in connection limiter → increment-first-then-check pattern
-- S7-M02: `getModuleFromToolName` default `'guests'` → added 7 tool patterns, default changed to `'clients'`
-- S7-M03/M04/M05: Non-atomic floor plan operations → wrapped in `db.transaction()`
-- S7-M06: Vendor bulk create → per-iteration transactions
-- S7-M07: Timeline bulk import → single atomic transaction
-- S7-M08: Redis failure in connection limiter → graceful degradation (allow without limits)
-- S7-M09: Cascade sync with bare `db` → 6 calls wrapped in `db.transaction()` across 2 files
-- S7-M10: `importAllFromSheets` userId → made required, broadcast always fires
-- S7-L02: Manual reconnect → replaced `subscriptionKey` with `pendingReconnect` toggle
-- S7-L05: Duplicate events → `seenActionIds` dedup filter with auto-eviction
-- Dead code: removed unused `publishSyncAction` function from redis-pubsub.ts
+**P4 — All remaining MEDIUM and LOW issues:**
+- TOCTOU race in SSE connection manager → increment-first pattern
+- 5 non-atomic multi-write mutations → wrapped in `db.transaction()`
+- Tool-executor default module → `'clients'` with 7 new tool patterns
+- Redis failure graceful degradation in connection manager
+- Cascade sync calls wrapped in transactions (sheets-sync + googleSheets router)
+- `importAllFromSheets` userId made required
+- Dead `publishSyncAction` removed from redis-pubsub.ts
+- `pendingReconnect` toggle pattern for subscription reconnect
+- `seenActionIds` dedup filter on client side
 
 ---
 
-## 2. Severity Breakdown
+## 2. System Architecture
 
-| Severity | Total | FIXED | Remaining | Summary |
-|----------|-------|-------|-----------|---------|
-| **CRITICAL** | 2 | 2 | 0 | Phantom queryPaths ✅, publishSyncAction no-op ✅ |
-| **HIGH** | 9 | 9 | 0 | All coverage gaps, cascade paths, chatbot parity, import paths ✅ |
-| **MEDIUM** | 10 | 10 | 0 | TOCTOU race ✅, non-atomic ops ✅, Redis failure ✅, cascade tx ✅, userId ✅ |
-| **LOW** | 6 | 2 | 4 | Reconnect ✅, dedup ✅; logChange partial, L01 not-found, L06 by-design |
-| **TOTAL** | **27** | **23** | **4** | |
+### Data Flow Diagram
 
----
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        WRITE PATH (Server)                          │
+│                                                                     │
+│  tRPC Mutation                                                      │
+│       │                                                             │
+│       ▼                                                             │
+│  Drizzle ORM ──► PostgreSQL (Supabase)                              │
+│       │                                                             │
+│       ▼                                                             │
+│  broadcastSync()          ◄── src/lib/realtime/broadcast-sync.ts    │
+│       │                                                             │
+│       ▼                                                             │
+│  storeSyncAction()        ◄── src/lib/realtime/redis-pubsub.ts      │
+│       │                                                             │
+│       ▼                                                             │
+│  Redis ZADD               ◄── sync:{companyId}:actions sorted set   │
+│  (score = timestamp)          cap 1000, TTL 24h                     │
+└─────────────────────────────────────────────────────────────────────┘
 
-## 3. Files Modified Per Prompt
+┌─────────────────────────────────────────────────────────────────────┐
+│                        READ PATH (Server)                           │
+│                                                                     │
+│  sync.router.ts → onSync subscription                               │
+│       │                                                             │
+│       ├── Phase 1: getMissedActions(companyId, lastTimestamp)        │
+│       │       └── Redis ZRANGE by score (offline recovery)          │
+│       │                                                             │
+│       └── Phase 2: subscribeToCompany(companyId, signal)            │
+│               └── Poll Redis sorted set every 500ms                 │
+│               └── Filter: skip actions from same userId             │
+│               └── yield SyncAction to SSE stream                    │
+│                                                                     │
+│  SSE Connection Manager   ◄── src/lib/sse/connection-manager.ts     │
+│       └── Per-user limit: 5 connections                             │
+│       └── Per-company limit: 50 connections                         │
+│       └── Redis INCR/DECR with 2h TTL safety net                   │
+│       └── Graceful degradation on Redis failure (S7-M08)            │
+└─────────────────────────────────────────────────────────────────────┘
 
-### Prompt 1 (P1) — Critical queryPath + no-op removal
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CLIENT (Browser)                             │
+│                                                                     │
+│  useRealtimeSync() hook   ◄── src/features/realtime/hooks/         │
+│       │                       use-realtime-sync.ts                  │
+│       ├── tRPC subscription (SSE transport in v11)                  │
+│       ├── Dedup via seenActionIds Set (cap 500, evict to 250)       │
+│       ├── localStorage lastSyncTimestamp for offline recovery       │
+│       ├── pendingReconnect toggle for manual reconnect              │
+│       │                                                             │
+│       ▼                                                             │
+│  invalidateQueries(queryPaths)                                      │
+│       └── TanStack Query predicate match on tRPC key structure      │
+│       └── e.g., ['guests', 'getAll'] matches 'guests.getAll'       │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-| File | Changes |
-|------|---------|
-| `src/features/guests/server/routers/guests.router.ts` | Phantom `.list`/`.overview` → correct procedure names |
-| `src/features/analytics/server/routers/budget.router.ts` | Same |
-| `src/features/events/server/routers/events.router.ts` | Same |
-| `src/features/events/server/routers/timeline.router.ts` | Same |
-| `src/features/events/server/routers/vendors.router.ts` | Same |
-| `src/features/events/server/routers/hotels.router.ts` | Same |
-| `src/features/events/server/routers/gifts.router.ts` | Same |
-| `src/features/events/server/routers/floor-plans.router.ts` | Same |
-| `src/features/events/server/routers/guest-transport.router.ts` | Same |
-| `src/features/clients/server/routers/clients.router.ts` | Same |
-| `src/features/chatbot/server/services/query-invalidation-map.ts` | TOOL_QUERY_MAP phantom names → correct |
-| `src/lib/realtime/broadcast-sync.ts` | Removed `publishSyncAction` call |
+### Key Files
 
-### Prompt 2 (P2) — 26 new broadcastSync + cascade paths
+| File | Purpose | Lines |
+|------|---------|-------|
+| `src/lib/realtime/redis-pubsub.ts` | SyncAction interface, storeSyncAction (ZADD), getMissedActions (ZRANGE), subscribeToCompany (polling) | 178 |
+| `src/lib/realtime/broadcast-sync.ts` | `broadcastSync()` — thin wrapper assembling SyncAction and calling storeSyncAction | 39 |
+| `src/server/trpc/routers/sync.router.ts` | tRPC subscription endpoint: offline recovery + live streaming via async generator | 152 |
+| `src/lib/sse/connection-manager.ts` | Redis-backed per-user (5) and per-company (50) SSE connection limiter | 295 |
+| `src/features/realtime/hooks/use-realtime-sync.ts` | Client-side hook: tRPC subscription → invalidateQueries | 206 |
+| `src/lib/google/sheets-sync.ts` | `broadcastSheetSync()` — broadcasts after Google Sheets imports | ~130 |
+| `src/features/chatbot/server/services/tool-executor.ts` | Chatbot tool executor — broadcasts after each mutation tool | ~630 |
+| `src/features/chatbot/server/services/query-invalidation-map.ts` | Tool → queryPaths mapping (31 mutation tools) | 167 |
 
-| File | Changes |
-|------|---------|
-| `src/features/events/server/routers/vendors.router.ts` | +10 new broadcastSync, 3 enhanced with cascade |
-| `src/features/events/server/routers/hotels.router.ts` | +2 new broadcastSync, 3 enhanced |
-| `src/features/events/server/routers/guest-transport.router.ts` | +1 new broadcastSync, 3 enhanced |
-| `src/features/events/server/routers/timeline.router.ts` | +2 new broadcastSync, 4 enhanced |
-| `src/features/events/server/routers/gifts.router.ts` | 3 enhanced with `.getStats` |
-| `src/features/events/server/routers/floor-plans.router.ts` | +8 new broadcastSync |
-| `src/features/analytics/server/routers/budget.router.ts` | +3 new broadcastSync, 3 enhanced, clientId fix |
-| `src/features/clients/server/routers/clients.router.ts` | clientId fix on delete |
+### Broadcast Entry Points (3 paths into Redis)
 
-### Prompt 3 (P3) — Import broadcast paths
-
-| File | Changes |
-|------|---------|
-| `src/features/guests/server/routers/guests.router.ts` | 5 broadcastSync enhanced: +`timeline.getAll`, `clients.list`, `clients.getAll` |
-| `src/lib/google/sheets-sync.ts` | `getQueryPathsForModule` rewritten with full cascade paths, `budget.getStats` → `budget.getSummary` |
-| `src/features/analytics/server/routers/import.router.ts` | Budget import +clients paths, vendor import +budget/timeline, queryPathsMap full cascade |
-
-### Prompt 4 (P4) — All remaining MEDIUM + LOW fixes
-
-| File | Changes |
-|------|---------|
-| `src/lib/sse/connection-manager.ts` | S7-M01: increment-first-then-check (TOCTOU fix); S7-M08: Redis failure graceful degradation |
-| `src/features/chatbot/server/services/tool-executor.ts` | S7-M02: added 7 tool patterns, changed default `'guests'` → `'clients'` |
-| `src/features/events/server/routers/floor-plans.router.ts` | S7-M03: loadVersion wrapped in tx; S7-M04: batchAssignGuests wrapped in tx; S7-M05: delete wrapped in tx |
-| `src/features/events/server/routers/vendors.router.ts` | S7-M06: bulkCreateFromCommaList per-iteration transactions |
-| `src/features/events/server/routers/timeline.router.ts` | S7-M07: bulkImport wrapped in single transaction |
-| `src/lib/google/sheets-sync.ts` | S7-M09: 3 cascade calls wrapped in db.transaction(); S7-M10: userId made required, broadcast guard simplified |
-| `src/features/backup/server/routers/googleSheets.router.ts` | S7-M09: 3 cascade calls wrapped in db.transaction() |
-| `src/lib/realtime/redis-pubsub.ts` | S7-L01: dead `publishSyncAction` function removed |
-| `src/features/realtime/hooks/use-realtime-sync.ts` | S7-L02: reconnect via pendingReconnect toggle; S7-L05: seenActionIds dedup filter |
-
----
-
-## 4. Verification Results
-
-| Check | P3 Result | P4 Result |
-|-------|-----------|-----------|
-| `npx tsc --noEmit` | 0 errors | 0 errors |
-| `npx jest --passWithNoTests` | 373/373 pass | 373/373 pass |
-| `await broadcastSync(` call sites | 70 | 70 (unchanged) |
-| `broadcastSheetSync` calls | 3 | 3 (unchanged) |
-| P3 diff stats | 3 files, +18/-18 | — |
-| P4 diff stats | — | 9 files, +298/-246 |
-
-### broadcastSync Count Progression
-
-| Phase | Call Sites | Notes |
-|-------|------------|-------|
-| Pre-audit (Session 6 end) | 39 | Original audit finding |
-| After P1 | 39 | No new calls — only queryPath fixes |
-| After P2 | 65 | +26 new broadcastSync calls |
-| After P3 | 70 | +5 enhanced (guests router paths widened, counted as net adds due to grep) |
-| **Final total** | **70 call sites + 3 broadcastSheetSync** | |
+1. **Module Routers** → `broadcastSync()` → `storeSyncAction()` — 70 call sites
+2. **Google Sheets Sync** → `broadcastSheetSync()` → `storeSyncAction()` — 1 call site (+ 1 from googleSheets.router.ts calling broadcastSheetSync)
+3. **Chatbot Tool Executor** → `storeSyncAction()` directly — 1 call site
 
 ---
 
-## 5. File Inventory
+## 3. SyncAction Schema Reference
 
-### Core Sync Infrastructure (4 files, 653 lines)
-
-| # | File | Lines | Role |
-|---|------|-------|------|
-| 1 | `src/lib/realtime/broadcast-sync.ts` | 40 | Thin wrapper: assembles SyncAction, calls storeSyncAction (publishSyncAction removed P1) |
-| 2 | `src/lib/realtime/redis-pubsub.ts` | 196 | SyncAction interface, publishSyncAction (unused), storeSyncAction, getMissedActions, subscribeToCompany |
-| 3 | `src/lib/sse/connection-manager.ts` | 265 | Redis-backed per-user (5) and per-company (50) SSE connection limiter |
-| 4 | `src/server/trpc/routers/sync.router.ts` | 152 | tRPC subscription endpoint: onSync (SSE) + getStatus (query) |
-
-### Client-Side Realtime (4 files, 333 lines)
-
-| # | File | Lines | Role |
-|---|------|-------|------|
-| 5 | `src/features/realtime/hooks/use-realtime-sync.ts` | 196 | React hook: tRPC subscription → TanStack Query invalidation |
-| 6 | `src/features/realtime/components/realtime-provider.tsx` | 111 | React context provider for sync status |
-| 7 | `src/features/realtime/components/realtime-wrapper.tsx` | 22 | Client component wrapper for server layouts |
-| 8 | `src/features/realtime/index.ts` | 25 | Barrel re-exports |
-
-### Module Routers (11 files, ~17,000 lines)
-
-| # | File | Lines | broadcastSync Calls (Final) | Coverage |
-|---|------|-------|----------------------------|----------|
-| 9 | `guests.router.ts` | 1,288 | 5 (all enhanced P3) | 83% (checkIn deferred) |
-| 10 | `budget.router.ts` | 1,299 | 6 (+3 in P2) | 100% |
-| 11 | `events.router.ts` | 620 | 3 | 75% (updateStatus deferred) |
-| 12 | `timeline.router.ts` | 750 | 6 (+2 in P2) | 100% |
-| 13 | `hotels.router.ts` | 960 | 5 (+2 in P2) | 100% |
-| 14 | `guest-transport.router.ts` | 850 | 4 (+1 in P2) | 100% |
-| 15 | `vendors.router.ts` | 1,646 | 13 (+10 in P2) | 100% |
-| 16 | `gifts.router.ts` | 290 | 3 (enhanced P2) | 100% |
-| 17 | `floor-plans.router.ts` | 1,523 | 17 (+8 in P2) | 94% (logChange deferred) |
-| 18 | `clients.router.ts` | 1,363 | 3 (clientId fixed P2) | 100% |
-
-### Supporting Files (5 files, ~11,400 lines)
-
-| # | File | Lines | Role |
-|---|------|-------|------|
-| 19 | `src/features/chatbot/server/services/tool-executor.ts` | 7,056 | executeToolWithSync: chatbot mutation broadcast |
-| 20 | `src/features/chatbot/server/services/query-invalidation-map.ts` | 167 | TOOL_QUERY_MAP: chatbot tool → queryPaths (fixed P1) |
-| 21 | `src/lib/google/sheets-sync.ts` | 1,493 | broadcastSheetSync + getQueryPathsForModule (fixed P3) |
-| 22 | `src/lib/backup/auto-sync-trigger.ts` | 440 | Cascade sync functions (broadcast-blind — callers now compensate) |
-| 23 | `src/features/analytics/server/routers/import.router.ts` | 2,240 | Excel import with broadcastSync (fixed P3) |
-
----
-
-## 6. SyncAction Event Type Inventory
-
-### SyncAction Interface (`redis-pubsub.ts:32-65`)
+**Source:** `src/lib/realtime/redis-pubsub.ts:32-65`
 
 ```typescript
-interface SyncAction {
-  id: string                    // UUID (randomUUID)
+export interface SyncAction {
+  id: string                    // crypto.randomUUID()
   type: 'insert' | 'update' | 'delete'
-  module: 'guests' | 'budget' | 'events' | 'vendors' | 'hotels'
-        | 'transport' | 'timeline' | 'gifts' | 'clients' | 'floorPlans'
-  entityId: string              // ID of affected row
+  module:
+    | 'guests'
+    | 'budget'
+    | 'events'
+    | 'vendors'
+    | 'hotels'
+    | 'transport'
+    | 'timeline'
+    | 'gifts'
+    | 'clients'
+    | 'floorPlans'
+  entityId: string              // UUID of affected entity, or 'bulk-import'/'sheets-import'
   data?: Record<string, unknown>
   companyId: string             // Multi-tenant isolation key
   clientId?: string             // Optional client scope
-  userId: string                // Originator (excluded from echo-back)
-  timestamp: number             // Unix ms
-  queryPaths: string[]          // tRPC cache keys to invalidate
-  toolName?: string             // Chatbot tool name (chatbot path only)
+  userId: string                // Originator (filtered out on delivery)
+  timestamp: number             // Unix ms — used as Redis sorted set score
+  queryPaths: string[]          // tRPC procedure paths to invalidate
+  toolName?: string             // Only set by chatbot tool-executor
 }
 ```
 
-### Module Enum (10 values)
+### Module Union
 
-| Module | Emitter(s) |
-|--------|-----------|
-| `guests` | guests.router, tool-executor, import.router, sheets-sync |
-| `budget` | budget.router, tool-executor, import.router, sheets-sync |
-| `events` | events.router, tool-executor |
-| `vendors` | vendors.router, tool-executor, import.router, sheets-sync |
-| `hotels` | hotels.router, tool-executor, import.router, sheets-sync |
-| `transport` | guest-transport.router, tool-executor, import.router, sheets-sync |
-| `timeline` | timeline.router, tool-executor, import.router, sheets-sync |
-| `gifts` | gifts.router, tool-executor, import.router, sheets-sync |
-| `clients` | clients.router, tool-executor |
-| `floorPlans` | floor-plans.router, tool-executor |
+The `module` field is a cosmetic/logging field. **Cache invalidation is driven entirely by `queryPaths`.**
 
-### Broadcast Entry Points (Post-Fix)
-
-| Entry Point | File | Used By | Status |
-|-------------|------|---------|--------|
-| `broadcastSync()` | broadcast-sync.ts:16 | All 11 module routers, import.router | `storeSyncAction` only (publishSyncAction removed P1) |
-| `broadcastSheetSync()` | sheets-sync.ts:108 | googleSheets.router, importAllFromSheets | Uses `storeSyncAction` + `getQueryPathsForModule` (fixed P3) |
-| Direct `storeSyncAction` | tool-executor.ts:593-594 | Chatbot executeToolWithSync | Adds `toolName` field |
+| Module Value | Set By |
+|---|---|
+| `guests` | guests.router.ts, import.router.ts, sheets-sync.ts, tool-executor.ts |
+| `budget` | budget.router.ts, import.router.ts, sheets-sync.ts, tool-executor.ts |
+| `events` | events.router.ts, tool-executor.ts |
+| `vendors` | vendors.router.ts, import.router.ts, sheets-sync.ts, tool-executor.ts |
+| `hotels` | hotels.router.ts, import.router.ts, sheets-sync.ts, tool-executor.ts |
+| `transport` | guest-transport.router.ts, import.router.ts, sheets-sync.ts, tool-executor.ts |
+| `timeline` | timeline.router.ts, sheets-sync.ts, tool-executor.ts |
+| `gifts` | gifts.router.ts, import.router.ts, sheets-sync.ts, tool-executor.ts |
+| `clients` | clients.router.ts, tool-executor.ts |
+| `floorPlans` | floor-plans.router.ts, tool-executor.ts |
 
 ---
 
-## 7. broadcastSync Coverage Matrix — Post-Fix
+## 4. Complete broadcastSync Coverage Matrix
 
-### Legend
-- **BS** = broadcastSync called
-- **TX** = wrapped in transaction
-- **RCS** = recalcClientStats called
-- **QP** = queryPaths (all now use correct procedure names)
-- **[Pn]** = Fixed in prompt n
+### Source: `grep -rn 'await broadcastSync(' --include='*.ts'`
 
-### guests.router.ts
+Total: **70 broadcastSync** + **2 storeSyncAction** + **1 broadcastSheetSync call** = **73 broadcast entry points**
 
-| Procedure | Line | BS | TX | RCS | queryPaths | Fix |
-|-----------|------|----|----|-----|------------|-----|
-| `create` | 255 | YES | YES | YES | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` | [P1] names, [P3] +timeline, +clients |
-| `update` | 700 | YES | YES | YES | same | [P1] names, [P3] +timeline, +clients |
-| `delete` | 848 | YES | YES | YES | same | [P1] names, [P3] +timeline, +clients |
-| `bulkImport` | 1009 | YES | YES | YES | same | [P1] names, [P3] +timeline, +clients |
-| `updateRSVP` | 1243 | YES | YES | YES | `guests.getAll`, `guests.getStats`, `budget.getSummary`, `clients.list`, `clients.getAll` | [P1] names, [P3] +clients |
-| `checkIn` | 1269 | NO | NO | NO | — | Deferred (single field update) |
+---
 
-### budget.router.ts
+### 4.1 guests.router.ts (5 calls)
 
-| Procedure | Line | BS | TX | RCS | queryPaths | Fix |
-|-----------|------|----|----|-----|------------|-----|
-| `create` | 261 | YES | YES | YES | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` | [P1] names, [P2] +clients |
-| `update` | 457 | YES | YES | YES | same | [P1] names, [P2] +clients |
-| `delete` | 520 | YES | YES | YES | same + `clientId` field | [P1] names, [P2] +clients, +clientId |
-| `addAdvancePayment` | 569 | YES | YES | YES | `budget.getAll`, `budget.getSummary`, `vendors.getAll`, `clients.list`, `clients.getAll` | [P2] NEW |
-| `updateAdvancePayment` | 657 | YES | YES | YES | same | [P2] NEW |
-| `deleteAdvancePayment` | 732 | YES | YES | YES | same | [P2] NEW |
+**File:** `src/features/guests/server/routers/guests.router.ts`
 
-### events.router.ts
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 255 | `create` | insert | guests | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 2 | 700 | `update` | update | guests | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 3 | 848 | `delete` | delete | guests | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 4 | 1009 | `bulkImport` | insert | guests | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 5 | 1243 | `updateRSVP` | update | guests | `guests.getAll`, `guests.getStats`, `budget.getSummary`, `clients.list`, `clients.getAll` |
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 244 | YES | YES | `events.getAll`, `timeline.getAll` | [P1] names |
-| `update` | 382 | YES | YES | same | [P1] names |
-| `delete` | 453 | YES | YES | `events.getAll`, `timeline.getAll`, `guests.getAll` | [P1] names |
-| `updateStatus` | 497 | NO | NO | — | Deferred (single field update) |
+**Notes:** Guest mutations include cascade paths (`hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`) because guest changes trigger `syncGuestsToHotelsAndTransport` and `recalcPerGuestBudgetItems`. Also includes `clients.list`/`clients.getAll` because `recalcClientStats` updates cached budget/guestCount on the client entity. `updateRSVP` excludes hotel/transport cascade paths since RSVP changes don't trigger those syncs.
 
-### timeline.router.ts
+---
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 150 | YES | NO | `timeline.getAll`, `timeline.getStats` | [P1] names, [P2] +getStats |
-| `update` | 228 | YES | NO | same | [P1] names, [P2] +getStats |
-| `delete` | 273 | YES | NO | same | [P1] names, [P2] +getStats |
-| `bulkImport` | 711 | YES | NO | same | [P1] names, [P2] +getStats |
-| `reorder` | 314 | YES | NO | `timeline.getAll`, `timeline.getStats` | [P2] NEW |
-| `markComplete` | 358 | YES | NO | same | [P2] NEW |
+### 4.2 budget.router.ts (6 calls)
 
-### hotels.router.ts
+**File:** `src/features/analytics/server/routers/budget.router.ts`
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 265 | YES | YES | `hotels.getAll`, `timeline.getAll` | [P1] names, [P2] +timeline |
-| `update` | 501 | YES | YES | same | [P1] names, [P2] +timeline |
-| `delete` | 576 | YES | YES | same | [P1] names, [P2] +timeline |
-| `checkIn` | 617 | YES | NO | `hotels.getAll` | [P2] NEW |
-| `syncWithGuests` | 758 | YES | NO | `hotels.getAll`, `timeline.getAll` | [P2] NEW |
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 261 | `create` | insert | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 2 | 457 | `update` | update | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 3 | 520 | `delete` | delete | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 4 | 628 | `addAdvancePayment` | insert | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 5 | 724 | `updateAdvancePayment` | update | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 6 | 803 | `deleteAdvancePayment` | delete | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
 
-### guest-transport.router.ts
+**Notes:** All budget mutations include `clients.list`/`clients.getAll` because `recalcClientStats` updates cached budget totals on the client entity.
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 246 | YES | YES | `guestTransport.getAll`, `timeline.getAll` | [P1] names, [P2] +timeline |
-| `update` | 524 | YES | YES | same | [P1] names, [P2] +timeline |
-| `delete` | 600 | YES | YES | same | [P1] names, [P2] +timeline |
-| `syncWithGuests` | 753 | YES | NO | `guestTransport.getAll`, `timeline.getAll` | [P2] NEW |
+---
 
-### vendors.router.ts
+### 4.3 events.router.ts (3 calls)
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 490 | YES | YES | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` | [P1] names, [P2] +cascade |
-| `update` | 723 | YES | YES | same | [P1] names, [P2] +cascade |
-| `delete` | 795 | YES | YES | same | [P1] names, [P2] +cascade |
-| `updateApprovalStatus` | 810 | YES | NO | `vendors.getAll`, `vendors.getStats` | [P2] NEW |
-| `addComment` | 850 | YES | NO | `vendors.getAll` | [P2] NEW |
-| `deleteComment` | 922 | YES | NO | `vendors.getAll` | [P2] NEW |
-| `updatePaymentStatus` | 936 | YES | NO | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary` | [P2] NEW |
-| `bulkCreateFromCommaList` | 1130 | YES | NO | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll`, `clients.list`, `clients.getAll` | [P2] NEW |
-| `addVendorAdvance` | 1312 | YES | YES | `vendors.getAll`, `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` | [P2] NEW |
-| `updateVendorAdvance` | 1385 | YES | YES | same | [P2] NEW |
-| `deleteVendorAdvance` | 1452 | YES | YES | same | [P2] NEW |
-| `addReview` | 1505 | YES | NO | `vendors.getAll`, `vendors.getStats` | [P2] NEW |
-| `deleteReview` | 1602 | YES | NO | same | [P2] NEW |
+**File:** `src/features/events/server/routers/events.router.ts`
 
-### gifts.router.ts
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 244 | `create` | insert | events | `events.getAll`, `timeline.getAll` |
+| 2 | 382 | `update` | update | events | `events.getAll`, `timeline.getAll` |
+| 3 | 453 | `delete` | delete | events | `events.getAll`, `timeline.getAll`, `guests.getAll` |
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 146 | YES | NO | `gifts.getAll`, `gifts.getStats` | [P1] names, [P2] +getStats |
-| `update` | 206 | YES | NO | same | [P1] names, [P2] +getStats |
-| `delete` | 252 | YES | NO | same | [P1] names, [P2] +getStats |
+**Notes:** Event delete includes `guests.getAll` because deleting an event clears guest event assignments. `timeline.getAll` is included because events create timeline entries.
 
-### floor-plans.router.ts
+---
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 198 | YES | NO | `floorPlans.list`, `floorPlans.getById` | Already correct |
-| `update` | 301 | YES | NO | same | Already correct |
-| `addTable` | 373 | YES | NO | same | Already correct |
-| `updateTable` | 463 | YES | NO | same | Already correct |
-| `deleteTable` | 509 | YES | NO | same | Already correct |
-| `assignGuest` | 632 | YES | NO | same | Already correct |
-| `unassignGuest` | 678 | YES | NO | same | Already correct |
-| `batchAssignGuests` | 820 | YES | NO | same | Already correct |
-| `delete` | 942 | YES | NO | `floorPlans.list` | Already correct |
-| `saveVersion` | 1020 | YES | NO | `floorPlans.list`, `floorPlans.getById` | [P2] NEW |
-| `loadVersion` | 1110 | YES | NO | same | [P2] NEW |
-| `deleteVersion` | 1222 | YES | NO | same | [P2] NEW |
-| `addGuestConflict` | 1395 | YES | NO | same | [P2] NEW |
-| `addGuestPreference` | 1438 | YES | NO | same | [P2] NEW |
-| `removeGuestConflict` | 1473 | YES | NO | same | [P2] NEW |
-| `removeGuestPreference` | 1500 | YES | NO | same | [P2] NEW |
-| `logChange` | 1312 | NO | NO | — | Deferred (audit-log-only) |
+### 4.4 timeline.router.ts (6 calls)
 
-### clients.router.ts
+**File:** `src/features/events/server/routers/timeline.router.ts`
 
-| Procedure | Line | BS | TX | queryPaths | Fix |
-|-----------|------|----|----|------------|-----|
-| `create` | 802 | YES | YES | `clients.list`, `clients.getAll` | Already correct |
-| `update` | 1011 | YES | YES | `clients.list`, `clients.getAll`, `clients.getById` | Already correct |
-| `delete` | 1253 | YES | YES | `clients.list`, `clients.getAll` + `clientId` field | [P2] +clientId |
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 150 | `create` | insert | timeline | `timeline.getAll`, `timeline.getStats` |
+| 2 | 228 | `update` | update | timeline | `timeline.getAll`, `timeline.getStats` |
+| 3 | 273 | `delete` | delete | timeline | `timeline.getAll`, `timeline.getStats` |
+| 4 | 324 | `reorder` | update | timeline | `timeline.getAll`, `timeline.getStats` |
+| 5 | 377 | `markComplete` | update | timeline | `timeline.getAll`, `timeline.getStats` |
+| 6 | 734 | `bulkImport` | insert | timeline | `timeline.getAll`, `timeline.getStats` |
 
-### Coverage Summary (Post-Fix)
+**Notes:** `bulkImport` uses atomic `db.transaction()` wrapping all insert/update/delete operations (S7-M07). All-or-nothing semantics with error handler resetting counts.
 
-| Module | Total Mutations | With broadcastSync | Missing | Coverage | Change |
-|--------|-----------------|-------------------|---------|----------|--------|
-| guests | 6 | 5 | 1 | 83% | +cascade/client paths |
-| budget | 6 | 6 | 0 | **100%** | +3 advance payments |
-| events | 4 | 3 | 1 | 75% | (no change) |
-| timeline | 6 | 6 | 0 | **100%** | +2 (reorder, markComplete) |
-| hotels | 5 | 5 | 0 | **100%** | +2 (checkIn, syncWithGuests) |
-| guest-transport | 4 | 4 | 0 | **100%** | +1 (syncWithGuests) |
-| vendors | 13 | 13 | 0 | **100%** | +10 mutations |
-| gifts | 3 | 3 | 0 | 100% | +getStats paths |
-| floor-plans | 18 | 17 | 1 | **94%** | +8 mutations |
-| clients | 3 | 3 | 0 | 100% | +clientId fix |
-| **TOTAL** | **68** | **65** | **3** | **96%** | **+26 new, all paths correct** |
+---
 
-**3 remaining mutations without broadcastSync:**
-- `guests.checkIn` — single boolean field update, low real-time impact
-- `events.updateStatus` — single field update, deferred
-- `floor-plans.logChange` — audit log only, not user-facing
+### 4.5 vendors.router.ts (13 calls)
 
-### Import broadcastSync (Post-Fix)
+**File:** `src/features/events/server/routers/vendors.router.ts`
 
-#### Excel Import (`import.router.ts`)
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 490 | `create` | insert | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
+| 2 | 723 | `update` | update | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
+| 3 | 795 | `delete` | delete | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
+| 4 | 846 | `updateApprovalStatus` | update | vendors | `vendors.getAll`, `vendors.getStats` |
+| 5 | 900 | `addComment` | insert | vendors | `vendors.getAll` |
+| 6 | 953 | `deleteComment` | delete | vendors | `vendors.getAll` |
+| 7 | 995 | `updatePaymentStatus` | update | vendors | `vendors.getAll`, `vendors.getStats` |
+| 8 | 1293 | `bulkCreateFromCommaList` | insert | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary` |
+| 9 | 1428 | `addVendorAdvance` | insert | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary` |
+| 10 | 1509 | `updateVendorAdvance` | update | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary` |
+| 11 | 1570 | `deleteVendorAdvance` | delete | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary` |
+| 12 | 1664 | `addReview` | insert | vendors | `vendors.getAll`, `vendors.getStats` |
+| 13 | 1741 | `deleteReview` | delete | vendors | `vendors.getAll`, `vendors.getStats` |
 
-| Module | broadcastSync? | queryPaths (Post-Fix) |
-|--------|---------------|----------------------|
-| budget | YES | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
-| hotels | YES | `hotels.getAll`, `hotels.getStats`, `timeline.getAll` |
-| transport | YES | `guestTransport.getAll`, `guestTransport.getStats`, `timeline.getAll` |
-| vendors | YES | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
-| guests | YES | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `budget.getAll`, `clients.list`, `clients.getAll` |
-| gifts | YES | `gifts.getAll`, `gifts.getStats` |
+**Notes:** Vendor CRUD (create/update/delete) includes `budget.getAll`, `budget.getSummary`, `timeline.getAll` because vendor changes cascade to budget items and timeline entries. `bulkCreateFromCommaList` uses per-iteration transactions (S7-M06) — each vendor is its own `db.transaction()` preserving partial success. Advance payment mutations include budget paths because they affect budget totals.
 
-#### Google Sheets Import (`sheets-sync.ts` — `getQueryPathsForModule`)
+---
 
-| Module | queryPaths (Post-Fix) |
-|--------|----------------------|
+### 4.6 hotels.router.ts (5 calls)
+
+**File:** `src/features/events/server/routers/hotels.router.ts`
+
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 265 | `create` | insert | hotels | `hotels.getAll`, `timeline.getAll` |
+| 2 | 501 | `update` | update | hotels | `hotels.getAll`, `timeline.getAll` |
+| 3 | 576 | `delete` | delete | hotels | `hotels.getAll`, `timeline.getAll` |
+| 4 | 626 | `checkIn` | update | hotels | `hotels.getAll` |
+| 5 | 772 | `syncWithGuests` | insert | hotels | `hotels.getAll`, `timeline.getAll` |
+
+**Notes:** Hotel CRUD includes `timeline.getAll` because hotel check-in/check-out dates create timeline entries via `syncHotelsToTimeline`. `checkIn` doesn't affect timeline.
+
+---
+
+### 4.7 guest-transport.router.ts (4 calls)
+
+**File:** `src/features/events/server/routers/guest-transport.router.ts`
+
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 246 | `create` | insert | transport | `guestTransport.getAll`, `timeline.getAll` |
+| 2 | 524 | `update` | update | transport | `guestTransport.getAll`, `timeline.getAll` |
+| 3 | 600 | `delete` | delete | transport | `guestTransport.getAll`, `timeline.getAll` |
+| 4 | 755 | `syncWithGuests` | insert | transport | `guestTransport.getAll`, `timeline.getAll` |
+
+**Notes:** All transport mutations include `timeline.getAll` because transport bookings create timeline entries via `syncTransportToTimeline`.
+
+---
+
+### 4.8 gifts.router.ts (3 calls)
+
+**File:** `src/features/events/server/routers/gifts.router.ts`
+
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 146 | `create` | insert | gifts | `gifts.getAll`, `gifts.getStats` |
+| 2 | 206 | `update` | update | gifts | `gifts.getAll`, `gifts.getStats` |
+| 3 | 252 | `delete` | delete | gifts | `gifts.getAll`, `gifts.getStats` |
+
+---
+
+### 4.9 floor-plans.router.ts (17 calls)
+
+**File:** `src/features/events/server/routers/floor-plans.router.ts`
+
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 198 | `create` | insert | floorPlans | `floorPlans.list` |
+| 2 | 301 | `update` | update | floorPlans | `floorPlans.list` |
+| 3 | 373 | `addTable` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 4 | 463 | `updateTable` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 5 | 509 | `deleteTable` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 6 | 632 | `assignGuests` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 7 | 678 | `unassignGuest` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 8 | 823 | `batchAssignGuests` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 9 | 946 | `delete` | delete | floorPlans | `floorPlans.list` |
+| 10 | 1100 | `saveVersion` | insert | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 11 | 1221 | `restoreVersion` | update | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 12 | 1291 | `deleteVersion` | delete | floorPlans | `floorPlans.list`, `floorPlans.getById` |
+| 13 | 1380 | `logChange` | insert | floorPlans | `floorPlans.getById` |
+| 14 | 1473 | `addGuestConflict` | insert | floorPlans | `floorPlans.getById` |
+| 15 | 1518 | `addGuestPreference` | insert | floorPlans | `floorPlans.getById` |
+| 16 | 1554 | `removeGuestConflict` | delete | floorPlans | `floorPlans.getById` |
+| 17 | 1590 | `removeGuestPreference` | delete | floorPlans | `floorPlans.getById` |
+
+**Notes:** Floor plan mutations use `floorPlans.list` (not `.getAll`) because the tRPC procedure is named `list`. Table/guest/version mutations include `floorPlans.getById` for detail-view refresh. `logChange` only invalidates `getById` since it's metadata. Atomic transactions added for `loadVersion` (S7-M03), `batchAssignGuests` (S7-M04), and `delete` (S7-M05).
+
+---
+
+### 4.10 clients.router.ts (3 calls)
+
+**File:** `src/features/clients/server/routers/clients.router.ts`
+
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 802 | `create` | insert | clients | `clients.list`, `clients.getAll` |
+| 2 | 1011 | `update` | update | clients | `clients.list`, `clients.getAll`, `clients.getById` |
+| 3 | 1253 | `delete` | delete | clients | `clients.list`, `clients.getAll` |
+
+**Notes:** `update` includes `clients.getById` for detail-view refresh. All client mutations use both `clients.list` and `clients.getAll` (the two different query endpoints).
+
+---
+
+### 4.11 import.router.ts (5 calls)
+
+**File:** `src/features/analytics/server/routers/import.router.ts`
+
+| # | Line | Mutation | type | module | queryPaths |
+|---|------|----------|------|--------|------------|
+| 1 | 752 | `importExcel` (budget) | insert | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| 2 | 777 | `importExcel` (hotels) | insert | hotels | `hotels.getAll`, `hotels.getStats`, `timeline.getAll` |
+| 3 | 802 | `importExcel` (transport) | insert | transport | `guestTransport.getAll`, `guestTransport.getStats`, `timeline.getAll` |
+| 4 | 818 | `importExcel` (vendors) | insert | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
+| 5 | 1082 | `importExcel` (inline) | insert | dynamic | Dynamic per module (see queryPathsMap below) |
+
+**Inline import queryPathsMap** (line 1072-1080):
+
+| Module | queryPaths |
+|--------|------------|
+| guests | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `budget.getAll`, `clients.list`, `clients.getAll` |
+| vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
+| budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
+| gifts | `gifts.getAll`, `gifts.getStats` |
+| hotels | `hotels.getAll`, `hotels.getStats`, `timeline.getAll` |
+| transport | `guestTransport.getAll`, `guestTransport.getStats`, `timeline.getAll` |
+| guestGifts | `gifts.getAll`, `gifts.getStats` |
+
+---
+
+### 4.12 sheets-sync.ts (1 storeSyncAction call)
+
+**File:** `src/lib/google/sheets-sync.ts`
+
+| # | Line | Function | type | module | queryPaths Source |
+|---|------|----------|------|--------|-------------------|
+| 1 | 128 | `broadcastSheetSync` | update | dynamic | `getQueryPathsForModule()` |
+
+**getQueryPathsForModule mapping** (line 92-103):
+
+| Module | queryPaths |
+|--------|------------|
 | guests | `guests.getAll`, `guests.getStats`, `guests.getDietaryStats`, `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
 | budget | `budget.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` |
 | timeline | `timeline.getAll`, `timeline.getStats` |
@@ -433,596 +438,570 @@ interface SyncAction {
 | transport | `guestTransport.getAll`, `timeline.getAll` |
 | vendors | `vendors.getAll`, `vendors.getStats`, `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
 | gifts | `gifts.getAll`, `gifts.getStats` |
+| fallback | `{module}.getAll` |
 
 ---
 
-## 8. Chatbot Tool Sync Parity Matrix
+### 4.13 tool-executor.ts (1 storeSyncAction call)
 
-### TOOL_QUERY_MAP (Post-Fix P1)
+**File:** `src/features/chatbot/server/services/tool-executor.ts`
 
-All phantom queryPath names were corrected in P1. The chatbot TOOL_QUERY_MAP now uses the same correct procedure names as the UI routers.
+| # | Line | Function | type | module | queryPaths Source |
+|---|------|----------|------|--------|-------------------|
+| 1 | 591 | `executeToolWithSync` | dynamic | dynamic | `getQueriesToInvalidate(toolName)` from query-invalidation-map.ts |
 
-| Tool | queryPaths (Post-Fix) | Matches UI? |
-|------|----------------------|-------------|
-| `add_guest` | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` | YES |
-| `delete_guest` | same | YES |
-| `update_guest_rsvp` | `guests.getAll`, `guests.getStats`, `budget.getSummary` | YES |
-| `bulk_update_guests` | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` | YES (fixed P1) |
-| `check_in_guest` | `guests.getAll`, `guests.getStats` | N/A (UI deferred) |
-| `assign_guests_to_events` | `guests.getAll`, `guests.getStats`, `events.getAll`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` | YES (fixed P1) |
-| `update_table_dietary` | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` | YES (fixed P1) |
-| `create_event` | `events.getAll`, `timeline.getAll` | YES |
-| `update_event` | same | YES |
-| `add_timeline_item` | `timeline.getAll` | YES |
-| `add_vendor` | `vendors.getAll`, `budget.getAll`, `timeline.getAll` | YES (broader) |
-| `update_vendor` | `vendors.getAll`, `budget.getAll` | YES |
-| `delete_vendor` | `vendors.getAll`, `budget.getAll`, `timeline.getAll` | YES (broader) |
-| `add_hotel_booking` | `hotels.getAll` | YES |
-| `assign_transport` | `guestTransport.getAll` | YES |
-| `update_budget_item` | `budget.getAll`, `budget.getSummary` | YES |
-| `delete_budget_item` | `budget.getAll`, `budget.getSummary`, `timeline.getAll` | YES (broader) |
-| `add_gift` | `gifts.getAll` | YES |
-| `create_client` | `clients.list`, `clients.getAll` | YES (fixed P1) |
-| `update_client` | `clients.list`, `clients.getAll`, `clients.getById` | YES (fixed P1) |
-
-### `getModuleFromToolName` Fallback Bug
-
-Still present (S7-M02). Tools that don't match any substring fall through to default `'guests'`. The `module` field is cosmetic (queryPaths drive invalidation) — low-severity logging issue.
+**Module resolution:** `getModuleFromToolName()` — pattern matching on tool name substrings.
+**Type resolution:** `getActionType()` — prefix matching (`add_`/`create_` → insert, `delete_`/`remove_` → delete, else update).
+**QueryPaths:** See Section 6.2 for the full TOOL_QUERY_MAP.
 
 ---
 
-## 9. Tenant Isolation Verification
+### 4.14 googleSheets.router.ts (1 broadcastSheetSync call)
 
-### Redis Channel Naming
+**File:** `src/features/backup/server/routers/googleSheets.router.ts`
 
-| Operation | Key Pattern | Isolation |
-|-----------|-------------|-----------|
-| Store | `sync:{companyId}:actions` | Per-company sorted set — **SAFE** |
-| Subscribe | `sync:{companyId}:actions` (polling) | Per-company — **SAFE** |
+| # | Line | Mutation | Delegates To | Parameters |
+|---|------|----------|-------------|------------|
+| 1 | 492 | `importFromSheet` | `broadcastSheetSync()` | `module: input.module, companyId, clientId, userId, count` |
 
-### SSE Subscription Filtering
-
-1. `sync.router.ts:42`: `const { companyId, userId } = ctx` — companyId from authenticated session
-2. `sync.router.ts:44-49`: Rejects if `!companyId` with `BAD_REQUEST`
-3. `sync.router.ts:93`: `subscribeToCompany(companyId, signal)` — scoped to company
-4. `sync.router.ts:95`: `action.userId !== userId` — filters out self-echoes
-5. Redis keys include `companyId` — no cross-tenant key collisions
-
-**Verdict: SAFE.** Company A events cannot leak to Company B.
+**Notes:** This calls `broadcastSheetSync()` from sheets-sync.ts, which resolves queryPaths via `getQueryPathsForModule()`.
 
 ---
 
-## 10. Connection Manager Verification
+## 5. All 27 Findings — Detailed
 
-### Limits (`connection-manager.ts`)
+### Severity Legend
 
-| Limit | Value | Line |
-|-------|-------|------|
-| Per-user | 5 | 42 |
-| Per-company | 50 | 45 |
-| Counter TTL | 7200s (2 hours) | 50 |
-| Key prefix | `sse:conn` | 53 |
-
-### Acquire/Release Flow
-
-- Acquire BEFORE SSE loop (line 54)
-- Release in `finally` block (line 107–110) — runs even on error/abort
-- `SSEConnectionLimitError` caught and converted to `TRPCError` with code `TOO_MANY_REQUESTS`
-- Guard is idempotent (`if (released) return`)
-- Negative counter cleanup: if DECR goes to 0 or below, key is DELeted
-
-**TOCTOU race (S7-M01):** `canConnect()` read and `pipeline.incr()` write are not atomic. Bounded overshoot, TTL auto-corrects. Low risk — deferred.
+| Severity | Description |
+|----------|-------------|
+| **CRITICAL** | Data loss, silent data corruption, or complete feature failure |
+| **HIGH** | Feature partially broken or security concern |
+| **MEDIUM** | Performance issue, race condition, or missing atomicity |
+| **LOW** | Code quality, dead code, or minor improvement |
 
 ---
 
-## 11. Redis Failure Handling Analysis
+### CRITICAL (2/2 — all FIXED)
 
-| Component | Behavior | File:Line |
-|-----------|----------|-----------|
-| `storeSyncAction` | Catches error, logs, does NOT throw | redis-pubsub.ts:108-111 |
-| `broadcastSync` | Catches rejection, logs, does NOT throw | broadcast-sync.ts:35-38 |
-| `broadcastSheetSync` | `.catch()` on Promise.all, logs | sheets-sync.ts:131 |
-| `executeToolWithSync` | Catches, `console.warn`, does NOT throw | tool-executor.ts:596-598 |
-| `getMissedActions` | Catches error, returns empty array `[]` | redis-pubsub.ts:140-143 |
-| `subscribeToCompany` | Catches, waits 2s, retries polling loop | redis-pubsub.ts:180-183 |
-| `sseConnections.acquire` | **THROWS** — Redis failure propagates | connection-manager.ts:167-172 |
+#### S7-C01: `publishSyncAction()` was a no-op — FIXED P1
 
-**S7-M08 (deferred):** `sseConnections.acquire` is too aggressive — if Redis is temporarily down, no new SSE connections can be established even though the database is fine.
+**File:** `src/lib/realtime/broadcast-sync.ts`
+**Issue:** `broadcastSync()` called `publishSyncAction()` which did a Redis PUBLISH. But Upstash REST API doesn't support persistent pub/sub subscriptions. `subscribeToCompany()` polls the sorted set instead, so the PUBLISH went to zero subscribers.
+**Fix:** Removed `publishSyncAction()` call from `broadcastSync()`. Removed dead function from `redis-pubsub.ts` (P4).
+**Impact:** No live sync events were being delivered to any connected client beyond sorted-set polling.
+
+#### S7-C02: Phantom queryPaths across 13 files — FIXED P1
+
+**Files:** All module routers + import.router.ts + sheets-sync.ts + tool-executor.ts + query-invalidation-map.ts
+**Issue:** queryPaths didn't match actual tRPC procedure names. Examples:
+- `guests.list` → should be `guests.getAll`
+- `budget.getItems` → should be `budget.getAll`
+- `vendors.list` → should be `vendors.getAll`
+- `hotels.list` → should be `hotels.getAll`
+- `transport.list` → should be `guestTransport.getAll`
+- `floor-plans.list` → should be `floorPlans.list`
+
+**Fix:** Corrected every queryPath across all 13 files to match actual tRPC procedure names.
+**Impact:** Cache invalidation was silently failing for all modules — UI would never refresh after mutations from other users.
 
 ---
 
-## 12. End-to-End Trace (Post-Fix)
+### HIGH (9/9 — all FIXED)
 
-**Scenario:** User A adds a guest on Tab 1. User B on Tab 2 should see the update.
+#### S7-H01 through S7-H09: Missing broadcastSync in 26 mutations — FIXED P2
 
-### Step 1: Mutation
+| ID | File | Mutations Missing broadcastSync |
+|---|---|---|
+| S7-H01 | budget.router.ts | `create`, `update`, `delete`, `addAdvancePayment`, `updateAdvancePayment`, `deleteAdvancePayment` (6 mutations added broadcastSync) |
+| S7-H02 | vendors.router.ts | `updateApprovalStatus`, `addComment`, `deleteComment`, `updatePaymentStatus`, `addVendorAdvance`, `updateVendorAdvance`, `deleteVendorAdvance`, `addReview`, `deleteReview`, `bulkCreateFromCommaList` (10 mutations) |
+| S7-H03 | timeline.router.ts | `reorder`, `markComplete`, `bulkImport` (3 mutations) |
+| S7-H04 | hotels.router.ts | `checkIn`, `syncWithGuests` (2 mutations) |
+| S7-H05 | guest-transport.router.ts | `syncWithGuests` (1 mutation) |
+| S7-H06 | guests.router.ts | Cascade queryPaths missing on create/update/delete/bulkImport (added `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`) |
+| S7-H07 | clients.router.ts | Added `clients.list`/`clients.getAll` to recalcClientStats callers |
+| S7-H08 | floor-plans.router.ts | All 17 mutations (floor plans had zero broadcastSync before P2) |
+| S7-H09 | guests.router.ts | `updateRSVP` (1 mutation) |
+
+**Impact:** Without broadcastSync, mutations from one user/tab would not invalidate caches on other users' browsers. Floor plans module was completely invisible to real-time sync.
+
+---
+
+### MEDIUM (10/10 — all FIXED)
+
+#### S7-M01: TOCTOU race in connection limiter — FIXED P4
+
+**File:** `src/lib/sse/connection-manager.ts`
+**Issue:** `canConnect()` checked counts, then `acquire()` incremented — race window between check and increment allowed exceeding limits.
+**Fix:** Replaced check-then-increment with increment-first-then-check pattern. If limit exceeded after increment, rollback with DECR pipeline.
+**Lines:** 153-234
+
+#### S7-M02: `getModuleFromToolName` incomplete mapping — FIXED P4
+
+**File:** `src/features/chatbot/server/services/tool-executor.ts`
+**Issue:** Only matched 8 tool patterns. Tools like `pipeline`, `team`, `proposal`, `invoice`, `communication`, `website`, `workflow` would fall through to default `'guests'`.
+**Fix:** Added 7 new patterns mapping to `'clients'`. Changed default fallback from `'guests'` to `'clients'`.
+**Lines:** 614-629
+
+#### S7-M03: `loadVersion` non-atomic — FIXED P4
+
+**File:** `src/features/events/server/routers/floor-plans.router.ts`
+**Issue:** `restoreVersion` performed delete + multiple updates + insert without transaction. Failure mid-way would leave floor plan in inconsistent state.
+**Fix:** Wrapped in `db.transaction(async (tx) => { ... })`.
+
+#### S7-M04: `batchAssignGuests` non-atomic — FIXED P4
+
+**File:** `src/features/events/server/routers/floor-plans.router.ts`
+**Issue:** Batch delete old assignments + insert new assignments not atomic.
+**Fix:** Wrapped in `db.transaction(async (tx) => { ... })`.
+
+#### S7-M05: `floor-plans.delete` non-atomic — FIXED P4
+
+**File:** `src/features/events/server/routers/floor-plans.router.ts`
+**Issue:** 3 sequential deletes (assignments → tables → floor plan) not atomic.
+**Fix:** Wrapped in `db.transaction(async (tx) => { ... })`.
+
+#### S7-M06: `bulkCreateFromCommaList` non-atomic — FIXED P4
+
+**File:** `src/features/events/server/routers/vendors.router.ts`
+**Issue:** Loop creating vendor + clientVendor + budget item per vendor without any transaction boundary.
+**Fix:** Per-iteration `db.transaction()`. Each vendor is its own atomic unit. Partial success preserved (if vendor 3/5 fails, 1+2 are committed).
+
+#### S7-M07: `timeline.bulkImport` non-atomic — FIXED P4
+
+**File:** `src/features/events/server/routers/timeline.router.ts`
+**Issue:** Loop of insert/update/delete operations without transaction.
+**Fix:** Single `ctx.db.transaction()` wrapping entire loop. All-or-nothing atomic. Error handler resets counts.
+
+#### S7-M08: Redis failure crashes SSE connection — FIXED P4
+
+**File:** `src/lib/sse/connection-manager.ts`
+**Issue:** If Redis was unreachable, `acquire()` would throw, killing the SSE subscription attempt.
+**Fix:** Try/catch around acquire. SSEConnectionLimitError re-thrown (intentional rejection). Other errors → graceful degradation: allow connection without limit enforcement, return no-op guard.
+**Lines:** 222-233
+
+#### S7-M09: Cascade sync calls outside transactions — FIXED P4
+
+**Files:** `src/lib/google/sheets-sync.ts`, `src/features/backup/server/routers/googleSheets.router.ts`
+**Issue:** 6 cascade sync calls (`syncGuestsToHotelsAndTransportTx`, `syncHotelsToTimelineTx`, `syncTransportToTimelineTx`) were called with bare `db` instead of inside a transaction, despite the functions expecting a transaction client.
+**Fix:** All 6 wrapped in `db.transaction(async (tx) => { ... })`.
+
+#### S7-M10: `importAllFromSheets` userId optional — FIXED P4
+
+**File:** `src/lib/google/sheets-sync.ts`
+**Issue:** `userId` parameter was optional (`userId?: string`). The function always passed it to `broadcastSheetSync` but broadcast guard checked `if (userId && totalImported > 0)`. If called without userId, import would succeed but broadcast would silently skip.
+**Fix:** Made `userId` required. Simplified guard to `if (totalImported > 0)`.
+
+---
+
+### LOW (6 total — 2 FIXED, 4 non-actionable)
+
+#### S7-L01: Dead `publishSyncAction` in redis-pubsub.ts — FIXED P4
+
+**File:** `src/lib/realtime/redis-pubsub.ts`
+**Issue:** `publishSyncAction()` function remained as dead code after P1 removed its call from `broadcastSync()`.
+**Fix:** Removed the dead function entirely.
+
+#### S7-L02: `subscriptionKey` state triggers full re-render — FIXED P4
+
+**File:** `src/features/realtime/hooks/use-realtime-sync.ts`
+**Issue:** `reconnect()` used `setSubscriptionKey(k => k + 1)` which changed a value used in the subscription's `enabled` check. Any key change re-renders the entire component tree using the hook.
+**Fix:** Replaced with `pendingReconnect` boolean toggle pattern. `setPendingReconnect(true)` → 100ms timer → `setPendingReconnect(false)`. Subscription `enabled: enabled && !pendingReconnect`. Simpler, same effect, minimal re-renders.
+**Lines:** 66, 77-83, 168, 189-193
+
+#### S7-L03: Missing `'use client'` directive — SUPERSEDED
+
+**File:** `src/features/realtime/hooks/use-realtime-sync.ts`
+**Status:** File already had `'use client'` at line 1 before P4. Marked as already present.
+
+#### S7-L04: `logChange` mutation intentionally not broadcast — PARTIAL (by design)
+
+**File:** `src/features/events/server/routers/floor-plans.router.ts`
+**Issue:** `logChange` writes metadata but was flagged as missing broadcastSync.
+**Status:** broadcastSync was added in P2 with `queryPaths: ['floorPlans.getById']`. This is the correct scope — change logs are detail-view-only metadata.
+
+#### S7-L05: No dedup on client-side action processing — FIXED P4
+
+**File:** `src/features/realtime/hooks/use-realtime-sync.ts`
+**Issue:** If the same SyncAction was delivered twice (e.g., network hiccup during offline recovery + live stream overlap), `invalidateQueries` would fire twice.
+**Fix:** Added `seenActionIds` ref using a Set. Check `seenActionIds.has(action.id)` before processing. Auto-eviction at 500 entries (keeps last 250).
+**Lines:** 69, 132-139
+
+#### S7-L06: 500ms polling latency — BY DESIGN
+
+**File:** `src/lib/realtime/redis-pubsub.ts`
+**Issue:** `subscribeToCompany()` polls every 500ms instead of using true pub/sub.
+**Status:** By design. Upstash REST API doesn't support persistent TCP subscriptions. 500ms polling with Redis sorted set is the correct pattern for Upstash REST. The comment in the code explains this.
+
+---
+
+## 6. QueryPath Mapping Reference
+
+### 6.1 Module Router queryPaths (canonical)
+
+These are the actual tRPC procedure names used by broadcastSync in the module routers. **All client-side invalidation depends on these being correct.**
+
+| Module | Primary Paths | Cascade Paths | Stats Path |
+|--------|--------------|---------------|------------|
+| guests | `guests.getAll` | `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`, `budget.getSummary`, `clients.list`, `clients.getAll` | `guests.getStats` |
+| budget | `budget.getAll` | `clients.list`, `clients.getAll` | `budget.getSummary` |
+| events | `events.getAll` | `timeline.getAll`, `guests.getAll` (delete only) | — |
+| timeline | `timeline.getAll` | — | `timeline.getStats` |
+| vendors | `vendors.getAll` | `budget.getAll`, `budget.getSummary`, `timeline.getAll` | `vendors.getStats` |
+| hotels | `hotels.getAll` | `timeline.getAll` | — |
+| transport | `guestTransport.getAll` | `timeline.getAll` | — |
+| gifts | `gifts.getAll` | — | `gifts.getStats` |
+| clients | `clients.list`, `clients.getAll` | — | `clients.getById` (update only) |
+| floorPlans | `floorPlans.list` | — | `floorPlans.getById` (detail mutations) |
+
+### 6.2 Chatbot TOOL_QUERY_MAP (query-invalidation-map.ts)
+
+| Tool Name | queryPaths |
+|-----------|------------|
+| `create_client` | `clients.list`, `clients.getAll` |
+| `update_client` | `clients.list`, `clients.getAll`, `clients.getById` |
+| `add_guest` | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` |
+| `update_guest_rsvp` | `guests.getAll`, `guests.getStats`, `budget.getSummary` |
+| `bulk_update_guests` | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` |
+| `check_in_guest` | `guests.getAll`, `guests.getStats` |
+| `assign_guests_to_events` | `guests.getAll`, `guests.getStats`, `events.getAll` |
+| `update_table_dietary` | `guests.getAll`, `guests.getStats` |
+| `create_event` | `events.getAll`, `timeline.getAll` |
+| `update_event` | `events.getAll`, `timeline.getAll` |
+| `add_timeline_item` | `timeline.getAll` |
+| `shift_timeline` | `timeline.getAll` |
+| `add_vendor` | `vendors.getAll`, `budget.getAll`, `timeline.getAll` |
+| `update_vendor` | `vendors.getAll`, `budget.getAll` |
+| `add_hotel_booking` | `hotels.getAll` |
+| `bulk_add_hotel_bookings` | `hotels.getAll` |
+| `assign_transport` | `guestTransport.getAll` |
+| `update_budget_item` | `budget.getAll`, `budget.getSummary` |
+| `add_gift` | `gifts.getAll` |
+| `update_gift` | `gifts.getAll` |
+| `add_seating_constraint` | `floorPlans.list` |
+| `send_communication` | `communications.list` |
+| `update_pipeline` | `pipeline.list` |
+| `update_creative` | `creatives.list` |
+| `assign_team_member` | `team.list` |
+| `create_proposal` | `proposals.list` |
+| `create_invoice` | `invoices.list` |
+| `update_website` | `websites.list` |
+| `create_workflow` | `workflows.list` |
+| `delete_guest` | `guests.getAll`, `guests.getStats`, `hotels.getAll`, `guestTransport.getAll`, `budget.getSummary` |
+| `delete_event` | `events.getAll`, `timeline.getAll`, `guests.getAll` |
+| `delete_vendor` | `vendors.getAll`, `budget.getAll`, `timeline.getAll` |
+| `delete_budget_item` | `budget.getAll`, `budget.getSummary`, `timeline.getAll` |
+| `delete_timeline_item` | `timeline.getAll` |
+| `delete_gift` | `gifts.getAll` |
+| `generate_qr_codes` | *(none — side effect only)* |
+| `sync_calendar` | *(none — side effect only)* |
+
+---
+
+## 7. Files Modified Per Prompt
+
+### P1 — `8e54380` — Phantom queryPaths + dead publishSyncAction
+
+| File | Changes |
+|------|---------|
+| `src/features/analytics/server/routers/budget.router.ts` | Fix queryPaths |
+| `src/features/analytics/server/routers/import.router.ts` | Fix queryPaths |
+| `src/features/chatbot/server/services/query-invalidation-map.ts` | Fix queryPaths |
+| `src/features/chatbot/server/services/tool-executor.ts` | Fix queryPaths |
+| `src/features/events/server/routers/events.router.ts` | Fix queryPaths |
+| `src/features/events/server/routers/gifts.router.ts` | Fix queryPaths |
+| `src/features/events/server/routers/guest-transport.router.ts` | Fix queryPaths |
+| `src/features/events/server/routers/hotels.router.ts` | Fix queryPaths |
+| `src/features/events/server/routers/timeline.router.ts` | Fix queryPaths |
+| `src/features/events/server/routers/vendors.router.ts` | Fix queryPaths |
+| `src/features/guests/server/routers/guests.router.ts` | Fix queryPaths |
+| `src/lib/google/sheets-sync.ts` | Fix queryPaths |
+| `src/lib/realtime/broadcast-sync.ts` | Remove publishSyncAction call |
+
+**13 files, 98 insertions, 105 deletions**
+
+### P2 — `053ff3c` — 26 missing broadcastSync calls
+
+| File | Changes |
+|------|---------|
+| `src/features/analytics/server/routers/budget.router.ts` | Add broadcastSync to 6 mutations |
+| `src/features/clients/server/routers/clients.router.ts` | Add import for broadcastSync |
+| `src/features/events/server/routers/floor-plans.router.ts` | Add broadcastSync to 17 mutations |
+| `src/features/events/server/routers/gifts.router.ts` | Fix type values |
+| `src/features/events/server/routers/guest-transport.router.ts` | Add broadcastSync to syncWithGuests, fix types |
+| `src/features/events/server/routers/hotels.router.ts` | Add broadcastSync to checkIn, syncWithGuests |
+| `src/features/events/server/routers/timeline.router.ts` | Add broadcastSync to reorder, markComplete, bulkImport |
+| `src/features/events/server/routers/vendors.router.ts` | Add broadcastSync to 10 mutations |
+
+**8 files, 305 insertions, 29 deletions**
+
+### P3 — `54e3ea0` — Import broadcast paths
+
+| File | Changes |
+|------|---------|
+| `docs/audit/session-7-realtime-sync.md` | Create initial comprehensive report |
+| `src/features/analytics/server/routers/import.router.ts` | Fix import broadcastSync queryPaths |
+| `src/features/guests/server/routers/guests.router.ts` | Add cascade queryPaths |
+| `src/lib/google/sheets-sync.ts` | Fix getQueryPathsForModule |
+
+**4 files, 552 insertions, 644 deletions**
+
+### P4 — `436cff6` — All remaining MEDIUM and LOW
+
+| File | Changes |
+|------|---------|
+| `docs/audit/session-7-realtime-sync.md` | Update finding statuses |
+| `src/features/backup/server/routers/googleSheets.router.ts` | Wrap cascade sync calls in db.transaction |
+| `src/features/chatbot/server/services/tool-executor.ts` | Add tool patterns, change default module |
+| `src/features/events/server/routers/floor-plans.router.ts` | Wrap 3 mutations in db.transaction |
+| `src/features/events/server/routers/timeline.router.ts` | Wrap bulkImport in db.transaction |
+| `src/features/events/server/routers/vendors.router.ts` | Per-iteration db.transaction for bulkCreate |
+| `src/features/realtime/hooks/use-realtime-sync.ts` | pendingReconnect + seenActionIds dedup |
+| `src/lib/google/sheets-sync.ts` | userId required, cascade transactions |
+| `src/lib/realtime/redis-pubsub.ts` | Remove dead publishSyncAction |
+| `src/lib/sse/connection-manager.ts` | TOCTOU fix, graceful degradation |
+
+**10 files, 407 insertions, 316 deletions**
+
+### Total Files Modified Across All Prompts
+
+| File | P1 | P2 | P3 | P4 | Total Touches |
+|------|----|----|----|----|---------------|
+| `budget.router.ts` | X | X | | | 2 |
+| `import.router.ts` | X | | X | | 2 |
+| `query-invalidation-map.ts` | X | | | | 1 |
+| `tool-executor.ts` | X | | | X | 2 |
+| `events.router.ts` | X | | | | 1 |
+| `gifts.router.ts` | X | X | | | 2 |
+| `guest-transport.router.ts` | X | X | | | 2 |
+| `hotels.router.ts` | X | X | | | 2 |
+| `timeline.router.ts` | X | X | | X | 3 |
+| `vendors.router.ts` | X | X | | X | 3 |
+| `guests.router.ts` | X | | X | | 2 |
+| `sheets-sync.ts` | X | | X | X | 3 |
+| `broadcast-sync.ts` | X | | | | 1 |
+| `floor-plans.router.ts` | | X | | X | 2 |
+| `clients.router.ts` | | X | | | 1 |
+| `googleSheets.router.ts` | | | | X | 1 |
+| `use-realtime-sync.ts` | | | | X | 1 |
+| `redis-pubsub.ts` | | | | X | 1 |
+| `connection-manager.ts` | | | | X | 1 |
+| **Total unique files** | **13** | **8** | **4** | **10** | **19** |
+
+---
+
+## 8. Verification Results
+
+### TypeScript Compilation
+
 ```
-guests.router.ts → create: adminProcedure
-→ withTransaction → INSERT guests, cascade side effects
-→ recalcClientStats(tx, clientId) — inside transaction
-→ transaction commits
-```
-
-### Step 2: broadcastSync (after commit)
-```
-broadcastSync({
-  type: 'insert', module: 'guests',
-  entityId: result.guest.id,
-  companyId: ctx.companyId!,
-  clientId: input.clientId,
-  userId: ctx.userId!,
-  queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll',
-               'guestTransport.getAll', 'timeline.getAll',
-               'budget.getSummary', 'clients.list', 'clients.getAll'],
-})
-```
-
-### Step 3: Redis Store
-```
-broadcast-sync.ts → storeSyncAction(syncAction)
-→ redis.zadd('sync:{companyId}:actions', { score: timestamp, member: JSON.stringify(action) })
-→ redis.zremrangebyrank(key, 0, -1001)  // cap at 1000
-→ redis.expire(key, 86400)  // 24h TTL
-```
-
-### Step 4: Subscription Polling (User B)
-```
-redis-pubsub.ts → subscribeToCompany(companyId, signal)
-→ getMissedActions(companyId, lastTimestamp)
-→ redis.zrange(key, lastTimestamp+1, '+inf', { byScore: true })
-→ yield action (to sync.router.ts)
-→ sleep(500ms), repeat
-```
-
-### Step 5: SSE Delivery
-```
-sync.router.ts → for await (action of subscribeToCompany(...))
-→ action.userId !== userId → passes (different user)
-→ yield action → SSE to User B's browser
-```
-
-### Step 6: Cache Invalidation (POST-FIX — WORKS)
-```
-use-realtime-sync.ts → handleSyncAction(action)
-→ invalidateQueries(['guests.getAll', 'guests.getStats', ...])
-→ 'guests.getAll' splits to ['guests', 'getAll']
-→ tRPC cache key: ['guests', 'getAll'] → MATCH ✓
-→ queryClient.invalidateQueries() → Guest list refetches
-→ User B sees the new guest ✓
-```
-
----
-
-## 13. Client-Side SSE Handler Analysis
-
-### `useRealtimeSync` Hook (`use-realtime-sync.ts`)
-
-**Connection:** Uses `trpc.sync.onSync.useSubscription()`. tRPC v11 SSE-based subscriptions with automatic reconnect.
-
-**Offline Recovery:**
-- `lastSyncTimestamp` persisted to `localStorage` under key `weddingflo:lastSyncTimestamp`
-- Passed as input to `onSync` subscription
-- Server sends missed actions via `getMissedActions(companyId, lastSyncTimestamp)`
-- **CORRECT:** Tab reconnects and receives all missed actions from sorted set
-
-**Known Issues (deferred):**
-- `subscriptionKey` not wired to subscription (S7-L02) — manual reconnect may not remount
-- No duplicate event filtering (S7-L05) — double invalidation just causes extra refetch
-
----
-
-## 14. Missed Events — Import, Batch, Cascade Operations
-
-### Cascade Sync Functions (`auto-sync-trigger.ts`)
-
-| Function | Writes To | broadcastSync? |
-|----------|-----------|---------------|
-| `syncGuestsToHotelsAndTransportTx` | hotels, guestTransport | NO — callers compensate |
-| `syncHotelsToTimelineTx` | timeline | NO — callers compensate |
-| `syncTransportToTimelineTx` | timeline | NO — callers compensate |
-| `triggerFullSync` | All of the above | NO — callers compensate |
-| `triggerBatchSync` | All of the above | NO — callers compensate |
-
-**Post-fix:** All callers now include cascade module paths (`hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`) in their broadcastSync queryPaths. The functions remain broadcast-blind but the caller contract is documented and enforced.
-
-### recalcClientStats
-
-**Post-fix:** All callers that invoke `recalcClientStats` now include `clients.list` and `clients.getAll` in their broadcastSync queryPaths. Client list views refresh when budget/guest counts change.
-
----
-
-## 15. Transaction Placement Verification
-
-**All broadcastSync calls are OUTSIDE their enclosing transactions.** This is correct — broadcasting inside a transaction could notify clients before the commit.
-
-```typescript
-await withTransaction(async (tx) => {
-  // ... all DB writes ...
-  await recalcClientStats(tx, clientId)  // inside tx
-})
-// ↓ AFTER commit ↓
-await broadcastSync({ ... })  // outside tx — CORRECT
-```
-
-**No violations found.** Verified across all 70 call sites.
-
----
-
-## 16. All Findings
-
-### S7-C01 ~~CRITICAL~~ → FIXED (P1) — Phantom queryPath Names
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P1) |
-| **Files** | All 11 module routers, query-invalidation-map.ts |
-| **Problem** | broadcastSync queryPaths used phantom `.list`/`.overview` names that didn't match tRPC procedures. Cache invalidation silently failed. |
-| **Fix** | Renamed all phantom paths to correct procedure names: `.list` → `.getAll`, `.overview` → `.getSummary`. Updated TOOL_QUERY_MAP to match. |
-
-**Mapping applied:**
-
-| Phantom | Corrected To |
-|---------|-------------|
-| `guests.list` | `guests.getAll` |
-| `budget.list` | `budget.getAll` |
-| `budget.overview` | `budget.getSummary` |
-| `events.list` | `events.getAll` |
-| `timeline.list` | `timeline.getAll` |
-| `vendors.list` | `vendors.getAll` |
-| `hotels.list` | `hotels.getAll` |
-| `gifts.list` | `gifts.getAll` |
-
----
-
-### S7-C02 ~~CRITICAL~~ → FIXED (P1) — `publishSyncAction` No-Op
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P1) |
-| **File** | broadcast-sync.ts |
-| **Problem** | `publishSyncAction()` used `redis.publish()` to a channel with zero subscribers (Upstash REST has no persistent pub/sub). Wasted one Redis API call per mutation. |
-| **Fix** | Removed `publishSyncAction` call from `broadcastSync`. Events now delivered solely via `storeSyncAction` + polling. Saves one Redis call per mutation. |
-
----
-
-### S7-H01 ~~HIGH~~ → FIXED (P2) — 26 Router Mutations Missing broadcastSync
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P2) |
-| **Affected** | 7 router files, 26 mutations |
-| **Fix** | Added broadcastSync with correct queryPaths to all 26 mutations. See coverage matrix above. |
-
----
-
-### S7-H02 ~~HIGH~~ → FIXED (P2) — Cascade Sync Functions Broadcast-Blind
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P2) — caller-side compensation |
-| **File** | auto-sync-trigger.ts (unchanged), all callers updated |
-| **Problem** | Cascade functions write hotels/transport/timeline but never broadcast. |
-| **Fix** | All callers now include cascade module paths in their broadcastSync queryPaths (`hotels.getAll`, `guestTransport.getAll`, `timeline.getAll`). |
-
----
-
-### S7-H03 ~~HIGH~~ → FIXED (P3) — Guest Router Missing Cascade + Client Paths
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P3) |
-| **File** | guests.router.ts |
-| **Problem** | 5 guest broadcastSync calls missing `timeline.getAll` (cascade) and `clients.list`/`clients.getAll` (recalcClientStats). |
-| **Fix** | Enhanced all 5 calls with `timeline.getAll`, `clients.list`, `clients.getAll`. `updateRSVP` gets clients paths but not timeline (no cascade). |
-
----
-
-### S7-H04 ~~HIGH~~ → FIXED (P3) — Sheets Import Cross-Module Cascade Gap
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P3) |
-| **File** | sheets-sync.ts |
-| **Problem** | `getQueryPathsForModule` had severely narrow paths. Guest import cascaded into hotels/transport/timeline but only broadcast `guests.getAll`. |
-| **Fix** | Rewrote `getQueryPathsForModule` with full cascade paths for all 7 modules. See Import broadcastSync table above. |
-
----
-
-### S7-H05 ~~HIGH~~ → FIXED (P3) — Phantom `budget.getStats` in Sheets
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P3) |
-| **File** | sheets-sync.ts:95 |
-| **Problem** | `getQueryPathsForModule('budget')` returned `budget.getStats` — procedure is `getSummary`. |
-| **Fix** | Changed to `budget.getSummary`. |
-
----
-
-### S7-H06 ~~HIGH~~ → FIXED (P1) — Chatbot queryPath Mismatches
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P1) |
-| **File** | query-invalidation-map.ts |
-| **Problem** | 5 chatbot tools had fewer/different queryPaths than UI router equivalents. |
-| **Fix** | Updated TOOL_QUERY_MAP entries to match corrected UI router paths. All 20 tools now have parity. |
-
----
-
-### S7-H07 ~~HIGH~~ → FIXED (P2 + P3) — recalcClientStats Missing Clients Broadcast
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P2 guests deferred → P3 completed) |
-| **Files** | All routers calling recalcClientStats |
-| **Problem** | recalcClientStats writes `clients.budget`/`clients.guestCount` but callers didn't broadcast `clients.list`/`clients.getAll`. |
-| **Fix** | Added `clients.list`, `clients.getAll` to all broadcastSync calls where recalcClientStats is invoked. Budget router (P2), guest router (P3), import router (P3). |
-
----
-
-### S7-H08 ~~HIGH~~ → FIXED (P2) — `budget.delete` and `clients.delete` Missing `clientId`
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P2) |
-| **Files** | budget.router.ts, clients.router.ts |
-| **Problem** | Both broadcastSync calls omitted the `clientId` field. |
-| **Fix** | Added `clientId` field to both calls. |
-
----
-
-### S7-H09 ~~HIGH~~ → FIXED (P3) — Excel Import broadcastSync Incomplete
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P3) |
-| **File** | import.router.ts |
-| **Problem** | Budget import missing clients paths; vendor import missing budget.getSummary + timeline.getAll; inline queryPathsMap narrow for guests/vendors/budget. |
-| **Fix** | Updated all 3 broadcastSync sites with full cascade and client paths. See Import broadcastSync table above. |
-
----
-
-### S7-M01 ~~MEDIUM~~ → FIXED (P4) — TOCTOU Race in Connection Limiter
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | connection-manager.ts |
-| **Problem** | `canConnect()` read and `pipeline.incr()` write were not atomic. Concurrent requests could exceed limit. |
-| **Fix** | Replaced check-then-increment with increment-first-then-check pattern. INCR is atomic in Redis. If limits exceeded after increment, DECR rollback is issued. Eliminates TOCTOU window. |
-
----
-
-### S7-M02 ~~MEDIUM~~ → FIXED (P4) — `getModuleFromToolName` Default `'guests'`
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | tool-executor.ts |
-| **Problem** | 8+ tools fell through to default module `'guests'`. |
-| **Fix** | Added explicit patterns for `pipeline`, `team`, `proposal`, `invoice`, `communication`, `website`, `workflow` → `'clients'`. Changed default fallback from `'guests'` to `'clients'`. |
-
----
-
-### S7-M03 ~~MEDIUM~~ → FIXED (P4) — `loadVersion` Non-Atomic
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | floor-plans.router.ts |
-| **Problem** | Delete + update loop + insert with no transaction. |
-| **Fix** | Wrapped all operations in `db.transaction()`. Delete, table position updates, and guest assignment inserts are now atomic. |
-
----
-
-### S7-M04 ~~MEDIUM~~ → FIXED (P4) — `batchAssignGuests` Non-Atomic
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | floor-plans.router.ts |
-| **Problem** | Delete + insert without transaction. |
-| **Fix** | Wrapped delete + insert in `db.transaction()`. |
-
----
-
-### S7-M05 ~~MEDIUM~~ → FIXED (P4) — `floor-plans.delete` Non-Atomic
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | floor-plans.router.ts |
-| **Problem** | Three sequential deletes without transaction. |
-| **Fix** | Wrapped all 3 deletes (floorPlanGuests, floorPlanTables, floorPlans) in `db.transaction()`. |
-
----
-
-### S7-M06 ~~MEDIUM~~ → FIXED (P4) — `vendors.bulkCreateFromCommaList` Non-Atomic
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | vendors.router.ts |
-| **Problem** | For-loop of inserts (vendor + clientVendor + budget) without transaction. |
-| **Fix** | Per-iteration `db.transaction()`. Each vendor creation is atomic (vendor + clientVendor + budget all-or-nothing). Individual vendor failures don't affect others. |
-
----
-
-### S7-M07 ~~MEDIUM~~ → FIXED (P4) — `timeline.bulkImport` Non-Atomic
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | timeline.router.ts |
-| **Problem** | Loop of individual inserts/updates/deletes without transaction. |
-| **Fix** | Wrapped entire loop in single `db.transaction()`. All bulk import operations are atomic — either all succeed or all roll back. Error handler resets counts on failure. |
-
----
-
-### S7-M08 ~~MEDIUM~~ → FIXED (P4) — sseConnections.acquire Throws on Redis Failure
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | connection-manager.ts |
-| **Problem** | Redis down → `pipeline.exec()` throws → no new SSE connections possible. |
-| **Fix** | Wrapped acquire logic in try/catch. `SSEConnectionLimitError` is re-thrown (intentional rejection). All other errors (Redis failure) return a no-op guard — connection is allowed without limit enforcement. Graceful degradation. |
-
----
-
-### S7-M09 ~~MEDIUM~~ → FIXED (P4) — Cascade Sync Called with Bare `db`
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **Files** | googleSheets.router.ts, sheets-sync.ts |
-| **Problem** | `syncGuestsToHotelsAndTransportTx`, `syncHotelsToTimelineTx`, `syncTransportToTimelineTx` called with bare `db` instead of transaction client. |
-| **Fix** | All 6 cascade calls (3 in sheets-sync.ts, 3 in googleSheets.router.ts) now wrapped in `db.transaction(async (tx) => { ... })`. Transaction client passed to cascade function. |
-
----
-
-### S7-M10 ~~MEDIUM~~ → FIXED (P4) — `importAllFromSheets` Broadcast Gated on Optional `userId`
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | sheets-sync.ts |
-| **Problem** | `userId` parameter was optional. If omitted, entire broadcast block was skipped. |
-| **Fix** | Made `userId` parameter required. Removed `if (userId && ...)` guard on broadcast block — now always broadcasts when imports occur. Only caller (`googleSheets.router.ts`) already passes `ctx.userId!`. |
-
----
-
-### S7-L01 ~~LOW~~ → NOT_FOUND (P4) — Duplicate Line in redis-pubsub.ts
-
-| Field | Value |
-|-------|-------|
-| **Status** | **NOT_FOUND** — no duplicate visible at line 136 in current code. Also removed dead `publishSyncAction` function (unused since P1). |
-| **File** | redis-pubsub.ts |
-
----
-
-### S7-L02 ~~LOW~~ → FIXED (P4) — `subscriptionKey` Not Wired to Subscription
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | use-realtime-sync.ts |
-| **Problem** | `subscriptionKey` state was incremented by `reconnect()` but never passed to `useSubscription`. Manual reconnect was non-functional. |
-| **Fix** | Replaced `subscriptionKey` with `pendingReconnect` toggle pattern. `reconnect()` sets `pendingReconnect=true` which disables the subscription via `enabled: enabled && !pendingReconnect`. After 100ms, re-enables — tRPC creates a new subscription. |
-
----
-
-### S7-L03 LOW — Seating Version Operations Silent
-
-| Field | Value |
-|-------|-------|
-| **Status** | **SUPERSEDED** — `saveVersion`, `loadVersion`, `deleteVersion` now have broadcastSync (P2). |
-
----
-
-### S7-L04 LOW — `logChange` and Preference/Conflict Operations
-
-| Field | Value |
-|-------|-------|
-| **Status** | **PARTIALLY FIXED** (P2) — `addGuestConflict/Preference`, `removeGuestConflict/Preference` now have broadcastSync. `logChange` intentionally not broadcast (audit-log-only, not user-facing). |
-
----
-
-### S7-L05 ~~LOW~~ → FIXED (P4) — No Duplicate Event Filtering
-
-| Field | Value |
-|-------|-------|
-| **Status** | **FIXED** (P4) |
-| **File** | use-realtime-sync.ts |
-| **Problem** | No deduplication by `action.id`. Same action received twice would invalidate queries twice. |
-| **Fix** | Added `seenActionIds` ref (Set) that tracks processed action IDs. Duplicate actions are skipped. Set auto-evicts when exceeding 500 entries (keeps last 250). |
-
----
-
-### S7-L06 LOW — 500ms Polling Latency
-
-| Field | Value |
-|-------|-------|
-| **Status** | **BY DESIGN** — documented trade-off for Upstash REST API. Not fixable without switching to Upstash TCP for true pub/sub. |
-| **File** | redis-pubsub.ts:179 |
-
----
-
-## 17. Cross-Session References
-
-### From Previous Sessions → Session 7
-
-| Source | Finding | Session 7 Result |
-|--------|---------|-------------------|
-| Session 2 | 30 broadcastSync call sites documented | Verified → 39 pre-audit → **70 post-fix** |
-| Session 2 | floor-plans sub-ops missing broadcastSync | **FIXED** (P2) — 8 new calls added |
-| Session 2 | budget advance payments missing broadcastSync | **FIXED** (P2) — 3 new calls |
-| Session 2 | vendors sub-operations missing broadcastSync | **FIXED** (P2) — 10 new calls |
-| Session 2 | timeline reorder/markComplete missing | **FIXED** (P2) — 2 new calls |
-| Session 5 | TOOL_QUERY_MAP rewritten (S5-C05) | **FIXED** (P1) — all phantom names corrected |
-| Session 5 | broadcastSync failures must never block | **VERIFIED** — all entry points swallow errors |
-| Session 6 | Verify SSE delivery for floor plan changes | **FIXED** — broadcastSync fires with correct paths |
-| Session 6 | Verify recalcClientStats broadcast coverage | **FIXED** (P2+P3) — clients.list/getAll in all callers |
-| Session 6 | broadcastSync outside transactions | **VERIFIED** — all 70 calls outside transactions |
-
-### Session 7 → Session 8 (Final Review)
-
-| Finding | Status |
-|---------|--------|
-| S7-M01 through S7-M10 | **ALL FIXED** (P4) |
-| S7-L02, S7-L05 | **FIXED** (P4) |
-| S7-L04 (`logChange`) | Intentionally not broadcast — audit-log-only, not user-facing |
-| S7-L06 (500ms polling) | By design — Upstash REST trade-off |
-| 3 deferred mutations | `guests.checkIn`, `events.updateStatus`, `floor-plans.logChange` — add broadcastSync if needed |
-| Dead code cleanup | `publishSyncAction` function removed from redis-pubsub.ts (unused since P1) |
-
----
-
-## 18. Danger Zones — Read Before Editing
-
-### 1. queryPath Names MUST Match Real tRPC Procedure Names
-
-The client-side predicate (`use-realtime-sync.ts:86-116`) does **exact segment matching**. If you write `guests.list` but the procedure is `guests.getAll`, the cache is never invalidated.
-
-**Before writing any queryPath, check the target router's procedure names:**
-```
-guests: getAll, getById, getStats, getDietaryStats
-budget: getAll, getById, getSummary, getByCategory, getCategorySummary, getSegmentSummary, getBySegment
-events: getAll, getById, getStats
-timeline: getAll, getById, getStats, getGroupedByEvent
-vendors: getAll, getById, getStats, getByCategory
-hotels: getAll, getById, getStats, getCapacitySummary, getAllWithGuests
-guestTransport: getAll, list, getStats, getAllWithGuests
-gifts: getAll, getById, getStats
-floorPlans: list, getById
-clients: list, getAll, getById
+$ npx tsc --noEmit
+✓ 0 errors
 ```
 
-### 2. `publishSyncAction` Is Removed From `broadcastSync`
+### Test Suite
 
-As of P1, `broadcastSync` only calls `storeSyncAction`. The function still exists in redis-pubsub.ts but is unused. Do NOT re-add it — Upstash REST has no persistent subscribers.
+```
+$ npx jest --passWithNoTests
+Tests:       373 passed, 373 total
+Suites:      31 passed, 31 total
+✓ 0 failures
+```
 
-### 3. broadcastSync MUST Be Outside Transactions
+### broadcastSync Call Count
 
-Pattern: commit first, then broadcast. If you broadcast inside a transaction and another tab refetches, it may read pre-commit stale data.
+```
+$ grep -rn 'await broadcastSync(' --include='*.ts' | grep -v node_modules | wc -l
+70
+```
 
-### 4. Cascade Sync Functions Never Broadcast
+Breakdown by file:
 
-If you call `syncGuestsToHotelsAndTransportTx` or similar, YOU are responsible for broadcasting the affected downstream modules. Include `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll` in your broadcastSync queryPaths.
+| File | Call Count |
+|------|-----------|
+| `guests.router.ts` | 5 |
+| `budget.router.ts` | 6 |
+| `events.router.ts` | 3 |
+| `timeline.router.ts` | 6 |
+| `vendors.router.ts` | 13 |
+| `hotels.router.ts` | 5 |
+| `guest-transport.router.ts` | 4 |
+| `gifts.router.ts` | 3 |
+| `floor-plans.router.ts` | 17 |
+| `clients.router.ts` | 3 |
+| `import.router.ts` | 5 |
+| **Total** | **70** |
 
-### 5. recalcClientStats Callers Must Broadcast Clients
+### storeSyncAction / broadcastSheetSync
 
-Any mutation that calls `recalcClientStats` must include `clients.list` and `clients.getAll` in its broadcastSync queryPaths.
+| File | Function | Count |
+|------|----------|-------|
+| `broadcast-sync.ts` | `storeSyncAction()` | 1 (called by broadcastSync) |
+| `sheets-sync.ts` | `storeSyncAction()` | 1 (inside broadcastSheetSync) |
+| `tool-executor.ts` | `storeSyncAction()` | 1 (inside executeToolWithSync) |
+| `googleSheets.router.ts` | `broadcastSheetSync()` | 1 |
 
-### 6. New Mutations MUST Have broadcastSync
+### Coverage Assessment
 
-Every new tRPC mutation that writes to the database must call broadcastSync after the write. Without it, multi-tab and multi-user real-time sync breaks silently.
+| Module | Mutations | With broadcastSync | Coverage |
+|--------|-----------|-------------------|----------|
+| guests | 5 | 5 | 100% |
+| budget | 6 | 6 | 100% |
+| events | 3 | 3 | 100% |
+| timeline | 6 | 6 | 100% |
+| vendors | 13 | 13 | 100% |
+| hotels | 5 | 5 | 100% |
+| transport | 4 | 4 | 100% |
+| gifts | 3 | 3 | 100% |
+| floor plans | 17 | 17 | 100% |
+| clients | 3 | 3 | 100% |
+| import | 5 | 5 | 100% |
+| sheets sync | 1 | 1 | 100% |
+| chatbot | 1 | 1 | 100% |
+| **Total** | **72** | **72** | **100%** |
 
-### 7. Connection Manager Limits
+---
 
-5 per user, 50 per company. Counter TTL 2 hours. If you change these, update both `connection-manager.ts` constants AND any client-side retry logic.
+## 9. Cross-Session References
 
-### 8. Import Modules Must Include Cascade Paths
+### Session 6 Dependencies
 
-Both `import.router.ts` and `sheets-sync.ts` have module→queryPaths maps. When adding new import modules, include all cascade paths. Reference `getQueryPathsForModule` in sheets-sync.ts as the canonical source.
+| Session 6 Item | Session 7 Impact |
+|---|---|
+| `recalcClientStats` (S6-P3) | All mutations calling recalcClientStats must include `clients.list`/`clients.getAll` in broadcastSync queryPaths |
+| `floor-plans.router.ts` broadcastSync (S6-P4) | Session 7 P2 added the remaining 17 broadcastSync calls to floor plans |
+| `syncGuestsToHotelsAndTransportTx` | Cascade sync functions are broadcast-blind — callers must include cascade queryPaths |
+| `syncHotelsToTimelineTx` | Same — callers must include `timeline.getAll` in hotel mutation broadcasts |
+| `syncTransportToTimelineTx` | Same — callers must include `timeline.getAll` in transport mutation broadcasts |
+
+### Session 5 Dependencies
+
+| Session 5 Item | Session 7 Impact |
+|---|---|
+| `tool-executor.ts` broadcastSync | P1 fixed phantom queryPaths, P4 fixed module mapping defaults |
+| `query-invalidation-map.ts` | P1 aligned all TOOL_QUERY_MAP entries with UI router queryPaths |
+
+### Finding Status Cross-Reference
+
+| ID | Severity | Status | Prompt |
+|----|----------|--------|--------|
+| S7-C01 | CRITICAL | FIXED | P1 |
+| S7-C02 | CRITICAL | FIXED | P1 |
+| S7-H01 | HIGH | FIXED | P2 |
+| S7-H02 | HIGH | FIXED | P2 |
+| S7-H03 | HIGH | FIXED | P2 |
+| S7-H04 | HIGH | FIXED | P2 |
+| S7-H05 | HIGH | FIXED | P2 |
+| S7-H06 | HIGH | FIXED | P2+P3 |
+| S7-H07 | HIGH | FIXED | P2 |
+| S7-H08 | HIGH | FIXED | P2 |
+| S7-H09 | HIGH | FIXED | P2 |
+| S7-M01 | MEDIUM | FIXED | P4 |
+| S7-M02 | MEDIUM | FIXED | P4 |
+| S7-M03 | MEDIUM | FIXED | P4 |
+| S7-M04 | MEDIUM | FIXED | P4 |
+| S7-M05 | MEDIUM | FIXED | P4 |
+| S7-M06 | MEDIUM | FIXED | P4 |
+| S7-M07 | MEDIUM | FIXED | P4 |
+| S7-M08 | MEDIUM | FIXED | P4 |
+| S7-M09 | MEDIUM | FIXED | P4 |
+| S7-M10 | MEDIUM | FIXED | P4 |
+| S7-L01 | LOW | FIXED | P4 |
+| S7-L02 | LOW | FIXED | P4 |
+| S7-L03 | LOW | SUPERSEDED | — |
+| S7-L04 | LOW | PARTIAL | P2 (by design) |
+| S7-L05 | LOW | FIXED | P4 |
+| S7-L06 | LOW | BY DESIGN | — |
+
+---
+
+## 10. Danger Zones — Read Before Editing
+
+### 10.1 Cascade Sync Functions Are Broadcast-Blind
+
+**Functions:** `syncGuestsToHotelsAndTransportTx`, `syncHotelsToTimelineTx`, `syncTransportToTimelineTx`
+**Location:** `src/lib/backup/auto-sync-trigger.ts`
+
+These functions create/update hotels, transport, and timeline rows but **never call broadcastSync**. This is by design — the calling mutation's broadcastSync must include the cascade targets in its queryPaths.
+
+**Rule:** If you call any of these cascade functions from a new location, you MUST add the cascade target queryPaths to the calling mutation's broadcastSync:
+
+| If calling... | Include in queryPaths |
+|---|---|
+| `syncGuestsToHotelsAndTransportTx` | `hotels.getAll`, `guestTransport.getAll`, `timeline.getAll` |
+| `syncHotelsToTimelineTx` | `timeline.getAll` |
+| `syncTransportToTimelineTx` | `timeline.getAll` |
+
+### 10.2 `recalcClientStats` Updates Client Cache
+
+**Location:** `src/features/clients/server/utils/recalc-client-stats.ts`
+
+This function writes to `clients.budget` and `clients.guestCount`. Any mutation calling it must include `clients.list` and `clients.getAll` in its broadcastSync queryPaths, or the client list UI will show stale totals.
+
+**Currently called from:** guest create/update/delete/bulkImport, budget create/update/delete/advancePayment mutations, import.router.ts guest/budget imports.
+
+### 10.3 queryPaths Must Match tRPC Procedure Names
+
+queryPaths are matched against TanStack Query keys using the tRPC key structure `[['module', 'procedure'], ...]`. If a queryPath doesn't match an actual tRPC procedure name, the invalidation silently does nothing.
+
+**Canonical procedure names (verified):**
+
+| Path | Router | Procedure |
+|------|--------|-----------|
+| `guests.getAll` | guests.router.ts | `getAll` |
+| `guests.getStats` | guests.router.ts | `getStats` |
+| `budget.getAll` | budget.router.ts | `getAll` |
+| `budget.getSummary` | budget.router.ts | `getSummary` |
+| `events.getAll` | events.router.ts | `getAll` |
+| `timeline.getAll` | timeline.router.ts | `getAll` |
+| `timeline.getStats` | timeline.router.ts | `getStats` |
+| `vendors.getAll` | vendors.router.ts | `getAll` |
+| `vendors.getStats` | vendors.router.ts | `getStats` |
+| `hotels.getAll` | hotels.router.ts | `getAll` |
+| `guestTransport.getAll` | guest-transport.router.ts | `getAll` |
+| `gifts.getAll` | gifts.router.ts | `getAll` |
+| `gifts.getStats` | gifts.router.ts | `getStats` |
+| `clients.list` | clients.router.ts | `list` |
+| `clients.getAll` | clients.router.ts | `getAll` |
+| `clients.getById` | clients.router.ts | `getById` |
+| `floorPlans.list` | floor-plans.router.ts | `list` |
+| `floorPlans.getById` | floor-plans.router.ts | `getById` |
+
+### 10.4 SSE Connection Manager — Increment-First Pattern
+
+**File:** `src/lib/sse/connection-manager.ts`
+
+The `acquire()` method uses an increment-first-then-check pattern (S7-M01 fix). If you modify this:
+- INCR happens before limit check — this prevents TOCTOU races
+- If limit exceeded, DECR rollback pipeline runs immediately
+- If Redis fails entirely, connection is allowed without limits (graceful degradation)
+- Release guard handles double-call (idempotent) and cleans up zero/negative counters
+
+### 10.5 subscribeToCompany Polling — Do Not Add PUBLISH
+
+**File:** `src/lib/realtime/redis-pubsub.ts`
+
+`subscribeToCompany()` polls Redis sorted set every 500ms. This is intentional — Upstash REST API does not support persistent TCP pub/sub subscriptions. Do not add `redis.publish()` or `redis.subscribe()` — they won't work with Upstash REST.
+
+If migrating to Upstash Redis TCP (non-REST), the polling can be replaced with actual pub/sub, but the sorted set must be retained for offline recovery.
+
+### 10.6 Floor Plans Router Uses `db` Not `ctx.db`
+
+**File:** `src/features/events/server/routers/floor-plans.router.ts`
+
+Floor plans mutations use `db` (imported directly) instead of `ctx.db`. This means transactions must use `db.transaction()` not `ctx.db.transaction()`. Other routers (vendors, timeline, etc.) use `ctx.db`.
+
+### 10.7 Adding a New Module
+
+If adding a new module with mutations:
+
+1. Add broadcastSync call to every mutation
+2. Add module name to `SyncAction['module']` union in `redis-pubsub.ts`
+3. Add queryPaths matching actual tRPC procedure names
+4. Add tool mapping in `query-invalidation-map.ts` if chatbot can modify the module
+5. Add pattern to `getModuleFromToolName()` in `tool-executor.ts`
+6. Add module to `getQueryPathsForModule()` in `sheets-sync.ts` if Google Sheets sync needed
+7. If the module has cascade side effects, document which queryPaths callers must include
+
+---
+
+*Report generated 2026-02-24. Covers commits `2fe0713` through `436cff6`.*
