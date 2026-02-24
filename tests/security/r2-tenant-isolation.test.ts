@@ -26,16 +26,16 @@ import { describe, it, expect, beforeEach } from '@jest/globals';
 // Mock the R2 client module BEFORE importing the router.
 // jest.mock is hoisted above imports, so we define everything inline.
 // ---------------------------------------------------------------------------
-jest.mock('@/lib/storage/r2-client', () => ({
-  getPresignedUrl: jest.fn().mockResolvedValue(
+vi.mock('@/lib/storage/r2-client', () => ({
+  getPresignedUrl: vi.fn().mockResolvedValue(
     'https://r2.mock.com/presigned-download-url?X-Amz-Expires=3600'
   ),
-  getPresignedUploadUrl: jest.fn().mockResolvedValue(
+  getPresignedUploadUrl: vi.fn().mockResolvedValue(
     'https://r2.mock.com/presigned-upload-url?X-Amz-Expires=900'
   ),
-  deleteFile: jest.fn().mockResolvedValue({ deleted: true, key: '' }),
-  listFiles: jest.fn().mockResolvedValue([]),
-  generateFileKey: jest.fn(
+  deleteFile: vi.fn().mockResolvedValue({ deleted: true, key: '' }),
+  listFiles: vi.fn().mockResolvedValue([]),
+  generateFileKey: vi.fn(
     (companyId: string, fileName: string, clientId?: string) => {
       const timestamp = Date.now();
       const sanitized = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -45,7 +45,7 @@ jest.mock('@/lib/storage/r2-client', () => ({
       return `${base}/${timestamp}-${sanitized}`;
     }
   ),
-  validateStorageKey: jest.fn((key: string) => {
+  validateStorageKey: vi.fn((key: string) => {
     if (!key || key.length > 1024) return { valid: false, error: 'Invalid key length' };
     if (key.includes('..')) return { valid: false, error: 'Path traversal detected' };
     if (key.startsWith('/')) return { valid: false, error: 'Key must not start with /' };
@@ -82,11 +82,11 @@ import {
 } from '../../src/lib/storage/r2-client';
 
 // Cast to jest.Mock for assertion access
-const mockGetPresignedUrl = getPresignedUrl as jest.Mock;
-const mockGetPresignedUploadUrl = getPresignedUploadUrl as jest.Mock;
-const mockDeleteFile = deleteFile as jest.Mock;
-const mockListFiles = listFiles as jest.Mock;
-const mockGenerateFileKey = generateFileKey as jest.Mock;
+const mockGetPresignedUrl = getPresignedUrl as any;
+const mockGetPresignedUploadUrl = getPresignedUploadUrl as any;
+const mockDeleteFile = deleteFile as any;
+const mockListFiles = listFiles as any;
+const mockGenerateFileKey = generateFileKey as any;
 
 // ---------------------------------------------------------------------------
 // Test helpers

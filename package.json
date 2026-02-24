@@ -164,6 +164,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/recharts": "^1.8.29",
     "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "drizzle-kit": "^0.31.9",
     "eslint": "^9.39.1",
     "eslint-config-next": "^16.0.7",
@@ -181,6 +182,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "undici": "^7.16.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.0.18",
     "webpack": "^5.102.1",
     "workbox-webpack-plugin": "^7.4.0",
     "workbox-window": "^7.4.0"

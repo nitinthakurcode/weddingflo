@@ -29,7 +29,7 @@
 // The store is created inside the factory and attached to globalThis.
 // ---------------------------------------------------------------------------
 
-jest.mock('@upstash/redis', () => {
+vi.mock('@upstash/redis', () => {
   const store = new Map<string, number>();
   // Expose for test cleanup if needed
   (globalThis as Record<string, unknown>).__sseTestStore = store;
@@ -68,10 +68,10 @@ jest.mock('@upstash/redis', () => {
 
   return {
     Redis: {
-      fromEnv: jest.fn(() => ({
-        get: jest.fn(async (key: string) => store.get(key) ?? null),
-        del: jest.fn(async (key: string) => { store.delete(key); return 1; }),
-        pipeline: jest.fn(() => createPipeline()),
+      fromEnv: vi.fn(() => ({
+        get: vi.fn(async (key: string) => store.get(key) ?? null),
+        del: vi.fn(async (key: string) => { store.delete(key); return 1; }),
+        pipeline: vi.fn(() => createPipeline()),
       })),
     },
   };
