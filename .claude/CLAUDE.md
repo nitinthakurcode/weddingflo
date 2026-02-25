@@ -58,6 +58,22 @@ After making ANY structural change to the app, you MUST update docs/DEVELOPER_HA
 
 **The commit message must reflect both changes:**
 
+```
+feat(guests): add dietary_restrictions column
+
+schema: added to guests table
+router: added to create/update input + select
+excel: added export header + import alias
+sheets: added to GUEST_HEADERS
+chatbot: added to add_guest tool params
+handbook: updated Sections B, D.1, G
+```
+
+**Verification after handbook update:**
+- Does the new item appear in ALL relevant handbook sections?
+- Do the counts still match (broadcastSync, recalcClientStats, etc.)?
+- Is the change propagation in Section F still accurate?
+
 ---
 
 # WeddingFlo Pro — Claude Code Rules
