@@ -29,6 +29,35 @@ This project has comprehensive documentation. Read what's relevant to your curre
 
 When a change touches multiple areas (e.g. adding a guest field affects schema, router, Excel, Sheets, chatbot), read ALL relevant sections before starting.
 
+### Keeping Documentation in Sync
+
+After making ANY structural change to the app, you MUST update docs/DEVELOPER_HANDBOOK.md as part of the same commit. This is not optional.
+
+**What counts as a structural change:**
+- Adding, removing, or renaming a database column or table
+- Adding or removing a tRPC procedure
+- Adding or removing a chatbot tool
+- Adding or changing Excel/Sheets export or import headers
+- Adding or removing a broadcastSync call or changing queryPaths
+- Adding or removing a recalcClientStats call site
+- Adding a new feature module or route
+- Changing auth flows or role gates
+- Adding or removing an environment variable
+- Changing cascade delete order
+
+**What to update in the handbook (match the change to the section):**
+- New/changed DB column → Section B (add to table reference) + Section G (add to header mapping if exported/imported)
+- New/changed tRPC procedure → Section D (update module procedure list)
+- New/changed chatbot tool → Section J (update tool list) + Section E (update sync matrix if it triggers sync)
+- New/changed Excel header → Section G (update all three columns: Excel Export, Excel Import, Google Sheets)
+- New/changed broadcastSync → Section E (update sync matrix) + Section D (update module queryPaths)
+- New/changed recalcClientStats call → Verify count still matches Section 3 of session-8-final-report.md
+- New feature module → Add new Section D.X entry with full data path
+- New environment variable → Section M (add with required/optional and what breaks if missing)
+- New cascade step → Section K (update cascade order)
+
+**The commit message must reflect both changes:**
+
 ---
 
 # WeddingFlo Pro — Claude Code Rules
