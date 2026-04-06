@@ -118,6 +118,7 @@ export const vendorsRouter = router({
           isPreferred: vendors.isPreferred,
           // Event fields
           eventTitle: events.title,
+          eventType: events.eventType,
           eventDate: events.eventDate,
         })
         .from(clientVendors)
@@ -204,6 +205,7 @@ export const vendorsRouter = router({
           // Enhanced fields
           event_id: cv.eventId,
           event_title: cv.eventTitle,
+          event_type: cv.eventType,
           event_date: cv.eventDate,
           venue_address: cv.venueAddress,
           onsite_poc_name: cv.onsitePocName,
@@ -268,6 +270,7 @@ export const vendorsRouter = router({
           isPreferred: vendors.isPreferred,
           // Event fields
           eventTitle: events.title,
+          eventType: events.eventType,
           eventDate: events.eventDate,
         })
         .from(clientVendors)
@@ -284,6 +287,7 @@ export const vendorsRouter = router({
         ...clientVendor,
         name: clientVendor.vendorName,
         event_title: clientVendor.eventTitle,
+        event_type: clientVendor.eventType,
         event_date: clientVendor.eventDate,
       }
     }),
@@ -415,6 +419,7 @@ export const vendorsRouter = router({
         await tx.insert(budget).values({
           id: crypto.randomUUID(),
           clientId: input.clientId,
+          companyId: ctx.companyId!,
           vendorId: vendor.id,
           eventId: input.eventId || null,
           category: budgetCategory,
@@ -499,7 +504,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
       })
 
       return {
@@ -735,7 +740,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: clientVendorRecord.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
       })
 
       return { success: true }
@@ -812,7 +817,7 @@ export const vendorsRouter = router({
           companyId: ctx.companyId!,
           clientId: result.clientId,
           userId: ctx.userId!,
-          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
         })
       }
 
@@ -1145,7 +1150,8 @@ export const vendorsRouter = router({
     }),
 
   // Get events for dropdown (to assign vendors to events)
-  getClientEvents: adminProcedure
+  // Uses protectedProcedure (not admin) so all authenticated users can see event filters
+  getClientEvents: protectedProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1156,6 +1162,7 @@ export const vendorsRouter = router({
         .select({
           id: events.id,
           title: events.title,
+          eventType: events.eventType,
           eventDate: events.eventDate,
         })
         .from(events)
@@ -1166,6 +1173,7 @@ export const vendorsRouter = router({
       return eventList.map(e => ({
         id: e.id,
         title: e.title,
+        event_type: e.eventType,
         event_date: e.eventDate,
       }))
     }),
@@ -1222,16 +1230,18 @@ export const vendorsRouter = router({
         return { created: 0, vendors: [] }
       }
 
-      // Get event name for budget category (shows which event the vendor cost is for)
+      // Get event type for budget category (shows which event the vendor cost is for)
       let budgetCategory = 'Unassigned'
       if (input.eventId) {
         const [event] = await ctx.db
-          .select({ title: events.title })
+          .select({ title: events.title, eventType: events.eventType })
           .from(events)
           .where(eq(events.id, input.eventId))
           .limit(1)
-        if (event?.title) {
-          budgetCategory = event.title
+        if (event) {
+          budgetCategory = event.eventType
+            ? event.eventType.charAt(0).toUpperCase() + event.eventType.slice(1).replace(/_/g, ' ')
+            : event.title || 'Unassigned'
         }
       }
 
@@ -1272,6 +1282,7 @@ export const vendorsRouter = router({
               await tx.insert(budget).values({
                 id: crypto.randomUUID(),
                 clientId: input.clientId,
+                companyId: ctx.companyId!,
                 vendorId: vendor.id,
                 eventId: input.eventId || null,
                 category: budgetCategory,
@@ -1314,7 +1325,7 @@ export const vendorsRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary'],
+          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
         })
       }
 

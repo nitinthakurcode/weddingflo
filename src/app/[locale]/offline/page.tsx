@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button';
 
 export default function OfflinePage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted p-4">
       <div className="text-center">
-        <WifiOff className="mx-auto h-16 w-16 text-gray-400" />
-        <h1 className="mt-4 text-2xl font-bold text-gray-900">
+        <WifiOff className="mx-auto h-16 w-16 text-muted-foreground" />
+        <h1 className="mt-4 text-2xl font-bold text-foreground">
           You're Offline
         </h1>
-        <p className="mt-2 text-gray-600">
+        <p className="mt-2 text-muted-foreground">
           Please check your internet connection and try again.
         </p>
         <Button

@@ -48,9 +48,9 @@ export function ChatToggle() {
               aria-label={t('toggleLabel') || 'Toggle AI Assistant'}
             >
               {isOpen ? (
-                <X className="h-6 w-6 text-white" />
+                <X className="h-6 w-6 text-primary-foreground" />
               ) : (
-                <Sparkles className="h-6 w-6 text-white" />
+                <Sparkles className="h-6 w-6 text-primary-foreground" />
               )}
             </Button>
           </TooltipTrigger>

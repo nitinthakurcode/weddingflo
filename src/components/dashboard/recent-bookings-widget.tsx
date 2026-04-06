@@ -29,9 +29,7 @@ export function RecentBookingsWidget({ className }: RecentBookingsWidgetProps) {
     ?.slice(0, 3)
     ?.map((c) => ({
       id: c.id,
-      name: c.partner2FirstName
-        ? `${c.partner1FirstName} & ${c.partner2FirstName}`
-        : c.partner1FirstName,
+      name: c.weddingName || (c.partner2FirstName ? `${c.partner1FirstName} & ${c.partner2FirstName}` : c.partner1FirstName),
       date: c.weddingDate,
       guests: c.guestCount || 0,
       status: c.status || 'planning',
@@ -46,7 +44,7 @@ export function RecentBookingsWidget({ className }: RecentBookingsWidgetProps) {
       case 'pending':
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400';
+        return 'bg-muted text-foreground';
     }
   };
 

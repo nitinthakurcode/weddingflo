@@ -85,7 +85,7 @@ export default function AnalyticsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+          <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
             {t('title')}
           </h2>
           <p className="text-muted-foreground">
@@ -161,7 +161,7 @@ export default function AnalyticsPage() {
             <PaymentStatusChart data={paymentBreakdown?.data || []} isLoading={paymentLoading} />
             <Card
               variant="glass"
-              className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+              className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
             >
               <CardHeader>
                 <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-600 bg-clip-text text-transparent">
@@ -217,7 +217,7 @@ export default function AnalyticsPage() {
                 <Card
                   key={stat.type}
                   variant="glass"
-                  className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+                  className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
                 >
                   <CardHeader>
                     <CardTitle className="capitalize bg-gradient-to-r from-teal-600 to-teal-600 bg-clip-text text-transparent">
@@ -271,7 +271,7 @@ export default function AnalyticsPage() {
         <TabsContent value="trends" className="space-y-4">
           <Card
             variant="glass"
-            className="border border-sage-200/50 dark:border-sage-800/30 shadow-lg shadow-sage-500/10 bg-gradient-to-br from-white via-sage-50/20 to-white dark:from-mocha-900 dark:via-sage-950/10 dark:to-mocha-900"
+            className="border border-sage-200/50 dark:border-sage-800/30 shadow-lg shadow-sage-500/10 bg-gradient-to-br from-card via-sage-50/20 to-card dark:via-sage-950/10"
           >
             <CardHeader>
               <CardTitle className="bg-gradient-to-r from-sage-600 to-teal-600 bg-clip-text text-transparent">

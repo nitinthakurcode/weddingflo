@@ -715,7 +715,8 @@ export async function importGuestsFromSheet(
 export async function importBudgetFromSheet(
   sheetsClient: sheets_v4.Sheets,
   spreadsheetId: string,
-  clientId: string
+  clientId: string,
+  companyId?: string
 ): Promise<SyncStats> {
   const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
 
@@ -781,6 +782,7 @@ export async function importBudgetFromSheet(
             await tx.insert(budget).values({
               id,
               clientId,
+              companyId: companyId || undefined,
               ...budgetData,
             });
           }
@@ -1421,7 +1423,7 @@ export async function importAllFromSheets(
     }
   }
 
-  const budgetStats = await importBudgetFromSheet(sheetsClient, spreadsheetId, clientId);
+  const budgetStats = await importBudgetFromSheet(sheetsClient, spreadsheetId, clientId, companyId);
   totalImported += budgetStats.imported;
   byModule.budget = budgetStats.imported;
   allErrors.push(...budgetStats.errors);

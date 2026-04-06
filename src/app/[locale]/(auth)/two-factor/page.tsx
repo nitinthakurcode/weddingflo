@@ -239,7 +239,7 @@ export default function TwoFactorPage() {
             <div className="space-y-4">
               <div className="flex justify-center">
                 {/* QR Code would be rendered here using qrcode.react */}
-                <div className="rounded-lg border bg-white p-4">
+                <div className="rounded-lg border bg-card p-4">
                   <img
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(totpUri)}`}
                     alt="TOTP QR Code"

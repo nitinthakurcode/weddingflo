@@ -56,7 +56,7 @@ export default async function PortalLayout({
           {/* Centered Logo - Gen Z Aura Style */}
           <div className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-lavender-500 flex items-center justify-center shadow-lg shadow-rose-500/30 hover:scale-110 hover:shadow-rose-500/50 transition-all duration-300 cursor-pointer">
-              <Heart className="h-4 w-4 text-white fill-white" />
+              <Heart className="h-4 w-4 text-primary-foreground fill-primary-foreground" />
             </div>
             <span className="font-extrabold text-lg bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">WeddingFlo</span>
           </div>

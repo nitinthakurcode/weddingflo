@@ -1128,8 +1128,8 @@ const { user, isAuthenticated, isLoading } = useAuth()
 
 | Procedure           | Type     | Description                          |
 |----------------------|----------|--------------------------------------|
-| getAll               | query    | List all client vendors              |
-| getById              | query    | Get single client vendor             |
+| getAll               | query    | List all client vendors (includes event_type, event_title, event_date from events join) |
+| getById              | query    | Get single client vendor (includes event_type, event_title, event_date) |
 | getStats             | query    | Vendor statistics                    |
 | getCategories        | query    | List vendor categories               |
 | create               | mutation | Add vendor + link to client          |
@@ -1148,6 +1148,7 @@ const { user, isAuthenticated, isLoading } = useAuth()
 | getReviews           | query    | List reviews for a vendor            |
 | getPaymentHistory    | query    | Payment history for vendor           |
 | getPreferred         | query    | List preferred vendors               |
+| getClientEvents      | query    | Events for filter dropdown (returns event_type, title, event_date) |
 
 **DB Tables:** `vendors`, `clientVendors`, `vendorComments`, `vendorReviews`
 **Frontend:** `src/features/events/` (vendor list, vendor detail, payment forms)

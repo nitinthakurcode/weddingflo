@@ -59,15 +59,15 @@ export default function PortalSignInPage() {
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 shadow-lg">
-            <Heart className="h-8 w-8 text-white fill-white" />
+            <Heart className="h-8 w-8 text-primary-foreground fill-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            <h1 className="text-3xl font-bold text-foreground mb-2">
               Client Portal Login
             </h1>
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-sm border border-rose-200 rounded-lg shadow-sm">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/80 backdrop-blur-sm border border-rose-200 rounded-lg shadow-sm">
               <Sparkles className="h-4 w-4 text-rose-500" />
-              <p className="text-sm font-medium text-gray-700">
+              <p className="text-sm font-medium text-muted-foreground">
                 Welcome to your wedding planning portal
               </p>
             </div>
@@ -192,7 +192,7 @@ export default function PortalSignInPage() {
 
         {/* Footer */}
         <div className="text-center space-y-2">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-muted-foreground">
             Your wedding journey starts here
           </p>
           <div className="flex items-center justify-center gap-1 text-rose-400">

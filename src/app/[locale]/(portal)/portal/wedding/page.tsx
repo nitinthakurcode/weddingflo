@@ -35,7 +35,7 @@ export default async function PortalWeddingPage() {
   if (!currentUser?.companyId) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">{tc('noCompanyAssociated')}</p>
+        <p className="text-muted-foreground">{tc('noCompanyAssociated')}</p>
       </div>
     );
   }
@@ -50,6 +50,7 @@ export default async function PortalWeddingPage() {
       partner1Phone: clients.partner1Phone,
       partner2FirstName: clients.partner2FirstName,
       partner2LastName: clients.partner2LastName,
+      weddingName: clients.weddingName,
       weddingDate: clients.weddingDate,
       venue: clients.venue,
       notes: clients.notes,
@@ -64,6 +65,7 @@ export default async function PortalWeddingPage() {
   // Transform to expected shape
   const client = clientData ? {
     id: clientData.id,
+    wedding_name: clientData.weddingName,
     partner1_name: [clientData.partner1FirstName, clientData.partner1LastName].filter(Boolean).join(' '),
     partner2_name: [clientData.partner2FirstName, clientData.partner2LastName].filter(Boolean).join(' '),
     email: clientData.partner1Email,
@@ -80,16 +82,16 @@ export default async function PortalWeddingPage() {
   if (!client) {
     return (
       <div className="text-center py-12">
-        <Heart className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-500 text-lg">{t('noWeddingDetails')}</p>
-        <p className="text-gray-400 text-sm mt-2">{t('contactPlannerSetup')}</p>
+        <Heart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <p className="text-muted-foreground text-lg">{t('noWeddingDetails')}</p>
+        <p className="text-muted-foreground text-sm mt-2">{t('contactPlannerSetup')}</p>
       </div>
     );
   }
 
-  const coupleNames = client.partner1_name && client.partner2_name
+  const coupleNames = client.wedding_name || (client.partner1_name && client.partner2_name
     ? `${client.partner1_name} & ${client.partner2_name}`
-    : t('yourWedding');
+    : t('yourWedding'));
 
   // Format wedding date
   let weddingDateFormatted = null;
@@ -108,15 +110,15 @@ export default async function PortalWeddingPage() {
       {/* Page Header */}
       <div className="text-center space-y-2">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 mb-4">
-          <Heart className="h-8 w-8 text-white fill-white" />
+          <Heart className="h-8 w-8 text-primary-foreground fill-primary-foreground" />
         </div>
-        <h1 className="text-4xl font-bold text-gray-900">{coupleNames}</h1>
-        <p className="text-lg text-gray-600">{t('yourWeddingDetails')}</p>
+        <h1 className="text-4xl font-bold text-foreground">{coupleNames}</h1>
+        <p className="text-lg text-muted-foreground">{t('yourWeddingDetails')}</p>
       </div>
 
       {/* Wedding Date & Time */}
       <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-rose-200 bg-gradient-to-br from-rose-50 to-white">
+        <Card className="border-rose-200 bg-gradient-to-br from-rose-50 to-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-rose-900">
               <Calendar className="h-5 w-5 text-rose-600" />
@@ -124,13 +126,13 @@ export default async function PortalWeddingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-2xl font-bold text-foreground">
               {weddingDateFormatted || t('dateToBeDetermined')}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-pink-200 bg-gradient-to-br from-pink-50 to-white">
+        <Card className="border-pink-200 bg-gradient-to-br from-pink-50 to-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-pink-900">
               <Clock className="h-5 w-5 text-pink-600" />
@@ -138,7 +140,7 @@ export default async function PortalWeddingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-2xl font-bold text-foreground">
               {client.wedding_time || t('timeToBeDetermined')}
             </p>
           </CardContent>
@@ -156,15 +158,15 @@ export default async function PortalWeddingPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-1">{t('venueName')}</p>
-            <p className="text-xl font-semibold text-gray-900">
+            <p className="text-sm font-medium text-muted-foreground mb-1">{t('venueName')}</p>
+            <p className="text-xl font-semibold text-foreground">
               {client.venue_name || t('venueToBeDetermined')}
             </p>
           </div>
           {client.venue_address && (
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">{t('address')}</p>
-              <p className="text-gray-900">{client.venue_address}</p>
+              <p className="text-sm font-medium text-muted-foreground mb-1">{t('address')}</p>
+              <p className="text-foreground">{client.venue_address}</p>
             </div>
           )}
         </CardContent>
@@ -181,30 +183,30 @@ export default async function PortalWeddingPage() {
         <CardContent className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2">
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">{t('partner1')}</p>
-              <p className="text-lg font-semibold text-gray-900">
+              <p className="text-sm font-medium text-muted-foreground mb-1">{t('partner1')}</p>
+              <p className="text-lg font-semibold text-foreground">
                 {client.partner1_name || tc('na')}
               </p>
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">{t('partner2')}</p>
-              <p className="text-lg font-semibold text-gray-900">
+              <p className="text-sm font-medium text-muted-foreground mb-1">{t('partner2')}</p>
+              <p className="text-lg font-semibold text-foreground">
                 {client.partner2_name || tc('na')}
               </p>
             </div>
           </div>
 
           <div className="border-t pt-6">
-            <p className="text-sm font-medium text-gray-700 mb-3">{t('contactInformation')}</p>
+            <p className="text-sm font-medium text-muted-foreground mb-3">{t('contactInformation')}</p>
             <div className="space-y-2">
               {client.email && (
-                <div className="flex items-center gap-2 text-gray-700">
+                <div className="flex items-center gap-2 text-foreground">
                   <Mail className="h-4 w-4 text-rose-600" />
                   <span>{client.email}</span>
                 </div>
               )}
               {client.phone && (
-                <div className="flex items-center gap-2 text-gray-700">
+                <div className="flex items-center gap-2 text-foreground">
                   <Phone className="h-4 w-4 text-rose-600" />
                   <span>{client.phone}</span>
                 </div>
@@ -224,7 +226,7 @@ export default async function PortalWeddingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-700 whitespace-pre-wrap">{client.notes}</p>
+            <p className="text-foreground whitespace-pre-wrap">{client.notes}</p>
           </CardContent>
         </Card>
       )}
@@ -234,10 +236,10 @@ export default async function PortalWeddingPage() {
         {client.budget && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-gray-700">{tc('budget')}</CardTitle>
+              <CardTitle className="text-muted-foreground">{tc('budget')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-2xl font-bold text-foreground">
                 ${Number(client.budget).toLocaleString()}
               </p>
             </CardContent>
@@ -245,10 +247,10 @@ export default async function PortalWeddingPage() {
         )}
         <Card>
           <CardHeader>
-            <CardTitle className="text-gray-700">{t('planningStatus')}</CardTitle>
+            <CardTitle className="text-muted-foreground">{t('planningStatus')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-gray-900 capitalize">
+            <p className="text-2xl font-bold text-foreground capitalize">
               {t(`status.${client.status || 'active'}`)}
             </p>
           </CardContent>

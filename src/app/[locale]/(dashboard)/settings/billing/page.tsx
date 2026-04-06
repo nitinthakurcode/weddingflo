@@ -199,7 +199,7 @@ export default function BillingPage() {
           </p>
           <Link
             href="/onboard"
-            className="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-white hover:bg-primary"
+            className="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-primary-foreground hover:bg-primary"
           >
             Go to Onboarding
           </Link>
@@ -230,7 +230,7 @@ export default function BillingPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           Billing & Subscription
         </h1>
         <p className="text-muted-foreground">Manage your subscription and billing information</p>

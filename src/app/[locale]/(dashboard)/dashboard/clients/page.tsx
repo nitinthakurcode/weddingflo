@@ -41,6 +41,7 @@ interface EventBrief {
   name: string
   date: string
   venue: string
+  guest_count: string // stored as string in form, parsed to int on submit
   start_time: string
   duration_hours: number
   duration_minutes: number
@@ -68,6 +69,16 @@ const calculateEndTime = (startTime: string, durationHours: number, durationMinu
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`
 }
 
+// Format 24h time string to 12h display (e.g., "20:00" → "08:00 PM")
+const formatTime12h = (time24: string): string => {
+  if (!time24) return ''
+  const [hours, minutes] = time24.split(':').map(Number)
+  if (isNaN(hours) || isNaN(minutes)) return time24
+  const period = hours >= 12 ? 'PM' : 'AM'
+  const displayHours = hours % 12 || 12
+  return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}`
+}
+
 // Calculate duration from start and end time
 const calculateDuration = (startTime: string, endTime: string): { hours: number, minutes: number } => {
   if (!startTime || !endTime) return { hours: 2, minutes: 0 }
@@ -90,6 +101,7 @@ const createEmptyEvent = (): EventBrief => ({
   name: '',
   date: '',
   venue: '',
+  guest_count: '',
   start_time: '',
   duration_hours: 2,
   duration_minutes: 0,
@@ -120,6 +132,8 @@ export default function ClientsPage() {
     email: '',
     phone: '',
     notes: '',
+    budget: '' as string,
+    guest_count: '' as string,
     // Family details (optional)
     bride_father_name: '',
     bride_mother_name: '',
@@ -132,6 +146,9 @@ export default function ClientsPage() {
 
   // Event briefs state
   const [eventBriefs, setEventBriefs] = useState<EventBrief[]>([createEmptyEvent()])
+
+  // Event 1 reads name/date/venue/guest_count directly from formData (single source of truth).
+  // No syncing needed — avoids all React state batching/closure issues.
 
   const utils = trpc.useUtils()
 
@@ -160,35 +177,42 @@ export default function ClientsPage() {
     onSuccess: async (newClient) => {
       toast({ title: t('clientAdded') })
 
-      // Create events for the new client
-      const validEvents = eventBriefs.filter(e => e.name && e.date)
-      if (validEvents.length > 0) {
-        // Use Promise.all to create all events and then auto-create vendors
-        await Promise.all(validEvents.map(async (event) => {
-          // Build notes with vendor info
-          let eventNotes = event.notes || ''
-          if (event.required_vendors) {
-            eventNotes += (eventNotes ? '\n\n' : '') + `Required Vendors: ${event.required_vendors}`
-          }
-          if (event.already_booked) {
-            eventNotes += (eventNotes ? '\n\n' : '') + '[Vendors Already Booked]'
-          }
+      // Create events from event briefs and auto-create vendors per event.
+      // Event 1 (index 0) uses formData for name/date/venue/guest_count (single source of truth).
+      for (const [idx, event] of eventBriefs.entries()) {
+        const isFirst = idx === 0
+        const eventName = isFirst ? formData.wedding_name : event.name
+        const eventDate = isFirst ? formData.wedding_date : event.date
+        const eventVenue = isFirst ? formData.venue : event.venue
+        const eventGuestCount = isFirst ? formData.guest_count : event.guest_count
 
-          try {
-            // Create event and get the event ID back
-            const createdEvent = await createEventMutation.mutateAsync({
-              clientId: newClient.id,
-              title: event.name,
-              eventDate: event.date,
-              venueName: event.venue || undefined,
-              startTime: event.start_time || undefined,
-              endTime: event.end_time || undefined,
-              notes: eventNotes || undefined,
-            })
+        // Skip events without name and date
+        if (!eventName || !eventDate) continue
 
-            // Auto-create vendors from comma-separated list if provided
-            // Skip if "already_booked" is checked (vendors already exist)
-            if (event.required_vendors && !event.already_booked && createdEvent?.id) {
+        let eventNotes = event.notes || ''
+        if (event.required_vendors) {
+          eventNotes += (eventNotes ? '\n\n' : '') + `Required Vendors: ${event.required_vendors}`
+        }
+        if (event.already_booked) {
+          eventNotes += (eventNotes ? '\n\n' : '') + '[Vendors Already Booked]'
+        }
+
+        try {
+          const createdEvent = await createEventMutation.mutateAsync({
+            clientId: newClient.id,
+            title: eventName,
+            eventType: eventName.toLowerCase().replace(/\s+/g, '_'),
+            eventDate: eventDate,
+            venueName: eventVenue || undefined,
+            guestCount: eventGuestCount ? parseInt(eventGuestCount) : undefined,
+            startTime: event.start_time || undefined,
+            endTime: event.end_time || undefined,
+            notes: eventNotes || undefined,
+          })
+
+          // Auto-create vendors from required_vendors
+          if (event.required_vendors && !event.already_booked && createdEvent?.id) {
+            try {
               const vendorResult = await bulkCreateVendorsMutation.mutateAsync({
                 clientId: newClient.id,
                 eventId: createdEvent.id,
@@ -197,25 +221,28 @@ export default function ClientsPage() {
               if (vendorResult.created > 0) {
                 toast({
                   title: t('vendorsAutoCreated') || 'Vendors Auto-Created',
-                  description: `${vendorResult.created} vendor(s) added for ${event.name}`,
+                  description: `${vendorResult.created} vendor(s) added for ${eventName}`,
                 })
               }
+            } catch (vendorError) {
+              console.error('Failed to auto-create vendors for event:', vendorError)
             }
-          } catch (error) {
-            console.error('Failed to create event or vendors:', error)
           }
-        }))
+        } catch (error) {
+          console.error('Failed to create event:', error)
+        }
       }
 
       resetForm()
       setIsAddDialogOpen(false)
 
       // Invalidate AFTER closing dialog to ensure fresh data on next render
-      // Include events and vendors since we may have auto-created them
+      // Include events, vendors, budget since server auto-creates them
       await Promise.all([
         utils.clients.list.invalidate(),
-        utils.events.invalidate(), // Auto-created events need to show up
-        utils.vendors.invalidate(), // Auto-created vendors need to show up
+        utils.events.invalidate(),
+        utils.vendors.invalidate(),
+        utils.budget.invalidate(),
       ])
     },
     onError: (error) => {
@@ -257,6 +284,7 @@ export default function ClientsPage() {
                 title: event.name,
                 eventDate: event.date,
                 venueName: event.venue || undefined,
+                guestCount: event.guest_count ? parseInt(event.guest_count) : undefined,
                 startTime: event.start_time || undefined,
                 endTime: event.end_time || undefined,
                 notes: eventNotes || undefined,
@@ -268,8 +296,10 @@ export default function ClientsPage() {
               const createdEvent = await createEventMutation.mutateAsync({
                 clientId: editingClient.id,
                 title: event.name,
+                eventType: event.name.toLowerCase().replace(/\s+/g, '_'),
                 eventDate: event.date,
                 venueName: event.venue || undefined,
+                guestCount: event.guest_count ? parseInt(event.guest_count) : undefined,
                 startTime: event.start_time || undefined,
                 endTime: event.end_time || undefined,
                 notes: eventNotes || undefined,
@@ -306,7 +336,8 @@ export default function ClientsPage() {
       await Promise.all([
         utils.clients.list.invalidate(),
         utils.events.invalidate(),
-        utils.vendors.invalidate(), // Auto-created vendors need to show up
+        utils.vendors.invalidate(),
+        utils.budget.invalidate(),
       ])
     },
     onError: (error) => {
@@ -367,6 +398,8 @@ export default function ClientsPage() {
       email: '',
       phone: '',
       notes: '',
+      budget: '',
+      guest_count: '',
       bride_father_name: '',
       bride_mother_name: '',
       groom_father_name: '',
@@ -425,22 +458,7 @@ export default function ClientsPage() {
       // For updates, send all fields using snake_case to match router schema
       const updateData: {
         id: string
-        partner1_first_name?: string
-        partner1_last_name?: string
-        partner1_email?: string
-        partner1_phone?: string
-        partner1_father_name?: string
-        partner1_mother_name?: string
-        partner2_first_name?: string
-        partner2_last_name?: string
-        partner2_father_name?: string
-        partner2_mother_name?: string
-        wedding_name?: string
-        wedding_date?: string
-        venue?: string
-        notes?: string
-        planning_side?: 'bride_side' | 'groom_side' | 'both'
-        wedding_type?: 'traditional' | 'destination' | 'intimate' | 'elopement' | 'multi_day' | 'cultural'
+        [key: string]: string | number | undefined
       } = {
         id: editingClient.id,
         // Always send name fields to allow clearing
@@ -456,6 +474,8 @@ export default function ClientsPage() {
       updateData.wedding_name = formData.wedding_name || undefined
       updateData.wedding_date = formData.wedding_date || undefined
       updateData.venue = formData.venue || undefined
+      updateData.budget = formData.budget ? Number(formData.budget) : undefined
+      updateData.guest_count = formData.guest_count ? Number(formData.guest_count) : undefined
       updateData.notes = formData.notes || undefined
       // Family details
       updateData.partner1_father_name = formData.bride_father_name || undefined
@@ -474,6 +494,11 @@ export default function ClientsPage() {
         return
       }
 
+      // Always skip server-side auto-creation — onSuccess creates events per-event-brief.
+      // Event 1 gets name/date from formData, Event 2+ from eventBriefs.
+      const hasEvent1 = !!(formData.wedding_name && formData.wedding_date)
+      const hasOtherEvents = eventBriefs.slice(1).some(e => e.name && e.date)
+
       const createData = {
         partner1_first_name,
         partner1_last_name,
@@ -488,9 +513,12 @@ export default function ClientsPage() {
         wedding_name: formData.wedding_name || undefined,
         wedding_date: formData.wedding_date || undefined,
         venue: formData.venue || undefined,
+        budget: formData.budget ? Number(formData.budget) : undefined,
+        guest_count: formData.guest_count ? Number(formData.guest_count) : undefined,
         notes: formData.notes || undefined,
         planning_side: formData.planning_side,
         wedding_type: formData.wedding_type,
+        skipAutoCreation: hasEvent1 || hasOtherEvents,
       }
 
       createMutation.mutate(createData)
@@ -516,6 +544,8 @@ export default function ClientsPage() {
       email: client.partner1Email || '',
       phone: client.partner1Phone || '',
       notes: client.notes || '',
+      budget: client.budget ? String(client.budget) : '',
+      guest_count: client.guestCount ? String(client.guestCount) : '',
       bride_father_name: client.partner1FatherName || '',
       bride_mother_name: client.partner1MotherName || '',
       groom_father_name: client.partner2FatherName || '',
@@ -563,6 +593,7 @@ export default function ClientsPage() {
             name: event.title || '',
             date: event.eventDate || '', // camelCase from Drizzle
             venue: event.venueName || '', // camelCase from Drizzle
+            guest_count: event.guestCount ? String(event.guestCount) : '',
             start_time: event.startTime || '', // camelCase from Drizzle
             duration_hours: duration.hours,
             duration_minutes: duration.minutes,
@@ -659,7 +690,7 @@ export default function ClientsPage() {
               <Card
                 key={client.id}
                 variant="glass"
-                className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 hover:shadow-xl hover:shadow-teal-500/20 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/20 dark:to-mocha-900"
+                className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 hover:shadow-xl hover:shadow-teal-500/20 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/20"
               >
                 <CardHeader>
                   <CardTitle className="text-lg bg-gradient-to-r from-teal-700 to-gold-600 bg-clip-text text-transparent">
@@ -781,7 +812,7 @@ export default function ClientsPage() {
                   placeholder={t('weddingNamePlaceholder') || 'e.g., Smith & Johnson Wedding'}
                   value={formData.wedding_name}
                   onChange={(e) =>
-                    setFormData({ ...formData, wedding_name: e.target.value })
+                    setFormData(prev => ({ ...prev, wedding_name: e.target.value }))
                   }
                 />
                 <p className="text-xs text-muted-foreground mt-1">
@@ -796,7 +827,7 @@ export default function ClientsPage() {
                   <Select
                     value={formData.planning_side}
                     onValueChange={(value: 'bride_side' | 'groom_side' | 'both') =>
-                      setFormData({ ...formData, planning_side: value })
+                      setFormData(prev => ({ ...prev, planning_side: value }))
                     }
                   >
                     <SelectTrigger id="planning_side">
@@ -817,7 +848,7 @@ export default function ClientsPage() {
                   <Select
                     value={formData.wedding_type}
                     onValueChange={(value: 'traditional' | 'destination' | 'intimate' | 'elopement' | 'multi_day' | 'cultural') =>
-                      setFormData({ ...formData, wedding_type: value })
+                      setFormData(prev => ({ ...prev, wedding_type: value }))
                     }
                   >
                     <SelectTrigger id="wedding_type">
@@ -843,7 +874,7 @@ export default function ClientsPage() {
                     placeholder={t('brideNamePlaceholder') || 'First Last'}
                     value={formData.bride_name}
                     onChange={(e) =>
-                      setFormData({ ...formData, bride_name: e.target.value })
+                      setFormData(prev => ({ ...prev, bride_name: e.target.value }))
                     }
                     required
                   />
@@ -855,7 +886,7 @@ export default function ClientsPage() {
                     placeholder={t('groomNamePlaceholder') || 'First Last'}
                     value={formData.groom_name}
                     onChange={(e) =>
-                      setFormData({ ...formData, groom_name: e.target.value })
+                      setFormData(prev => ({ ...prev, groom_name: e.target.value }))
                     }
                     required
                   />
@@ -870,7 +901,7 @@ export default function ClientsPage() {
                     type="email"
                     value={formData.email}
                     onChange={(e) =>
-                      setFormData({ ...formData, email: e.target.value })
+                      setFormData(prev => ({ ...prev, email: e.target.value }))
                     }
                     required={!editingClient}
                   />
@@ -881,7 +912,7 @@ export default function ClientsPage() {
                     id="phone"
                     value={formData.phone}
                     onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value })
+                      setFormData(prev => ({ ...prev, phone: e.target.value }))
                     }
                   />
                 </div>
@@ -895,7 +926,7 @@ export default function ClientsPage() {
                     type="date"
                     value={formData.wedding_date}
                     onChange={(e) =>
-                      setFormData({ ...formData, wedding_date: e.target.value })
+                      setFormData(prev => ({ ...prev, wedding_date: e.target.value }))
                     }
                   />
                 </div>
@@ -905,7 +936,36 @@ export default function ClientsPage() {
                     id="venue"
                     value={formData.venue}
                     onChange={(e) =>
-                      setFormData({ ...formData, venue: e.target.value })
+                      setFormData(prev => ({ ...prev, venue: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="budget">{t('budget') || 'Budget'}</Label>
+                  <Input
+                    id="budget"
+                    type="number"
+                    min="0"
+                    placeholder={t('budgetPlaceholder') || 'Estimated budget'}
+                    value={formData.budget}
+                    onChange={(e) =>
+                      setFormData(prev => ({ ...prev, budget: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="guest_count">{t('guestCount') || 'Expected Guests'}</Label>
+                  <Input
+                    id="guest_count"
+                    type="number"
+                    min="0"
+                    placeholder={t('guestCountPlaceholder') || 'Estimated guest count'}
+                    value={formData.guest_count}
+                    onChange={(e) =>
+                      setFormData(prev => ({ ...prev, guest_count: e.target.value }))
                     }
                   />
                 </div>
@@ -943,7 +1003,7 @@ export default function ClientsPage() {
                         id="bride_father_name"
                         value={formData.bride_father_name}
                         onChange={(e) =>
-                          setFormData({ ...formData, bride_father_name: e.target.value })
+                          setFormData(prev => ({ ...prev, bride_father_name: e.target.value }))
                         }
                       />
                     </div>
@@ -953,7 +1013,7 @@ export default function ClientsPage() {
                         id="bride_mother_name"
                         value={formData.bride_mother_name}
                         onChange={(e) =>
-                          setFormData({ ...formData, bride_mother_name: e.target.value })
+                          setFormData(prev => ({ ...prev, bride_mother_name: e.target.value }))
                         }
                       />
                     </div>
@@ -972,7 +1032,7 @@ export default function ClientsPage() {
                         id="groom_father_name"
                         value={formData.groom_father_name}
                         onChange={(e) =>
-                          setFormData({ ...formData, groom_father_name: e.target.value })
+                          setFormData(prev => ({ ...prev, groom_father_name: e.target.value }))
                         }
                       />
                     </div>
@@ -982,7 +1042,7 @@ export default function ClientsPage() {
                         id="groom_mother_name"
                         value={formData.groom_mother_name}
                         onChange={(e) =>
-                          setFormData({ ...formData, groom_mother_name: e.target.value })
+                          setFormData(prev => ({ ...prev, groom_mother_name: e.target.value }))
                         }
                       />
                     </div>
@@ -1027,33 +1087,91 @@ export default function ClientsPage() {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label>{t('eventName') || 'Event Name'} *</Label>
-                            <Input
-                              placeholder={t('eventNamePlaceholder') || 'e.g., Sangeet, Wedding Ceremony'}
-                              value={event.name}
-                              onChange={(e) => updateEvent(event.id, 'name', e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <Label>{t('eventDate') || 'Date'} *</Label>
-                            <Input
-                              type="date"
-                              value={event.date}
-                              onChange={(e) => updateEvent(event.id, 'date', e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <Label>{t('eventVenue') || 'Venue'}</Label>
-                          <Input
-                            placeholder={t('eventVenuePlaceholder') || 'Event venue'}
-                            value={event.venue}
-                            onChange={(e) => updateEvent(event.id, 'venue', e.target.value)}
-                          />
-                        </div>
+                        {index === 0 ? (
+                          /* Event 1: reads name/date/venue/guest_count from top Wedding Details (single source of truth) */
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{t('eventName') || 'Event Name'} *</Label>
+                                <Input
+                                  value={formData.wedding_name || ''}
+                                  readOnly
+                                  className="bg-muted cursor-default"
+                                />
+                              </div>
+                              <div>
+                                <Label>{t('eventDate') || 'Date'} *</Label>
+                                <Input
+                                  type="date"
+                                  value={formData.wedding_date || ''}
+                                  readOnly
+                                  className="bg-muted cursor-default"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{t('eventVenue') || 'Venue'}</Label>
+                                <Input
+                                  value={formData.venue || ''}
+                                  readOnly
+                                  className="bg-muted cursor-default"
+                                />
+                              </div>
+                              <div>
+                                <Label>{t('eventGuestCount') || 'Guest Count'}</Label>
+                                <Input
+                                  value={formData.guest_count || ''}
+                                  readOnly
+                                  className="bg-muted cursor-default"
+                                />
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground -mt-2">Details from Wedding section above. Add timing and vendors below.</p>
+                          </>
+                        ) : (
+                          /* Event 2+: independent fields */
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{t('eventName') || 'Event Name'} *</Label>
+                                <Input
+                                  placeholder={t('eventNamePlaceholder') || 'e.g., Sangeet, Wedding Ceremony'}
+                                  value={event.name}
+                                  onChange={(e) => updateEvent(event.id, 'name', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <Label>{t('eventDate') || 'Date'} *</Label>
+                                <Input
+                                  type="date"
+                                  value={event.date}
+                                  onChange={(e) => updateEvent(event.id, 'date', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{t('eventVenue') || 'Venue'}</Label>
+                                <Input
+                                  placeholder={t('eventVenuePlaceholder') || 'Event venue'}
+                                  value={event.venue}
+                                  onChange={(e) => updateEvent(event.id, 'venue', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <Label>{t('eventGuestCount') || 'Guest Count'}</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  placeholder={t('eventGuestCountPlaceholder') || 'Expected guests'}
+                                  value={event.guest_count}
+                                  onChange={(e) => updateEvent(event.id, 'guest_count', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </>
+                        )}
 
                         <div className="grid grid-cols-4 gap-4">
                           <div>
@@ -1089,7 +1207,7 @@ export default function ClientsPage() {
                             <Label>{t('endTime') || 'End Time'}</Label>
                             <div className="flex items-center h-9 px-3 border rounded-md bg-muted text-muted-foreground">
                               <Clock className="w-4 h-4 mr-2" />
-                              {event.end_time || '--:--'}
+                              {event.end_time ? formatTime12h(event.end_time) : '--:--'}
                             </div>
                           </div>
                         </div>
@@ -1148,7 +1266,7 @@ export default function ClientsPage() {
                 id="notes"
                 value={formData.notes}
                 onChange={(e) =>
-                  setFormData({ ...formData, notes: e.target.value })
+                  setFormData(prev => ({ ...prev, notes: e.target.value }))
                 }
                 rows={3}
               />
@@ -1193,7 +1311,7 @@ function StatCard({
     rose: {
       border: 'border-rose-200/50 dark:border-rose-800/30',
       shadow: 'shadow-rose-500/10 hover:shadow-rose-500/20',
-      gradient: 'from-white via-rose-50/30 to-white dark:from-mocha-900 dark:via-rose-950/20 dark:to-mocha-900',
+      gradient: 'from-card via-rose-50/30 to-card dark:via-rose-950/20',
       iconBg: 'from-rose-500/20 to-rose-600/10 group-hover:from-rose-500/30 group-hover:to-rose-600/20',
       iconColor: 'text-rose-500',
       valueGradient: 'from-rose-600 to-rose-500',
@@ -1201,7 +1319,7 @@ function StatCard({
     teal: {
       border: 'border-teal-200/50 dark:border-teal-800/30',
       shadow: 'shadow-teal-500/10 hover:shadow-teal-500/20',
-      gradient: 'from-white via-teal-50/30 to-white dark:from-mocha-900 dark:via-teal-950/20 dark:to-mocha-900',
+      gradient: 'from-card via-teal-50/30 to-card dark:via-teal-950/20',
       iconBg: 'from-teal-500/20 to-teal-600/10 group-hover:from-teal-500/30 group-hover:to-teal-600/20',
       iconColor: 'text-teal-500',
       valueGradient: 'from-teal-600 to-teal-500',
@@ -1209,7 +1327,7 @@ function StatCard({
     sage: {
       border: 'border-sage-200/50 dark:border-sage-800/30',
       shadow: 'shadow-sage-500/10 hover:shadow-sage-500/20',
-      gradient: 'from-white via-sage-50/30 to-white dark:from-mocha-900 dark:via-sage-950/20 dark:to-mocha-900',
+      gradient: 'from-card via-sage-50/30 to-card dark:via-sage-950/20',
       iconBg: 'from-sage-500/20 to-sage-600/10 group-hover:from-sage-500/30 group-hover:to-sage-600/20',
       iconColor: 'text-sage-500',
       valueGradient: 'from-sage-600 to-sage-500',
@@ -1217,7 +1335,7 @@ function StatCard({
     gold: {
       border: 'border-gold-200/50 dark:border-gold-800/30',
       shadow: 'shadow-gold-500/10 hover:shadow-gold-500/20',
-      gradient: 'from-white via-gold-50/30 to-white dark:from-mocha-900 dark:via-gold-950/20 dark:to-mocha-900',
+      gradient: 'from-card via-gold-50/30 to-card dark:via-gold-950/20',
       iconBg: 'from-gold-500/20 to-gold-600/10 group-hover:from-gold-500/30 group-hover:to-gold-600/20',
       iconColor: 'text-gold-500',
       valueGradient: 'from-gold-600 to-gold-500',
@@ -1225,7 +1343,7 @@ function StatCard({
     cobalt: {
       border: 'border-cobalt-200/50 dark:border-cobalt-800/30',
       shadow: 'shadow-cobalt-500/10 hover:shadow-cobalt-500/20',
-      gradient: 'from-white via-cobalt-50/30 to-white dark:from-mocha-900 dark:via-cobalt-950/20 dark:to-mocha-900',
+      gradient: 'from-card via-cobalt-50/30 to-card dark:via-cobalt-950/20',
       iconBg: 'from-cobalt-500/20 to-cobalt-600/10 group-hover:from-cobalt-500/30 group-hover:to-cobalt-600/20',
       iconColor: 'text-cobalt-500',
       valueGradient: 'from-cobalt-600 to-cobalt-500',
@@ -1233,7 +1351,7 @@ function StatCard({
     mocha: {
       border: 'border-mocha-200/50 dark:border-mocha-800/30',
       shadow: 'shadow-mocha-500/10 hover:shadow-mocha-500/20',
-      gradient: 'from-white via-mocha-50/30 to-white dark:from-mocha-900 dark:via-mocha-950/20 dark:to-mocha-900',
+      gradient: 'from-card via-mocha-50/30 to-card dark:via-mocha-950/20',
       iconBg: 'from-mocha-500/20 to-mocha-600/10 group-hover:from-mocha-500/30 group-hover:to-mocha-600/20',
       iconColor: 'text-mocha-500',
       valueGradient: 'from-mocha-600 to-mocha-500',

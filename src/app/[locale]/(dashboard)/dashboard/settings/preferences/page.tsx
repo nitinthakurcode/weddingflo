@@ -295,7 +295,7 @@ export default function PreferencesPage() {
     <div className="container max-w-4xl py-8 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-mocha-100 dark:to-mocha-300 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           {t('preferences')}
         </h1>
         <p className="text-muted-foreground mt-2">
@@ -307,12 +307,12 @@ export default function PreferencesPage() {
         {/* Auto-detection Card */}
         <Card
           variant="glass"
-          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
         >
           <CardHeader>
             <div className="flex items-center space-x-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg shadow-teal-500/30">
-                <Globe className="h-4 w-4 text-white" />
+                <Globe className="h-4 w-4 text-primary-foreground" />
               </div>
               <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-500 bg-clip-text text-transparent">
                 {t('autoDetection')}
@@ -353,12 +353,12 @@ export default function PreferencesPage() {
         {/* Language Card */}
         <Card
           variant="glass"
-          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
         >
           <CardHeader>
             <div className="flex items-center space-x-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg shadow-teal-500/30">
-                <Languages className="h-4 w-4 text-white" />
+                <Languages className="h-4 w-4 text-primary-foreground" />
               </div>
               <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-500 bg-clip-text text-transparent">
                 {t('language')}
@@ -401,12 +401,12 @@ export default function PreferencesPage() {
         {/* Currency Card */}
         <Card
           variant="glass"
-          className="border border-sage-200/50 dark:border-sage-800/30 shadow-lg shadow-sage-500/10 bg-gradient-to-br from-white via-sage-50/20 to-white dark:from-mocha-900 dark:via-sage-950/10 dark:to-mocha-900"
+          className="border border-sage-200/50 dark:border-sage-800/30 shadow-lg shadow-sage-500/10 bg-gradient-to-br from-card via-sage-50/20 to-card dark:via-sage-950/10"
         >
           <CardHeader>
             <div className="flex items-center space-x-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-sage-500 to-sage-600 shadow-lg shadow-sage-500/30">
-                <DollarSign className="h-4 w-4 text-white" />
+                <DollarSign className="h-4 w-4 text-primary-foreground" />
               </div>
               <CardTitle className="bg-gradient-to-r from-sage-600 to-sage-500 bg-clip-text text-transparent">
                 {t('currency')}
@@ -469,12 +469,12 @@ export default function PreferencesPage() {
         {/* Timezone Card */}
         <Card
           variant="glass"
-          className="border border-gold-200/50 dark:border-gold-800/30 shadow-lg shadow-gold-500/10 bg-gradient-to-br from-white via-gold-50/20 to-white dark:from-mocha-900 dark:via-gold-950/10 dark:to-mocha-900"
+          className="border border-gold-200/50 dark:border-gold-800/30 shadow-lg shadow-gold-500/10 bg-gradient-to-br from-card via-gold-50/20 to-card dark:via-gold-950/10"
         >
           <CardHeader>
             <div className="flex items-center space-x-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-gold-500 to-gold-600 shadow-lg shadow-gold-500/30">
-                <Clock className="h-4 w-4 text-white" />
+                <Clock className="h-4 w-4 text-primary-foreground" />
               </div>
               <CardTitle className="bg-gradient-to-r from-gold-600 to-gold-500 bg-clip-text text-transparent">
                 {t('timezone')}

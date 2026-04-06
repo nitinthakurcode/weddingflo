@@ -12,131 +12,6 @@ import { withTransaction } from '@/features/chatbot/server/services/transaction-
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 import { recalcClientStats } from '@/lib/sync/client-stats-sync';
 
-// Budget category segment type (different from BudgetSegment which is budget tier)
-type BudgetCategorySegment = 'vendors' | 'artists' | 'creatives' | 'travel' | 'accommodation' | 'other';
-
-/**
- * Budget category templates by wedding type
- * Percentages are industry-standard allocations of total budget
- */
-const BUDGET_TEMPLATES: Record<WeddingType, Array<{
-  category: string;
-  item: string;
-  segment: BudgetCategorySegment;
-  percentage: number;
-}>> = {
-  traditional: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 40 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 25 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 10 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 5 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
-    { category: 'music', item: 'Music & Entertainment', segment: 'artists', percentage: 5 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 4 },
-    { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
-  ],
-  destination: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 25 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 15 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 8 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 4 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 6 },
-    { category: 'music', item: 'Music & Entertainment', segment: 'artists', percentage: 4 },
-    { category: 'travel', item: 'Travel & Logistics', segment: 'travel', percentage: 20 },
-    { category: 'accommodation', item: 'Guest Accommodations', segment: 'accommodation', percentage: 15 },
-    { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
-  ],
-  intimate: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 35 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 30 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 15 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 10 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 7 },
-    { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
-  ],
-  elopement: [
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 30 },
-    { category: 'venue', item: 'Venue/Location', segment: 'vendors', percentage: 20 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 20 },
-    { category: 'travel', item: 'Travel & Logistics', segment: 'travel', percentage: 20 },
-    { category: 'officiant', item: 'Officiant', segment: 'vendors', percentage: 5 },
-    { category: 'florals', item: 'Florals', segment: 'vendors', percentage: 5 },
-  ],
-  multi_day: [
-    { category: 'venue', item: 'Venues (Multiple)', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Catering (Multiple Events)', segment: 'vendors', percentage: 20 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 10 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 5 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
-    { category: 'music', item: 'Music & Entertainment', segment: 'artists', percentage: 7 },
-    { category: 'accommodation', item: 'Guest Accommodations', segment: 'accommodation', percentage: 12 },
-    { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
-    { category: 'other', item: 'Miscellaneous', segment: 'other', percentage: 5 },
-  ],
-  cultural: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 20 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 8 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 5 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
-    { category: 'music', item: 'Music & Entertainment', segment: 'artists', percentage: 8 },
-    { category: 'attire', item: 'Traditional Attire & Jewelry', segment: 'other', percentage: 10 },
-    { category: 'cultural', item: 'Cultural Ceremonies & Rituals', segment: 'vendors', percentage: 8 },
-    { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
-  ],
-  modern: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 35 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 25 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 12 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 6 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
-    { category: 'music', item: 'DJ & Entertainment', segment: 'artists', percentage: 5 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 5 },
-    { category: 'stationery', item: 'Digital Invitations', segment: 'creatives', percentage: 4 },
-  ],
-  rustic: [
-    { category: 'venue', item: 'Barn/Farm Venue', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Farm-to-Table Catering', segment: 'vendors', percentage: 25 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 12 },
-    { category: 'florals', item: 'Wildflowers & Natural Decor', segment: 'vendors', percentage: 10 },
-    { category: 'music', item: 'Live Band/Music', segment: 'artists', percentage: 8 },
-    { category: 'rentals', item: 'Rustic Rentals & Props', segment: 'vendors', percentage: 8 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 4 },
-    { category: 'stationery', item: 'Handcrafted Invitations', segment: 'creatives', percentage: 3 },
-  ],
-  bohemian: [
-    { category: 'venue', item: 'Outdoor/Unique Venue', segment: 'vendors', percentage: 25 },
-    { category: 'catering', item: 'Organic Catering', segment: 'vendors', percentage: 22 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 15 },
-    { category: 'florals', item: 'Boho Florals & Greenery', segment: 'vendors', percentage: 12 },
-    { category: 'decor', item: 'Macrame & Boho Decor', segment: 'vendors', percentage: 10 },
-    { category: 'music', item: 'Acoustic Music', segment: 'artists', percentage: 6 },
-    { category: 'attire', item: 'Boho Attire', segment: 'other', percentage: 6 },
-    { category: 'stationery', item: 'Earthy Invitations', segment: 'creatives', percentage: 4 },
-  ],
-  religious: [
-    { category: 'venue', item: 'Ceremony & Reception Venues', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 22 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 10 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 5 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
-    { category: 'music', item: 'Music & Choir', segment: 'artists', percentage: 6 },
-    { category: 'religious', item: 'Religious Services & Officiant', segment: 'vendors', percentage: 8 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 6 },
-    { category: 'stationery', item: 'Invitations', segment: 'creatives', percentage: 5 },
-  ],
-  luxury: [
-    { category: 'venue', item: 'Premium Venue', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Gourmet Catering & Fine Wines', segment: 'vendors', percentage: 20 },
-    { category: 'photography', item: 'High-End Photography', segment: 'vendors', percentage: 10 },
-    { category: 'videography', item: 'Cinematic Videography', segment: 'vendors', percentage: 8 },
-    { category: 'florals', item: 'Luxury Florals & Design', segment: 'vendors', percentage: 12 },
-    { category: 'music', item: 'Live Orchestra/Band', segment: 'artists', percentage: 8 },
-    { category: 'attire', item: 'Designer Attire & Jewelry', segment: 'other', percentage: 7 },
-    { category: 'stationery', item: 'Custom Invitations', segment: 'creatives', percentage: 3 },
-    { category: 'planner', item: 'Wedding Planner', segment: 'vendors', percentage: 2 },
-  ],
-};
 
 /**
  * Timeline item type for template generation
@@ -411,6 +286,9 @@ export const clientsRouter = router({
         // Format: "Category: Vendor Name" or just "Vendor Name"
         // e.g., "Venue: Grand Hotel, Catering: Tasty Foods, Photography: Picture Perfect"
         vendors: z.string().optional(),
+        // When true, skip auto-creating "Main Wedding" event and vendors in the router.
+        // The form's onSuccess handles per-event creation from eventBriefs instead.
+        skipAutoCreation: z.boolean().optional(),
       }).transform((data) => ({
         ...data,
         partner1_last_name: data.partner1_last_name === '' ? null : data.partner1_last_name,
@@ -583,9 +461,9 @@ export const clientsRouter = router({
           console.log('[Clients Router] Client created via self-heal. User should refresh page to get new JWT.');
         }
 
-        // Auto-create "Main Wedding" event if wedding_date is provided
+        // Auto-create "Main Wedding" event and vendors unless the form handles per-event creation
         let mainEventId: string | null = null;
-        if (input.wedding_date) {
+        if (!input.skipAutoCreation && input.wedding_date) {
           const eventTitle = input.wedding_name ||
             `${input.partner1_first_name}${input.partner2_first_name ? ` & ${input.partner2_first_name}` : ''}'s Wedding`;
 
@@ -616,32 +494,6 @@ export const clientsRouter = router({
           }
         }
 
-        // Auto-populate budget categories based on wedding type and budget amount
-        if (input.budget && input.budget > 0) {
-          const weddingType = (input.wedding_type || 'traditional') as WeddingType;
-          const budgetTemplate = BUDGET_TEMPLATES[weddingType] || BUDGET_TEMPLATES.traditional;
-
-          try {
-            const budgetItems = budgetTemplate.map((item, index) => ({
-              id: crypto.randomUUID(),
-              clientId: client.id,
-              category: item.category,
-              segment: item.segment,
-              item: item.item,
-              estimatedCost: ((input.budget! * item.percentage) / 100).toFixed(2),
-              paidAmount: '0',
-              paymentStatus: 'pending',
-              clientVisible: true,
-              notes: `Auto-generated based on ${weddingType} wedding budget allocation`,
-            }));
-
-            await tx.insert(budget).values(budgetItems);
-            console.log('[Clients Router] Auto-created', budgetItems.length, 'budget categories for client:', client.id);
-          } catch (budgetError) {
-            // Log but don't fail - client creation succeeded
-            console.error('[Clients Router] Failed to auto-create budget categories:', budgetError);
-          }
-        }
 
       // NOTE: Timeline items are no longer auto-generated at client creation.
       // They are now generated per-event when events are created via the events router.
@@ -650,7 +502,7 @@ export const clientsRouter = router({
         // Auto-create vendors from comma-separated list
         // Format: "Category: Vendor Name" or just "Vendor Name"
         // e.g., "Venue: Grand Hotel, Catering: Tasty Foods, Photography"
-        if (input.vendors && input.vendors.trim()) {
+        if (!input.skipAutoCreation && input.vendors && input.vendors.trim()) {
           try {
             // Parse vendor entries - each can be "Category: Name" or just "Name"
             const vendorEntries = input.vendors
@@ -658,10 +510,8 @@ export const clientsRouter = router({
               .map(entry => entry.trim())
               .filter(entry => entry.length > 0);
 
-            // Get event title for budget category
-            const budgetCategory = mainEventId
-              ? (input.wedding_name || `${input.partner1_first_name}'s Wedding`)
-              : 'Unassigned';
+            // Use "Wedding" as category since this is the auto-created main wedding event
+            const budgetCategory = mainEventId ? 'Wedding' : 'Unassigned';
 
           // Category mapping for recognized keywords
           const categoryKeywords: Record<string, string> = {
@@ -763,6 +613,7 @@ export const clientsRouter = router({
                   await tx.insert(budget).values({
                     id: crypto.randomUUID(),
                     clientId: client.id,
+                    companyId: effectiveCompanyId,
                     vendorId: vendor.id,
                     eventId: mainEventId,
                     category: budgetCategory,
@@ -800,6 +651,18 @@ export const clientsRouter = router({
       });
 
       // Broadcast real-time sync after successful transaction
+      // Include cascade paths for auto-created events, vendors, and budget items
+      const queryPaths: string[] = ['clients.list', 'clients.getAll'];
+      if (!input.skipAutoCreation && input.wedding_date) {
+        // Auto-created wedding event
+        queryPaths.push('events.getAll', 'timeline.getAll');
+      }
+      if (!input.skipAutoCreation && input.vendors?.trim()) {
+        // Auto-created vendors and budget items (per handbook D.5 cascade: budget + timeline)
+        queryPaths.push('vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary');
+        if (!queryPaths.includes('timeline.getAll')) queryPaths.push('timeline.getAll');
+      }
+
       await broadcastSync({
         type: 'insert',
         module: 'clients',
@@ -807,7 +670,7 @@ export const clientsRouter = router({
         companyId: effectiveCompanyId,
         clientId: data.id,
         userId: ctx.userId,
-        queryPaths: ['clients.list', 'clients.getAll'],
+        queryPaths,
       });
 
       return data;

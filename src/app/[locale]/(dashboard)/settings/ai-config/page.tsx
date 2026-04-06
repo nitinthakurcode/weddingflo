@@ -98,7 +98,7 @@ export default function AIConfigPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-mocha-100 dark:to-mocha-300 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           AI Configuration
         </h1>
         <p className="text-muted-foreground">
@@ -109,12 +109,12 @@ export default function AIConfigPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card
           variant="glass"
-          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+          className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2 bg-gradient-to-r from-teal-600 to-teal-500 bg-clip-text text-transparent">
               <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg shadow-teal-500/30">
-                <Brain className="h-4 w-4 text-white" />
+                <Brain className="h-4 w-4 text-primary-foreground" />
               </div>
               AI Features
             </CardTitle>

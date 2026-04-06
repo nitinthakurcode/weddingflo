@@ -101,7 +101,7 @@ export function DayOfPanel({ clientId, eventId, onSwitchToChat }: DayOfPanelProp
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-gold-500 to-teal-500 flex items-center justify-center">
-              <Clock className="h-4 w-4 text-white" />
+              <Clock className="h-4 w-4 text-primary-foreground" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">
@@ -137,7 +137,7 @@ export function DayOfPanel({ clientId, eventId, onSwitchToChat }: DayOfPanelProp
 
         {/* Countdown to next item */}
         {countdown && nextItem && (
-          <div className="flex items-center gap-2 text-xs bg-white/50 dark:bg-mocha-900/50 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 text-xs bg-card/50 rounded-lg px-3 py-2">
             <Timer className="h-4 w-4 text-teal-500" />
             <span className="text-mocha-600 dark:text-mocha-300">
               Next: <span className="font-medium">{nextItem.title}</span>

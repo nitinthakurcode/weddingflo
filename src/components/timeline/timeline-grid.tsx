@@ -16,15 +16,15 @@ interface TimelineGridProps {
 }
 
 const activityTypeColors: Record<string, { bg: string; border: string; text: string }> = {
-  setup: { bg: 'bg-gray-200', border: 'border-gray-400', text: 'text-gray-900' },
+  setup: { bg: 'bg-muted', border: 'border-border', text: 'text-foreground' },
   ceremony: { bg: 'bg-primary/20', border: 'border-primary', text: 'text-primary' },
   reception: { bg: 'bg-pink-200', border: 'border-pink-500', text: 'text-pink-900' },
   entertainment: { bg: 'bg-orange-200', border: 'border-orange-500', text: 'text-orange-900' },
   break: { bg: 'bg-blue-200', border: 'border-blue-500', text: 'text-blue-900' },
   photography: { bg: 'bg-green-200', border: 'border-green-500', text: 'text-green-900' },
   catering: { bg: 'bg-yellow-200', border: 'border-yellow-500', text: 'text-yellow-900' },
-  cleanup: { bg: 'bg-gray-200', border: 'border-gray-400', text: 'text-gray-900' },
-  other: { bg: 'bg-gray-200', border: 'border-gray-400', text: 'text-gray-900' },
+  cleanup: { bg: 'bg-muted', border: 'border-border', text: 'text-foreground' },
+  other: { bg: 'bg-muted', border: 'border-border', text: 'text-foreground' },
 };
 
 export function TimelineGrid({
@@ -38,9 +38,9 @@ export function TimelineGrid({
   const timeSlots = generateTimeSlots(startHour, endHour, intervalMinutes);
 
   return (
-    <div className="relative bg-white rounded-lg border overflow-x-auto">
+    <div className="relative bg-card rounded-lg border overflow-x-auto">
       {/* Time Header */}
-      <div className="sticky top-0 z-10 bg-gray-50 border-b">
+      <div className="sticky top-0 z-10 bg-muted border-b">
         <div className="flex">
           <div className="w-32 flex-shrink-0 p-3 border-r font-medium text-sm">
             Activity
@@ -62,7 +62,7 @@ export function TimelineGrid({
       {/* Timeline Grid */}
       <div className="relative">
         {activities.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-gray-500">
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
             <div className="text-center">
               <p className="text-sm">No activities scheduled</p>
               <p className="text-xs mt-1">Add activities to see them in the timeline</p>
@@ -80,16 +80,16 @@ export function TimelineGrid({
                 key={activity.id}
                 className={cn(
                   'flex border-b last:border-b-0',
-                  index % 2 === 0 ? 'bg-gray-50' : 'bg-white'
+                  index % 2 === 0 ? 'bg-muted' : 'bg-card'
                 )}
               >
                 {/* Activity Name Column */}
                 <div className="w-32 flex-shrink-0 p-3 border-r flex items-center">
                   <div className="truncate">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-foreground truncate">
                       {activity.activity}
                     </p>
-                    <p className="text-xs text-gray-500 truncate">
+                    <p className="text-xs text-muted-foreground truncate">
                       {activity.activity_type}
                     </p>
                   </div>
@@ -146,7 +146,7 @@ export function TimelineGrid({
       </div>
 
       {/* Legend */}
-      <div className="border-t p-4 bg-gray-50">
+      <div className="border-t p-4 bg-muted">
         <div className="flex flex-wrap gap-3">
           <p className="text-xs font-medium text-muted-foreground mr-2">Legend:</p>
           {Object.entries(activityTypeColors).map(([type, colors]) => (

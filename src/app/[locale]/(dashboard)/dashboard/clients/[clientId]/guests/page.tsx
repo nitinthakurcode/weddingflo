@@ -1322,7 +1322,7 @@ export default function GuestsPage() {
           <div className="bg-gradient-to-r from-primary to-primary/80 px-6 py-5 text-primary-foreground">
             <DialogHeader className="space-y-1">
               <DialogTitle className="flex items-center gap-3 text-primary-foreground text-xl">
-                <div className="p-2 bg-white/20 rounded-lg">
+                <div className="p-2 bg-primary-foreground/20 rounded-lg">
                   <Share2 className="w-5 h-5" />
                 </div>
                 {t('shareGuestForm') || 'Share Guest Registration Form'}
@@ -1406,7 +1406,7 @@ export default function GuestsPage() {
 
             {/* QR Code Display with Zoom */}
             {formQRCode && (
-              <div className={`p-4 bg-gradient-to-r from-teal-50 to-primary/5 rounded-xl border transition-all ${qrZoomed ? 'fixed inset-4 z-50 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center' : ''}`}>
+              <div className={`p-4 bg-gradient-to-r from-teal-50 to-primary/5 rounded-xl border transition-all ${qrZoomed ? 'fixed inset-4 z-50 bg-card/95 backdrop-blur-sm flex flex-col items-center justify-center' : ''}`}>
                 {qrZoomed && (
                   <p className="text-xs text-muted-foreground mb-4">Click QR code to zoom out</p>
                 )}

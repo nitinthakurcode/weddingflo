@@ -107,7 +107,7 @@ export function FloatingActionButton({
         'shadow-xl transition-all duration-300',
         'hover:scale-110 active:scale-95',
         variant === 'primary'
-          ? 'bg-gradient-to-r from-rose-500 via-pink-500 to-lavender-500 text-white shadow-rose-500/40 hover:shadow-rose-500/60'
+          ? 'bg-gradient-to-r from-rose-500 via-pink-500 to-lavender-500 text-primary-foreground shadow-rose-500/40 hover:shadow-rose-500/60'
           : 'backdrop-blur-xl bg-background/80 text-rose-500 border border-rose-200/30 dark:border-rose-800/30'
       )}
     >

@@ -55,7 +55,7 @@ export default function ProfileSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-mocha-900 to-mocha-600 dark:from-white dark:to-mocha-300 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           Profile Settings
         </h1>
         <p className="text-muted-foreground">
@@ -66,7 +66,7 @@ export default function ProfileSettingsPage() {
       {/* Avatar Section */}
       <Card
         variant="glass"
-        className="border border-rose-200/50 dark:border-rose-800/30 shadow-lg shadow-rose-500/10 bg-gradient-to-br from-white via-rose-50/20 to-white dark:from-mocha-900 dark:via-rose-950/10 dark:to-mocha-900"
+        className="border border-rose-200/50 dark:border-rose-800/30 shadow-lg shadow-rose-500/10 bg-gradient-to-br from-card via-rose-50/20 to-card dark:via-rose-950/10"
       >
         <CardHeader>
           <CardTitle className="bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
@@ -84,7 +84,7 @@ export default function ProfileSettingsPage() {
       {/* Personal Information */}
       <Card
         variant="glass"
-        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
       >
         <CardHeader>
           <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-400 bg-clip-text text-transparent">
@@ -102,7 +102,7 @@ export default function ProfileSettingsPage() {
       {/* Account Information */}
       <Card
         variant="glass"
-        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-white via-teal-50/20 to-white dark:from-mocha-900 dark:via-teal-950/10 dark:to-mocha-900"
+        className="border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 bg-gradient-to-br from-card via-teal-50/20 to-card dark:via-teal-950/10"
       >
         <CardHeader>
           <CardTitle className="bg-gradient-to-r from-teal-600 to-teal-400 bg-clip-text text-transparent">

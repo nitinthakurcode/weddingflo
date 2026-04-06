@@ -268,6 +268,7 @@ export const websitesRouter = router({
       const [client] = await db
         .select({
           id: schema.clients.id,
+          weddingName: schema.clients.weddingName,
           partner1FirstName: schema.clients.partner1FirstName,
           partner1LastName: schema.clients.partner1LastName,
           partner2FirstName: schema.clients.partner2FirstName,
@@ -327,9 +328,9 @@ export const websitesRouter = router({
       }
 
       // Create initial content
-      const heroTitle = client.partner2FirstName
+      const heroTitle = client.weddingName || (client.partner2FirstName
         ? `${client.partner1FirstName} & ${client.partner2FirstName}`
-        : `${client.partner1FirstName} ${client.partner1LastName}`;
+        : `${client.partner1FirstName} ${client.partner1LastName}`);
 
       const content: WebsiteContent = {
         heroSection: {

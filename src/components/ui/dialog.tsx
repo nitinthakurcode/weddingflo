@@ -36,13 +36,13 @@ const dialogContentVariants = cva(
       variant: {
         default: "bg-background border-border",
         // Luxury - Premium gradient (Teal + Champagne Gold undertones)
-        luxury: "bg-gradient-to-br from-white via-teal-50/20 to-gold-50/10 border-teal-200/40 shadow-xl dark:from-mocha-900 dark:via-teal-950/20 dark:to-gold-950/10 dark:border-teal-700/30",
+        luxury: "bg-gradient-to-br from-card via-[#f5fdfb] to-[#fffef9] border-teal-200/40 shadow-xl dark:from-card dark:via-[#1a2726] dark:to-[#1f1e1a] dark:border-teal-700/30",
         // Sage Glass - Soft sage tint
-        "sage-glass": "bg-white/95 backdrop-blur-xl border-sage-200/40 dark:bg-mocha-900/95 dark:border-sage-800/30",
+        "sage-glass": "bg-card/95 backdrop-blur-xl border-sage-200/40 dark:border-sage-800/30",
         // Glass - Modern glass morphism (Cloud Dancer aesthetic)
-        glass: "bg-white/90 backdrop-blur-xl border-white/40 shadow-xl dark:bg-mocha-900/90 dark:border-white/15",
+        glass: "bg-card/90 backdrop-blur-xl border-border/40 shadow-xl",
         // Celebration - Gold accent for special moments
-        celebration: "bg-gradient-to-br from-gold-50 via-white to-rose-50 border-gold-200/60 shadow-xl dark:from-gold-950/30 dark:via-mocha-900 dark:to-rose-950/20 dark:border-gold-700/30",
+        celebration: "bg-gradient-to-br from-gold-50 via-card to-rose-50 border-gold-200/60 shadow-xl dark:from-gold-950/30 dark:to-rose-950/20 dark:border-gold-700/30",
       },
       size: {
         default: "max-w-lg",

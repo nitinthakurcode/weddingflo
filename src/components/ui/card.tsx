@@ -13,13 +13,13 @@ const cardVariants = cva(
         // Elevated - More prominent with subtle depth
         elevated: "bg-card shadow-md hover:shadow-lg transition-shadow duration-200",
         // Premium - Luxury gradient (Cloud to Mocha hints)
-        premium: "bg-gradient-to-br from-white via-cloud-50 to-cloud-100 border-cloud-200/60 shadow-md dark:from-mocha-900 dark:via-mocha-800 dark:to-mocha-900 dark:border-mocha-700/40",
+        premium: "bg-gradient-to-br from-card via-cloud-50 to-cloud-100 border-cloud-200/60 shadow-md dark:via-mocha-800 dark:to-card dark:border-mocha-700/40",
         // Hero - Feature card with teal accent
-        hero: "bg-gradient-to-br from-white via-teal-50/30 to-gold-50/20 border-teal-200/30 shadow-lg dark:from-mocha-900 dark:via-teal-950/20 dark:to-gold-950/10 dark:border-teal-800/20",
+        hero: "bg-gradient-to-br from-card via-teal-50/30 to-gold-50/20 border-teal-200/30 shadow-lg dark:via-teal-950/20 dark:to-gold-950/10 dark:border-teal-800/20",
         // Glass - Modern glass morphism
-        glass: "bg-white/80 backdrop-blur-xl border-white/40 shadow-lg dark:bg-mocha-900/80 dark:border-white/10",
+        glass: "bg-card/80 backdrop-blur-xl border-border/40 shadow-lg",
         // Glass Strong - More opaque glass effect
-        "glass-strong": "bg-white/90 backdrop-blur-2xl border-white/50 shadow-xl dark:bg-mocha-900/90 dark:border-white/15",
+        "glass-strong": "bg-card/90 backdrop-blur-2xl border-border/50 shadow-xl",
         // Accent - With champagne gold accent border
         accent: "bg-card border-l-4 border-l-accent shadow-sm",
         // Success - Sage green accent

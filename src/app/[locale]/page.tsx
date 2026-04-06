@@ -180,9 +180,9 @@ export default async function Home() {
         strategy="afterInteractive"
       />
 
-      <div className="min-h-screen bg-white dark:bg-mocha-950">
+      <div className="min-h-screen bg-background">
         {/* Navigation */}
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-mocha-950/80 backdrop-blur-xl border-b border-mocha-200/50 dark:border-mocha-800/50">
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               <div className="flex items-center gap-2">
@@ -272,7 +272,7 @@ export default async function Home() {
                 </Link>
                 <a
                   href="#demo"
-                  className="group px-8 py-4 text-lg font-semibold text-mocha-800 dark:text-mocha-200 bg-white dark:bg-mocha-800 border-2 border-mocha-200 dark:border-mocha-700 rounded-full hover:bg-mocha-50 dark:hover:bg-mocha-700 hover:border-mocha-300 transition-all duration-300 flex items-center gap-2 shadow-sm"
+                  className="group px-8 py-4 text-lg font-semibold text-foreground bg-card border-2 border-border rounded-full hover:bg-muted hover:border-border transition-all duration-300 flex items-center gap-2 shadow-sm"
                 >
                   <Play className="h-5 w-5" />
                   Watch Demo
@@ -298,7 +298,7 @@ export default async function Home() {
 
             {/* Hero Image/Video */}
             <div id="demo" className="mt-16 relative">
-              <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-teal-500/10 border border-mocha-200/50 dark:border-mocha-800/50 bg-gradient-to-b from-mocha-50 to-white dark:from-mocha-900 dark:to-mocha-950">
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-teal-500/10 border border-border bg-gradient-to-b from-muted to-card">
                 <div className="aspect-video flex items-center justify-center bg-gradient-to-br from-teal-50 via-gold-50 to-sage-50 dark:from-teal-950/30 dark:via-gold-950/30 dark:to-sage-950/30">
                   <div className="text-center p-8">
                     <div className="w-20 h-20 rounded-full bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-teal-500/30 cursor-pointer hover:scale-110 transition-transform">
@@ -310,7 +310,7 @@ export default async function Home() {
                 </div>
               </div>
               {/* Floating Elements */}
-              <div className="absolute -left-4 top-1/4 bg-white dark:bg-mocha-800 rounded-xl shadow-xl p-4 hidden lg:block animate-bounce" style={{ animationDuration: '3s' }}>
+              <div className="absolute -left-4 top-1/4 bg-card rounded-xl shadow-xl p-4 hidden lg:block animate-bounce" style={{ animationDuration: '3s' }}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-sage-100 dark:bg-sage-900/30 flex items-center justify-center">
                     <CheckCircle2 className="h-5 w-5 text-sage-500" />
@@ -321,7 +321,7 @@ export default async function Home() {
                   </div>
                 </div>
               </div>
-              <div className="absolute -right-4 top-1/3 bg-white dark:bg-mocha-800 rounded-xl shadow-xl p-4 hidden lg:block animate-bounce" style={{ animationDuration: '3s', animationDelay: '1s' }}>
+              <div className="absolute -right-4 top-1/3 bg-card rounded-xl shadow-xl p-4 hidden lg:block animate-bounce" style={{ animationDuration: '3s', animationDelay: '1s' }}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center">
                     <Sparkles className="h-5 w-5 text-teal-500" />
@@ -368,7 +368,7 @@ export default async function Home() {
               {features.map((feature, index) => (
                 <div
                   key={index}
-                  className="group relative p-8 rounded-2xl bg-white dark:bg-mocha-900 border border-mocha-200 dark:border-mocha-800 hover:shadow-xl hover:shadow-teal-500/5 transition-all duration-300 hover:-translate-y-1"
+                  className="group relative p-8 rounded-2xl bg-card border border-border hover:shadow-xl hover:shadow-teal-500/5 transition-all duration-300 hover:-translate-y-1"
                 >
                   <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
                     <feature.icon className="h-7 w-7 text-white" />
@@ -439,7 +439,7 @@ export default async function Home() {
               ].map((template, i) => (
                 <div key={i} className="group cursor-pointer">
                   <div className={`aspect-[4/5] rounded-xl bg-gradient-to-br ${template.color} p-4 flex flex-col justify-end transition-transform group-hover:scale-105 shadow-lg`}>
-                    <div className="bg-white/90 dark:bg-mocha-900/90 backdrop-blur-sm rounded-lg p-3">
+                    <div className="bg-card/90 backdrop-blur-sm rounded-lg p-3">
                       <p className="font-semibold text-mocha-900 dark:text-white text-sm">{template.name}</p>
                       <p className="text-xs text-mocha-500 dark:text-mocha-400">{template.style}</p>
                     </div>
@@ -476,7 +476,7 @@ export default async function Home() {
               {testimonials.map((testimonial, index) => (
                 <div
                   key={index}
-                  className="p-8 rounded-2xl bg-white dark:bg-mocha-900 border border-mocha-200 dark:border-mocha-800 shadow-sm"
+                  className="p-8 rounded-2xl bg-card border border-border shadow-sm"
                 >
                   <div className="flex gap-1 mb-4">
                     {[...Array(testimonial.rating)].map((_, i) => (
@@ -515,7 +515,7 @@ export default async function Home() {
                   className={`relative p-8 rounded-2xl ${
                     plan.highlighted
                       ? 'bg-gradient-to-b from-teal-600 to-teal-800 text-white shadow-xl shadow-teal-600/40 scale-105'
-                      : 'bg-white dark:bg-mocha-900 border border-mocha-200 dark:border-mocha-800'
+                      : 'bg-card border border-border'
                   }`}
                 >
                   {plan.highlighted && (
@@ -552,7 +552,7 @@ export default async function Home() {
                     className={`block w-full py-3 text-center font-medium rounded-lg transition-colors ${
                       plan.highlighted
                         ? 'bg-white text-teal-600 hover:bg-mocha-100'
-                        : 'bg-mocha-100 dark:bg-mocha-800 text-mocha-900 dark:text-white hover:bg-mocha-200 dark:hover:bg-mocha-700'
+                        : 'bg-muted text-foreground hover:bg-muted/80'
                     }`}
                   >
                     {plan.cta}

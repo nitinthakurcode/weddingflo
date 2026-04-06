@@ -210,7 +210,7 @@ function generateActionDescription(
 ): string {
   switch (toolName) {
     case 'create_client':
-      return `Create new wedding for ${args.partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}`
+      return `Create new wedding for ${args.weddingName || (args.partner1FirstName + (args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''))}`
 
     case 'update_client':
       return `Update client ${args.clientId}`
@@ -632,82 +632,6 @@ function getModuleFromToolName(toolName: string): SyncAction['module'] {
 // BUDGET TEMPLATES FOR CLIENT CREATION
 // ============================================
 
-type BudgetCategorySegment = 'vendors' | 'artists' | 'creatives' | 'travel' | 'accommodation' | 'other'
-
-const BUDGET_TEMPLATES: Record<WeddingType, Array<{
-  category: string
-  item: string
-  segment: BudgetCategorySegment
-  percentage: number
-}>> = {
-  traditional: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 40 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 25 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 10 },
-    { category: 'videography', item: 'Videography', segment: 'vendors', percentage: 5 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 8 },
-    { category: 'music', item: 'Music & Entertainment', segment: 'artists', percentage: 5 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 4 },
-    { category: 'stationery', item: 'Invitations & Stationery', segment: 'creatives', percentage: 3 },
-  ],
-  destination: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 25 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 15 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 8 },
-    { category: 'travel', item: 'Travel & Logistics', segment: 'travel', percentage: 20 },
-    { category: 'accommodation', item: 'Guest Accommodations', segment: 'accommodation', percentage: 15 },
-  ],
-  intimate: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 35 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 30 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 15 },
-    { category: 'florals', item: 'Florals & Decor', segment: 'vendors', percentage: 10 },
-  ],
-  elopement: [
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 30 },
-    { category: 'venue', item: 'Venue/Location', segment: 'vendors', percentage: 20 },
-    { category: 'attire', item: 'Attire & Beauty', segment: 'other', percentage: 20 },
-    { category: 'travel', item: 'Travel & Logistics', segment: 'travel', percentage: 20 },
-  ],
-  multi_day: [
-    { category: 'venue', item: 'Venues (Multiple)', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Catering (Multiple Events)', segment: 'vendors', percentage: 20 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 10 },
-    { category: 'accommodation', item: 'Guest Accommodations', segment: 'accommodation', percentage: 12 },
-  ],
-  cultural: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 20 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 8 },
-    { category: 'cultural', item: 'Cultural Ceremonies & Rituals', segment: 'vendors', percentage: 8 },
-  ],
-  modern: [
-    { category: 'venue', item: 'Venue & Rentals', segment: 'vendors', percentage: 35 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 25 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 12 },
-  ],
-  rustic: [
-    { category: 'venue', item: 'Barn/Farm Venue', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Farm-to-Table Catering', segment: 'vendors', percentage: 25 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 12 },
-  ],
-  bohemian: [
-    { category: 'venue', item: 'Outdoor/Unique Venue', segment: 'vendors', percentage: 25 },
-    { category: 'catering', item: 'Organic Catering', segment: 'vendors', percentage: 22 },
-    { category: 'photography', item: 'Photography', segment: 'vendors', percentage: 15 },
-  ],
-  religious: [
-    { category: 'venue', item: 'Ceremony & Reception Venues', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Catering & Bar', segment: 'vendors', percentage: 22 },
-    { category: 'religious', item: 'Religious Services & Officiant', segment: 'vendors', percentage: 8 },
-  ],
-  luxury: [
-    { category: 'venue', item: 'Premium Venue', segment: 'vendors', percentage: 30 },
-    { category: 'catering', item: 'Gourmet Catering & Fine Wines', segment: 'vendors', percentage: 20 },
-    { category: 'photography', item: 'High-End Photography', segment: 'vendors', percentage: 10 },
-    { category: 'planner', item: 'Wedding Planner', segment: 'vendors', percentage: 2 },
-  ],
-}
 
 // ============================================
 // TOOL HANDLERS - CLIENT MUTATIONS
@@ -780,7 +704,7 @@ async function executeCreateClient(
     // Auto-create main wedding event if wedding_date is provided
     let mainEventId: string | null = null
     if (args.weddingDate) {
-      const eventTitle = `${partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}'s Wedding`
+      const eventTitle = `${(args.weddingName as string) || (partner1FirstName + (args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''))}'s Wedding`
 
       const [createdEvent] = await tx
         .insert(events)
@@ -806,34 +730,6 @@ async function executeCreateClient(
           entityId: createdEvent.id,
         })
       }
-    }
-
-    // Auto-populate budget categories based on wedding type
-    if (args.budget && (args.budget as number) > 0) {
-      const weddingType = (args.weddingType as WeddingType) || 'traditional'
-      const budgetTemplate = BUDGET_TEMPLATES[weddingType] || BUDGET_TEMPLATES.traditional
-
-      const budgetItems = budgetTemplate.map((item) => ({
-        id: crypto.randomUUID(),
-        clientId: newClient.id,
-        companyId: ctx.companyId || undefined,
-        category: item.category,
-        segment: item.segment,
-        item: item.item,
-        estimatedCost: (((args.budget as number) * item.percentage) / 100).toFixed(2),
-        paidAmount: '0',
-        paymentStatus: 'pending',
-        clientVisible: true,
-        notes: `Auto-generated based on ${weddingType} wedding budget allocation`,
-      }))
-
-      await tx.insert(budget).values(budgetItems)
-
-      cascadeResults.push({
-        action: `Created ${budgetItems.length} budget categories`,
-        entityType: 'budget',
-        entityId: newClient.id,
-      })
     }
 
     // Auto-create vendors from comma-separated list
@@ -933,7 +829,7 @@ async function executeCreateClient(
     // Recalculate client cached budget total and guest count
     await recalcClientStats(tx, newClient.id)
 
-    const displayName = `${partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}`
+    const displayName = (args.weddingName as string) || `${partner1FirstName}${args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''}`
 
     return {
       success: true,
@@ -1052,7 +948,7 @@ async function executeUpdateClient(
       }
     } else if (args.weddingDate) {
       // No main event exists but wedding_date was provided - create one
-      const eventTitle = `${updatedClient.partner1FirstName}${updatedClient.partner2FirstName ? ` & ${updatedClient.partner2FirstName}` : ''}'s Wedding`
+      const eventTitle = `${updatedClient.weddingName || (updatedClient.partner1FirstName + (updatedClient.partner2FirstName ? ` & ${updatedClient.partner2FirstName}` : ''))}'s Wedding`
 
       try {
         const [newEvent] = await db
@@ -1085,7 +981,7 @@ async function executeUpdateClient(
     }
   }
 
-  const displayName = `${updatedClient.partner1FirstName}${updatedClient.partner2FirstName ? ` & ${updatedClient.partner2FirstName}` : ''}`
+  const displayName = updatedClient.weddingName || `${updatedClient.partner1FirstName}${updatedClient.partner2FirstName ? ` & ${updatedClient.partner2FirstName}` : ''}`
 
   return {
     success: true,
@@ -1399,6 +1295,7 @@ async function executeSearchEntities(
     const clientResults = await db
       .select({
         id: clients.id,
+        weddingName: clients.weddingName,
         partner1FirstName: clients.partner1FirstName,
         partner1LastName: clients.partner1LastName,
         partner2FirstName: clients.partner2FirstName,
@@ -1423,7 +1320,7 @@ async function executeSearchEntities(
       results.push({
         type: 'client',
         id: c.id,
-        name: `${c.partner1FirstName} ${c.partner1LastName || ''} & ${c.partner2FirstName || 'Partner'}`.trim(),
+        name: c.weddingName || `${c.partner1FirstName} ${c.partner1LastName || ''} & ${c.partner2FirstName || 'Partner'}`.trim(),
         details: c.weddingDate || 'No date set',
       })
     }
@@ -3254,7 +3151,7 @@ async function executeSendCommunication(
       recipients: recipients.map(r => ({ name: r.name, email: r.email, type: r.type })),
       communicationType,
       language,
-      clientName: `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`,
+      clientName: client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`,
     },
     message: `📧 Prepared ${communicationDescription} for ${recipients.length} ${recipientTypeDescription}. Email sending would be queued in production.`,
   }
@@ -3584,7 +3481,7 @@ async function executeGetWeddingSummary(
     }
   }
 
-  const coupleNames = `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
+  const coupleNames = client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
 
   const summary = {
     wedding: {
@@ -3828,7 +3725,7 @@ async function executeGetRecommendations(
     }
   }
 
-  const coupleNames = `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
+  const coupleNames = client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
 
   return {
     success: true,
@@ -4611,7 +4508,7 @@ async function executeQueryCrossClientEvents(
       venueName: events.venueName,
       status: events.status,
       clientId: events.clientId,
-      clientName: sql<string>`${clients.partner1FirstName} || ' & ' || coalesce(${clients.partner2FirstName}, '')`,
+      clientName: sql<string>`coalesce(${clients.weddingName}, ${clients.partner1FirstName} || ' & ' || coalesce(${clients.partner2FirstName}, ''))`,
     })
     .from(events)
     .innerJoin(clients, eq(events.clientId, clients.id))
@@ -5655,7 +5552,7 @@ async function executeCreateInvoice(
 
   // Verify client access
   const [client] = await db
-    .select({ id: clients.id, partner1FirstName: clients.partner1FirstName })
+    .select({ id: clients.id, weddingName: clients.weddingName, partner1FirstName: clients.partner1FirstName, partner2FirstName: clients.partner2FirstName })
     .from(clients)
     .where(and(eq(clients.id, resolvedClientId), eq(clients.companyId, ctx.companyId!)))
     .limit(1)
@@ -5694,7 +5591,7 @@ async function executeCreateInvoice(
       amount: newInvoice.amount,
       status: newInvoice.status,
       dueDate: newInvoice.dueDate,
-      clientName: client.partner1FirstName,
+      clientName: client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`,
     },
     message: `💰 Created invoice: ${typeLabel} - ${currency} ${amount.toLocaleString()} (due ${parsedDueDate.toLocaleDateString()})`,
   }
@@ -6243,6 +6140,7 @@ async function executeSyncCalendar(
   const [client] = await db
     .select({
       id: clients.id,
+      weddingName: clients.weddingName,
       partner1FirstName: clients.partner1FirstName,
       partner2FirstName: clients.partner2FirstName,
     })
@@ -6383,7 +6281,7 @@ async function executeSyncCalendar(
       }
     }
 
-    const clientDisplayName = `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
+    const clientDisplayName = client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
 
     return {
       success: true,
@@ -6426,7 +6324,7 @@ async function executeSyncCalendar(
     }
 
     const feedUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/feed/${icalToken.token}`
-    const clientDisplayName = `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
+    const clientDisplayName = client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
 
     return {
       success: true,
@@ -6481,6 +6379,7 @@ async function executeGetDocumentUploadUrl(
   const [client] = await db
     .select({
       id: clients.id,
+      weddingName: clients.weddingName,
       partner1FirstName: clients.partner1FirstName,
       partner2FirstName: clients.partner2FirstName,
     })
@@ -6539,7 +6438,7 @@ async function executeGetDocumentUploadUrl(
     },
   }
 
-  const clientDisplayName = `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
+  const clientDisplayName = client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
 
   return {
     success: true,

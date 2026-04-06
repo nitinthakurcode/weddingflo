@@ -320,6 +320,7 @@ export const messagesRouter = router({
           role: schema.teamClientAssignments.role,
           client: {
             id: schema.clients.id,
+            weddingName: schema.clients.weddingName,
             partner1FirstName: schema.clients.partner1FirstName,
             partner1LastName: schema.clients.partner1LastName,
             partner2FirstName: schema.clients.partner2FirstName,
@@ -353,9 +354,9 @@ export const messagesRouter = router({
       // Add client-specific channels
       assignments.forEach(a => {
         if (a.clientId && a.client) {
-          const clientName = a.client.partner2FirstName
+          const clientName = a.client.weddingName || (a.client.partner2FirstName
             ? `${a.client.partner1FirstName} & ${a.client.partner2FirstName}`
-            : `${a.client.partner1FirstName} ${a.client.partner1LastName}`;
+            : `${a.client.partner1FirstName} ${a.client.partner1LastName}`);
 
           channels.push({
             id: `team_client_${a.client.id}`,
@@ -372,6 +373,7 @@ export const messagesRouter = router({
         const allClients = await db
           .select({
             id: schema.clients.id,
+            weddingName: schema.clients.weddingName,
             partner1FirstName: schema.clients.partner1FirstName,
             partner1LastName: schema.clients.partner1LastName,
             partner2FirstName: schema.clients.partner2FirstName,
@@ -388,9 +390,9 @@ export const messagesRouter = router({
         allClients.forEach(client => {
           const existing = channels.find(c => c.clientId === client.id);
           if (!existing) {
-            const clientName = client.partner2FirstName
+            const clientName = client.weddingName || (client.partner2FirstName
               ? `${client.partner1FirstName} & ${client.partner2FirstName}`
-              : `${client.partner1FirstName} ${client.partner1LastName}`;
+              : `${client.partner1FirstName} ${client.partner1LastName}`);
 
             channels.push({
               id: `team_client_${client.id}`,

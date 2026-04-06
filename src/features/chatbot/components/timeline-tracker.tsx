@@ -105,11 +105,11 @@ export function TimelineTracker({
               <div className="flex-shrink-0 mt-0.5">
                 {isCompleted ? (
                   <div className="h-7 w-7 rounded-full bg-green-500 flex items-center justify-center">
-                    <CheckCircle2 className="h-4 w-4 text-white" />
+                    <CheckCircle2 className="h-4 w-4 text-primary-foreground" />
                   </div>
                 ) : isCurrent ? (
                   <div className="h-7 w-7 rounded-full bg-teal-500 flex items-center justify-center animate-pulse">
-                    <Play className="h-3 w-3 text-white" />
+                    <Play className="h-3 w-3 text-primary-foreground" />
                   </div>
                 ) : (
                   <div className="h-7 w-7 rounded-full border-2 border-mocha-300 dark:border-mocha-600 flex items-center justify-center">

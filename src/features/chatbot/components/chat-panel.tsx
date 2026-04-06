@@ -451,7 +451,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-teal-500 to-gold-500 flex items-center justify-center">
-                    <Sparkles className="h-4 w-4 text-white" />
+                    <Sparkles className="h-4 w-4 text-primary-foreground" />
                   </div>
                   <div>
                     <SheetTitle className="text-sm font-semibold">
@@ -676,7 +676,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
                 {/* Avatar */}
                 {message.role === 'assistant' && (
                   <div className="h-7 w-7 rounded-full bg-gradient-to-br from-teal-500 to-gold-500 flex items-center justify-center flex-shrink-0">
-                    <Bot className="h-4 w-4 text-white" />
+                    <Bot className="h-4 w-4 text-primary-foreground" />
                   </div>
                 )}
 
@@ -685,7 +685,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
                   className={cn(
                     'max-w-[80%] rounded-2xl px-4 py-2.5',
                     message.role === 'user'
-                      ? 'bg-teal-500 text-white rounded-br-md'
+                      ? 'bg-teal-500 text-primary-foreground rounded-br-md'
                       : 'bg-cloud-100 dark:bg-mocha-800 text-mocha-900 dark:text-mocha-100 rounded-bl-md',
                     message.status === 'pending' && 'animate-pulse',
                     message.status === 'streaming' && 'border-l-2 border-teal-500'
@@ -730,7 +730,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
 
                       {/* Pending confirmation preview */}
                       {pendingConfirmation?.messageId === message.id && (
-                        <div className="mt-3 p-3 bg-white/50 dark:bg-mocha-900/50 rounded-lg border border-gold-200 dark:border-gold-800">
+                        <div className="mt-3 p-3 bg-card/50 rounded-lg border border-gold-200 dark:border-gold-800">
                           <div className="flex items-center gap-2 mb-2">
                             <AlertCircle className="h-4 w-4 text-gold-500" />
                             <span className="text-xs font-medium text-gold-700 dark:text-gold-300">
@@ -808,7 +808,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
         </ScrollArea>
 
         {/* Input */}
-        <div className="p-4 border-t bg-white dark:bg-mocha-900">
+        <div className="p-4 border-t bg-card">
           {/* Save as template prompt */}
           {lastSuccessfulCommand && !voiceInput.isListening && (
             <div className="mb-2 p-2 bg-gold-50 dark:bg-gold-900/20 rounded-lg flex items-center justify-between">

@@ -118,8 +118,9 @@ export function ClientSelector() {
             )}>
               {currentClient ? (
                 <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
-                  {currentClient.partner1FirstName?.[0] || '?'}
-                  {currentClient.partner2FirstName?.[0] || ''}
+                  {currentClient.weddingName
+                    ? currentClient.weddingName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+                    : (currentClient.partner1FirstName?.[0] || '?') + (currentClient.partner2FirstName?.[0] || '')}
                 </span>
               ) : (
                 <Sparkles className="w-4 h-4 text-primary-500/70" />
@@ -130,8 +131,7 @@ export function ClientSelector() {
             {currentClient ? (
               <div className="flex flex-col items-start min-w-0 flex-1 text-left">
                 <span className="font-semibold text-sm text-foreground truncate w-full leading-tight">
-                  {currentClient.partner1FirstName}
-                  {currentClient.partner2FirstName && ` & ${currentClient.partner2FirstName}`}
+                  {currentClient.weddingName || `${currentClient.partner1FirstName}${currentClient.partner2FirstName ? ` & ${currentClient.partner2FirstName}` : ''}`}
                 </span>
                 {currentClient.weddingDate && (
                   <span className="text-[11px] text-muted-foreground/80 flex items-center gap-1 mt-0.5">
@@ -161,14 +161,14 @@ export function ClientSelector() {
               <div className="flex items-center gap-3 py-1">
                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500/10 to-secondary-500/10 flex items-center justify-center border border-primary-200/20">
                   <span className="text-xs font-bold text-primary-600 dark:text-primary-400">
-                    {client.partner1FirstName?.[0] || '?'}
-                    {client.partner2FirstName?.[0] || ''}
+                    {client.weddingName
+                      ? client.weddingName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+                      : (client.partner1FirstName?.[0] || '?') + (client.partner2FirstName?.[0] || '')}
                   </span>
                 </div>
                 <div className="flex flex-col">
                   <span className="font-medium text-sm">
-                    {client.partner1FirstName}{client.partner1LastName && ` ${client.partner1LastName}`}
-                    {client.partner2FirstName && ` & ${client.partner2FirstName}`}
+                    {client.weddingName || `${client.partner1FirstName}${client.partner1LastName ? ` ${client.partner1LastName}` : ''}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
                     {client.weddingDate

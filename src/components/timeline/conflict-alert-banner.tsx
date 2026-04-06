@@ -60,7 +60,7 @@ export function ConflictAlertBanner({ conflicts }: ConflictAlertBannerProps) {
           <Button
             variant="outline"
             size="sm"
-            className="bg-white hover:bg-gray-100"
+            className="bg-card hover:bg-muted"
             onClick={() => setIsOpen(true)}
           >
             View All Conflicts

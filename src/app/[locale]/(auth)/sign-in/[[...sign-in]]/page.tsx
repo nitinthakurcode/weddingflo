@@ -179,7 +179,7 @@ export default function SignInPage() {
             {/* Safari blocks programmatic JS redirects, but follows server 302 redirects */}
             <a
               href={`/api/auth/google?locale=${locale}&callbackURL=/dashboard`}
-              className="inline-flex items-center justify-center w-full h-12 text-base font-medium rounded-lg bg-white/80 dark:bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/90 dark:hover:bg-white/20 hover:scale-[1.02] transition-all duration-300 text-foreground"
+              className="inline-flex items-center justify-center w-full h-12 text-base font-medium rounded-lg bg-card/80 backdrop-blur-md border border-border hover:bg-card/90 hover:scale-[1.02] transition-all duration-300 text-foreground"
             >
               <svg className="mr-2 h-5 w-5" viewBox="0 0 24 24">
                 <path

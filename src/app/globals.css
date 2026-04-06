@@ -462,6 +462,25 @@
    DARK MODE VARIABLE OVERRIDES
    ═══════════════════════════════════════════════════════════════ */
 .dark {
+  /* Semantic UI Tokens (Tailwind V4) — required for bg-card, bg-muted, etc. */
+  --color-background: hsl(24 10% 10%);
+  --color-foreground: hsl(40 30% 95%);
+  --color-card: hsl(24 10% 12%);
+  --color-card-foreground: hsl(40 30% 95%);
+  --color-popover: hsl(24 10% 12%);
+  --color-popover-foreground: hsl(40 30% 95%);
+  --color-muted: hsl(24 10% 18%);
+  --color-muted-foreground: hsl(40 20% 65%);
+  --color-border: hsl(24 10% 20%);
+  --color-input: hsl(24 10% 20%);
+  --color-secondary: hsl(24 10% 18%);
+  --color-secondary-foreground: hsl(40 30% 95%);
+  --color-sidebar: hsl(24 10% 10%);
+  --color-sidebar-foreground: hsl(40 30% 95%);
+  --color-sidebar-border: hsl(24 10% 20%);
+  --color-sidebar-accent: hsl(24 10% 18%);
+  --color-sidebar-accent-foreground: hsl(40 30% 95%);
+
   /* Text Colors */
   --text-primary: hsl(40 30% 95%);
   --text-secondary: hsl(40 20% 70%);

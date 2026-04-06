@@ -120,7 +120,7 @@ function EventCheckboxes({
             className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
               isChecked
                 ? 'border-pink-400 bg-pink-50'
-                : 'border-gray-200 hover:border-pink-200 hover:bg-pink-50/50'
+                : 'border-border hover:border-pink-200 hover:bg-pink-50/50'
             }`}
           >
             <input
@@ -132,7 +132,7 @@ function EventCheckboxes({
                   : selectedEvents.filter(id => id !== event.id);
                 onChange(newEvents);
               }}
-              className="h-4 w-4 rounded border-gray-300 accent-pink-500"
+              className="h-4 w-4 rounded border-border accent-pink-500"
             />
             <div className="flex-1">
               <p className="font-medium text-sm">{event.title}</p>
@@ -319,7 +319,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-rose-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-card to-rose-50 p-4">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="text-center space-y-4">
@@ -334,7 +334,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
 
   if (error && !clientInfo) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-rose-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-card to-rose-50 p-4">
         <Card className="w-full max-w-md border-destructive">
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -374,7 +374,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
     };
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-rose-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-card to-rose-50 p-4">
         <Card className="w-full max-w-md border-green-500">
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -405,7 +405,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50 p-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-card to-rose-50 p-4 py-8">
       <div className="container mx-auto max-w-2xl">
         {/* Event Header */}
         <Card className="mb-6 border-pink-200 bg-gradient-to-r from-pink-50 to-rose-50">
@@ -447,7 +447,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
                   value={String(partySize)}
                   onValueChange={(value) => setValue('partySize', parseInt(value))}
                 >
-                  <SelectTrigger className="w-full bg-white">
+                  <SelectTrigger className="w-full bg-card">
                     <SelectValue placeholder="Select number of guests" />
                   </SelectTrigger>
                   <SelectContent>
@@ -466,7 +466,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
               </div>
 
               {/* Guest 1 (Primary Guest) */}
-              <div className="space-y-4 p-4 border rounded-lg bg-white">
+              <div className="space-y-4 p-4 border rounded-lg bg-card">
                 <div className="flex items-center gap-2 text-pink-600 border-b pb-2">
                   <User className="h-4 w-4" />
                   <h3 className="font-medium text-sm">Guest 1 (You) - Primary Contact</h3>
@@ -627,7 +627,7 @@ export default function GuestRegisterPage({ params }: PageProps) {
                 const guestEvents = watch(`additionalGuests.${index}.attendingEvents`) || [];
 
                 return (
-                  <div key={field.id} className="space-y-4 p-4 border rounded-lg bg-gray-50/50">
+                  <div key={field.id} className="space-y-4 p-4 border rounded-lg bg-muted/50">
                     <div className="flex items-center gap-2 text-pink-600 border-b pb-2">
                       <User className="h-4 w-4" />
                       <h3 className="font-medium text-sm">Guest {guestNumber}</h3>

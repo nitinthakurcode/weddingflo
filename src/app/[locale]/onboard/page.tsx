@@ -128,10 +128,10 @@ export default function OnboardPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-screen items-center justify-center bg-muted">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-red-600">Onboarding Error</h2>
-          <p className="mt-2 text-gray-600">{error}</p>
+          <p className="mt-2 text-muted-foreground">{error}</p>
           <button
             onClick={() => window.location.reload()}
             className="mt-4 rounded-md bg-primary px-4 py-2 text-white hover:bg-primary"
@@ -144,11 +144,11 @@ export default function OnboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+    <div className="flex min-h-screen items-center justify-center bg-muted">
       <div className="text-center">
         <PageLoader />
-        <h2 className="mt-4 text-2xl font-bold text-gray-900">Setting up your account</h2>
-        <p className="mt-2 text-gray-600">This will only take a moment...</p>
+        <h2 className="mt-4 text-2xl font-bold text-foreground">Setting up your account</h2>
+        <p className="mt-2 text-muted-foreground">This will only take a moment...</p>
       </div>
     </div>
   );

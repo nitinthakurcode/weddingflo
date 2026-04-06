@@ -92,7 +92,7 @@ export const CREATIVE_STATUS_LABELS: Record<CreativeStatus, string> = {
 };
 
 export const CREATIVE_STATUS_COLORS: Record<CreativeStatus, string> = {
-  pending: 'bg-gray-200 text-gray-700',
+  pending: 'bg-muted text-muted-foreground',
   in_progress: 'bg-blue-200 text-blue-700',
   review: 'bg-yellow-200 text-yellow-700',
   approved: 'bg-green-200 text-green-700',
@@ -108,7 +108,7 @@ export const PRIORITY_LABELS = {
 };
 
 export const PRIORITY_COLORS = {
-  low: 'bg-gray-100 text-gray-600',
+  low: 'bg-muted text-muted-foreground',
   medium: 'bg-blue-100 text-blue-600',
   high: 'bg-orange-100 text-orange-600',
   urgent: 'bg-red-100 text-red-600',

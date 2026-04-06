@@ -1,14 +1,22 @@
 'use client';
 
 import { trpc } from '@/lib/trpc/client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/lib/auth-client';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 import { ChatBox } from '@/components/chat/ChatBox';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -36,7 +44,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useForm } from 'react-hook-form';
 import type { Client, EventStatus } from '@/lib/db/types';
-import { Loader2, Plus, Search, Calendar, Users, CheckCircle2, AlertCircle, MessageCircle, Sparkles, CalendarDays, Heart, TrendingUp, Zap } from 'lucide-react';
+import { Loader2, Plus, Trash2, Search, Calendar, Users, CheckCircle2, AlertCircle, MessageCircle, Sparkles, CalendarDays, Heart, TrendingUp, Zap, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useParams } from 'next/navigation';
 import { useRouter } from '@/lib/navigation';
@@ -65,7 +73,59 @@ interface CreateClientForm {
   budget?: number;
   guest_count?: number;
   notes?: string;
+  planning_side?: 'bride_side' | 'groom_side' | 'both';
+  wedding_type?: 'traditional' | 'destination' | 'intimate' | 'elopement' | 'multi_day' | 'cultural';
 }
+
+interface EventBrief {
+  id: string
+  name: string
+  date: string
+  venue: string
+  guest_count: string
+  start_time: string
+  duration_hours: number
+  duration_minutes: number
+  end_time: string
+  required_vendors: string
+  already_booked: boolean
+  notes: string
+}
+
+const generateId = () => Math.random().toString(36).substring(2, 11)
+
+const calculateEndTime = (startTime: string, durationHours: number, durationMinutes: number): string => {
+  if (!startTime) return ''
+  const [hours, minutes] = startTime.split(':').map(Number)
+  const totalMinutes = hours * 60 + minutes + durationHours * 60 + durationMinutes
+  const endHours = Math.floor(totalMinutes / 60) % 24
+  const endMinutes = totalMinutes % 60
+  return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`
+}
+
+const formatTime12h = (time24: string): string => {
+  if (!time24) return ''
+  const [hours, minutes] = time24.split(':').map(Number)
+  if (isNaN(hours) || isNaN(minutes)) return time24
+  const period = hours >= 12 ? 'PM' : 'AM'
+  const displayHours = hours % 12 || 12
+  return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}`
+}
+
+const createEmptyEvent = (): EventBrief => ({
+  id: generateId(),
+  name: '',
+  date: '',
+  venue: '',
+  guest_count: '',
+  start_time: '',
+  duration_hours: 2,
+  duration_minutes: 0,
+  end_time: '',
+  required_vendors: '',
+  already_booked: false,
+  notes: '',
+})
 
 export default function DashboardPage() {
   const { data: session } = useSession();
@@ -89,9 +149,35 @@ export default function DashboardPage() {
   });
   const [currentUserDbId, setCurrentUserDbId] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('');
+  const [eventBriefs, setEventBriefs] = useState<EventBrief[]>([createEmptyEvent()]);
+  const [eventBriefOpen, setEventBriefOpen] = useState(true);
   const { toast } = useToast();
 
   const utils = trpc.useUtils();
+
+  // Event brief handlers
+  const addEvent = useCallback(() => {
+    setEventBriefs(prev => [...prev, createEmptyEvent()])
+  }, [])
+
+  const removeEvent = useCallback((id: string) => {
+    setEventBriefs(prev => prev.filter(e => e.id !== id))
+  }, [])
+
+  const updateEvent = useCallback((id: string, field: keyof EventBrief, value: any) => {
+    setEventBriefs(prev => prev.map(event => {
+      if (event.id !== id) return event
+      const updated = { ...event, [field]: value }
+      if (field === 'start_time' || field === 'duration_hours' || field === 'duration_minutes') {
+        updated.end_time = calculateEndTime(
+          field === 'start_time' ? value : updated.start_time,
+          field === 'duration_hours' ? value : updated.duration_hours,
+          field === 'duration_minutes' ? value : updated.duration_minutes
+        )
+      }
+      return updated
+    }))
+  }, [])
 
   const { data: clients, isLoading, error, refetch } = trpc.clients.list.useQuery(
     { search },
@@ -102,19 +188,83 @@ export default function DashboardPage() {
     }
   ) as { data: Client[] | undefined; isLoading: boolean; error: any; refetch: () => void };
 
+  const createEventMutation = trpc.events.create.useMutation({
+    onError: (error) => {
+      console.error('Failed to create event:', error.message)
+    },
+  })
+
+  const bulkCreateVendorsMutation = trpc.vendors.bulkCreateFromCommaList.useMutation({
+    onError: (error) => {
+      console.error('Failed to auto-create vendors:', error.message)
+    },
+  })
+
   const createClient = trpc.clients.create.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (newClient) => {
+      // Create per-event entries with vendors assigned to their specific event.
+      // Create events from event briefs. Event 1 uses form values (single source of truth).
+      const formValues = getValues()
+      for (const [idx, event] of eventBriefs.entries()) {
+        const isFirst = idx === 0
+        const eventName = isFirst ? (formValues.wedding_name || '') : event.name
+        const eventDate = isFirst ? (formValues.wedding_date || '') : event.date
+        const eventVenue = isFirst ? (formValues.venue || '') : event.venue
+        const eventGuestCount = isFirst ? (formValues.guest_count ? String(formValues.guest_count) : '') : event.guest_count
+
+        if (!eventName || !eventDate) continue
+
+        let eventNotes = event.notes || ''
+        if (event.required_vendors) {
+          eventNotes += (eventNotes ? '\n\n' : '') + `Required Vendors: ${event.required_vendors}`
+        }
+        if (event.already_booked) {
+          eventNotes += (eventNotes ? '\n\n' : '') + '[Vendors Already Booked]'
+        }
+
+        try {
+          const createdEvent = await createEventMutation.mutateAsync({
+            clientId: newClient.id,
+            title: eventName,
+            eventType: eventName.toLowerCase().replace(/\s+/g, '_'),
+            eventDate: eventDate,
+            venueName: eventVenue || undefined,
+            guestCount: eventGuestCount ? parseInt(eventGuestCount) : undefined,
+            startTime: event.start_time || undefined,
+            endTime: event.end_time || undefined,
+            notes: eventNotes || undefined,
+          })
+
+          // Create per-event vendors from required_vendors
+          if (event.required_vendors && !event.already_booked && createdEvent?.id) {
+            try {
+              await bulkCreateVendorsMutation.mutateAsync({
+                clientId: newClient.id,
+                eventId: createdEvent.id,
+                vendorNames: event.required_vendors,
+              })
+            } catch (vendorError) {
+              console.error('Failed to auto-create vendors for event:', vendorError)
+            }
+          }
+        } catch (error) {
+          console.error('Failed to create event:', error)
+        }
+      }
+
       setIsCreateOpen(false);
       reset();
+      setEventBriefs([createEmptyEvent()]);
       toast({
         title: tc('success'),
         description: t('clientCreated'),
       });
-      // Invalidate global cache to update stats everywhere
-      // Also invalidate events since we auto-create a main wedding event
+      // Invalidate all affected caches: clients, events, vendors, budget
       await Promise.all([
         utils.clients.list.invalidate(),
-        utils.events.invalidate(), // Auto-created event needs to appear in events pages
+        utils.events.invalidate(),
+        utils.vendors.invalidate(),
+        utils.budget.invalidate(),
       ]);
     },
     onError: (error) => {
@@ -161,13 +311,24 @@ export default function DashboardPage() {
     reset,
     watch,
     setValue,
+    getValues,
   } = useForm<CreateClientForm>();
 
+  // Event 1 reads name/date/venue/guest_count directly from form (single source of truth).
+
   const onSubmit = (data: CreateClientForm) => {
+    // Always skip server-side auto-creation — onSuccess creates events per-event-brief.
+    // Event 1 gets name/date from form, Event 2+ from eventBriefs.
+    const hasEvent1 = !!(data.wedding_name && data.wedding_date)
+    const hasOtherEvents = eventBriefs.slice(1).some(e => e.name && e.date)
+
     createClient.mutate({
       ...data,
       budget: data.budget ? Number(data.budget) : undefined,
       guest_count: data.guest_count ? Number(data.guest_count) : undefined,
+      planning_side: data.planning_side || 'both',
+      wedding_type: data.wedding_type || 'traditional',
+      skipAutoCreation: hasEvent1 || hasOtherEvents,
     });
   };
 
@@ -323,7 +484,7 @@ export default function DashboardPage() {
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               {/* Wedding Name / Title */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{t('weddingTitle')}</h3>
+                <h3 className="text-sm font-semibold text-foreground">{t('weddingTitle')}</h3>
                 <div className="space-y-2">
                   <Label htmlFor="wedding_name">{t('weddingName')}</Label>
                   <Input
@@ -335,9 +496,55 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* Planning Side & Wedding Type */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{tc('planningSide') || 'Handling Side'}</Label>
+                  <Select
+                    value={watch('planning_side') || 'both'}
+                    onValueChange={(value: 'bride_side' | 'groom_side' | 'both') =>
+                      setValue('planning_side', value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={tc('selectPlanningSide') || 'Select side'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="both">{tc('bothSides') || 'Both Families'}</SelectItem>
+                      <SelectItem value="bride_side">{tc('brideSide') || "Bride's Side"}</SelectItem>
+                      <SelectItem value="groom_side">{tc('groomSide') || "Groom's Side"}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {tc('planningSideHint') || 'Which family are you planning for?'}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>{tc('weddingType') || 'Wedding Type'}</Label>
+                  <Select
+                    value={watch('wedding_type') || 'traditional'}
+                    onValueChange={(value: 'traditional' | 'destination' | 'intimate' | 'elopement' | 'multi_day' | 'cultural') =>
+                      setValue('wedding_type', value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={tc('selectWeddingType') || 'Select type'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="traditional">{tc('typeTraditional') || 'Traditional'}</SelectItem>
+                      <SelectItem value="destination">{tc('typeDestination') || 'Destination'}</SelectItem>
+                      <SelectItem value="multi_day">{tc('typeMultiDay') || 'Multi-Day'}</SelectItem>
+                      <SelectItem value="intimate">{tc('typeIntimate') || 'Intimate'}</SelectItem>
+                      <SelectItem value="elopement">{tc('typeElopement') || 'Elopement'}</SelectItem>
+                      <SelectItem value="cultural">{tc('typeCultural') || 'Cultural'}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               {/* Partner 1 */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{t('partner1Info')} *</h3>
+                <h3 className="text-sm font-semibold text-foreground">{t('partner1Info')} *</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="partner1_first_name">{t('firstName')} *</Label>
@@ -418,7 +625,7 @@ export default function DashboardPage() {
 
               {/* Partner 2 */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{t('partner2Info')}</h3>
+                <h3 className="text-sm font-semibold text-foreground">{t('partner2Info')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="partner2_first_name">{t('firstName')}</Label>
@@ -488,7 +695,7 @@ export default function DashboardPage() {
 
               {/* Wedding Details */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-mocha-900 dark:text-mocha-100">{tc('weddingDetails')}</h3>
+                <h3 className="text-sm font-semibold text-foreground">{tc('weddingDetails')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="wedding_date">{t('weddingDate')}</Label>
@@ -532,13 +739,202 @@ export default function DashboardPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notes">{tc('notes')}</Label>
-                  <Input
+                  <Textarea
                     id="notes"
                     {...register('notes')}
                     placeholder={tc('additionalNotes')}
+                    rows={2}
                   />
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Event Brief Section */}
+              <Collapsible open={eventBriefOpen} onOpenChange={setEventBriefOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent">
+                    <h3 className="text-sm font-semibold">{tc('eventBrief') || 'Event Brief'}</h3>
+                    {eventBriefOpen ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-4 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {tc('eventBriefHint') || 'Add events that are part of this wedding (e.g., Mehndi, Sangeet, Wedding, Reception)'}
+                  </p>
+
+                  {eventBriefs.map((event, index) => (
+                    <Card key={event.id} className="p-4">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-medium">{tc('event') || 'Event'} {index + 1}</h4>
+                          {eventBriefs.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeEvent(event.id)}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+
+                        {index === 0 ? (
+                          /* Event 1: reads from top Wedding Details (single source of truth) */
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{tc('eventName') || 'Event Name'} *</Label>
+                                <Input value={watch('wedding_name') || ''} readOnly className="bg-muted cursor-default" />
+                              </div>
+                              <div>
+                                <Label>{tc('eventDate') || 'Date'} *</Label>
+                                <Input type="date" value={watch('wedding_date') || ''} readOnly className="bg-muted cursor-default" />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{tc('eventVenue') || 'Venue'}</Label>
+                                <Input value={watch('venue') || ''} readOnly className="bg-muted cursor-default" />
+                              </div>
+                              <div>
+                                <Label>{tc('guestCount') || 'Guest Count'}</Label>
+                                <Input value={watch('guest_count') || ''} readOnly className="bg-muted cursor-default" />
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground -mt-2">Details from Wedding section above. Add timing and vendors below.</p>
+                          </>
+                        ) : (
+                          /* Event 2+: independent fields */
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{tc('eventName') || 'Event Name'} *</Label>
+                                <Input
+                                  placeholder={tc('eventNamePlaceholder') || 'e.g., Sangeet, Wedding Ceremony'}
+                                  value={event.name}
+                                  onChange={(e) => updateEvent(event.id, 'name', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <Label>{tc('eventDate') || 'Date'} *</Label>
+                                <Input
+                                  type="date"
+                                  value={event.date}
+                                  onChange={(e) => updateEvent(event.id, 'date', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label>{tc('eventVenue') || 'Venue'}</Label>
+                                <Input
+                                  placeholder={tc('eventVenuePlaceholder') || 'Event venue'}
+                                  value={event.venue}
+                                  onChange={(e) => updateEvent(event.id, 'venue', e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <Label>{tc('guestCount') || 'Guest Count'}</Label>
+                                <Input
+                                  type="number"
+                                  placeholder={tc('expectedGuests') || 'Expected guests'}
+                                  value={event.guest_count}
+                                  onChange={(e) => updateEvent(event.id, 'guest_count', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="grid grid-cols-4 gap-4">
+                          <div>
+                            <Label>{tc('startTime') || 'Start Time'}</Label>
+                            <Input
+                              type="time"
+                              value={event.start_time}
+                              onChange={(e) => updateEvent(event.id, 'start_time', e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label>{tc('durationHours') || 'Hours'}</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              max="24"
+                              value={event.duration_hours}
+                              onChange={(e) => updateEvent(event.id, 'duration_hours', parseInt(e.target.value) || 0)}
+                            />
+                          </div>
+                          <div>
+                            <Label>{tc('durationMinutes') || 'Minutes'}</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              max="59"
+                              step="15"
+                              value={event.duration_minutes}
+                              onChange={(e) => updateEvent(event.id, 'duration_minutes', parseInt(e.target.value) || 0)}
+                            />
+                          </div>
+                          <div>
+                            <Label>{tc('endTime') || 'End Time'}</Label>
+                            <div className="flex items-center h-9 px-3 border rounded-md bg-muted text-muted-foreground">
+                              <Clock className="w-4 h-4 mr-2" />
+                              {event.end_time ? formatTime12h(event.end_time) : '--:--'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label>{tc('requiredVendors') || 'Required Vendors'}</Label>
+                          <Input
+                            placeholder={tc('requiredVendorsPlaceholder') || 'e.g., Photographer, DJ, Caterer'}
+                            value={event.required_vendors}
+                            onChange={(e) => updateEvent(event.id, 'required_vendors', e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Switch
+                            id={`already_booked_${event.id}`}
+                            checked={event.already_booked}
+                            onCheckedChange={(checked) => updateEvent(event.id, 'already_booked', checked)}
+                          />
+                          <Label htmlFor={`already_booked_${event.id}`} className="text-sm">
+                            {tc('vendorsAlreadyBooked') || 'Vendors already booked for this event'}
+                          </Label>
+                        </div>
+
+                        <div>
+                          <Label>{tc('notes')}</Label>
+                          <Textarea
+                            placeholder={tc('eventNotesPlaceholder') || 'Any special requirements or notes'}
+                            value={event.notes}
+                            onChange={(e) => updateEvent(event.id, 'notes', e.target.value)}
+                            rows={2}
+                          />
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={addEvent}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    {tc('addAnotherEvent') || 'Add Another Event'}
+                  </Button>
+                </CollapsibleContent>
+              </Collapsible>
 
               <DialogFooter>
                 <Button
@@ -547,6 +943,7 @@ export default function DashboardPage() {
                   onClick={() => {
                     setIsCreateOpen(false);
                     reset();
+                    setEventBriefs([createEmptyEvent()]);
                   }}
                 >
                   {tc('cancel')}

@@ -13,6 +13,16 @@
  *   - sheets-sync.ts (importGuestsFromSheet + importBudgetFromSheet)
  *   - tool-executor.ts (7 chatbot functions)
  *   - clients.router.ts (create — after budget template creation)
+ *
+ * Budget update policy:
+ *   The clients.budget column serves dual purpose — it holds the user-entered
+ *   budget target (from client create/edit) AND the computed sum of itemized
+ *   costs. To avoid overwriting the user's target with $0 when only auto-created
+ *   placeholder items exist (estimatedCost='0'), we only overwrite clients.budget
+ *   when the computed sum is > 0 (i.e., real itemized costs exist). Once the user
+ *   starts entering actual costs on the budget page, the cached value reflects
+ *   the real sum. The user can always set the target directly via client edit
+ *   (which does NOT call recalcClientStats).
  */
 
 import { eq, sql } from 'drizzle-orm'
@@ -48,10 +58,17 @@ export async function recalcClientStats(
     .where(eq(guests.clientId, clientId))
 
   // 3. Write back to clients table
+  // Only overwrite cached budget when itemized costs sum to > 0.
+  // This preserves the user-entered budget target (set during client create/edit)
+  // until real budget item costs are entered on the budget page.
+  // Auto-created vendor placeholders have estimatedCost='0' and should NOT
+  // zero out the user's entered budget.
+  const budgetTotal = Number(budgetRow?.total ?? '0')
+
   await db
     .update(clients)
     .set({
-      budget: budgetRow?.total ?? '0',
+      ...(budgetTotal > 0 ? { budget: budgetRow?.total ?? '0' } : {}),
       guestCount: guestRow?.count ?? 0,
       updatedAt: new Date(),
     })

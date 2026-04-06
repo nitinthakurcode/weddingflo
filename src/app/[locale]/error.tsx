@@ -61,7 +61,7 @@ export default function Error({
   }, [error])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-muted to-muted/80 px-4">
       <div className="w-full max-w-md space-y-6 text-center">
         <div className="flex justify-center">
           <div className="rounded-full bg-red-100 p-4">
@@ -70,10 +70,10 @@ export default function Error({
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
             {t('somethingWentWrong')}
           </h1>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             {t('apologize')}
           </p>
         </div>
@@ -108,7 +108,7 @@ export default function Error({
           </Button>
         </div>
 
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           {t('contactSupport')}
         </p>
       </div>

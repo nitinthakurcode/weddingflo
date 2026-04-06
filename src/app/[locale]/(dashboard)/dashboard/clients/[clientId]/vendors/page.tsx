@@ -144,8 +144,9 @@ export default function VendorsPage() {
     let filtered = vendors
 
     // Apply event filter
+    // "unassigned" = vendors with no contact name (placeholder service types, no real vendor allotted)
     if (eventFilter === 'unassigned') {
-      filtered = filtered.filter(v => !v.event_id)
+      filtered = filtered.filter(v => !v.contact_name)
     } else if (eventFilter !== 'all') {
       filtered = filtered.filter(v => v.event_id === eventFilter)
     }
@@ -168,16 +169,17 @@ export default function VendorsPage() {
       vendorsToGroup = vendors.filter(v => v.name === categoryFilter)
     }
 
-    const grouped: Record<string, { eventTitle: string; eventDate: string | null; vendors: typeof vendors }> = {}
+    const grouped: Record<string, { eventTitle: string; eventType: string | null; eventDate: string | null; vendors: typeof vendors }> = {}
 
     // Group by event
     vendorsToGroup.forEach(vendor => {
       const eventKey = vendor.event_id || 'unassigned'
       const eventTitle = vendor.event_title || t('unassignedVendors')
+      const eventType = vendor.event_type || null
       const eventDate = vendor.event_date || null
 
       if (!grouped[eventKey]) {
-        grouped[eventKey] = { eventTitle, eventDate, vendors: [] }
+        grouped[eventKey] = { eventTitle, eventType, eventDate, vendors: [] }
       }
       grouped[eventKey].vendors.push(vendor)
     })
@@ -205,15 +207,16 @@ export default function VendorsPage() {
     }
 
     // Group by event
-    const grouped: Record<string, { eventTitle: string; eventDate: string | null; vendors: typeof vendors }> = {}
+    const grouped: Record<string, { eventTitle: string; eventType: string | null; eventDate: string | null; vendors: typeof vendors }> = {}
 
     vendorsToGroup.forEach(vendor => {
       const eventKey = vendor.event_id || 'unassigned'
       const eventTitle = vendor.event_title || t('unassignedVendors')
+      const eventType = vendor.event_type || null
       const eventDate = vendor.event_date || null
 
       if (!grouped[eventKey]) {
-        grouped[eventKey] = { eventTitle, eventDate, vendors: [] }
+        grouped[eventKey] = { eventTitle, eventType, eventDate, vendors: [] }
       }
       grouped[eventKey].vendors.push(vendor)
     })
@@ -489,7 +492,7 @@ export default function VendorsPage() {
               <SelectItem value="unassigned">{t('unassignedVendors')}</SelectItem>
               {events.map((event) => (
                 <SelectItem key={event.id} value={event.id}>
-                  {event.title} ({event.event_date})
+                  {event.event_type ? `${event.event_type} — ` : ''}{event.title} ({event.event_date})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -546,7 +549,9 @@ export default function VendorsPage() {
             <div className="text-center py-8 text-muted-foreground">
               {categoryFilter !== 'all'
                 ? `${t('noVendorsOfType') || 'No vendors found of type'} "${categoryFilter}"`
-                : t('noVendorsYet')}
+                : eventFilter !== 'all'
+                  ? t('noVendorsForEvent')
+                  : t('noVendorsYet')}
             </div>
           ) : categoryFilter !== 'all' && vendorsByCategory ? (
             /* Category filter active - Group by Event to show category across events */
@@ -556,7 +561,7 @@ export default function VendorsPage() {
                   {t('noVendorsOfType') || 'No vendors found of this type'}
                 </div>
               ) : (
-                vendorsByCategory.map(([eventKey, { eventTitle, eventDate, vendors: eventVendors }]) => {
+                vendorsByCategory.map(([eventKey, { eventTitle, eventType, eventDate, vendors: eventVendors }]) => {
                   const isCollapsed = collapsedSections.has(`cat-${eventKey}`)
                   return (
                     <div key={eventKey} className="space-y-3">
@@ -572,6 +577,9 @@ export default function VendorsPage() {
                             <ChevronDown className="w-5 h-5 text-teal-600" />
                           )}
                           <h3 className="font-semibold text-lg">{eventTitle}</h3>
+                          {eventType && (
+                            <Badge variant="secondary" className="text-xs capitalize">{eventType}</Badge>
+                          )}
                           {eventDate && (
                             <Badge variant="outline" className="text-xs">
                               {eventDate}
@@ -610,7 +618,7 @@ export default function VendorsPage() {
           ) : eventFilter === 'all' && vendorsByEvent ? (
             /* Grouped by Event View (no category filter) */
             <div className="space-y-6">
-              {vendorsByEvent.map(([eventKey, { eventTitle, eventDate, vendors: eventVendors }]) => {
+              {vendorsByEvent.map(([eventKey, { eventTitle, eventType, eventDate, vendors: eventVendors }]) => {
                 const isCollapsed = collapsedSections.has(`event-${eventKey}`)
                 return (
                   <div key={eventKey} className="space-y-3">
@@ -626,6 +634,9 @@ export default function VendorsPage() {
                           <ChevronDown className="w-5 h-5 text-muted-foreground" />
                         )}
                         <h3 className="font-semibold text-lg">{eventTitle}</h3>
+                        {eventType && (
+                          <Badge variant="secondary" className="text-xs capitalize">{eventType}</Badge>
+                        )}
                         {eventDate && (
                           <Badge variant="outline" className="text-xs">
                             {eventDate}
@@ -1022,10 +1033,17 @@ function VendorCard({
               <Badge variant="outline">{vendor.category}</Badge>
             )}
             {getApprovalBadge(vendor.approval_status || 'pending')}
-            {showEventBadge && vendor.event_title && (
-              <Badge variant="secondary">{vendor.event_title}</Badge>
-            )}
           </div>
+          {(vendor.event_type || vendor.event_title) && (
+            <div className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
+              {vendor.event_type && (
+                <Badge variant="outline" className="text-xs capitalize">{vendor.event_type}</Badge>
+              )}
+              {vendor.event_title && (
+                <span>{vendor.event_title}{vendor.event_date ? ` — ${vendor.event_date}` : ''}</span>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             {/* Contact Info */}

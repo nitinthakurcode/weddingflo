@@ -47,18 +47,18 @@ export const budgetRouter = router({
 
       // Get event info for budget items with eventId
       const eventIds = budgetItems.map(item => item.eventId).filter(Boolean) as string[]
-      let eventsMap: Record<string, { id: string; title: string }> = {}
+      let eventsMap: Record<string, { id: string; title: string; eventType: string | null; eventDate: string | null }> = {}
 
       if (eventIds.length > 0) {
         const eventList = await ctx.db
-          .select({ id: events.id, title: events.title })
+          .select({ id: events.id, title: events.title, eventType: events.eventType, eventDate: events.eventDate })
           .from(events)
           .where(inArray(events.id, eventIds))
 
         eventsMap = eventList.reduce((acc, e) => {
           acc[e.id] = e
           return acc
-        }, {} as Record<string, { id: string; title: string }>)
+        }, {} as Record<string, { id: string; title: string; eventType: string | null; eventDate: string | null }>)
       }
 
       // Fetch advance payments for all budget items

@@ -40,9 +40,9 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
 
   if (isLoading || !progressData) {
     return (
-      <div className={cn('animate-pulse bg-white dark:bg-mocha-900 rounded-xl p-4', className)}>
-        <div className="h-4 bg-gray-200 dark:bg-mocha-800 rounded w-3/4 mb-2" />
-        <div className="h-2 bg-gray-200 dark:bg-mocha-800 rounded w-full" />
+      <div className={cn('animate-pulse bg-card rounded-xl p-4', className)}>
+        <div className="h-4 bg-muted rounded w-3/4 mb-2" />
+        <div className="h-2 bg-muted rounded w-full" />
       </div>
     )
   }
@@ -95,7 +95,7 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        'rounded-xl border bg-white dark:bg-mocha-900 dark:border-mocha-800 overflow-hidden',
+        'rounded-xl border border-border bg-card overflow-hidden',
         'shadow-sm',
         className
       )}
@@ -104,7 +104,7 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
       <div
         className={cn(
           'p-4 cursor-pointer transition-colors',
-          'hover:bg-gray-50 dark:hover:bg-mocha-800/50',
+          'hover:bg-muted',
           isComplete && 'bg-gradient-to-r from-rose-50 to-gold-50 dark:from-rose-950/30 dark:to-gold-950/30'
         )}
         onClick={() => setIsExpanded(!isExpanded)}
@@ -112,19 +112,19 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             {isComplete ? (
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-gold-500 text-white">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-gold-500 text-primary-foreground">
                 <PartyPopper className="h-5 w-5" />
               </div>
             ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-rose-400 to-rose-500 text-white">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-rose-400 to-rose-500 text-primary-foreground">
                 <span className="text-sm font-bold">{progressPercentage}%</span>
               </div>
             )}
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">
+              <h3 className="font-semibold text-foreground">
                 {isComplete ? 'All set for your big day!' : 'Wedding Planning Progress'}
               </h3>
-              <p className="text-sm text-gray-500 dark:text-mocha-400">
+              <p className="text-sm text-muted-foreground">
                 {isComplete
                   ? 'Everything is ready for your celebration'
                   : `${completedCount} of ${totalCount} milestones complete`}
@@ -133,9 +133,9 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
           </div>
           <div className="flex items-center gap-2">
             {isExpanded ? (
-              <ChevronUp className="h-5 w-5 text-gray-400" />
+              <ChevronUp className="h-5 w-5 text-muted-foreground" />
             ) : (
-              <ChevronDown className="h-5 w-5 text-gray-400" />
+              <ChevronDown className="h-5 w-5 text-muted-foreground" />
             )}
           </div>
         </div>
@@ -154,7 +154,7 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
-          className="border-t dark:border-mocha-800"
+          className="border-t border-border"
         >
           <div className="p-4 space-y-3">
             {progressItems.map((item) => {
@@ -166,24 +166,24 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
                     'flex items-center gap-3 p-3 rounded-lg',
                     item.isComplete
                       ? 'bg-rose-50 dark:bg-rose-950/30'
-                      : 'bg-gray-50 dark:bg-mocha-800/50'
+                      : 'bg-muted'
                   )}
                 >
                   {item.isComplete ? (
                     <CheckCircle2 className="h-5 w-5 text-rose-500 flex-shrink-0" />
                   ) : (
-                    <div className="h-5 w-5 rounded-full border-2 border-gray-300 dark:border-mocha-600 flex-shrink-0" />
+                    <div className="h-5 w-5 rounded-full border-2 border-border flex-shrink-0" />
                   )}
                   <Icon className={cn(
                     'h-5 w-5 flex-shrink-0',
-                    item.isComplete ? 'text-rose-600 dark:text-rose-400' : 'text-gray-400'
+                    item.isComplete ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'
                   )} />
                   <div className="flex-1 min-w-0">
                     <p className={cn(
                       'text-sm font-medium',
                       item.isComplete
                         ? 'text-rose-700 dark:text-rose-400'
-                        : 'text-gray-700 dark:text-gray-300'
+                        : 'text-foreground'
                     )}>
                       {item.label}
                     </p>
@@ -191,7 +191,7 @@ export function WeddingProgressBar({ clientId, className }: WeddingProgressBarPr
                       'text-xs',
                       item.isComplete
                         ? 'text-rose-600/70 dark:text-rose-500/70'
-                        : 'text-gray-500 dark:text-mocha-400'
+                        : 'text-muted-foreground'
                     )}>
                       {item.detail}
                     </p>

@@ -150,7 +150,7 @@ export default function PreferencesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           Preferences
         </h1>
         <p className="text-muted-foreground">
@@ -161,7 +161,7 @@ export default function PreferencesPage() {
       {/* Localization */}
       <Card
         variant="glass"
-        className="border border-indigo-200/50 dark:border-indigo-800/30 shadow-lg shadow-indigo-500/10 bg-gradient-to-br from-white via-indigo-50/20 to-white dark:from-gray-900 dark:via-indigo-950/10 dark:to-gray-900"
+        className="border border-indigo-200/50 dark:border-indigo-800/30 shadow-lg shadow-indigo-500/10 bg-gradient-to-br from-card via-indigo-50/20 to-card dark:via-indigo-950/10"
       >
         <CardHeader>
           <CardTitle className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">

@@ -65,12 +65,12 @@ export const STAT_CARD_COLORS = {
     value: 'from-rose-600 to-pink-600 dark:from-rose-400 dark:to-pink-400',
   }),
   neutral: fullCardStyle({
-    border: 'border-stone-200/50 dark:border-stone-800/30',
+    border: 'border-border',
     shadow: 'shadow-stone-100/50',
-    gradient: 'from-stone-50/80 to-gray-50/50 dark:from-stone-900/20 dark:to-gray-900/10',
-    iconGradient: 'from-stone-100 to-gray-100 dark:from-stone-800/50 dark:to-gray-800/50',
-    icon: 'text-stone-600 dark:text-stone-400',
-    value: 'from-stone-600 to-gray-600 dark:from-stone-400 dark:to-gray-400',
+    gradient: 'from-stone-50/80 to-muted/50 dark:from-stone-900/20 dark:to-stone-900/10',
+    iconGradient: 'from-stone-100 to-muted dark:from-stone-800/50 dark:to-stone-800/50',
+    icon: 'text-muted-foreground',
+    value: 'from-stone-600 to-stone-500 dark:from-stone-400 dark:to-stone-300',
   }),
   // Legacy simple colors for backwards compatibility
   revenue: {
@@ -124,9 +124,9 @@ export const STAT_CARD_COLORS = {
     border: 'border-violet-200',
   },
   default: {
-    bg: 'bg-gray-50',
-    icon: 'text-gray-600',
-    border: 'border-gray-200',
+    bg: 'bg-muted',
+    icon: 'text-muted-foreground',
+    border: 'border-border',
   },
 } as const;
 

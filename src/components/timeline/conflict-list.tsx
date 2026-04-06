@@ -41,9 +41,9 @@ const conflictTypeLabels: Record<string, string> = {
 export function ConflictList({ conflicts }: ConflictListProps) {
   if (conflicts.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
+      <div className="text-center py-12 text-muted-foreground">
         <Info className="h-12 w-12 mx-auto mb-3 text-green-500" />
-        <p className="text-lg font-medium text-gray-900">No Conflicts Found</p>
+        <p className="text-lg font-medium text-foreground">No Conflicts Found</p>
         <p className="text-sm text-muted-foreground mt-1">
           Your timeline is conflict-free!
         </p>
@@ -87,7 +87,7 @@ export function ConflictList({ conflicts }: ConflictListProps) {
                             <CardTitle className="text-base flex items-center gap-2">
                               {conflictTypeLabels[conflict.type]}
                             </CardTitle>
-                            <CardDescription className="text-gray-900 mt-1">
+                            <CardDescription className="text-foreground mt-1">
                               {conflict.description}
                             </CardDescription>
                           </div>
@@ -96,7 +96,7 @@ export function ConflictList({ conflicts }: ConflictListProps) {
                       <CardContent className="pt-4">
                         <div className="space-y-3">
                           <div>
-                            <p className="text-sm font-medium text-gray-700 mb-2">
+                            <p className="text-sm font-medium text-foreground mb-2">
                               Affected Activities:
                             </p>
                             <div className="flex flex-wrap gap-2">

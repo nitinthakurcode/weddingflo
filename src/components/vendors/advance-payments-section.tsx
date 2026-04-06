@@ -160,15 +160,15 @@ export function AdvancePaymentsSection({ vendorId, clientId, contractAmount }: A
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 text-sm">
-        <div className="bg-white dark:bg-gray-800 p-2 rounded">
+        <div className="bg-card p-2 rounded">
           <p className="text-muted-foreground text-xs">{t('contractAmount') || 'Contract'}</p>
           <p className="font-semibold">${contractAmount.toLocaleString()}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-2 rounded">
+        <div className="bg-card p-2 rounded">
           <p className="text-muted-foreground text-xs">{t('totalPaid') || 'Paid'}</p>
           <p className="font-semibold text-sage-600">${totalPaid.toLocaleString()}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-2 rounded">
+        <div className="bg-card p-2 rounded">
           <p className="text-muted-foreground text-xs">{t('remaining') || 'Balance'}</p>
           <p className={`font-semibold ${remaining <= 0 ? 'text-sage-600' : remaining < 0 ? 'text-rose-600' : 'text-gold-600'}`}>
             ${remaining.toLocaleString()}
@@ -177,7 +177,7 @@ export function AdvancePaymentsSection({ vendorId, clientId, contractAmount }: A
       </div>
 
       {/* Progress bar */}
-      <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
         <div
           className={`h-full transition-all ${paidPercentage >= 100 ? 'bg-sage-500' : 'bg-teal-500'}`}
           style={{ width: `${Math.min(paidPercentage, 100)}%` }}
@@ -191,7 +191,7 @@ export function AdvancePaymentsSection({ vendorId, clientId, contractAmount }: A
           {payments.map((payment: any) => (
             <div
               key={payment.id}
-              className="flex items-center justify-between bg-white dark:bg-gray-800 p-2 rounded text-sm group"
+              className="flex items-center justify-between bg-card p-2 rounded text-sm group"
             >
               <div className="flex items-center gap-3">
                 <div className="p-1.5 bg-sage-100 dark:bg-sage-800 rounded">

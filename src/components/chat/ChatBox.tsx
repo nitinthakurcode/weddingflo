@@ -147,8 +147,8 @@ export function ChatBox({
                 <div
                   className={`max-w-[70%] rounded-lg px-4 py-2 ${
                     isOwnMessage
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100'
+                      ? 'bg-blue-500 text-primary-foreground'
+                      : 'bg-muted text-foreground'
                   }`}
                 >
                   {!isOwnMessage && (

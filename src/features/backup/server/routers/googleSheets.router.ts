@@ -419,7 +419,7 @@ export const googleSheetsRouter = router({
           result = await importGuestsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId);
           break;
         case 'budget':
-          result = await importBudgetFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          result = await importBudgetFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId!);
           break;
         case 'vendors':
           result = await importVendorsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId!);

@@ -66,7 +66,7 @@ export function calculateSpendingTimeline(items: BudgetItem[]): SpendingTimeline
 }
 
 export function getVarianceColor(variance: number, budget: number): string {
-  if (budget === 0) return 'text-gray-500';
+  if (budget === 0) return 'text-muted-foreground';
   const percentage = (variance / budget) * 100;
 
   if (percentage > 10) return 'text-green-600';
@@ -76,7 +76,7 @@ export function getVarianceColor(variance: number, budget: number): string {
 }
 
 export function getVarianceBgColor(variance: number, budget: number): string {
-  if (budget === 0) return 'bg-gray-100';
+  if (budget === 0) return 'bg-muted';
   const percentage = (variance / budget) * 100;
 
   if (percentage > 10) return 'bg-green-100';

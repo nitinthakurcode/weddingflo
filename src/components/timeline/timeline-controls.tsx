@@ -63,7 +63,7 @@ export function TimelineControls({
               ))}
             </SelectContent>
           </Select>
-          <span className="text-gray-500">to</span>
+          <span className="text-muted-foreground">to</span>
           <Select
             value={endHour.toString()}
             onValueChange={(v) => onEndHourChange(Number(v))}
@@ -81,7 +81,7 @@ export function TimelineControls({
           </Select>
         </div>
 
-        <div className="h-6 w-px bg-gray-300" />
+        <div className="h-6 w-px bg-border" />
 
         {/* Zoom Controls */}
         <div className="flex items-center gap-2">
@@ -114,7 +114,7 @@ export function TimelineControls({
           </Button>
         </div>
 
-        <div className="h-6 w-px bg-gray-300" />
+        <div className="h-6 w-px bg-border" />
 
         {/* Export Controls */}
         <div className="flex items-center gap-2">

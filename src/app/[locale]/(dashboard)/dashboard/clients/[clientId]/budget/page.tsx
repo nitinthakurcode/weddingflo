@@ -118,6 +118,7 @@ export default function BudgetPage() {
   const [viewMode, setViewMode] = useState<'segment' | 'list'>('segment')
   const [expandedSegments, setExpandedSegments] = useState<Set<BudgetSegment>>(new Set(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']))
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [eventFilter, setEventFilter] = useState<string>('all')
 
   const [formData, setFormData] = useState({
     category: '',
@@ -151,6 +152,7 @@ export default function BudgetPage() {
   const { data: categorySummary } = trpc.budget.getCategorySummary.useQuery({ clientId })
   const { data: segmentSummary } = trpc.budget.getSegmentSummary.useQuery({ clientId })
   const { data: events } = trpc.events.getAll.useQuery({ clientId })
+  const { data: clientEvents } = trpc.vendors.getClientEvents.useQuery({ clientId })
 
   // Get unique categories from budget items
   const uniqueCategories = useMemo((): string[] => {
@@ -161,23 +163,31 @@ export default function BudgetPage() {
     return Array.from(categories).sort()
   }, [budgetItems])
 
-  // Filter budget items by category
+  // Filter budget items by category and event
   const filteredBudgetItems = useMemo(() => {
     if (!budgetItems) return []
-    if (categoryFilter === 'all') return budgetItems
-    return budgetItems.filter(item => item.category === categoryFilter)
-  }, [budgetItems, categoryFilter])
+    let filtered = budgetItems
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(item => item.category === categoryFilter)
+    }
+    if (eventFilter === 'unassigned') {
+      filtered = filtered.filter(item => !item.eventId)
+    } else if (eventFilter !== 'all') {
+      filtered = filtered.filter(item => item.eventId === eventFilter)
+    }
+    return filtered
+  }, [budgetItems, categoryFilter, eventFilter])
 
-  // Calculate filtered summary when category filter is active
+  // Calculate filtered summary when any filter is active
   const filteredSummary = useMemo(() => {
-    if (categoryFilter === 'all' || !filteredBudgetItems.length) return null
+    if ((categoryFilter === 'all' && eventFilter === 'all') || !filteredBudgetItems.length) return null
     return {
       totalEstimated: filteredBudgetItems.reduce((sum, item) => sum + Number(item.estimatedCost || 0), 0),
       totalAdvances: filteredBudgetItems.reduce((sum, item) => sum + (item.totalAdvance || 0), 0),
       balanceRemaining: filteredBudgetItems.reduce((sum, item) => sum + (item.balanceRemaining || 0), 0),
       totalItems: filteredBudgetItems.length,
     }
-  }, [categoryFilter, filteredBudgetItems])
+  }, [categoryFilter, eventFilter, filteredBudgetItems])
 
   // Mutations
   const createMutation = trpc.budget.create.useMutation({
@@ -433,6 +443,50 @@ export default function BudgetPage() {
           </Select>
         )}
 
+        {/* Event Filter */}
+        {clientEvents && clientEvents.length > 0 && (
+          <Select value={eventFilter} onValueChange={setEventFilter}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder={t('filterByEvent') || 'Filter by Event'} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('allEvents') || 'All Events'}</SelectItem>
+              <SelectItem value="unassigned">{t('unassignedItems') || 'Unassigned'}</SelectItem>
+              {clientEvents.map((event) => (
+                <SelectItem key={event.id} value={event.id}>
+                  {event.event_type ? `${event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)} — ` : ''}{event.title} ({event.event_date})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Clear Filters */}
+        {(eventFilter !== 'all' || categoryFilter !== 'all') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setEventFilter('all')
+              setCategoryFilter('all')
+            }}
+          >
+            {tc('clearFilter') || 'Clear filters'}
+          </Button>
+        )}
+
+        {/* Active filter badges */}
+        {categoryFilter !== 'all' && (
+          <Badge variant="secondary" className="bg-teal-100 text-teal-700">
+            {t('category')}: {categoryFilter}
+          </Badge>
+        )}
+        {eventFilter !== 'all' && (
+          <Badge variant="secondary" className="bg-cobalt-100 text-cobalt-700">
+            {t('event')}: {eventFilter === 'unassigned' ? (t('unassignedItems') || 'Unassigned') : clientEvents?.find(e => e.id === eventFilter)?.title || eventFilter}
+          </Badge>
+        )}
+
         <ExportButton
           data={budgetItems || []}
           dataType="budget"
@@ -508,7 +562,7 @@ export default function BudgetPage() {
                     onClick={() => toggleSegment(seg.segment as BudgetSegment)}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-white/50">
+                      <div className="p-2 rounded-lg bg-card/50">
                         {segmentIcons[seg.segment as BudgetSegment]}
                       </div>
                       <div>
@@ -560,7 +614,7 @@ export default function BudgetPage() {
 
                 {isExpanded && segmentItems.length > 0 && (
                   <CardContent className="pt-0">
-                    <div className="bg-white/80 rounded-lg overflow-hidden">
+                    <div className="bg-card/80 rounded-lg overflow-hidden">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -625,7 +679,7 @@ export default function BudgetPage() {
 
                 {isExpanded && segmentItems.length === 0 && (
                   <CardContent className="pt-0">
-                    <div className="text-center py-4 text-muted-foreground bg-white/80 rounded-lg">
+                    <div className="text-center py-4 text-muted-foreground bg-card/80 rounded-lg">
                       No items in this segment yet.{' '}
                       <Button
                         variant="link"
@@ -674,7 +728,7 @@ export default function BudgetPage() {
         </div>
       )}
 
-      {/* Filtered Summary Banner (when category filter is active) */}
+      {/* Filtered Summary Banner (when any filter is active) */}
       {filteredSummary && (
         <Card className="border-2 border-teal-200 bg-teal-50">
           <CardContent className="pt-4">
@@ -685,10 +739,17 @@ export default function BudgetPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-teal-900">
-                    {t('filteredBy') || 'Filtered by'}: {categoryFilter}
+                    {t('filteredBy') || 'Filtered by'}:{' '}
+                    {categoryFilter !== 'all' && categoryFilter}
+                    {categoryFilter !== 'all' && eventFilter !== 'all' && ' + '}
+                    {eventFilter === 'unassigned'
+                      ? (t('unassignedItems') || 'Unassigned')
+                      : eventFilter !== 'all'
+                        ? clientEvents?.find(e => e.id === eventFilter)?.title || eventFilter
+                        : ''}
                   </h3>
                   <p className="text-sm text-teal-700">
-                    {filteredSummary.totalItems} {t('items')} {t('inThisCategory') || 'in this category'}
+                    {filteredSummary.totalItems} {t('items')} {t('matchingFilters') || 'matching filters'}
                   </p>
                 </div>
               </div>
@@ -717,18 +778,32 @@ export default function BudgetPage() {
       {viewMode === 'list' && (
       <Card>
         <CardHeader>
-          <CardTitle>
-            {categoryFilter !== 'all'
-              ? `${t('budgetItems')} - ${categoryFilter}`
-              : t('budgetItems')
-            }
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>
+              {categoryFilter !== 'all' || eventFilter !== 'all'
+                ? `${t('budgetItems')} - ${[
+                    categoryFilter !== 'all' ? categoryFilter : '',
+                    eventFilter === 'unassigned'
+                      ? (t('unassignedItems') || 'Unassigned')
+                      : eventFilter !== 'all'
+                        ? clientEvents?.find(e => e.id === eventFilter)?.title || ''
+                        : ''
+                  ].filter(Boolean).join(' / ')}`
+                : t('budgetItems')
+              }
+            </CardTitle>
+            {(eventFilter !== 'all' || categoryFilter !== 'all') && (
+              <Badge variant="secondary">
+                {filteredBudgetItems.length} {filteredBudgetItems.length === 1 ? t('item') || 'item' : t('items')}
+              </Badge>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {filteredBudgetItems.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {categoryFilter !== 'all'
-                ? (t('noItemsInCategory') || `No items in "${categoryFilter}" category`)
+              {categoryFilter !== 'all' || eventFilter !== 'all'
+                ? (t('noItemsMatchingFilters') || 'No budget items matching the selected filters')
                 : t('noBudgetItems')
               }
             </div>

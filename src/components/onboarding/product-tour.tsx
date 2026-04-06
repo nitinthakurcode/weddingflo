@@ -326,8 +326,8 @@ function TourOverlay() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 10 }}
           className={cn(
-            'absolute w-80 rounded-xl bg-white p-5 shadow-2xl',
-            'border border-gray-100'
+            'absolute w-80 rounded-xl bg-card p-5 shadow-2xl',
+            'border border-border'
           )}
           style={{
             top: typeof tooltipPos.top === 'number' ? tooltipPos.top : tooltipPos.top,
@@ -338,18 +338,18 @@ function TourOverlay() {
           <div className="mb-3 flex items-start justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
-              <h3 className="font-semibold text-gray-900">{step.title}</h3>
+              <h3 className="font-semibold text-foreground">{step.title}</h3>
             </div>
             <button
               onClick={skipTour}
-              className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
           {/* Content */}
-          <p className="mb-4 text-sm text-gray-600">{step.content}</p>
+          <p className="mb-4 text-sm text-muted-foreground">{step.content}</p>
 
           {/* Custom action */}
           {step.action && (
@@ -371,7 +371,7 @@ function TourOverlay() {
                   key={index}
                   className={cn(
                     'h-1.5 w-6 rounded-full transition-colors',
-                    index === currentStep ? 'bg-primary' : 'bg-gray-200'
+                    index === currentStep ? 'bg-primary' : 'bg-muted'
                   )}
                 />
               ))}
@@ -397,7 +397,7 @@ function TourOverlay() {
           </div>
 
           {/* Step counter */}
-          <p className="mt-3 text-center text-xs text-gray-400">
+          <p className="mt-3 text-center text-xs text-muted-foreground">
             Step {currentStep + 1} of {steps.length}
           </p>
         </motion.div>

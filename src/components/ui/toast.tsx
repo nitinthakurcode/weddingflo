@@ -42,7 +42,7 @@ const toastVariants = cva(
           "group border-cobalt-200 bg-cobalt-50 text-cobalt-900 dark:border-cobalt-800 dark:bg-cobalt-950/50 dark:text-cobalt-100",
         // Glass - Cloud Dancer glass morphism
         glass:
-          "group backdrop-blur-xl bg-white/80 dark:bg-mocha-950/80 border-white/20 shadow-2xl",
+          "group backdrop-blur-xl bg-card/80 border-border/20 shadow-2xl",
         // Rose - Romance notifications
         rose:
           "group border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-100",

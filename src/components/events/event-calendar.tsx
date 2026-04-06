@@ -42,7 +42,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="bg-white rounded-lg border">
+    <div className="bg-card rounded-lg border">
       {/* Calendar Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
@@ -90,7 +90,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
                 key={day.toString()}
                 className={cn(
                   'min-h-[100px] border rounded-lg p-2 transition-colors',
-                  isCurrentMonth ? 'bg-white' : 'bg-gray-50',
+                  isCurrentMonth ? 'bg-card' : 'bg-muted',
                   dayEvents.length > 0 && 'hover:bg-primary/5 cursor-pointer'
                 )}
               >
@@ -98,8 +98,8 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
                   <span
                     className={cn(
                       'text-sm font-medium',
-                      isToday && 'bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center',
-                      !isCurrentMonth && 'text-gray-400'
+                      isToday && 'bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center',
+                      !isCurrentMonth && 'text-muted-foreground'
                     )}
                   >
                     {format(day, 'd')}
@@ -122,7 +122,7 @@ export function EventCalendar({ events, onEventClick }: EventCalendarProps) {
                     </button>
                   ))}
                   {dayEvents.length > 2 && (
-                    <div className="text-xs text-gray-500 pl-2">
+                    <div className="text-xs text-muted-foreground pl-2">
                       +{dayEvents.length - 2} more
                     </div>
                   )}

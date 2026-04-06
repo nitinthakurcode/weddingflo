@@ -34,7 +34,7 @@ export function MessageInput({
   };
 
   return (
-    <div className="border-t bg-white p-4">
+    <div className="border-t bg-card p-4">
       <div className="flex items-end gap-2">
         {/* Attachment button (placeholder for future functionality) */}
         <Button

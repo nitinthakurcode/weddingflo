@@ -93,7 +93,7 @@ function QuickStatCard({
 }) {
   const content = (
     <>
-      <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} text-white mb-3 group-hover:scale-110 transition-spring`}>
+      <div className={`inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} text-primary-foreground mb-3 group-hover:scale-110 transition-spring`}>
         {icon}
       </div>
       <p className="text-sm font-semibold text-foreground">{title}</p>

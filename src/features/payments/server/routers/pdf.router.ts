@@ -76,10 +76,10 @@ export const pdfRouter = router({
           });
         }
 
-        const clientName = client
-          ? `${client.partner1FirstName || ''} ${client.partner1LastName || ''}` +
-            (client.partner2FirstName ? ` & ${client.partner2FirstName} ${client.partner2LastName || ''}` : '')
-          : 'Client';
+        const clientName = client?.weddingName || (client
+          ? `${client.partner1FirstName || ''} ${client.partner1LastName || ''}`.trim() +
+            (client.partner2FirstName ? ` & ${client.partner2FirstName} ${client.partner2LastName || ''}`.trim() : '')
+          : 'Client');
 
         const invoiceData = {
           invoiceNumber: payment.stripeId?.slice(-8).toUpperCase() ||
@@ -200,10 +200,10 @@ export const pdfRouter = router({
           dueDate < now ? 'overdue' : 'pending';
 
         // Prepare invoice data
-        const clientName = client
-          ? `${client.partner1FirstName || ''} ${client.partner1LastName || ''}` +
-            (client.partner2FirstName ? ` & ${client.partner2FirstName} ${client.partner2LastName || ''}` : '')
-          : 'Client';
+        const clientName = client?.weddingName || (client
+          ? `${client.partner1FirstName || ''} ${client.partner1LastName || ''}`.trim() +
+            (client.partner2FirstName ? ` & ${client.partner2FirstName} ${client.partner2LastName || ''}`.trim() : '')
+          : 'Client');
 
         const invoiceData = {
           invoiceNumber: input.invoiceNumber,

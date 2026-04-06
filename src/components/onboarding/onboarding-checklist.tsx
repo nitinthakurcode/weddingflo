@@ -179,14 +179,14 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         className={cn(
-          'rounded-xl border bg-white shadow-lg dark:bg-mocha-900 dark:border-mocha-800',
+          'rounded-xl border border-border bg-card shadow-lg',
           'overflow-hidden',
           className
         )}
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-mocha-800/50 transition-colors"
+          className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted transition-colors"
           onClick={() => setIsExpanded(!isExpanded)}
         >
           <div className="flex items-center gap-3">
@@ -194,10 +194,10 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
               {isComplete ? <PartyPopper className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">
+              <h3 className="font-semibold text-foreground">
                 {isComplete ? 'All set!' : 'Getting Started'}
               </h3>
-              <p className="text-sm text-gray-500 dark:text-mocha-400">
+              <p className="text-sm text-muted-foreground">
                 {isComplete
                   ? 'You\'ve completed all setup tasks'
                   : `${completedCount} of ${totalCount} tasks complete`}
@@ -209,7 +209,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
             {/* Progress */}
             <div className="hidden sm:flex items-center gap-2">
               <Progress value={progressPercent} className="w-24 h-2" />
-              <span className="text-sm font-medium text-gray-600 dark:text-mocha-300">
+              <span className="text-sm font-medium text-muted-foreground">
                 {progressPercent}%
               </span>
             </div>
@@ -227,7 +227,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0 text-gray-400 hover:text-gray-600"
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation()
                 handleDismiss()
@@ -248,7 +248,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="border-t dark:border-mocha-800 p-4 space-y-2">
+              <div className="border-t border-border p-4 space-y-2">
                 {CHECKLIST_ITEMS.map((item) => {
                   const isCompleted = item.checkFn(checklistData)
                   const Icon = item.icon
@@ -260,7 +260,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
                         'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all',
                         isCompleted
                           ? 'bg-teal-50 dark:bg-teal-950/30'
-                          : 'hover:bg-gray-50 dark:hover:bg-mocha-800/50'
+                          : 'hover:bg-muted'
                       )}
                       onClick={() => !isCompleted && handleItemClick(item.href)}
                       whileHover={!isCompleted ? { scale: 1.01 } : undefined}
@@ -270,7 +270,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
                       {isCompleted ? (
                         <CheckCircle2 className="h-5 w-5 text-teal-500 flex-shrink-0" />
                       ) : (
-                        <Circle className="h-5 w-5 text-gray-300 dark:text-mocha-600 flex-shrink-0" />
+                        <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                       )}
 
                       {/* Item Icon */}
@@ -278,7 +278,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
                         'flex h-8 w-8 items-center justify-center rounded-lg flex-shrink-0',
                         isCompleted
                           ? 'bg-teal-100 text-teal-600 dark:bg-teal-900/50 dark:text-teal-400'
-                          : 'bg-gray-100 text-gray-500 dark:bg-mocha-800 dark:text-mocha-400'
+                          : 'bg-muted text-muted-foreground'
                       )}>
                         <Icon className="h-4 w-4" />
                       </div>
@@ -289,7 +289,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
                           'font-medium text-sm',
                           isCompleted
                             ? 'text-teal-700 dark:text-teal-400 line-through'
-                            : 'text-gray-900 dark:text-white'
+                            : 'text-foreground'
                         )}>
                           {item.title}
                         </p>
@@ -297,7 +297,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
                           'text-xs truncate',
                           isCompleted
                             ? 'text-teal-600/70 dark:text-teal-500/70'
-                            : 'text-gray-500 dark:text-mocha-400'
+                            : 'text-muted-foreground'
                         )}>
                           {item.description}
                         </p>
@@ -316,9 +316,9 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
 
               {/* Footer */}
               {isComplete && (
-                <div className="border-t dark:border-mocha-800 p-4 bg-gradient-to-r from-teal-50 to-gold-50 dark:from-teal-950/30 dark:to-gold-950/30">
+                <div className="border-t border-border p-4 bg-gradient-to-r from-teal-50 to-gold-50 dark:from-teal-950/30 dark:to-gold-950/30">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-600 dark:text-mocha-300">
+                    <p className="text-sm text-muted-foreground">
                       You're all set to start planning weddings!
                     </p>
                     <Button size="sm" onClick={handleDismiss}>

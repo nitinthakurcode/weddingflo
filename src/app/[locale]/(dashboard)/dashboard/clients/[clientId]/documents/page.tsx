@@ -494,7 +494,7 @@ export default function DocumentsPage() {
                 <div className="mt-2">
                   <label
                     htmlFor="file"
-                    className="flex items-center justify-center w-full h-32 px-4 transition bg-white dark:bg-mocha-950 border-2 border-mocha-300 dark:border-mocha-700 border-dashed rounded-md appearance-none cursor-pointer hover:border-mocha-400 dark:hover:border-mocha-600 focus:outline-none"
+                    className="flex items-center justify-center w-full h-32 px-4 transition bg-card border-2 border-border border-dashed rounded-md appearance-none cursor-pointer hover:border-muted-foreground/50 focus:outline-none"
                   >
                     <div className="flex flex-col items-center space-y-2">
                       <Upload className="w-8 h-8 text-mocha-400 dark:text-mocha-500" />

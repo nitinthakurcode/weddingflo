@@ -98,16 +98,16 @@ export default function SyncPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-muted">
       <div className="max-w-md w-full mx-4">
-        <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+        <div className="bg-card rounded-lg shadow-lg p-8 text-center">
           {status === 'syncing' && (
             <>
               <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-              <h1 className="text-xl font-semibold text-gray-900 mb-2">
+              <h1 className="text-xl font-semibold text-foreground mb-2">
                 Setting up your account
               </h1>
-              <p className="text-gray-600">
+              <p className="text-muted-foreground">
                 Please wait while we configure your workspace...
               </p>
             </>
@@ -116,10 +116,10 @@ export default function SyncPage() {
           {status === 'retrying' && (
             <>
               <RefreshCw className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-              <h1 className="text-xl font-semibold text-gray-900 mb-2">
+              <h1 className="text-xl font-semibold text-foreground mb-2">
                 Almost there
               </h1>
-              <p className="text-gray-600">
+              <p className="text-muted-foreground">
                 Your account is being set up. Retrying... ({retryCount}/{maxRetries})
               </p>
             </>
@@ -128,10 +128,10 @@ export default function SyncPage() {
           {status === 'error' && (
             <>
               <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-              <h1 className="text-xl font-semibold text-gray-900 mb-2">
+              <h1 className="text-xl font-semibold text-foreground mb-2">
                 Setup Issue
               </h1>
-              <p className="text-gray-600 mb-6">
+              <p className="text-muted-foreground mb-6">
                 {errorMessage}
               </p>
               <div className="space-y-3">

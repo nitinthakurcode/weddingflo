@@ -10,6 +10,7 @@ interface TopClientData {
   partner1_last_name: string;
   partner2_first_name?: string | null;
   partner2_last_name?: string | null;
+  wedding_name?: string | null;
   wedding_date?: string | null;
   total_revenue: number;
   payment_count: number;
@@ -42,8 +43,9 @@ export function TopClientsChart({ data, isLoading }: TopClientsChartProps) {
   }
 
   const chartData = data.map((item) => {
-    // Build client name from partner names or use legacy client_name
-    const clientName = item.client_name ||
+    // Build client name: prefer wedding_name, then partner names, then legacy client_name
+    const clientName = item.wedding_name ||
+      item.client_name ||
       [item.partner1_first_name, item.partner2_first_name ? `& ${item.partner2_first_name}` : '']
         .filter(Boolean)
         .join(' ');

@@ -595,7 +595,7 @@ export default function TimelinePage() {
                                   {items.map((item) => (
                                     <div
                                       key={item.id}
-                                      className={`flex items-center justify-between p-3 bg-white border rounded-lg hover:bg-muted/50 ${
+                                      className={`flex items-center justify-between p-3 bg-card border rounded-lg hover:bg-muted/50 ${
                                         item.completed ? 'opacity-50 bg-muted/30' : ''
                                       }`}
                                     >

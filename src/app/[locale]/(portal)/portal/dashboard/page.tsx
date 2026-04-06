@@ -63,6 +63,7 @@ export default async function PortalDashboardPage() {
       partner1LastName: clients.partner1LastName,
       partner2FirstName: clients.partner2FirstName,
       partner2LastName: clients.partner2LastName,
+      weddingName: clients.weddingName,
       weddingDate: clients.weddingDate,
       venue: clients.venue,
       notes: clients.notes,
@@ -75,6 +76,7 @@ export default async function PortalDashboardPage() {
   // Transform to expected shape
   const client = clientData ? {
     id: clientData.id,
+    wedding_name: clientData.weddingName,
     partner1_name: [clientData.partner1FirstName, clientData.partner1LastName].filter(Boolean).join(' '),
     partner2_name: [clientData.partner2FirstName, clientData.partner2LastName].filter(Boolean).join(' '),
     wedding_date: clientData.weddingDate,
@@ -108,9 +110,9 @@ export default async function PortalDashboardPage() {
     daysUntilWedding = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
-  const coupleNames = client?.partner1_name && client?.partner2_name
+  const coupleNames = client?.wedding_name || (client?.partner1_name && client?.partner2_name
     ? `${client.partner1_name} & ${client.partner2_name}`
-    : t('yourWedding');
+    : t('yourWedding'));
 
   return (
     <div className="space-y-8">
@@ -136,7 +138,7 @@ export default async function PortalDashboardPage() {
             <div className="absolute -bottom-8 -left-8 w-40 h-40 bg-rose-300/20 rounded-full blur-2xl" />
             <div className="text-center space-y-4 relative">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-rose-400 to-rose-500 mb-2 shadow-lg shadow-rose-500/30 group-hover:scale-110 transition-transform">
-                <Heart className="h-8 w-8 text-white fill-white" />
+                <Heart className="h-8 w-8 text-primary-foreground fill-primary-foreground" />
               </div>
               <div>
                 <p className="text-5xl font-bold bg-gradient-to-r from-rose-500 to-rose-600 bg-clip-text text-transparent mb-2">
@@ -164,12 +166,12 @@ export default async function PortalDashboardPage() {
         <Card
           variant="glass"
           size="compact"
-          className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-cobalt-200/50 dark:border-cobalt-800/30 shadow-lg shadow-cobalt-500/10 hover:shadow-xl hover:shadow-cobalt-500/20 bg-gradient-to-br from-white via-cobalt-50/30 to-white dark:from-mocha-900 dark:via-cobalt-950/20 dark:to-mocha-900"
+          className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-cobalt-200/50 dark:border-cobalt-800/30 shadow-lg shadow-cobalt-500/10 hover:shadow-xl hover:shadow-cobalt-500/20 bg-gradient-to-br from-card via-cobalt-50/30 to-card dark:via-cobalt-950/20"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-cobalt-500 to-cobalt-600 shadow-lg shadow-cobalt-500/30 group-hover:scale-110 transition-transform">
-                <Users className="h-4 w-4 text-white" />
+                <Users className="h-4 w-4 text-primary-foreground" />
               </div>
               <span className="text-xs text-muted-foreground font-medium">{tc('guestCount')}</span>
             </div>
@@ -183,12 +185,12 @@ export default async function PortalDashboardPage() {
         <Card
           variant="glass"
           size="compact"
-          className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 hover:shadow-xl hover:shadow-teal-500/20 bg-gradient-to-br from-white via-teal-50/30 to-white dark:from-mocha-900 dark:via-teal-950/20 dark:to-mocha-900"
+          className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-teal-200/50 dark:border-teal-800/30 shadow-lg shadow-teal-500/10 hover:shadow-xl hover:shadow-teal-500/20 bg-gradient-to-br from-card via-teal-50/30 to-card dark:via-teal-950/20"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg shadow-teal-500/30 group-hover:scale-110 transition-transform">
-                <MapPin className="h-4 w-4 text-white" />
+                <MapPin className="h-4 w-4 text-primary-foreground" />
               </div>
               <span className="text-xs text-muted-foreground font-medium">{t('venue')}</span>
             </div>
@@ -204,12 +206,12 @@ export default async function PortalDashboardPage() {
         <Card
           variant="glass"
           size="compact"
-          className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-gold-200/50 dark:border-gold-800/30 shadow-lg shadow-gold-500/10 hover:shadow-xl hover:shadow-gold-500/20 bg-gradient-to-br from-white via-gold-50/30 to-white dark:from-mocha-900 dark:via-gold-950/20 dark:to-mocha-900"
+          className="group hover:scale-[1.02] hover:-translate-y-1 transition-all duration-300 border border-gold-200/50 dark:border-gold-800/30 shadow-lg shadow-gold-500/10 hover:shadow-xl hover:shadow-gold-500/20 bg-gradient-to-br from-card via-gold-50/30 to-card dark:via-gold-950/20"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-gold-500 to-gold-600 shadow-lg shadow-gold-500/30 group-hover:scale-110 transition-transform">
-                <Clock className="h-4 w-4 text-white" />
+                <Clock className="h-4 w-4 text-primary-foreground" />
               </div>
               <span className="text-xs text-muted-foreground font-medium">{t('weddingTime')}</span>
             </div>
@@ -225,7 +227,7 @@ export default async function PortalDashboardPage() {
       {client && (
         <Card
           variant="glass"
-          className="border border-primary-200/50 dark:border-primary-800/30 shadow-lg bg-gradient-to-br from-white via-primary-50/20 to-white dark:from-mocha-900 dark:via-primary-950/10 dark:to-mocha-900"
+          className="border border-primary-200/50 dark:border-primary-800/30 shadow-lg bg-gradient-to-br from-card via-primary-50/20 to-card dark:via-primary-950/10"
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2 bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
@@ -258,7 +260,7 @@ export default async function PortalDashboardPage() {
       {/* Quick Actions */}
       <Card
         variant="glass"
-        className="border border-secondary-200/50 dark:border-secondary-800/30 shadow-lg bg-gradient-to-br from-white via-secondary-50/20 to-white dark:from-mocha-900 dark:via-secondary-950/10 dark:to-mocha-900"
+        className="border border-secondary-200/50 dark:border-secondary-800/30 shadow-lg bg-gradient-to-br from-card via-secondary-50/20 to-card dark:via-secondary-950/10"
       >
         <CardHeader>
           <CardTitle className="bg-gradient-to-r from-teal-600 to-gold-600 bg-clip-text text-transparent">
