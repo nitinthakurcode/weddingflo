@@ -66,7 +66,7 @@
 | Setting            | Value                          |
 |--------------------|--------------------------------|
 | dialect            | postgresql                     |
-| schema files       | 9 files (see below)            |
+| schema files       | 10 files (see below)           |
 | migrations output  | ./drizzle/migrations           |
 | migrations table   | __drizzle_migrations__         |
 | schema namespace   | public                         |
@@ -82,7 +82,8 @@ Schema files registered:
 6. `./src/lib/db/schema-questionnaires.ts` (client questionnaires)
 7. `./src/lib/db/schema-chatbot.ts` (AI chatbot persistence)
 8. `./src/lib/db/schema-invitations.ts` (team + wedding invitations)
-9. `./src/lib/db/schema-relations.ts` (Drizzle ORM relations)
+9. `./src/lib/db/schema-esignature.ts` (e-signature tables)
+10. `./src/lib/db/schema-relations.ts` (Drizzle ORM relations)
 
 ### A.4 Data Flow
 
@@ -731,7 +732,42 @@ weddingflo/
 
 ---
 
-### B.9 Table Count Summary
+### B.9 schema-esignature.ts — E-Signature Tables
+
+**Enums:** `signatureRequestStatusEnum` (draft|pending|partially_signed|completed|expired|cancelled|voided), `signerStatusEnum` (pending|sent|viewed|signed|declined|expired), `signingOrderEnum` (parallel|sequential), `signatureFieldTypeEnum` (signature|initial|date|text|checkbox), `signatureAuditActionEnum` (created|sent|viewed|signed|declined|reminded|expired|voided|cancelled|downloaded|completed)
+
+#### `documentSignatureRequests`
+- **PK:** `id` (uuid) | **File:** `schema-esignature.ts:40`
+- **FKs:** `documentId -> documents.id CASCADE`
+- 16 columns: documentId, clientId, companyId, status enum, publicToken (UNIQUE), title, message, signingOrder enum, expiresAt, completedAt, voidedAt, voidReason, createdBy, createdAt, updatedAt
+- **Indexes:** `sig_requests_document_id_idx`, `sig_requests_client_id_idx`, `sig_requests_company_id_idx`, `sig_requests_status_idx`, `sig_requests_public_token_idx`
+
+#### `documentSigners`
+- **PK:** `id` (uuid) | **File:** `schema-esignature.ts:68`
+- **FKs:** `requestId -> documentSignatureRequests.id CASCADE`
+- 15 columns: requestId, name, email, role, signingOrder, status enum, signatureData (jsonb), signedAt, viewedAt, sentAt, publicToken (UNIQUE), declineReason, createdAt, updatedAt
+- **Indexes:** `signers_request_id_idx`, `signers_email_idx`, `signers_public_token_idx`, `signers_status_idx`
+
+#### `documentSignatureFields`
+- **PK:** `id` (uuid) | **File:** `schema-esignature.ts:94`
+- **FKs:** `requestId -> documentSignatureRequests.id CASCADE`, `signerId -> documentSigners.id CASCADE`
+- 13 columns: requestId, signerId, type enum, page, x, y, width, height, required, value, label, createdAt
+- **Indexes:** `sig_fields_request_id_idx`, `sig_fields_signer_id_idx`
+
+#### `documentAuditTrail`
+- **PK:** `id` (uuid) | **File:** `schema-esignature.ts:116`
+- **FKs:** `requestId -> documentSignatureRequests.id CASCADE`, `signerId -> documentSigners.id SET NULL`
+- 8 columns: requestId, signerId, action enum, ipAddress, userAgent, metadata (jsonb), createdAt
+- **Indexes:** `audit_trail_request_id_idx`, `audit_trail_action_idx`, `audit_trail_created_at_idx`
+
+#### `documentSignatureTemplates`
+- **PK:** `id` (uuid) | **File:** `schema-esignature.ts:134`
+- 8 columns: companyId, name, description, fields (jsonb), createdBy, createdAt, updatedAt
+- **Indexes:** `sig_templates_company_id_idx`
+
+---
+
+### B.10 Table Count Summary
 
 | Schema File              | Table Count |
 |--------------------------|-------------|
@@ -743,7 +779,8 @@ weddingflo/
 | schema-questionnaires.ts | 3           |
 | schema-chatbot.ts        | 4           |
 | schema-invitations.ts    | 2           |
-| **Total**                | **77**      |
+| schema-esignature.ts     | 5           |
+| **Total**                | **82**      |
 
 ---
 
@@ -1319,7 +1356,40 @@ const { user, isAuthenticated, isLoading } = useAuth()
 
 ---
 
-### D.11 Module Summary Table
+### D.11 Documents / E-Signature Module
+
+**Router:** `src/features/media/server/routers/documents.router.ts`
+
+| Procedure               | Type     | Description                                  |
+|--------------------------|----------|----------------------------------------------|
+| requestSignature         | mutation | Create a signature request for a document    |
+| getSignatureStats        | query    | Signature counts and status breakdown        |
+| getPendingSignatures     | query    | List pending signature requests              |
+| sendSignatureReminder    | mutation | Re-send reminder email to a signer           |
+| cancelSignatureRequest   | mutation | Cancel a pending signature request           |
+| voidSignatureRequest     | mutation | Void a completed signature request           |
+| getSigningSession        | query    | Public: load signing session by token        |
+| signDocument             | mutation | Public: submit signature for a signer        |
+| declineSignature         | mutation | Public: decline to sign                      |
+| getDocumentAuditTrail    | query    | Immutable audit log for a signature request  |
+| verifyDocumentIntegrity  | query    | Verify document hash integrity               |
+| getESignatureStatus      | query    | Status of a single signature request         |
+| getSignatureTemplates    | query    | List reusable field layout templates         |
+| saveSignatureTemplate    | mutation | Create/update a signature field template     |
+| deleteSignatureTemplate  | mutation | Remove a signature template                  |
+| getSignatureRequests     | query    | List all signature requests for a client     |
+| expireStaleRequests      | mutation | Cron: expire overdue requests                |
+
+**DB Tables:** `documentSignatureRequests`, `documentSigners`, `documentSignatureFields`, `documentAuditTrail`, `documentSignatureTemplates` (from `schema-esignature.ts`)
+**Frontend:** `src/app/[locale]/sign/[token]/page.tsx` (public signing page)
+**Email:** `src/lib/email/templates/signature-request-email.tsx`
+**Cron:** `/api/cron/expire-signatures` (calls `expireStaleRequests`)
+**broadcastSync queryPaths:**
+- mutations (request/cancel/void/sign/decline/expire): `['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures']`
+
+---
+
+### D.12 Module Summary Table
 
 | Module       | Router File                                    | Procedures | broadcastSync Module |
 |--------------|------------------------------------------------|------------|----------------------|
@@ -1333,6 +1403,7 @@ const { user, isAuthenticated, isLoading } = useAuth()
 | Gifts        | `events/server/routers/gifts.router.ts`         | 6          | `gifts`              |
 | Clients      | `clients/server/routers/clients.router.ts`      | 7          | `clients`            |
 | Events       | `events/server/routers/events.router.ts`        | 9          | `events`             |
+| Documents    | `media/server/routers/documents.router.ts`      | 17         | `documents`          |
 
 ---
 
@@ -1373,6 +1444,7 @@ When a mutation fires in **Source Module**, these **Target Queries** are also in
 | gifts         | *(no cascade — own queries only)*                                          |
 | clients       | *(no cascade — own queries only)*                                          |
 | floorPlans    | *(no cascade — own queries only)*                                          |
+| documents     | *(no cascade — own queries only)*                                          |
 
 ### E.3 Chatbot Tool → Query Invalidation Map
 
@@ -1447,6 +1519,7 @@ proposals    → ['proposals.list']
 invoices     → ['invoices.list']
 websites     → ['websites.list']
 workflows    → ['workflows.list']
+documents    → ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures']
 ```
 
 ---
@@ -2745,6 +2818,11 @@ The following tables use a `deletedAt` timestamp column. Queries filter with `is
 | `vendors` | `vendorComments` | `schema-features.ts:420` |
 | `vendors` | `vendorReviews` | `schema-features.ts:430` |
 | `seatingVersions` | (floorPlan ref) | `schema-features.ts:1001` |
+| `documents` | `documentSignatureRequests` | `schema-esignature.ts:42` |
+| `documentSignatureRequests` | `documentSigners` | `schema-esignature.ts:70` |
+| `documentSignatureRequests` | `documentSignatureFields` | `schema-esignature.ts:96` |
+| `documentSignatureRequests` | `documentAuditTrail` | `schema-esignature.ts:118` |
+| `documentSigners` | `documentSignatureFields` | `schema-esignature.ts:97` |
 | `user` | `chatbotConversations` | `schema-chatbot.ts:22` |
 
 #### SET NULL (orphan child records, clear FK)
@@ -2758,6 +2836,7 @@ The following tables use a `deletedAt` timestamp column. Queries filter with `is
 | `guests` | `floorPlanGuests` | `schema-features.ts:679` |
 | `vendors` | `advancePayments` | `schema-features.ts:481` |
 | `vendors` | `budget` | `schema-features.ts:451` |
+| `documentSigners` | `documentAuditTrail` | `schema-esignature.ts:119` |
 
 ### K.3 Transaction Wrapping Pattern
 
@@ -2792,10 +2871,10 @@ const result = await withTransaction(async (tx: TransactionClient) => {
 
 **File:** `src/features/clients/server/routers/clients.router.ts` (lines 1037-1265)
 
-The client deletion procedure performs a manual 19-table cascade wrapped in `withTransaction()`. The deletion order respects FK dependencies (deepest children first):
+The client deletion procedure performs a manual 23-table cascade wrapped in `withTransaction()`. The deletion order respects FK dependencies (deepest children first):
 
 ```
- 1. floorPlanGuests    (deepest nested)
+ 1. floorPlanGuests        (deepest nested)
  2. floorPlanTables
  3. floorPlans
  4. timeline
@@ -2806,7 +2885,11 @@ The client deletion procedure performs a manual 19-table cascade wrapped in `wit
  9. clientVendors
 10. budget
 11. events
-12. documents
+12a. documentAuditTrail       (via subquery on documentSignatureRequests.clientId)
+12b. documentSignatureFields  (via subquery on documentSignatureRequests.clientId)
+12c. documentSigners          (via subquery on documentSignatureRequests.clientId)
+12d. documentSignatureRequests (direct clientId)
+12e. documents
 13. gifts
 14. giftsEnhanced
 15. messages

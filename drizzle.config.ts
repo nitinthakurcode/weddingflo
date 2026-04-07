@@ -22,6 +22,7 @@ export default defineConfig({
     './src/lib/db/schema-questionnaires.ts',
     './src/lib/db/schema-chatbot.ts',
     './src/lib/db/schema-invitations.ts',
+    './src/lib/db/schema-esignature.ts', // E-signature tables - Apr 2026
     './src/lib/db/schema-relations.ts', // Drizzle ORM relations - Feb 2026
   ],
 

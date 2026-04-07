@@ -1,23 +1,16 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, adminProcedure, publicProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { eq, and, isNull, desc } from 'drizzle-orm'
-import { clients, documents, user } from '@/lib/db/schema'
-import { deleteFile, validateStorageKey } from '@/lib/storage/r2-client'
+import { eq, and, isNull, desc, count, sql, asc, inArray } from 'drizzle-orm'
 import {
-  requestSignature,
-  getSignatureStatus,
-  cancelSignatureRequest as cancelESignature,
-  resendSignatureRequest,
-  getEmbeddedSigningUrl,
-  isESignatureAvailable,
-  // Self-hosted e-signature (no external API needed)
-  createSignatureRequest as createSelfHostedSignature,
-  verifyDocumentIntegrity,
-  getAuditTrail as getSelfHostedAuditTrail,
-  sendReminder as sendSelfHostedReminder,
-  cancelSelfHostedSignature,
-} from '@/lib/esignature'
+  clients, documents, user,
+  documentSignatureRequests, documentSigners, documentSignatureFields,
+  documentAuditTrail, documentSignatureTemplates,
+} from '@/lib/db/schema'
+import { deleteFile, validateStorageKey } from '@/lib/storage/r2-client'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { notifyTeamMembers } from '@/features/core/server/services/notification.service'
+import { nanoid } from 'nanoid'
 
 /**
  * Documents tRPC Router - Drizzle ORM Version
@@ -427,215 +420,816 @@ export const documentsRouter = router({
       return stats
     }),
 
-  // Request signature for a document (stub - signature fields not in current schema)
+  // ========================================
+  // E-SIGNATURE — SELF-HOSTED (April 2026)
+  // ========================================
+
+  // Create a signature request with multiple signers
   requestSignature: adminProcedure
     .input(z.object({
-      documentId: z.string().uuid(),
-      signerEmail: z.string().email(),
-      signerName: z.string().min(1),
+      documentId: z.string(),
+      title: z.string().min(1),
+      message: z.string().optional(),
+      signingOrder: z.enum(['parallel', 'sequential']).default('parallel'),
       expiresInDays: z.number().int().min(1).max(90).default(7),
+      signers: z.array(z.object({
+        email: z.string().email(),
+        name: z.string().min(1),
+        role: z.string().optional(),
+        signingOrder: z.number().int().min(1).optional(),
+      })).min(1),
+      fields: z.array(z.object({
+        signerIndex: z.number().int().min(0),
+        type: z.enum(['signature', 'initial', 'date', 'text', 'checkbox']),
+        page: z.number().int().min(1).default(1),
+        x: z.number(), y: z.number(), width: z.number(), height: z.number(),
+        required: z.boolean().default(true),
+        label: z.string().optional(),
+      })).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      // Note: E-signature features require schema migration to add signature fields
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
+
+      // Verify document exists and belongs to this company's client
+      const [doc] = await ctx.db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, input.documentId))
+        .limit(1)
+      if (!doc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' })
+
+      const [client] = await ctx.db
+        .select({ id: clients.id })
+        .from(clients)
+        .where(and(eq(clients.id, doc.clientId), eq(clients.companyId, ctx.companyId), isNull(clients.deletedAt)))
+        .limit(1)
+      if (!client) throw new TRPCError({ code: 'FORBIDDEN' })
+
+      const requestToken = nanoid(32)
+      const expiresAt = new Date()
+      expiresAt.setDate(expiresAt.getDate() + input.expiresInDays)
+
+      // Create signature request
+      const [request] = await ctx.db
+        .insert(documentSignatureRequests)
+        .values({
+          documentId: input.documentId,
+          clientId: doc.clientId,
+          companyId: ctx.companyId,
+          status: 'pending',
+          publicToken: requestToken,
+          title: input.title,
+          message: input.message,
+          signingOrder: input.signingOrder,
+          expiresAt,
+          createdBy: ctx.userId!,
+        })
+        .returning()
+
+      // Create signers with individual tokens
+      const signerValues = input.signers.map((s, idx) => ({
+        requestId: request.id,
+        name: s.name,
+        email: s.email,
+        role: s.role,
+        signingOrder: s.signingOrder ?? idx + 1,
+        status: 'sent' as const,
+        publicToken: nanoid(32),
+        sentAt: new Date(),
+      }))
+      const createdSigners = await ctx.db
+        .insert(documentSigners)
+        .values(signerValues)
+        .returning()
+
+      // Create fields if provided
+      if (input.fields && input.fields.length > 0) {
+        const fieldValues = input.fields.map((f) => ({
+          requestId: request.id,
+          signerId: createdSigners[f.signerIndex]?.id ?? createdSigners[0].id,
+          type: f.type,
+          page: f.page,
+          x: f.x, y: f.y, width: f.width, height: f.height,
+          required: f.required,
+          label: f.label,
+        }))
+        await ctx.db.insert(documentSignatureFields).values(fieldValues)
+      }
+
+      // Audit trail
+      await ctx.db.insert(documentAuditTrail).values({
+        requestId: request.id,
+        action: 'created',
+        metadata: { createdBy: ctx.userId, signerCount: input.signers.length },
+      })
+      for (const signer of createdSigners) {
+        await ctx.db.insert(documentAuditTrail).values({
+          requestId: request.id,
+          signerId: signer.id,
+          action: 'sent',
+          metadata: { email: signer.email },
+        })
+      }
+
+      // broadcastSync outside transaction
+      await broadcastSync({
+        type: 'insert',
+        module: 'documents',
+        entityId: request.id,
+        companyId: ctx.companyId,
+        clientId: doc.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures'],
+      })
+
+      return { request, signers: createdSigners }
     }),
 
-  // Get signature statistics (stub - signature fields not in current schema)
+  // Get signature statistics for a client
   getSignatureStats: adminProcedure
-    .input(z.object({ clientId: z.string().uuid() }))
-    .query(async ({ ctx }) => {
+    .input(z.object({ clientId: z.string() }))
+    .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      // Return empty stats - signature fields not in current schema
-      return { pending: 0, signed: 0, expired: 0, rejected: 0 }
+      const requests = await ctx.db
+        .select({ status: documentSignatureRequests.status })
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.clientId, input.clientId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+      const stats = { pending: 0, signed: 0, expired: 0, rejected: 0 }
+      for (const r of requests) {
+        if (r.status === 'pending' || r.status === 'partially_signed') stats.pending++
+        else if (r.status === 'completed') stats.signed++
+        else if (r.status === 'expired') stats.expired++
+        else if (r.status === 'cancelled' || r.status === 'voided') stats.rejected++
+      }
+      return stats
     }),
 
-  // Get pending signature documents (stub - signature fields not in current schema)
+  // Get pending/active signature requests for a client
   getPendingSignatures: adminProcedure
-    .input(z.object({ clientId: z.string().uuid() }))
-    .query(async ({ ctx }) => {
+    .input(z.object({ clientId: z.string() }))
+    .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      // Return empty array - signature fields not in current schema
-      return []
+      const requests = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.clientId, input.clientId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+          inArray(documentSignatureRequests.status, ['pending', 'partially_signed', 'draft']),
+        ))
+        .orderBy(desc(documentSignatureRequests.createdAt))
+
+      // Get signers for each request
+      const results = []
+      for (const req of requests) {
+        const signers = await ctx.db
+          .select()
+          .from(documentSigners)
+          .where(eq(documentSigners.requestId, req.id))
+          .orderBy(asc(documentSigners.signingOrder))
+        results.push({ ...req, signers })
+      }
+      return results
     }),
 
-  // Send reminder for unsigned document (stub - signature fields not in current schema)
+  // Send reminder to unsigned signers
   sendSignatureReminder: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
-    .mutation(async ({ ctx }) => {
+    .input(z.object({ requestId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.id, input.requestId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      const pendingSigners = await ctx.db
+        .select()
+        .from(documentSigners)
+        .where(and(
+          eq(documentSigners.requestId, input.requestId),
+          inArray(documentSigners.status, ['pending', 'sent', 'viewed']),
+        ))
+
+      for (const signer of pendingSigners) {
+        await ctx.db.insert(documentAuditTrail).values({
+          requestId: input.requestId,
+          signerId: signer.id,
+          action: 'reminded',
+          metadata: { email: signer.email },
+        })
+      }
+
+      return { reminded: pendingSigners.length }
     }),
 
-  // Cancel signature request (stub - signature fields not in current schema)
+  // Cancel a signature request
   cancelSignatureRequest: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
-    .mutation(async ({ ctx }) => {
+    .input(z.object({ requestId: z.string().uuid(), reason: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.id, input.requestId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+      if (request.status === 'completed') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot cancel a completed request. Use void instead.' })
+      }
+
+      await ctx.db
+        .update(documentSignatureRequests)
+        .set({ status: 'cancelled', updatedAt: new Date() })
+        .where(eq(documentSignatureRequests.id, input.requestId))
+
+      // Update all pending signers
+      await ctx.db
+        .update(documentSigners)
+        .set({ status: 'expired', updatedAt: new Date() })
+        .where(and(
+          eq(documentSigners.requestId, input.requestId),
+          inArray(documentSigners.status, ['pending', 'sent', 'viewed']),
+        ))
+
+      await ctx.db.insert(documentAuditTrail).values({
+        requestId: input.requestId,
+        action: 'cancelled',
+        metadata: { reason: input.reason, cancelledBy: ctx.userId },
+      })
+
+      await broadcastSync({
+        type: 'update',
+        module: 'documents',
+        entityId: input.requestId,
+        companyId: ctx.companyId,
+        clientId: request.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures'],
+      })
+
+      return { success: true }
     }),
 
-  // Sign a document directly (stub - signature fields not in current schema)
-  signDocument: adminProcedure
+  // Void a completed signature request
+  voidSignatureRequest: adminProcedure
+    .input(z.object({ requestId: z.string().uuid(), reason: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.id, input.requestId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      await ctx.db
+        .update(documentSignatureRequests)
+        .set({ status: 'voided', voidedAt: new Date(), voidReason: input.reason, updatedAt: new Date() })
+        .where(eq(documentSignatureRequests.id, input.requestId))
+
+      await ctx.db.insert(documentAuditTrail).values({
+        requestId: input.requestId,
+        action: 'voided',
+        metadata: { reason: input.reason, voidedBy: ctx.userId },
+      })
+
+      await broadcastSync({
+        type: 'update',
+        module: 'documents',
+        entityId: input.requestId,
+        companyId: ctx.companyId,
+        clientId: request.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures'],
+      })
+
+      return { success: true }
+    }),
+
+  // ========================================
+  // PUBLIC SIGNING ENDPOINTS (no auth)
+  // ========================================
+
+  // Get signing session by signer token (public — no auth required)
+  getSigningSession: publicProcedure
+    .input(z.object({ token: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const [signer] = await ctx.db
+        .select()
+        .from(documentSigners)
+        .where(eq(documentSigners.publicToken, input.token))
+        .limit(1)
+      if (!signer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Signing session not found' })
+
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(eq(documentSignatureRequests.id, signer.requestId))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      // Check expiration
+      if (request.expiresAt && new Date(request.expiresAt) < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This signing request has expired' })
+      }
+      if (request.status === 'cancelled' || request.status === 'voided') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This signing request is no longer active' })
+      }
+
+      // Mark as viewed
+      if (!signer.viewedAt) {
+        await ctx.db
+          .update(documentSigners)
+          .set({ viewedAt: new Date(), status: 'viewed', updatedAt: new Date() })
+          .where(eq(documentSigners.id, signer.id))
+        await ctx.db.insert(documentAuditTrail).values({
+          requestId: request.id,
+          signerId: signer.id,
+          action: 'viewed',
+        })
+      }
+
+      // Get document
+      const [doc] = await ctx.db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, request.documentId))
+        .limit(1)
+
+      // Get fields for this signer
+      const fields = await ctx.db
+        .select()
+        .from(documentSignatureFields)
+        .where(and(
+          eq(documentSignatureFields.requestId, request.id),
+          eq(documentSignatureFields.signerId, signer.id),
+        ))
+
+      // Get all signers for progress display
+      const allSigners = await ctx.db
+        .select({
+          id: documentSigners.id,
+          name: documentSigners.name,
+          role: documentSigners.role,
+          status: documentSigners.status,
+          signingOrder: documentSigners.signingOrder,
+        })
+        .from(documentSigners)
+        .where(eq(documentSigners.requestId, request.id))
+        .orderBy(asc(documentSigners.signingOrder))
+
+      return {
+        request: { id: request.id, title: request.title, message: request.message, signingOrder: request.signingOrder, status: request.status },
+        signer: { id: signer.id, name: signer.name, email: signer.email, role: signer.role, status: signer.status },
+        document: doc ? { id: doc.id, name: doc.name, url: doc.url, type: doc.type } : null,
+        fields,
+        allSigners,
+      }
+    }),
+
+  // Sign a document (public — no auth required, uses signer token)
+  signDocument: publicProcedure
     .input(z.object({
-      documentId: z.string().uuid(),
-      signatureDataUrl: z.string().min(1),
-      signedAt: z.string(),
+      token: z.string(),
+      signature: z.string().min(1), // Base64 signature data
+      name: z.string().min(1),
+      ipAddress: z.string().optional(),
+      userAgent: z.string().optional(),
+      fieldValues: z.array(z.object({
+        fieldId: z.string().uuid(),
+        value: z.string(),
+      })).optional(),
     }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+    .mutation(async ({ ctx, input }) => {
+      const [signer] = await ctx.db
+        .select()
+        .from(documentSigners)
+        .where(eq(documentSigners.publicToken, input.token))
+        .limit(1)
+      if (!signer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Signing session not found' })
+      if (signer.signedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Already signed' })
+
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(eq(documentSignatureRequests.id, signer.requestId))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      if (request.expiresAt && new Date(request.expiresAt) < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This signing request has expired' })
       }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
+      if (request.status === 'cancelled' || request.status === 'voided') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This signing request is no longer active' })
+      }
+
+      // For sequential signing, check if it's this signer's turn
+      if (request.signingOrder === 'sequential') {
+        const earlierUnsigned = await ctx.db
+          .select({ id: documentSigners.id })
+          .from(documentSigners)
+          .where(and(
+            eq(documentSigners.requestId, request.id),
+            sql`${documentSigners.signingOrder} < ${signer.signingOrder}`,
+            inArray(documentSigners.status, ['pending', 'sent', 'viewed']),
+          ))
+          .limit(1)
+        if (earlierUnsigned.length > 0) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Waiting for previous signers to complete' })
+        }
+      }
+
+      const signatureData = {
+        signature: input.signature,
+        name: input.name,
+        date: new Date().toISOString(),
+        ipAddress: input.ipAddress,
+      }
+
+      // Update signer
+      await ctx.db
+        .update(documentSigners)
+        .set({
+          signatureData,
+          signedAt: new Date(),
+          status: 'signed',
+          updatedAt: new Date(),
+        })
+        .where(eq(documentSigners.id, signer.id))
+
+      // Update field values
+      if (input.fieldValues) {
+        for (const fv of input.fieldValues) {
+          await ctx.db
+            .update(documentSignatureFields)
+            .set({ value: fv.value })
+            .where(eq(documentSignatureFields.id, fv.fieldId))
+        }
+      }
+
+      // Audit trail
+      await ctx.db.insert(documentAuditTrail).values({
+        requestId: request.id,
+        signerId: signer.id,
+        action: 'signed',
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+        metadata: { signerName: input.name, signerEmail: signer.email },
+      })
+
+      // Check if all signers have signed
+      const remainingSigners = await ctx.db
+        .select({ id: documentSigners.id })
+        .from(documentSigners)
+        .where(and(
+          eq(documentSigners.requestId, request.id),
+          inArray(documentSigners.status, ['pending', 'sent', 'viewed']),
+        ))
+
+      const isComplete = remainingSigners.length === 0
+      if (isComplete) {
+        await ctx.db
+          .update(documentSignatureRequests)
+          .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
+          .where(eq(documentSignatureRequests.id, request.id))
+        await ctx.db.insert(documentAuditTrail).values({
+          requestId: request.id,
+          action: 'completed',
+        })
+      } else {
+        await ctx.db
+          .update(documentSignatureRequests)
+          .set({ status: 'partially_signed', updatedAt: new Date() })
+          .where(eq(documentSignatureRequests.id, request.id))
+      }
+
+      // Notify team
+      try {
+        await notifyTeamMembers(ctx.db as any, {
+          companyId: request.companyId,
+          type: 'contract_signed' as any,
+          title: `Document signed: ${request.title}`,
+          message: `${input.name} has signed "${request.title}"${isComplete ? ' — all signatures complete!' : ''}`,
+          metadata: {
+            entityType: 'document',
+            entityId: request.documentId,
+            link: `/dashboard/clients/${request.clientId}/documents`,
+          },
+        })
+      } catch { /* notification failure shouldn't block */ }
+
+      // broadcastSync
+      await broadcastSync({
+        type: 'update',
+        module: 'documents',
+        entityId: request.id,
+        companyId: request.companyId,
+        clientId: request.clientId,
+        userId: 'public-signer',
+        queryPaths: ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures'],
+      })
+
+      return { success: true, isComplete }
+    }),
+
+  // Decline to sign (public)
+  declineSignature: publicProcedure
+    .input(z.object({
+      token: z.string(),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [signer] = await ctx.db
+        .select()
+        .from(documentSigners)
+        .where(eq(documentSigners.publicToken, input.token))
+        .limit(1)
+      if (!signer) throw new TRPCError({ code: 'NOT_FOUND' })
+      if (signer.signedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Already signed' })
+
+      await ctx.db
+        .update(documentSigners)
+        .set({ status: 'declined', declineReason: input.reason, updatedAt: new Date() })
+        .where(eq(documentSigners.id, signer.id))
+
+      await ctx.db.insert(documentAuditTrail).values({
+        requestId: signer.requestId,
+        signerId: signer.id,
+        action: 'declined',
+        metadata: { reason: input.reason },
+      })
+
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(eq(documentSignatureRequests.id, signer.requestId))
+        .limit(1)
+
+      if (request) {
+        try {
+          await notifyTeamMembers(ctx.db as any, {
+            companyId: request.companyId,
+            type: 'contract_signed' as any,
+            title: `Signature declined: ${request.title}`,
+            message: `${signer.name} declined to sign "${request.title}"${input.reason ? `: ${input.reason}` : ''}`,
+            metadata: {
+              entityType: 'document',
+              entityId: request.documentId,
+              link: `/dashboard/clients/${request.clientId}/documents`,
+            },
+          })
+        } catch { /* notification failure shouldn't block */ }
+
+        await broadcastSync({
+          type: 'update',
+          module: 'documents',
+          entityId: request.id,
+          companyId: request.companyId,
+          clientId: request.clientId,
+          userId: 'public-signer',
+          queryPaths: ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures'],
+        })
+      }
+
+      return { success: true }
     }),
 
   // ========================================
-  // E-SIGNATURE INTEGRATION (DocuSign)
-  // Note: These features require schema migration to add signature fields
+  // AUDIT TRAIL & VERIFICATION
   // ========================================
 
-  // Check if DocuSign is available
+  getDocumentAuditTrail: adminProcedure
+    .input(z.object({ requestId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      // Verify request belongs to this company
+      const [request] = await ctx.db
+        .select({ id: documentSignatureRequests.id })
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.id, input.requestId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      return ctx.db
+        .select()
+        .from(documentAuditTrail)
+        .where(eq(documentAuditTrail.requestId, input.requestId))
+        .orderBy(asc(documentAuditTrail.createdAt))
+    }),
+
+  verifyDocumentIntegrity: adminProcedure
+    .input(z.object({ requestId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      const [request] = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.id, input.requestId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+        .limit(1)
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      const signers = await ctx.db
+        .select()
+        .from(documentSigners)
+        .where(eq(documentSigners.requestId, input.requestId))
+
+      const allSigned = signers.every(s => s.status === 'signed')
+      const auditEntries = await ctx.db
+        .select()
+        .from(documentAuditTrail)
+        .where(eq(documentAuditTrail.requestId, input.requestId))
+        .orderBy(asc(documentAuditTrail.createdAt))
+
+      return {
+        valid: request.status === 'completed' && allSigned,
+        status: request.status,
+        signers: signers.map(s => ({
+          name: s.name, email: s.email, status: s.status,
+          signedAt: s.signedAt,
+        })),
+        auditTrailCount: auditEntries.length,
+        message: request.status === 'completed' && allSigned
+          ? 'Document fully signed and verified'
+          : 'Document signing is incomplete',
+      }
+    }),
+
+  // ========================================
+  // E-SIGNATURE STATUS (replaces DocuSign stubs)
+  // ========================================
+
   getESignatureStatus: adminProcedure
     .query(() => {
-      return isESignatureAvailable()
-    }),
-
-  // Request DocuSign signature for a document (stub - requires schema migration)
-  requestDocuSignSignature: adminProcedure
-    .input(z.object({
-      documentId: z.string().uuid(),
-      signers: z.array(z.object({
-        email: z.string().email(),
-        name: z.string().min(1),
-      })).min(1),
-      emailSubject: z.string().optional(),
-      useEmbeddedSigning: z.boolean().optional(),
-      returnUrl: z.string().url().optional(),
-    }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
-    }),
-
-  // Get embedded signing URL for DocuSign (stub - requires schema migration)
-  getDocuSignSigningUrl: adminProcedure
-    .input(z.object({
-      documentId: z.string().uuid(),
-      returnUrl: z.string().url(),
-    }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
-    }),
-
-  // Get DocuSign envelope status (stub - requires schema migration)
-  getDocuSignStatus: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
-    .query(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      return { provider: 'none', status: 'not_configured', auditTrail: [] }
-    }),
-
-  // Void/cancel DocuSign envelope (stub - requires schema migration)
-  voidDocuSignEnvelope: adminProcedure
-    .input(z.object({
-      documentId: z.string().uuid(),
-      reason: z.string().optional(),
-    }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
-    }),
-
-  // Resend DocuSign reminder (stub - requires schema migration)
-  resendDocuSignReminder: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
+      return { available: true, provider: 'self-hosted' }
     }),
 
   // ========================================
-  // SELF-HOSTED E-SIGNATURE (No External API)
-  // Note: These features require schema migration
+  // SIGNATURE TEMPLATES
   // ========================================
 
-  // Request self-hosted signature (stub - requires schema migration)
-  requestSelfHostedSignature: adminProcedure
-    .input(z.object({
-      documentId: z.string().uuid(),
-      signerEmail: z.string().email(),
-      signerName: z.string().min(1),
-      expiresInDays: z.number().int().min(1).max(90).default(7),
-      message: z.string().optional(),
-    }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
-    }),
-
-  // Get document audit trail (stub - requires schema migration)
-  getDocumentAuditTrail: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
+  getSignatureTemplates: adminProcedure
     .query(async ({ ctx }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      return []
+      return ctx.db
+        .select()
+        .from(documentSignatureTemplates)
+        .where(eq(documentSignatureTemplates.companyId, ctx.companyId))
+        .orderBy(desc(documentSignatureTemplates.createdAt))
     }),
 
-  // Verify document integrity (stub - requires schema migration)
-  verifyDocumentIntegrity: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
-    .query(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      return { valid: true, message: 'Verification not available - requires schema migration' }
-    }),
-
-  // Send signature reminder (stub - requires schema migration)
-  sendSelfHostedReminder: adminProcedure
-    .input(z.object({ documentId: z.string().uuid() }))
-    .mutation(async ({ ctx }) => {
-      if (!ctx.companyId) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
-      }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
-    }),
-
-  // Cancel self-hosted signature request (stub - requires schema migration)
-  cancelSelfHostedSignature: adminProcedure
+  saveSignatureTemplate: adminProcedure
     .input(z.object({
-      documentId: z.string().uuid(),
-      reason: z.string().optional(),
+      name: z.string().min(1),
+      description: z.string().optional(),
+      fields: z.array(z.object({
+        type: z.enum(['signature', 'initial', 'date', 'text', 'checkbox']),
+        page: z.number().int().min(1),
+        x: z.number(), y: z.number(), width: z.number(), height: z.number(),
+        required: z.boolean().default(true),
+        label: z.string().optional(),
+        signerRole: z.string().optional(),
+      })),
     }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      const [template] = await ctx.db
+        .insert(documentSignatureTemplates)
+        .values({
+          companyId: ctx.companyId,
+          name: input.name,
+          description: input.description,
+          fields: input.fields,
+          createdBy: ctx.userId!,
+        })
+        .returning()
+      return template
+    }),
+
+  deleteSignatureTemplate: adminProcedure
+    .input(z.object({ templateId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      await ctx.db
+        .delete(documentSignatureTemplates)
+        .where(and(
+          eq(documentSignatureTemplates.id, input.templateId),
+          eq(documentSignatureTemplates.companyId, ctx.companyId),
+        ))
+      return { success: true }
+    }),
+
+  // Get all signature requests for a client (for SignatureTracker)
+  getSignatureRequests: adminProcedure
+    .input(z.object({ clientId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      const requests = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.clientId, input.clientId),
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+        ))
+        .orderBy(desc(documentSignatureRequests.createdAt))
+
+      const results = []
+      for (const req of requests) {
+        const signers = await ctx.db
+          .select()
+          .from(documentSigners)
+          .where(eq(documentSigners.requestId, req.id))
+          .orderBy(asc(documentSigners.signingOrder))
+
+        const [doc] = await ctx.db
+          .select({ id: documents.id, name: documents.name })
+          .from(documents)
+          .where(eq(documents.id, req.documentId))
+          .limit(1)
+
+        results.push({ ...req, signers, document: doc })
+      }
+      return results
+    }),
+
+  // Expire stale requests (called by cron/API route)
+  expireStaleRequests: adminProcedure
     .mutation(async ({ ctx }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'E-signature features require schema migration' })
+      const now = new Date()
+      const staleRequests = await ctx.db
+        .select()
+        .from(documentSignatureRequests)
+        .where(and(
+          eq(documentSignatureRequests.companyId, ctx.companyId),
+          inArray(documentSignatureRequests.status, ['pending', 'partially_signed']),
+          sql`${documentSignatureRequests.expiresAt} < ${now}`,
+        ))
+
+      for (const req of staleRequests) {
+        await ctx.db
+          .update(documentSignatureRequests)
+          .set({ status: 'expired', updatedAt: now })
+          .where(eq(documentSignatureRequests.id, req.id))
+
+        await ctx.db
+          .update(documentSigners)
+          .set({ status: 'expired', updatedAt: now })
+          .where(and(
+            eq(documentSigners.requestId, req.id),
+            inArray(documentSigners.status, ['pending', 'sent', 'viewed']),
+          ))
+
+        await ctx.db.insert(documentAuditTrail).values({
+          requestId: req.id,
+          action: 'expired',
+        })
+      }
+      return { expired: staleRequests.length }
     }),
 })

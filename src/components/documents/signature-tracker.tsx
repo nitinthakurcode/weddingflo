@@ -5,50 +5,31 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import { FileSignature, CheckCircle2, Clock, AlertCircle, Send, X, FileText } from 'lucide-react';
+import { FileSignature, CheckCircle2, Clock, AlertCircle, Send, X, Eye } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-
-interface Document {
-  id: string;
-  clientId: string;
-  name: string;
-  url: string | null;
-  type: string | null;
-  size: number | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { trpc } from '@/lib/trpc/client';
 
 interface SignatureTrackerProps {
-  documents: Document[];
-  stats?: {
-    pending: number;
-    signed: number;
-    expired: number;
-    rejected: number;
-  };
-  onRequestSignature?: (documentId: string, signerEmail: string, signerName: string, expiresInDays: number) => void;
-  onSendReminder?: (documentId: string) => void;
-  onCancelRequest?: (documentId: string) => void;
-  onSignDocument?: (documentId: string, signatureDataUrl: string, signedAt: string) => void;
-  isLoading?: boolean;
+  clientId: string;
+  onSendReminder?: (requestId: string) => void;
+  onCancelRequest?: (requestId: string) => void;
 }
 
 export function SignatureTracker({
-  documents = [],
-  stats,
-  onRequestSignature,
+  clientId,
   onSendReminder,
   onCancelRequest,
-  onSignDocument,
-  isLoading = false,
 }: SignatureTrackerProps) {
   const t = useTranslations('documents');
+
+  const { data: stats, isLoading: statsLoading } = trpc.documents.getSignatureStats.useQuery({ clientId });
+  const { data: requests, isLoading: requestsLoading } = trpc.documents.getSignatureRequests.useQuery({ clientId });
+
+  const isLoading = statsLoading || requestsLoading;
 
   const total = stats
     ? stats.pending + stats.signed + stats.expired + stats.rejected
     : 0;
-
   const signedPercentage = total > 0
     ? Math.round((stats?.signed || 0) / total * 100)
     : 0;
@@ -73,6 +54,23 @@ export function SignatureTracker({
     );
   }
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'signed':
+        return <Badge className="bg-green-100 text-green-700"><CheckCircle2 className="w-3 h-3 mr-1" />Signed</Badge>;
+      case 'pending':
+      case 'sent':
+      case 'viewed':
+        return <Badge className="bg-amber-100 text-amber-700"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+      case 'declined':
+        return <Badge className="bg-red-100 text-red-700"><X className="w-3 h-3 mr-1" />Declined</Badge>;
+      case 'expired':
+        return <Badge className="bg-gray-100 text-gray-700"><AlertCircle className="w-3 h-3 mr-1" />Expired</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -81,7 +79,7 @@ export function SignatureTracker({
             <FileSignature className="h-5 w-5" />
             <CardTitle className="text-lg">{t('signatureTracking')}</CardTitle>
           </div>
-          {stats && (
+          {stats && total > 0 && (
             <div className="flex gap-4 text-sm">
               <span className="text-amber-600">{stats.pending} pending</span>
               <span className="text-green-600">{stats.signed} signed</span>
@@ -94,32 +92,69 @@ export function SignatureTracker({
         )}
       </CardHeader>
       <CardContent>
-        {documents.length === 0 ? (
+        {(!requests || requests.length === 0) ? (
           <div className="text-center py-8 text-muted-foreground">
             <FileSignature className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>{t('noSignatureRequests')}</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {documents.map((doc) => (
+            {requests.map((req) => (
               <div
-                key={doc.id}
-                className="flex items-center justify-between p-3 rounded-lg border"
+                key={req.id}
+                className="p-4 rounded-lg border space-y-3"
               >
-                <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium">{doc.name}</p>
+                    <p className="font-medium">{req.title}</p>
                     <p className="text-sm text-muted-foreground">
-                      {doc.type || 'Document'}
+                      {req.document?.name || 'Document'}
                     </p>
                   </div>
+                  {getStatusBadge(req.status)}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">
-                    {doc.type || 'Document'}
-                  </Badge>
+
+                {/* Signers */}
+                <div className="space-y-2">
+                  {req.signers.map((signer) => (
+                    <div key={signer.id} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span>{signer.name}</span>
+                        <span className="text-muted-foreground">({signer.email})</span>
+                        {signer.role && (
+                          <Badge variant="outline" className="text-xs">{signer.role}</Badge>
+                        )}
+                      </div>
+                      {getStatusBadge(signer.status)}
+                    </div>
+                  ))}
                 </div>
+
+                {/* Actions */}
+                {(req.status === 'pending' || req.status === 'partially_signed') && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    {onSendReminder && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onSendReminder(req.id)}
+                      >
+                        <Send className="w-3 h-3 mr-1" />
+                        Remind
+                      </Button>
+                    )}
+                    {onCancelRequest && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onCancelRequest(req.id)}
+                      >
+                        <X className="w-3 h-3 mr-1" />
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

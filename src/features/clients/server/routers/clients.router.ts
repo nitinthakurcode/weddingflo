@@ -1,11 +1,12 @@
 import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { eq, and, isNull, desc, ilike, or } from 'drizzle-orm';
+import { eq, and, isNull, desc, ilike, or, inArray } from 'drizzle-orm';
 import {
   clients, user as userTable, companies, events, clientUsers, budget, timeline, vendors, clientVendors,
   guests, hotels, guestTransport, documents, floorPlans, floorPlanTables, floorPlanGuests,
-  gifts, giftsEnhanced, guestGifts, messages, payments, weddingWebsites, activity
+  gifts, giftsEnhanced, guestGifts, messages, payments, weddingWebsites, activity,
+  documentAuditTrail, documentSignatureFields, documentSigners, documentSignatureRequests
 } from '@/lib/db/schema';
 import type { SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
@@ -1041,7 +1042,31 @@ export const clientsRouter = router({
           .returning({ id: events.id });
         deletionCounts.events = eventsResult.length;
 
-        // 12. Delete documents
+        // 12a. Delete e-signature data (child of documents — must be deleted first)
+        await tx.delete(documentAuditTrail).where(
+          inArray(documentAuditTrail.requestId,
+            tx.select({ id: documentSignatureRequests.id })
+              .from(documentSignatureRequests)
+              .where(eq(documentSignatureRequests.clientId, input.id))
+          )
+        );
+        await tx.delete(documentSignatureFields).where(
+          inArray(documentSignatureFields.requestId,
+            tx.select({ id: documentSignatureRequests.id })
+              .from(documentSignatureRequests)
+              .where(eq(documentSignatureRequests.clientId, input.id))
+          )
+        );
+        await tx.delete(documentSigners).where(
+          inArray(documentSigners.requestId,
+            tx.select({ id: documentSignatureRequests.id })
+              .from(documentSignatureRequests)
+              .where(eq(documentSignatureRequests.clientId, input.id))
+          )
+        );
+        await tx.delete(documentSignatureRequests).where(eq(documentSignatureRequests.clientId, input.id));
+
+        // 12b. Delete documents
         const documentsResult = await tx
           .delete(documents)
           .where(eq(documents.clientId, input.id))

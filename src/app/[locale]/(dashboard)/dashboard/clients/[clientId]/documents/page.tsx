@@ -24,7 +24,8 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, Trash2, Edit, File, FileText, Image, Download, Upload, FileSignature } from 'lucide-react'
+import { Plus, Trash2, Edit, File, FileText, Image, Download, Upload, FileSignature, Send, X, UserPlus } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { SignatureTracker } from '@/components/documents/signature-tracker'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
@@ -37,8 +38,17 @@ export default function DocumentsPage() {
   const t = useTranslations('documents')
   const tc = useTranslations('common')
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isSignatureDialogOpen, setIsSignatureDialogOpen] = useState(false)
   const [editingDoc, setEditingDoc] = useState<any>(null)
   const [uploadingFile, setUploadingFile] = useState<File | null>(null)
+  const [signatureForm, setSignatureForm] = useState({
+    documentId: '',
+    title: '',
+    message: '',
+    signingOrder: 'parallel' as 'parallel' | 'sequential',
+    expiresInDays: 7,
+    signers: [{ name: '', email: '', role: '' }],
+  })
   const [formData, setFormData] = useState({
     fileName: '',
     fileType: 'other' as 'contract' | 'invoice' | 'photo' | 'other',
@@ -249,32 +259,77 @@ export default function DocumentsPage() {
   ) => {
     requestSignatureMutation.mutate({
       documentId,
-      signerEmail,
-      signerName,
+      title: `Signature request`,
+      signers: [{ email: signerEmail, name: signerName }],
       expiresInDays,
     })
   }
 
-  const handleSendReminder = (documentId: string) => {
-    sendReminderMutation.mutate({ documentId })
+  const handleSendReminder = (requestId: string) => {
+    sendReminderMutation.mutate({ requestId })
   }
 
-  const handleCancelSignatureRequest = (documentId: string) => {
+  const handleCancelSignatureRequest = (requestId: string) => {
     if (confirm(t('confirmCancelSignature'))) {
-      cancelSignatureMutation.mutate({ documentId })
+      cancelSignatureMutation.mutate({ requestId })
     }
   }
 
   const handleSignDocument = (
-    documentId: string,
+    token: string,
     signatureDataUrl: string,
-    signedAt: string
+    signerName: string
   ) => {
     signDocumentMutation.mutate({
-      documentId,
-      signatureDataUrl,
-      signedAt,
+      token,
+      signature: signatureDataUrl,
+      name: signerName,
     })
+  }
+
+  const handleSubmitSignatureRequest = () => {
+    if (!signatureForm.documentId || !signatureForm.title || signatureForm.signers.some(s => !s.name || !s.email)) {
+      toast({ title: tc('error'), description: 'Please fill all required fields', variant: 'destructive' })
+      return
+    }
+    requestSignatureMutation.mutate({
+      documentId: signatureForm.documentId,
+      title: signatureForm.title,
+      message: signatureForm.message || undefined,
+      signingOrder: signatureForm.signingOrder,
+      expiresInDays: signatureForm.expiresInDays,
+      signers: signatureForm.signers.filter(s => s.name && s.email),
+    }, {
+      onSuccess: () => {
+        setIsSignatureDialogOpen(false)
+        setSignatureForm({
+          documentId: '', title: '', message: '', signingOrder: 'parallel', expiresInDays: 7,
+          signers: [{ name: '', email: '', role: '' }],
+        })
+      },
+    })
+  }
+
+  const addSigner = () => {
+    setSignatureForm(f => ({
+      ...f,
+      signers: [...f.signers, { name: '', email: '', role: '' }],
+    }))
+  }
+
+  const removeSigner = (index: number) => {
+    if (signatureForm.signers.length <= 1) return
+    setSignatureForm(f => ({
+      ...f,
+      signers: f.signers.filter((_, i) => i !== index),
+    }))
+  }
+
+  const updateSigner = (index: number, field: string, value: string) => {
+    setSignatureForm(f => ({
+      ...f,
+      signers: f.signers.map((s, i) => i === index ? { ...s, [field]: value } : s),
+    }))
   }
 
   const getFileIcon = (type: string) => {
@@ -451,20 +506,20 @@ export default function DocumentsPage() {
       </Card>
         </TabsContent>
 
-        <TabsContent value="signatures" className="mt-6">
+        <TabsContent value="signatures" className="mt-6 space-y-4">
+          <div className="flex justify-end">
+            <Button
+              onClick={() => setIsSignatureDialogOpen(true)}
+              disabled={!documents || documents.length === 0}
+            >
+              <FileSignature className="w-4 h-4 mr-2" />
+              {t('requestNewSignature')}
+            </Button>
+          </div>
           <SignatureTracker
-            documents={documents || []}
-            stats={signatureStats}
-            onRequestSignature={handleRequestSignature}
+            clientId={clientId}
             onSendReminder={handleSendReminder}
             onCancelRequest={handleCancelSignatureRequest}
-            onSignDocument={handleSignDocument}
-            isLoading={
-              requestSignatureMutation.isPending ||
-              sendReminderMutation.isPending ||
-              cancelSignatureMutation.isPending ||
-              signDocumentMutation.isPending
-            }
           />
         </TabsContent>
       </Tabs>
@@ -592,6 +647,155 @@ export default function DocumentsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request Signature Dialog */}
+      <Dialog open={isSignatureDialogOpen} onOpenChange={setIsSignatureDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSignature className="w-5 h-5" />
+              {t('requestNewSignature')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Document Selection */}
+            <div>
+              <Label>{t('title')}</Label>
+              <Select
+                value={signatureForm.documentId}
+                onValueChange={(val) => setSignatureForm(f => ({ ...f, documentId: val }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a document..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {documents?.map((doc: any) => (
+                    <SelectItem key={doc.id} value={doc.id}>{doc.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Title */}
+            <div>
+              <Label>{t('signatureRequest')}</Label>
+              <Input
+                value={signatureForm.title}
+                onChange={(e) => setSignatureForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="e.g., Contract Signature for Venue"
+              />
+            </div>
+
+            {/* Message */}
+            <div>
+              <Label>Message (optional)</Label>
+              <Textarea
+                value={signatureForm.message}
+                onChange={(e) => setSignatureForm(f => ({ ...f, message: e.target.value }))}
+                placeholder="Add a note for the signers..."
+                rows={2}
+              />
+            </div>
+
+            {/* Signing Order & Expiry */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>{t('signingOrderLabel')}</Label>
+                <Select
+                  value={signatureForm.signingOrder}
+                  onValueChange={(val: 'parallel' | 'sequential') => setSignatureForm(f => ({ ...f, signingOrder: val }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="parallel">{t('parallel')}</SelectItem>
+                    <SelectItem value="sequential">{t('sequential')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>{t('expiresIn')}</Label>
+                <Select
+                  value={String(signatureForm.expiresInDays)}
+                  onValueChange={(val) => setSignatureForm(f => ({ ...f, expiresInDays: Number(val) }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 {t('days')}</SelectItem>
+                    <SelectItem value="7">7 {t('days')}</SelectItem>
+                    <SelectItem value="14">14 {t('days')}</SelectItem>
+                    <SelectItem value="30">30 {t('days')}</SelectItem>
+                    <SelectItem value="60">60 {t('days')}</SelectItem>
+                    <SelectItem value="90">90 {t('days')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Signers */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-base font-semibold">Signers</Label>
+                <Button variant="outline" size="sm" onClick={addSigner}>
+                  <UserPlus className="w-3 h-3 mr-1" /> {t('addSigner')}
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {signatureForm.signers.map((signer, idx) => (
+                  <div key={idx} className="flex gap-2 items-start p-3 border rounded-lg bg-gray-50">
+                    <div className="flex-1 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder={t('signerName')}
+                          value={signer.name}
+                          onChange={(e) => updateSigner(idx, 'name', e.target.value)}
+                        />
+                        <Input
+                          placeholder={t('signerEmail')}
+                          type="email"
+                          value={signer.email}
+                          onChange={(e) => updateSigner(idx, 'email', e.target.value)}
+                        />
+                      </div>
+                      <Input
+                        placeholder={`${t('signerRole')} (optional, e.g., Bride, Vendor)`}
+                        value={signer.role}
+                        onChange={(e) => updateSigner(idx, 'role', e.target.value)}
+                      />
+                    </div>
+                    {signatureForm.signers.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 mt-1"
+                        onClick={() => removeSigner(idx)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setIsSignatureDialogOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              onClick={handleSubmitSignatureRequest}
+              disabled={requestSignatureMutation.isPending}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              {requestSignatureMutation.isPending ? 'Sending...' : t('signatureRequest')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

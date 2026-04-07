@@ -46,6 +46,7 @@ export interface SyncAction {
     | 'gifts'
     | 'clients'
     | 'floorPlans'
+    | 'documents'
   /** ID of the entity that was affected */
   entityId: string
   /** Additional data about the mutation */

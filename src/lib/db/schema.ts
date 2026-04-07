@@ -141,5 +141,6 @@ export * from './schema-workflows';
 export * from './schema-questionnaires';
 export * from './schema-invitations';
 export * from './schema-chatbot';
+export * from './schema-esignature';
 // Note: schema-relations is exported separately to avoid circular imports
 // Import relations from '@/lib/db/schema-relations' directly when needed
