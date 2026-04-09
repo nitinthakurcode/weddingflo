@@ -48,7 +48,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     { name: t('creatives'), href: '/dashboard/creatives', icon: Palette, available: true },
     { name: t('gifts'), href: '/dashboard/gifts', icon: Gift, available: true },
     { name: t('hotels'), href: '/dashboard/hotels', icon: Hotel, available: true },
-    { name: t('messages'), href: '/dashboard/messages', icon: MessageSquare, available: true },
+    { name: t('messages'), href: '/messages', icon: MessageSquare, available: true },
     { name: t('reports'), href: '/dashboard/reports', icon: FileText, available: false },
     { name: t('settings'), href: '/dashboard/settings', icon: Settings, available: true },
   ];
