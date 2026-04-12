@@ -36,6 +36,19 @@ ENV NODE_ENV=production
 # Skip validation during build (env vars set at runtime)
 ENV SKIP_ENV_VALIDATION=true
 
+# Dummy build-time values for SDK modules that throw at import time.
+# These are NOT used at runtime — real values are injected via docker-compose.
+# Next.js page data collection imports all routes, triggering SDK init.
+ENV BETTER_AUTH_SECRET=build-placeholder
+ENV BETTER_AUTH_URL=http://localhost:3000
+ENV NEXT_PUBLIC_APP_URL=http://localhost:3000
+ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
+ENV OPENAI_API_KEY=sk-build-placeholder
+ENV NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
+ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder
+ENV UPSTASH_REDIS_REST_URL=https://placeholder.upstash.io
+ENV UPSTASH_REDIS_REST_TOKEN=placeholder
+
 # Build Next.js application
 RUN npm run build
 
