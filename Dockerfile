@@ -44,10 +44,16 @@ ENV BETTER_AUTH_URL=http://localhost:3000
 ENV NEXT_PUBLIC_APP_URL=http://localhost:3000
 ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 ENV OPENAI_API_KEY=sk-build-placeholder
+ENV STRIPE_SECRET_KEY=sk_build_placeholder
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_build_placeholder
+ENV RESEND_API_KEY=re_build_placeholder
 ENV NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
 ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder
+ENV SUPABASE_SECRET_KEY=placeholder
 ENV UPSTASH_REDIS_REST_URL=https://placeholder.upstash.io
 ENV UPSTASH_REDIS_REST_TOKEN=placeholder
+ENV GOOGLE_CLIENT_ID=placeholder
+ENV GOOGLE_CLIENT_SECRET=placeholder
 
 # Build Next.js application
 RUN npm run build
