@@ -1,4 +1,4 @@
-name: Build & Deploy
+name: "Build & Deploy"
 
 on:
   push:
@@ -120,7 +120,9 @@ jobs:
             -d '{"image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"}'
 
       - name: Deploy via SSH (with Cloudflare Tunnel)
-        if: ${{ secrets.DEPLOY_SSH_KEY != '' }}
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        if: ${{ env.SSH_KEY != '' }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -163,7 +165,9 @@ jobs:
           exit 1
 
       - name: Purge Cloudflare Cache
-        if: ${{ success() && secrets.CLOUDFLARE_API_TOKEN != '' }}
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        if: ${{ success() && env.CF_TOKEN != '' }}
         run: |
           curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
             -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
