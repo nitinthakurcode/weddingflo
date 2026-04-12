@@ -10,8 +10,8 @@ RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json ./
+# Copy package files + npm config (legacy-peer-deps for React 19 compat)
+COPY package.json package-lock.json .npmrc ./
 
 # Install ALL dependencies (needed for build)
 RUN npm ci --ignore-scripts
