@@ -45,7 +45,7 @@ export interface SyncResult {
  * This is called after import operations to ensure cross-module consistency.
  * Each client's sync is wrapped in a transaction for atomicity.
  */
-export async function triggerBatchSync(entityType: EntityType, clientIds: string[]): Promise<SyncResult> {
+export async function triggerBatchSync(entityType: EntityType, clientIds: string[], companyId?: string): Promise<SyncResult> {
   const result: SyncResult = {
     success: true,
     synced: 0,
@@ -66,7 +66,7 @@ export async function triggerBatchSync(entityType: EntityType, clientIds: string
       await withTransaction(async (tx) => {
         switch (entityType) {
           case 'guests':
-            await syncGuestsToHotelsAndTransportTx(tx, clientId, result);
+            await syncGuestsToHotelsAndTransportTx(tx, clientId, result, companyId);
             break;
           case 'hotels':
             await syncHotelsToTimelineTx(tx, clientId, result);
@@ -86,9 +86,9 @@ export async function triggerBatchSync(entityType: EntityType, clientIds: string
             break;
         }
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`[AutoSync] Error syncing ${entityType} for client ${clientId}:`, error);
-      result.errors.push(`Client ${clientId}: ${error.message}`);
+      result.errors.push(`Client ${clientId}: ${error instanceof Error ? error.message : String(error)}`);
       result.success = false;
     }
   }
@@ -102,9 +102,9 @@ export async function triggerBatchSync(entityType: EntityType, clientIds: string
  * Called after guest import to ensure consistency.
  * @deprecated Use syncGuestsToHotelsAndTransportTx with transaction instead
  */
-async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResult) {
+async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResult, companyId?: string) {
   await withTransaction(async (tx) => {
-    await syncGuestsToHotelsAndTransportTx(tx, clientId, result);
+    await syncGuestsToHotelsAndTransportTx(tx, clientId, result, companyId);
   });
 }
 
@@ -113,7 +113,7 @@ async function syncGuestsToHotelsAndTransport(clientId: string, result: SyncResu
  * Transaction-aware version for use within existing transactions.
  * Exported for use in import router for atomic import+sync operations.
  */
-export async function syncGuestsToHotelsAndTransportTx(tx: any, clientId: string, result: SyncResult) {
+export async function syncGuestsToHotelsAndTransportTx(tx: any, clientId: string, result: SyncResult, companyId?: string) {
   // Get client info for defaults
   const [client] = await tx
     .select({ weddingDate: clients.weddingDate })
@@ -175,6 +175,7 @@ export async function syncGuestsToHotelsAndTransportTx(tx: any, clientId: string
 
       await tx.insert(hotels).values({
         clientId,
+        companyId: companyId || null,
         guestId: guest.id,
         guestName,
         hotelName: guest.hotelName || null,
@@ -242,6 +243,7 @@ export async function syncGuestsToHotelsAndTransportTx(tx: any, clientId: string
 
       await tx.insert(guestTransport).values({
         clientId,
+        companyId: companyId || null,
         guestId: guest.id,
         guestName,
         legType: 'arrival',
@@ -301,10 +303,19 @@ export async function syncHotelsToTimelineTx(tx: any, clientId: string, result: 
       )
       .limit(1);
 
-    if (!existingEntry) {
-      const checkInDateTime = new Date(hotel.checkInDate);
-      checkInDateTime.setHours(15, 0, 0, 0);
+    const checkInDateTime = new Date(hotel.checkInDate);
+    checkInDateTime.setHours(15, 0, 0, 0);
 
+    if (existingEntry) {
+      // Update existing timeline entry if source date changed
+      await tx.update(timeline).set({
+        title: `Hotel Check-in: ${hotel.guestName}`,
+        description: hotel.hotelName ? `Check-in at ${hotel.hotelName}` : 'Guest hotel check-in',
+        startTime: checkInDateTime,
+        location: hotel.hotelName || null,
+        notes: hotel.notes || null,
+      }).where(eq(timeline.id, existingEntry.id));
+    } else {
       await tx.insert(timeline).values({
         id: randomUUID(),
         clientId,
@@ -367,15 +378,24 @@ export async function syncTransportToTimelineTx(tx: any, clientId: string, resul
       )
       .limit(1);
 
-    if (!existingEntry) {
-      const pickupDateTime = new Date(transport.pickupDate);
-      if (transport.pickupTime) {
-        const [hours, minutes] = transport.pickupTime.split(':').map(Number);
-        pickupDateTime.setHours(hours || 0, minutes || 0, 0, 0);
-      }
+    const pickupDateTime = new Date(transport.pickupDate);
+    if (transport.pickupTime) {
+      const [hours, minutes] = transport.pickupTime.split(':').map(Number);
+      pickupDateTime.setHours(hours || 0, minutes || 0, 0, 0);
+    }
 
-      const legLabel = transport.legType === 'departure' ? 'Drop-off' : 'Pickup';
+    const legLabel = transport.legType === 'departure' ? 'Drop-off' : 'Pickup';
 
+    if (existingEntry) {
+      // Update existing timeline entry if source date/time changed
+      await tx.update(timeline).set({
+        title: `Transport ${legLabel}: ${transport.guestName}`,
+        description: transport.pickupFrom ? `${legLabel} from ${transport.pickupFrom}` : `Guest ${legLabel.toLowerCase()}`,
+        startTime: pickupDateTime,
+        location: transport.pickupFrom || null,
+        notes: transport.notes || null,
+      }).where(eq(timeline.id, existingEntry.id));
+    } else {
       await tx.insert(timeline).values({
         id: randomUUID(),
         clientId,
@@ -406,7 +426,7 @@ export async function syncTransportToTimelineTx(tx: any, clientId: string, resul
  * Used for manual sync or data recovery.
  * All sync operations are wrapped in a single transaction for atomicity.
  */
-export async function triggerFullSync(clientId: string): Promise<SyncResult> {
+export async function triggerFullSync(clientId: string, companyId?: string): Promise<SyncResult> {
   const result: SyncResult = {
     success: true,
     synced: 0,
@@ -424,13 +444,13 @@ export async function triggerFullSync(clientId: string): Promise<SyncResult> {
   try {
     // Wrap entire full sync in a single transaction for atomicity
     await withTransaction(async (tx) => {
-      await syncGuestsToHotelsAndTransportTx(tx, clientId, result);
+      await syncGuestsToHotelsAndTransportTx(tx, clientId, result, companyId);
       await syncHotelsToTimelineTx(tx, clientId, result);
       await syncTransportToTimelineTx(tx, clientId, result);
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(`[AutoSync] Full sync error for client ${clientId}:`, error);
-    result.errors.push(error.message);
+    result.errors.push(error instanceof Error ? error.message : String(error));
     result.success = false;
   }
 

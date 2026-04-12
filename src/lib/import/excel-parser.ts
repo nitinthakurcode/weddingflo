@@ -43,7 +43,7 @@ const EXPECTED_TIMELINE_HEADERS = [
 const REQUIRED_TIMELINE_HEADERS = ['Title'];
 
 export const EXPECTED_BUDGET_HEADERS = [
-  'ID', 'Category', 'Item', 'Description', 'Estimated Cost',
+  'ID', 'Category', 'Segment', 'Item', 'Description', 'Estimated Cost',
   'Actual Cost', 'Paid Amount', 'Payment Status', 'Transaction Date',
   'Per Guest Cost', 'Notes',
 ];

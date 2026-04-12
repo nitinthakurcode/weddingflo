@@ -425,10 +425,10 @@ export const googleSheetsRouter = router({
           result = await importVendorsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId!);
           break;
         case 'hotels':
-          result = await importHotelsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          result = await importHotelsFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId);
           break;
         case 'transport':
-          result = await importTransportFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
+          result = await importTransportFromSheet(sheetsClient, settings.spreadsheetId, input.clientId, ctx.companyId);
           break;
         case 'timeline':
           result = await importTimelineFromSheet(sheetsClient, settings.spreadsheetId, input.clientId);
@@ -454,7 +454,7 @@ export const googleSheetsRouter = router({
           const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
           // S7-M09: use transaction client instead of bare db
           await db.transaction(async (tx) => {
-            await syncGuestsToHotelsAndTransportTx(tx, input.clientId, cascadeResult);
+            await syncGuestsToHotelsAndTransportTx(tx, input.clientId, cascadeResult, ctx.companyId || undefined);
           });
         } catch (err) {
           console.error('[Sheets Router] Guest cascade sync failed:', err);

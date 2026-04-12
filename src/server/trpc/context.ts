@@ -48,8 +48,9 @@ export async function createTRPCContext() {
     }
   }
 
-  // Default to company_admin if still no role
-  const finalRole = (role || 'company_admin') as Roles;
+  // Default to 'staff' if still no role — fail-safe to prevent privilege escalation
+  // 'staff' passes protectedProcedure (userId check only) but NOT adminProcedure
+  const finalRole = (role || 'staff') as Roles;
 
   return {
     userId,

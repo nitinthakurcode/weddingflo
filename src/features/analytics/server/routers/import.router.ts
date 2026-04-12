@@ -749,6 +749,7 @@ export const importRouter = router({
         const result = await importBudgetExcel(buffer, input.clientId, companyId)
         if (result.inserted > 0 || result.updated > 0) {
           await recalcClientStats(ctx.db, input.clientId)
+          await recalcPerGuestBudgetItems(ctx.db, input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'budget',
@@ -995,8 +996,9 @@ export const importRouter = router({
                 await importGuestGift(tx, companyId, input.clientId, row, results)
                 break
             }
-          } catch (error: any) {
-            results.errors.push(`Row ${rowNum}: ${error.message}`)
+          } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error)
+            results.errors.push(`Row ${rowNum}: ${msg}`)
 
             // If more than 50% of rows have errors, abort the transaction
             const errorThreshold = Math.ceil(jsonData.length * 0.5)
@@ -1019,7 +1021,7 @@ export const importRouter = router({
 
           // Sync guests to hotels/transport if guest module was imported
           if (input.module === 'guests') {
-            await syncGuestsToHotelsAndTransportTx(tx, input.clientId, syncResult)
+            await syncGuestsToHotelsAndTransportTx(tx, input.clientId, syncResult, companyId)
             if (syncResult.created.hotels > 0) {
               results.cascadeActions.push({ module: 'hotels', action: 'created', count: syncResult.created.hotels })
             }

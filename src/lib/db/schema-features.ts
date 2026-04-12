@@ -471,6 +471,7 @@ export const budget = pgTable('budget', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
   index('budget_client_id_idx').on(table.clientId),
+  index('budget_vendor_id_idx').on(table.vendorId),
 ]);
 
 // Advance Payments - Linked to budget items for payment tracking

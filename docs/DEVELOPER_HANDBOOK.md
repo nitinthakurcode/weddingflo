@@ -1686,19 +1686,22 @@ WeddingFlo has three independent header systems that must stay in sync:
 
 | # | Excel Export (exporter)           | Excel Import (parser)      | Google Sheets (sync)     |
 |---|----------------------------------|----------------------------|--------------------------|
-| 1 | Expense Name                     | Item                       | ID                       |
-| 2 | Expense Details                  | Description                | Item                     |
-| 3 | Category                         | Category                   | Category                 |
-| 4 | Event                            | Estimated Cost             | Segment                  |
-| 5 | Budgeted Amount                  | Actual Cost                | Estimated Cost           |
-| 6 | Transaction Date                 | Paid Amount                | Actual Cost              |
-| 7 | Total Paid                       | Payment Status             | Paid Amount              |
-| 8 | Balance Due                      | Transaction Date           | Payment Status           |
-| 9 | Payment History                  | Per Guest Cost             | Vendor                   |
-| 10| Payment Status                   | Notes                      | Notes                    |
-| 11| Special Notes                    | ID                         | Last Updated             |
+| 1 | Expense Name                     | ID                         | ID                       |
+| 2 | Expense Details                  | Category                   | Item                     |
+| 3 | Category                         | Segment                    | Category                 |
+| 4 | Segment                          | Item                       | Segment                  |
+| 5 | Event                            | Description                | Estimated Cost           |
+| 6 | Budgeted Amount                  | Estimated Cost             | Actual Cost              |
+| 7 | Transaction Date                 | Actual Cost                | Paid Amount              |
+| 8 | Total Paid                       | Paid Amount                | Payment Status           |
+| 9 | Balance Due                      | Payment Status             | Vendor                   |
+| 10| Payment History                  | Transaction Date           | Notes                    |
+| 11| Payment Status                   | Per Guest Cost             | Last Updated             |
+| 12| Special Notes                    | Notes                      |                          |
 
 **Alias resolution:** `item` ← `['expense name', 'expense item']`, `estimated cost` ← `['budgeted amount']`, `paid amount` ← `['total paid']`, `description` ← `['expense details']`, `notes` ← `['special notes']`
+
+**Note:** `Segment` field (vendors/travel/creatives/artists/accommodation/other) is now present in all three systems. `Balance Due` and `Payment History` are export-only calculated fields with no import mapping.
 
 ### G.4 Hotels — Header Comparison
 

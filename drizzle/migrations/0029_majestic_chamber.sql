@@ -1,0 +1,1 @@
+CREATE INDEX "budget_vendor_id_idx" ON "budget" USING btree ("vendor_id");

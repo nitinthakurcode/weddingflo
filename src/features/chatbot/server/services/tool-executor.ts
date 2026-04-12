@@ -2832,6 +2832,9 @@ async function executeUpdateBudgetItem(
   if (args.notes !== undefined) {
     updateValues.notes = args.notes
   }
+  if (args.segment !== undefined) {
+    updateValues.segment = args.segment
+  }
 
   // Update budget + vendor sync + timeline atomically
   const updatedItem = await withTransaction(async (tx) => {

@@ -188,7 +188,7 @@ describe('budget-calculations', () => {
     })
 
     it('should return gray for zero budget', () => {
-      expect(getVarianceColor(100, 0)).toBe('text-gray-500')
+      expect(getVarianceColor(100, 0)).toBe('text-muted-foreground')
     })
   })
 
@@ -198,7 +198,7 @@ describe('budget-calculations', () => {
       expect(getVarianceBgColor(500, 10000)).toBe('bg-yellow-100')
       expect(getVarianceBgColor(-500, 10000)).toBe('bg-orange-100')
       expect(getVarianceBgColor(-1500, 10000)).toBe('bg-red-100')
-      expect(getVarianceBgColor(100, 0)).toBe('bg-gray-100')
+      expect(getVarianceBgColor(100, 0)).toBe('bg-muted')
     })
   })
 

@@ -226,6 +226,7 @@ export const updateBudgetItemSchema = z.object({
   budgetItemId: z.string().uuid().optional(),
   clientId: z.string().uuid().optional(),
   category: z.string().optional().describe('Category to find item'),
+  segment: z.enum(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']).optional().describe('Budget segment grouping'),
   item: z.string().optional().describe('Item name to find'),
   estimatedCost: z.number().positive().optional(),
   actualCost: z.number().positive().optional(),

@@ -950,7 +950,8 @@ export async function importVendorsFromSheet(
 export async function importHotelsFromSheet(
   sheetsClient: sheets_v4.Sheets,
   spreadsheetId: string,
-  clientId: string
+  clientId: string,
+  companyId?: string | null
 ): Promise<SyncStats> {
   const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
 
@@ -1028,6 +1029,7 @@ export async function importHotelsFromSheet(
             await tx.insert(hotels).values({
               id,
               clientId,
+              companyId: companyId || null,
               ...hotelData,
             });
           }
@@ -1054,7 +1056,8 @@ export async function importHotelsFromSheet(
 export async function importTransportFromSheet(
   sheetsClient: sheets_v4.Sheets,
   spreadsheetId: string,
-  clientId: string
+  clientId: string,
+  companyId?: string | null
 ): Promise<SyncStats> {
   const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
 
@@ -1125,6 +1128,7 @@ export async function importTransportFromSheet(
             await tx.insert(guestTransport).values({
               id,
               clientId,
+              companyId: companyId || null,
               ...transportData,
             });
           }

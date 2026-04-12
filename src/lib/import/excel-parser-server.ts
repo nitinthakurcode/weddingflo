@@ -119,6 +119,7 @@ export async function importBudgetExcel(
       const id = getCell(row, 'id');
       const item = getCell(row, 'item');
       const category = getCell(row, 'category');
+      const segment = getCell(row, 'segment');
       const description = getCell(row, 'description');
       const estimatedCost = parseCurrency(getRawCell(row, 'estimated cost'));
       const actualCost = parseCurrency(getRawCell(row, 'actual cost'));
@@ -137,6 +138,7 @@ export async function importBudgetExcel(
       const budgetData = {
         item,
         category: category || 'other',
+        segment: segment || null,
         description: description || null,
         estimatedCost: estimatedCost || '0',
         actualCost,
@@ -164,8 +166,8 @@ export async function importBudgetExcel(
         });
         results.inserted++;
       }
-    } catch (error: any) {
-      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    } catch (error: unknown) {
+      results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -283,8 +285,8 @@ export async function importHotelsExcel(
         });
         results.inserted++;
       }
-    } catch (error: any) {
-      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    } catch (error: unknown) {
+      results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -406,8 +408,8 @@ export async function importTransportExcel(
         });
         results.inserted++;
       }
-    } catch (error: any) {
-      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    } catch (error: unknown) {
+      results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -538,8 +540,8 @@ export async function importVendorsExcel(
 
         results.inserted++;
       }
-    } catch (error: any) {
-      results.errors.push(`Row ${rowIdx}: ${error.message}`);
+    } catch (error: unknown) {
+      results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

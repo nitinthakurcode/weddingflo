@@ -656,6 +656,7 @@ export async function exportBudgetExcel(
     item?: string;
     expense_details?: string;
     category: string;
+    segment?: string | null;
     estimated_cost?: number;
     actual_cost?: number;
     transaction_date?: string;
@@ -677,6 +678,7 @@ export async function exportBudgetExcel(
     { header: 'Expense Name', key: 'expenseName', width: 30, hint: 'Required - Expense name' },
     { header: 'Expense Details', key: 'details', width: 35, hint: 'Description of expense' },
     { header: 'Category', key: 'category', width: 20, hint: 'venue/catering/decor/etc.', validation: { type: 'list', options: ['venue', 'catering', 'photography', 'videography', 'decor', 'entertainment', 'attire', 'beauty', 'transportation', 'stationery', 'gifts', 'other'] } },
+    { header: 'Segment', key: 'segment', width: 20, hint: 'vendors/travel/creatives/artists/accommodation/other', validation: { type: 'list', options: ['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other'] } },
     { header: 'Event', key: 'event', width: 20, hint: 'Associated event name' },
     { header: 'Budgeted Amount', key: 'budget', width: 18, hint: 'Numbers only' },
     { header: 'Transaction Date', key: 'transactionDate', width: 18, hint: 'YYYY-MM-DD' },
@@ -696,6 +698,7 @@ export async function exportBudgetExcel(
       expenseName: item.item || item.expense_details || '',
       details: item.expense_details || '',
       category: item.category,
+      segment: item.segment || '',
       event: item.events?.title || '',
       budget: item.estimated_cost || 0,
       transactionDate: item.transaction_date ? new Date(item.transaction_date).toISOString().split('T')[0] : '',
@@ -716,6 +719,7 @@ export async function exportBudgetExcel(
     expenseName: 'TOTAL',
     details: '',
     category: '',
+    segment: '',
     event: '',
     budget: totalBudget,
     transactionDate: '',
