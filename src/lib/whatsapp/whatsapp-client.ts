@@ -1,14 +1,25 @@
-import twilio from 'twilio';
+import twilio, { type Twilio } from 'twilio';
 
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER; // Format: whatsapp:+14155238886
+let twilioWhatsAppClientInstance: Twilio | null = null;
 
-if (!accountSid || !authToken) {
-  throw new Error('Missing Twilio credentials');
+function getTwilioWhatsAppClient(): Twilio {
+  if (!twilioWhatsAppClientInstance) {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      throw new Error('Missing Twilio credentials');
+    }
+    twilioWhatsAppClientInstance = twilio(accountSid, authToken);
+  }
+  return twilioWhatsAppClientInstance;
 }
 
-export const twilioWhatsAppClient = twilio(accountSid, authToken);
+// Lazy proxy — defers initialization until first use (prevents build-time throw)
+export const twilioWhatsAppClient = new Proxy({} as Twilio, {
+  get(_, prop) {
+    return (getTwilioWhatsAppClient() as unknown as Record<string, unknown>)[prop as string];
+  },
+});
 
 export interface WhatsAppMessage {
   to: string; // Format: whatsapp:+1234567890
@@ -31,6 +42,7 @@ export interface WhatsAppTemplateMessage {
  */
 export async function sendWhatsAppMessage(message: WhatsAppMessage) {
   try {
+    const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER;
     if (!whatsappNumber) {
       throw new Error('TWILIO_WHATSAPP_NUMBER not configured');
     }
@@ -74,6 +86,7 @@ export async function sendWhatsAppMessage(message: WhatsAppMessage) {
  */
 export async function sendWhatsAppTemplateMessage(message: WhatsAppTemplateMessage) {
   try {
+    const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER;
     if (!whatsappNumber) {
       throw new Error('TWILIO_WHATSAPP_NUMBER not configured');
     }
