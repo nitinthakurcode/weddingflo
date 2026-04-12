@@ -12,8 +12,8 @@ import { assertValidAuthEnv } from '@/lib/auth/validate-env';
 import { Resend } from 'resend';
 
 // Validate auth environment on module load (startup)
-if (typeof window === 'undefined') {
-  // Only validate on server-side
+// Skip validation during CI builds (SKIP_ENV_VALIDATION=true in Dockerfile + CI)
+if (typeof window === 'undefined' && process.env.SKIP_ENV_VALIDATION !== 'true') {
   assertValidAuthEnv();
 }
 
