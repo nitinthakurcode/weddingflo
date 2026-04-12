@@ -3668,6 +3668,7 @@ npm run test:security       # Playwright security tests
 - Coverage provider: v8
 - Module alias: `^@/(.*)$` → `<rootDir>/src/$1`
 - Setup files: `jest.polyfills.ts` (MSW v2), `jest.setup.ts` (mocks)
+- **testPathIgnorePatterns:** `/tests/security/` (security tests use Vitest APIs — run via `npx vitest run`)
 
 **Mocks in `jest.setup.ts`:**
 - `superjson`, `next/navigation`, `window.matchMedia`

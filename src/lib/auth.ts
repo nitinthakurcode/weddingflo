@@ -52,8 +52,15 @@ async function verifyPasswordWithRehash(data: {
   return isValid;
 }
 
-// Initialize Resend for email sending
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy Resend initialization — defers until first email send to prevent
+// module-level throw when RESEND_API_KEY is not set (CI builds, E2E tests)
+let resendInstance: Resend | null = null;
+function getResend(): Resend {
+  if (!resendInstance) {
+    resendInstance = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendInstance;
+}
 
 // Email sending helper
 async function sendEmail({
@@ -71,7 +78,7 @@ async function sendEmail({
   }
 
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'noreply@weddingflow.pro',
       to,
       subject,
