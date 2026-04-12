@@ -13,7 +13,7 @@
     "type-check": "tsc --noEmit",
     "test": "jest --watch",
     "test:unit": "jest",
-    "test:integration": "jest --testPathPattern=integration",
+    "test:integration": "jest --testPathPatterns=integration",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:coverage": "jest --coverage",
