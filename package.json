@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "NODE_OPTIONS='--disable-warning=DEP0169' next dev",
+    "dev:clean": "bash scripts/clean-dev.sh && NODE_OPTIONS='--disable-warning=DEP0169' next dev",
     "build": "next build",
     "build:analyze": "ANALYZE=true next build",
     "start": "next start",
@@ -113,8 +114,8 @@
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
     "input-otp": "^1.4.2",
-    "jspdf": "^3.0.4",
-    "jspdf-autotable": "^5.0.2",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "jszip": "^3.10.1",
     "konva": "^10.0.12",
     "lucide-react": "^0.562.0",
@@ -192,6 +193,7 @@
   },
   "overrides": {
     "@opentelemetry/instrumentation-http": "^0.208.0",
-    "esbuild": "^0.27.2"
+    "esbuild": "^0.27.2",
+    "serialize-javascript": "^7.0.5"
   }
 }

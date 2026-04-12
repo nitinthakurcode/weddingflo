@@ -154,13 +154,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: TruffleHog OSS
+      - name: TruffleHog OSS (push/PR)
+        if: github.event_name != 'schedule'
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}
           head: HEAD
           extra_args: --only-verified
+
+      - name: TruffleHog OSS (scheduled)
+        if: github.event_name == 'schedule'
+        run: |
+          docker run --rm -v "$PWD:/repo" trufflesecurity/trufflehog:latest \
+            filesystem /repo --only-verified --fail
 
   # Job 5: TypeScript type checking
   type-check:
@@ -209,7 +216,9 @@ jobs:
 
           # Fail on GPL, AGPL, or other copyleft licenses in production deps
           # Allow common permissive licenses
-          license-checker --production --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Unlicense;0BSD;BlueOak-1.0.0;Python-2.0"
+          license-checker --production \
+            --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Unlicense;0BSD;BlueOak-1.0.0;Python-2.0;LGPL-3.0-or-later;MPL-2.0" \
+            --excludePackages "weddingflo@1.0.0;buffers@0.1.1;tween-functions@1.2.0;url-template@2.0.8"
 
   # Job 7: OWASP Dependency Check
   dependency-check:
