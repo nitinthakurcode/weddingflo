@@ -2461,15 +2461,18 @@ chatbot.router.ts — chat procedure
 
 **File:** `src/features/chatbot/tools/definitions.ts`
 
-**Total: 52 tools (37 mutations, 15 queries)**
+**Total: 77 tools (62 mutations, 15 queries)**
 
 Each tool has: `name`, `category`, `type` (query|mutation), `description`, `parameters` (Zod schema), optional `cascadeEffects`
 
-#### Client Management (3 tools)
+**Access control:** `client_user` role is blocked from chatbot entirely. `staff` can only use query tools. `company_admin`/`super_admin` have full access. See `tool-permissions.ts`.
+
+#### Client Management (4 tools)
 | Tool              | Type     | Description                     |
 |-------------------|----------|---------------------------------|
 | `create_client`   | mutation | Create new wedding client       |
 | `update_client`   | mutation | Update client details           |
+| `delete_client`   | mutation | Soft-delete client + 19-table cascade |
 | `get_client_summary` | query | Get client overview             |
 
 #### Guest Management (6 tools)
@@ -2489,10 +2492,11 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 | `update_event`    | mutation | Update event details            |
 | `delete_event`    | mutation | Delete event                    |
 
-#### Timeline Management (3 tools)
+#### Timeline Management (4 tools)
 | Tool                  | Type     | Description                     |
 |-----------------------|----------|---------------------------------|
 | `add_timeline_item`   | mutation | Add timeline entry              |
+| `update_timeline_item`| mutation | Update individual timeline item |
 | `shift_timeline`      | mutation | Shift all items by duration     |
 | `delete_timeline_item`| mutation | Delete timeline item            |
 
@@ -2503,16 +2507,26 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 | `update_vendor`   | mutation | Update vendor status/payment    |
 | `delete_vendor`   | mutation | Delete vendor                   |
 
-#### Hotel Management (3 tools)
+#### Hotel Management (5 tools)
 | Tool                       | Type     | Description                     |
 |----------------------------|----------|---------------------------------|
 | `add_hotel_booking`        | mutation | Add hotel for guest             |
+| `update_hotel_booking`     | mutation | Update hotel booking details    |
+| `delete_hotel_booking`     | mutation | Delete hotel booking            |
 | `bulk_add_hotel_bookings`  | mutation | Bulk hotel assignments          |
 | `sync_hotel_guests`        | query    | Get hotel summary               |
 
-#### Budget (4 tools)
+#### Transport Management (3 tools)
+| Tool                  | Type     | Description                     |
+|-----------------------|----------|---------------------------------|
+| `assign_transport`    | mutation | Assign transport logistics      |
+| `update_transport`    | mutation | Update transport details        |
+| `delete_transport`    | mutation | Delete transport assignment     |
+
+#### Budget (5 tools)
 | Tool                    | Type     | Description                     |
 |-------------------------|----------|---------------------------------|
+| `create_budget_item`   | mutation | Create standalone budget item   |
 | `get_budget_overview`   | query    | Budget summary                  |
 | `update_budget_item`    | mutation | Update budget line item         |
 | `budget_currency_convert`| query   | Convert currencies              |
@@ -2526,38 +2540,80 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 | `query_cross_client_events` | query | Events across clients           |
 | `query_analytics`           | query | Business analytics              |
 
-#### Seating & Gifts (5 tools)
+#### Seating & Gifts (7 tools)
 | Tool                      | Type     | Description                     |
 |---------------------------|----------|---------------------------------|
 | `add_seating_constraint`  | mutation | Keep together/apart rules       |
+| `delete_seating_constraint`| mutation | Remove seating constraint      |
 | `update_table_dietary`    | mutation | Update table meal preferences   |
 | `assign_guests_to_events` | mutation | Multi-event assignment          |
 | `add_gift`                | mutation | Record gift                     |
 | `update_gift`             | mutation | Update gift status              |
 | `delete_gift`             | mutation | Delete gift                     |
 
-#### Communication & Operations (4 tools)
+#### Communication & Team (3 tools)
 | Tool                  | Type     | Description                     |
 |-----------------------|----------|---------------------------------|
 | `send_communication`  | mutation | Email/SMS to guests/vendors     |
-| `update_pipeline`     | mutation | CRM pipeline stage              |
-| `assign_transport`    | mutation | Assign transport logistics      |
 | `assign_team_member`  | mutation | Assign team to client           |
 
-#### Business Operations (5 tools)
+#### Pipeline & CRM (3 tools)
+| Tool                  | Type     | Description                     |
+|-----------------------|----------|---------------------------------|
+| `create_pipeline_lead`| mutation | Create new CRM lead             |
+| `update_pipeline`     | mutation | Update pipeline stage           |
+| `delete_pipeline_lead`| mutation | Delete pipeline lead            |
+
+#### Proposals & Contracts (6 tools)
 | Tool                | Type     | Description                     |
 |---------------------|----------|---------------------------------|
 | `create_proposal`   | mutation | Create proposal document        |
-| `create_invoice`    | mutation | Create invoice                  |
-| `export_data`       | query    | Export to Excel/PDF/CSV         |
-| `update_website`    | mutation | Update wedding website          |
-| `update_creative`   | mutation | Update design job status        |
+| `update_proposal`   | mutation | Update proposal details         |
+| `delete_proposal`   | mutation | Delete proposal                 |
+| `create_contract`   | mutation | Create contract                 |
+| `update_contract`   | mutation | Update contract details/status  |
+| `delete_contract`   | mutation | Delete contract                 |
 
-#### Utilities & Automation (6 tools)
+#### Invoices (3 tools)
+| Tool                | Type     | Description                     |
+|---------------------|----------|---------------------------------|
+| `create_invoice`    | mutation | Create invoice                  |
+| `update_invoice`    | mutation | Update invoice details/status   |
+| `delete_invoice`    | mutation | Delete invoice                  |
+
+#### Questionnaires (3 tools)
+| Tool                      | Type     | Description                     |
+|---------------------------|----------|---------------------------------|
+| `create_questionnaire`    | mutation | Create client questionnaire     |
+| `update_questionnaire`    | mutation | Update questionnaire            |
+| `delete_questionnaire`    | mutation | Delete questionnaire            |
+
+#### Creative & Media (3 tools)
+| Tool                | Type     | Description                     |
+|---------------------|----------|---------------------------------|
+| `create_creative`   | mutation | Create creative job             |
+| `update_creative`   | mutation | Update design job status        |
+| `delete_creative`   | mutation | Delete creative job             |
+
+#### Website Management (3 tools)
+| Tool                | Type     | Description                     |
+|---------------------|----------|---------------------------------|
+| `create_website`    | mutation | Create wedding website          |
+| `update_website`    | mutation | Update wedding website          |
+| `delete_website`    | mutation | Delete wedding website          |
+
+#### Workflow Automation (3 tools)
+| Tool                | Type     | Description                     |
+|---------------------|----------|---------------------------------|
+| `create_workflow`   | mutation | Create automation workflow      |
+| `update_workflow`   | mutation | Update workflow settings        |
+| `delete_workflow`   | mutation | Delete workflow                 |
+
+#### Utilities (7 tools)
 | Tool                     | Type     | Description                     |
 |--------------------------|----------|---------------------------------|
 | `get_weather`            | query    | Weather forecast                |
-| `create_workflow`        | mutation | Create automation workflow      |
+| `export_data`            | query    | Export to Excel/PDF/CSV         |
 | `generate_qr_codes`      | mutation | Generate check-in QR codes     |
 | `sync_calendar`          | mutation | Sync to Google/iCal            |
 | `get_document_upload_url`| query    | Get signed upload URL           |
@@ -2566,7 +2622,7 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 
 ### J.4 Tool Executor — Execution Flow
 
-**File:** `src/features/chatbot/server/services/tool-executor.ts` (5,946 lines)
+**File:** `src/features/chatbot/server/services/tool-executor.ts` (~9,000 lines)
 
 #### Key Functions:
 
@@ -2585,7 +2641,7 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 - Duplicate detection for guests/vendors
 
 **`executeTool(toolName, args, ctx)`**
-- Main router: 52-case switch statement
+- Main router: 77-case switch statement
 - Routes to specific `execute*()` handlers (e.g., `executeAddGuest`, `executeUpdateClient`)
 - Each handler uses Drizzle ORM within transactions (via `withTransaction` or `withCascadeTransaction`)
 
@@ -3243,6 +3299,7 @@ advanced: {
 | Variable | Type | Required | Purpose |
 |----------|------|----------|---------|
 | `TOKEN_ENCRYPTION_KEY` | Server | No | AES-256-GCM key for OAuth tokens (base64, 32 bytes) |
+| `NVD_API_KEY` | CI | No | NVD API key for OWASP Dependency Check (GitHub secret, speeds up NVD DB download) |
 | `CRON_SECRET` | Server | No | Bearer token for cron job auth |
 | `EXCHANGE_RATE_API_KEY` | Server | No | Live currency exchange rates |
 | `SUPER_ADMIN_EMAIL` | Server | No | Super admin for onboarding |
@@ -3707,7 +3764,7 @@ Migration naming: `NNNN_description.sql` (auto-generated). Always review SQL bef
 ### Q.9 Docker Configuration
 
 **Dockerfile** — multi-stage build:
-1. `deps` — `node:20-alpine`, install dependencies
+1. `deps` — `node:22-alpine`, install dependencies
 2. `builder` — build Next.js with `SKIP_ENV_VALIDATION=true`
 3. `runner` — minimal production image, non-root user (`nextjs:1001`)
 
@@ -3733,9 +3790,18 @@ Health check: `GET /api/health` every 30s, start period 40s.
 
 **Triggers:** push to main, PR to main, manual workflow dispatch.
 
+**CI Runtime:** Node.js 22 (LTS) across all workflows. GitHub Actions use `actions/checkout@v6`, `actions/setup-node@v6` (Node 24 runtime), `github/codeql-action@v4`.
+
 **Other CI workflows:**
 - `.github/workflows/test.yml` — unit, integration, type check, build, E2E
-- `.github/workflows/security.yml` — npm audit, Semgrep SAST, TruffleHog secrets, license compliance, OWASP dependency check (daily cron at 2 AM UTC)
+- `.github/workflows/security.yml` — npm audit, Semgrep SAST, TruffleHog secrets (push/PR/scheduled), license compliance, OWASP dependency check (daily cron at 2 AM UTC), Security Gate
+
+**TruffleHog event handling:**
+- Push events: compares `github.event.before` → `github.event.after` (previous HEAD to new HEAD)
+- PR events: compares PR base SHA → PR head SHA
+- Scheduled: full filesystem scan via Docker
+
+**OWASP Dependency Check:** 15-minute timeout, optional NVD API key via `NVD_API_KEY` secret for faster NVD database downloads. Advisory only — does not block Security Gate.
 
 **Backup:** `scripts/backup-postgres.sh` — compressed pg_dump → R2, 30-day retention, integrity verification.
 
