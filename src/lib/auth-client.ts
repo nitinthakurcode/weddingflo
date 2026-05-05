@@ -1,28 +1,20 @@
 'use client';
 
-import { createAuthClient } from 'better-auth/react';
-import { twoFactorClient as twoFactorPlugin } from 'better-auth/client/plugins';
 import { useAuthContext, type AuthUser } from '@/app/AuthProvider';
+import { authClient, useSession, signIn, signUp, signOut } from '@/lib/auth-client-core';
 
 /**
- * BetterAuth Client
+ * BetterAuth Client - Convenience layer
  *
  * January 2026 - Client-side auth helpers for BetterAuth
  * February 2026 - Added 2FA/TOTP support
- * Uses cookie-based sessions with proper server hydration
+ *
+ * Import chain: auth-client-core (leaf) ← AuthProvider ← auth-client (this file)
+ * This breaks the circular import that caused cold-start failures.
  */
-export const authClient = createAuthClient({
-  baseURL: typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL,
-  plugins: [twoFactorPlugin()],
-});
 
-// Export commonly used hooks and methods from BetterAuth
-export const {
-  useSession,
-  signIn,
-  signUp,
-  signOut,
-} = authClient;
+// Re-export core client and hooks for consumers
+export { authClient, useSession, signIn, signUp, signOut };
 
 // Convenience method for sign out with redirect
 export async function signOutAndRedirect(redirectTo: string = '/sign-in') {

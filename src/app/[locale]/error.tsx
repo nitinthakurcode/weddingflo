@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, RefreshCw, Home } from 'lucide-react'
 
@@ -29,7 +28,10 @@ export default function Error({
   error: Error & { digest?: string }
   reset: () => void
 }) {
-  const t = useTranslations('errorPage')
+  // Hardcoded strings — DO NOT use useTranslations() here.
+  // This error boundary fires when the locale layout (which provides
+  // NextIntlClientProvider) itself crashes. Using useTranslations
+  // would cause a double-fault.
   const [isChunkError, setIsChunkError] = useState(false)
 
   useEffect(() => {
@@ -71,19 +73,19 @@ export default function Error({
 
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            {t('somethingWentWrong')}
+            Something went wrong
           </h1>
           <p className="text-muted-foreground">
-            {t('apologize')}
+            We apologize for the inconvenience. Please try again.
           </p>
         </div>
 
         {error.message && (
           <div className="rounded-lg bg-red-50 p-4 text-left">
-            <p className="text-sm font-medium text-red-800">{t('errorDetails')}</p>
+            <p className="text-sm font-medium text-red-800">Error Details</p>
             <p className="mt-1 text-sm text-red-700">{error.message}</p>
             {error.digest && (
-              <p className="mt-2 text-xs text-red-600">{t('errorId', { id: error.digest })}</p>
+              <p className="mt-2 text-xs text-red-600">Error ID: {error.digest}</p>
             )}
           </div>
         )}
@@ -95,7 +97,7 @@ export default function Error({
             className="gap-2"
           >
             <RefreshCw className="h-4 w-4" />
-            {t('tryAgain')}
+            Try Again
           </Button>
 
           <Button
@@ -104,12 +106,12 @@ export default function Error({
             className="gap-2"
           >
             <Home className="h-4 w-4" />
-            {t('goHome')}
+            Go Home
           </Button>
         </div>
 
         <p className="text-sm text-muted-foreground">
-          {t('contactSupport')}
+          If the problem persists, please contact support.
         </p>
       </div>
     </div>

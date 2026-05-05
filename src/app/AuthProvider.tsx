@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, ReactNode, useMemo } from 'react';
-import { useSession } from '@/lib/auth-client';
+import { useSession } from '@/lib/auth-client-core';
 
 /**
  * Auth Context Types

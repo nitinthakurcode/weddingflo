@@ -1,13 +1,11 @@
 import type { Metadata } from 'next'
-import { Plus_Jakarta_Sans, Playfair_Display } from 'next/font/google'
 import { NextIntlClientProvider } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import { notFound } from 'next/navigation'
 import { locales, type Locale } from '@/i18n/config'
 import type { ReactNode } from 'react'
-import dynamicImport from 'next/dynamic'
 import { AuthProvider, type ServerSession } from '../AuthProvider'
-import { AuthLoadedBoundary } from '../AuthLoadedBoundary'
+import { SetLocale } from '../SetLocale'
 import { getServerSession } from '@/lib/auth/server'
 import { Toaster } from '@/components/ui/toaster'
 import { PWAProvider } from '@/components/pwa/pwa-provider'
@@ -19,31 +17,6 @@ import { OfflineIndicator } from '@/components/offline/offline-indicator'
 import { OfflineInit } from '@/components/offline/offline-init'
 import { FeedbackProvider } from '../providers/feedback-provider'
 import { TourProvider } from '@/components/onboarding/product-tour'
-import '../globals.css'
-
-// TODO: PostHogPageView temporarily disabled due to posthog-js Node module compatibility issue
-// See: https://github.com/PostHog/posthog-js/issues - node:fs, node:path errors in webpack
-// Dynamic import to prevent Node.js module errors in client bundle
-// const PostHogPageView = dynamic(
-//   () => import('@/lib/analytics/posthog-pageview'),
-//   { loading: () => null }
-// )
-
-// Primary sans-serif font - elegant and readable
-const plusJakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  variable: '--font-sans',
-  display: 'swap',
-  weight: ['300', '400', '500', '600', '700'],
-})
-
-// Display font - elegant serif for headings
-const playfair = Playfair_Display({
-  subsets: ['latin'],
-  variable: '--font-display',
-  display: 'swap',
-  weight: ['400', '500', '600', '700'],
-})
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://weddingflo.vercel.app'),
@@ -142,7 +115,13 @@ export default async function LocaleLayout({
   }
 
   // Get messages for this locale
-  const messages = await getMessages({ locale: locale as Locale })
+  let messages = {};
+  try {
+    messages = await getMessages({ locale: locale as Locale });
+  } catch (error) {
+    console.error('[Layout] Failed to load messages for locale:', locale, error);
+    // Fall back to empty messages — components will show translation keys
+  }
 
   // Get server session for proper hydration (prevents flash/mismatch)
   // This is safe to call on public pages - returns null if not authenticated
@@ -173,43 +152,25 @@ export default async function LocaleLayout({
   }
 
   return (
-    <html lang={locale} suppressHydrationWarning>
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#1a3a2f" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="WeddingFlow" />
-      </head>
-      <body className={`${plusJakarta.variable} ${playfair.variable} font-sans antialiased`}>
-        <AuthProvider initialSession={initialSession}>
-          <AuthLoadedBoundary>
-            <TRPCProvider>
-              <NextIntlClientProvider locale={locale} messages={messages}>
-                <ThemeInjector />
-                <AnalyticsProvider>
-                  {/* <PHProvider> - Temporarily disabled due to posthog-js compatibility issue */}
-                    {/* <PostHogPageView /> - Temporarily disabled, see TODO above */}
-                    {/* <PostHogIdentifier /> - Temporarily disabled */}
-                    <PWAProvider>
-                      <TourProvider>
-                        <FeedbackProvider>
-                          {children}
-                          <Toaster />
-                        </FeedbackProvider>
-                      </TourProvider>
-                    </PWAProvider>
-                  {/* </PHProvider> */}
-                </AnalyticsProvider>
-              </NextIntlClientProvider>
-            </TRPCProvider>
-          </AuthLoadedBoundary>
-        </AuthProvider>
-        <OfflineInit />
-        <OfflineIndicator />
-      </body>
-    </html>
+    <AuthProvider initialSession={initialSession}>
+      <TRPCProvider>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <SetLocale locale={locale} />
+          <ThemeInjector />
+          <AnalyticsProvider>
+            <PWAProvider>
+              <TourProvider>
+                <FeedbackProvider>
+                  {children}
+                  <Toaster />
+                  <OfflineInit />
+                  <OfflineIndicator />
+                </FeedbackProvider>
+              </TourProvider>
+            </PWAProvider>
+          </AnalyticsProvider>
+        </NextIntlClientProvider>
+      </TRPCProvider>
+    </AuthProvider>
   )
 }

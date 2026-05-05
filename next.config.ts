@@ -157,7 +157,7 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://js.stripe.com https://accounts.google.com https://*.googleapis.com",
+              `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''} https://challenges.cloudflare.com https://js.stripe.com https://accounts.google.com https://*.googleapis.com`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' blob: data: https://*.supabase.co https://lh3.googleusercontent.com https://cdn.weddingflow.com https://*.r2.cloudflarestorage.com https://api.qrserver.com",
               "font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com",
