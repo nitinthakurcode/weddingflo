@@ -23,6 +23,7 @@ import {
 } from '@/lib/db/schema-questionnaires';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 // Generate a secure public token
 function generatePublicToken(): string {
@@ -193,6 +194,15 @@ const templatesRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'questionnaires',
+        entityId: template.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return template;
     }),
 
@@ -247,6 +257,15 @@ const templatesRouter = router({
         });
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'questionnaires',
+        entityId: template.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return template;
     }),
 
@@ -279,6 +298,15 @@ const templatesRouter = router({
           message: 'Template not found',
         });
       }
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'questionnaires',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),
@@ -325,6 +353,15 @@ const templatesRouter = router({
         }))
       )
       .returning();
+
+    await broadcastSync({
+      type: 'insert',
+      module: 'questionnaires',
+      entityId: 'batch',
+      companyId: ctx.companyId!,
+      userId: ctx.userId!,
+      queryPaths: ['clients.list'],
+    });
 
     return { seeded: true, count: templates.length };
   }),
@@ -621,6 +658,15 @@ export const questionnairesRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'questionnaires',
+        entityId: questionnaire.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return questionnaire;
     }),
 
@@ -671,6 +717,15 @@ export const questionnairesRouter = router({
         });
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'questionnaires',
+        entityId: questionnaire.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return questionnaire;
     }),
 
@@ -720,6 +775,15 @@ export const questionnairesRouter = router({
 
       // TODO: Send email notification if sendEmail is true
 
+      await broadcastSync({
+        type: 'update',
+        module: 'questionnaires',
+        entityId: questionnaire.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return {
         questionnaire,
         publicUrl: `/questionnaire/${publicToken}`,
@@ -762,6 +826,15 @@ export const questionnairesRouter = router({
 
       // TODO: Send reminder email
 
+      await broadcastSync({
+        type: 'update',
+        module: 'questionnaires',
+        entityId: questionnaire.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return questionnaire;
     }),
 
@@ -794,6 +867,15 @@ export const questionnairesRouter = router({
           message: 'Questionnaire not found',
         });
       }
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'questionnaires',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),

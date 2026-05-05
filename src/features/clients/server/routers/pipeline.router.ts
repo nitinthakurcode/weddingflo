@@ -18,6 +18,7 @@ import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, asc, sql, count, sum, gte, lte, or, ilike } from 'drizzle-orm';
 import { pipelineStages, pipelineLeads, pipelineActivities, DEFAULT_PIPELINE_STAGES } from '@/lib/db/schema-pipeline';
 import { clients, user } from '@/lib/db/schema';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 // Note: Using crypto.randomUUID() for client IDs to match TEXT UUID format
 // nanoid removed - was causing inconsistent ID formats
 
@@ -105,6 +106,15 @@ export const pipelineRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'pipeline',
+          entityId: stage.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return stage;
       }),
 
@@ -160,6 +170,15 @@ export const pipelineRouter = router({
           });
         }
 
+        await broadcastSync({
+          type: 'update',
+          module: 'pipeline',
+          entityId: stage.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return stage;
       }),
 
@@ -189,6 +208,15 @@ export const pipelineRouter = router({
               .where(and(eq(pipelineStages.id, id), eq(pipelineStages.companyId, ctx.companyId!)))
           )
         );
+
+        await broadcastSync({
+          type: 'update',
+          module: 'pipeline',
+          entityId: 'batch',
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),
@@ -223,6 +251,15 @@ export const pipelineRouter = router({
           .update(pipelineStages)
           .set({ isActive: false, updatedAt: new Date() })
           .where(and(eq(pipelineStages.id, input.id), eq(pipelineStages.companyId, ctx.companyId)));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'pipeline',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),
@@ -539,6 +576,15 @@ export const pipelineRouter = router({
           });
         }
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'pipeline',
+          entityId: lead.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return lead;
       }),
 
@@ -615,6 +661,15 @@ export const pipelineRouter = router({
             message: 'Lead not found',
           });
         }
+
+        await broadcastSync({
+          type: 'update',
+          module: 'pipeline',
+          entityId: lead.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return lead;
       }),
@@ -720,6 +775,15 @@ export const pipelineRouter = router({
             newStageId: input.stageId,
           });
         }
+
+        await broadcastSync({
+          type: 'update',
+          module: 'pipeline',
+          entityId: updatedLead.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return updatedLead;
       }),
@@ -849,6 +913,15 @@ export const pipelineRouter = router({
           });
         }
 
+        await broadcastSync({
+          type: 'update',
+          module: 'pipeline',
+          entityId: lead.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return {
           lead: { ...lead, convertedToClientId: client.id },
           client,
@@ -872,6 +945,15 @@ export const pipelineRouter = router({
           .update(pipelineLeads)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
           .where(and(eq(pipelineLeads.id, input.id), eq(pipelineLeads.companyId, ctx.companyId)));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'pipeline',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),
@@ -1092,6 +1174,15 @@ export const pipelineRouter = router({
             .where(eq(pipelineLeads.id, input.leadId));
         }
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'pipeline',
+          entityId: activity.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return activity;
       }),
 
@@ -1124,6 +1215,15 @@ export const pipelineRouter = router({
             message: 'Activity not found',
           });
         }
+
+        await broadcastSync({
+          type: 'update',
+          module: 'pipeline',
+          entityId: activity.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return activity;
       }),
@@ -1192,6 +1292,15 @@ export const pipelineRouter = router({
         await ctx.db
           .delete(pipelineActivities)
           .where(and(eq(pipelineActivities.id, input.id), eq(pipelineActivities.companyId, ctx.companyId)));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'pipeline',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),

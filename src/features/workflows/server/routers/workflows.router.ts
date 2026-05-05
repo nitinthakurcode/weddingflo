@@ -17,6 +17,7 @@ import { TRPCError } from '@trpc/server';
 import { eq, and, desc, asc, count } from 'drizzle-orm';
 import { workflows, workflowSteps, workflowExecutions, workflowExecutionLogs, WORKFLOW_TEMPLATES, user } from '@/lib/db/schema';
 import { enqueueJob } from '@/lib/jobs/pg-queue';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 // Input schemas
 const triggerTypeSchema = z.enum([
@@ -178,6 +179,15 @@ export const workflowsRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'workflows',
+        entityId: workflow.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return workflow;
     }),
 
@@ -248,6 +258,15 @@ export const workflowsRouter = router({
         .where(eq(workflowSteps.workflowId, workflow.id))
         .orderBy(asc(workflowSteps.stepOrder));
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'workflows',
+        entityId: workflow.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return {
         ...workflow,
         steps,
@@ -293,6 +312,15 @@ export const workflowsRouter = router({
         .where(and(eq(workflows.id, id), eq(workflows.companyId, ctx.companyId)))
         .returning();
 
+      await broadcastSync({
+        type: 'update',
+        module: 'workflows',
+        entityId: id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return workflow;
     }),
 
@@ -313,6 +341,15 @@ export const workflowsRouter = router({
       await ctx.db
         .delete(workflows)
         .where(and(eq(workflows.id, input.id), eq(workflows.companyId, ctx.companyId)));
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'workflows',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),
@@ -387,6 +424,15 @@ export const workflowsRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'workflows',
+          entityId: step.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return step;
       }),
 
@@ -449,6 +495,15 @@ export const workflowsRouter = router({
           .where(eq(workflowSteps.id, id))
           .returning();
 
+        await broadcastSync({
+          type: 'update',
+          module: 'workflows',
+          entityId: id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return updated;
       }),
 
@@ -494,6 +549,15 @@ export const workflowsRouter = router({
           )
         );
 
+        await broadcastSync({
+          type: 'update',
+          module: 'workflows',
+          entityId: 'batch',
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return { success: true };
       }),
 
@@ -526,6 +590,15 @@ export const workflowsRouter = router({
         }
 
         await ctx.db.delete(workflowSteps).where(eq(workflowSteps.id, input.id));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'workflows',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),
@@ -642,6 +715,15 @@ export const workflowsRouter = router({
             )
           );
 
+        await broadcastSync({
+          type: 'update',
+          module: 'workflows',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return { success: true };
       }),
   }),
@@ -710,6 +792,15 @@ export const workflowsRouter = router({
           workflowId: workflow.id,
           stepIndex: 0,
         },
+      });
+
+      await broadcastSync({
+        type: 'insert',
+        module: 'workflows',
+        entityId: execution.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
       });
 
       return execution;

@@ -18,6 +18,7 @@ import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
 import { contracts, contractTemplates, proposals, clients, user, companies, DEFAULT_CONTRACT_VARIABLES } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
 import { createNotification, notifyTeamMembers } from '@/features/core/server/services/notification.service';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 // Input schemas
 const contractStatusSchema = z.enum(['draft', 'pending_signature', 'signed', 'expired', 'cancelled']);
@@ -132,6 +133,15 @@ export const contractsRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'contracts',
+          entityId: template.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return template;
       }),
 
@@ -182,6 +192,15 @@ export const contractsRouter = router({
           .where(and(eq(contractTemplates.id, id), eq(contractTemplates.companyId, ctx.companyId)))
           .returning();
 
+        await broadcastSync({
+          type: 'update',
+          module: 'contracts',
+          entityId: template.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return template;
       }),
 
@@ -202,6 +221,15 @@ export const contractsRouter = router({
           .update(contractTemplates)
           .set({ isActive: false, updatedAt: new Date() })
           .where(and(eq(contractTemplates.id, input.id), eq(contractTemplates.companyId, ctx.companyId)));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'contracts',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),
@@ -450,6 +478,15 @@ export const contractsRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'contracts',
+        entityId: contract.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return contract;
     }),
 
@@ -542,6 +579,15 @@ export const contractsRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'contracts',
+        entityId: contract.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return contract;
     }),
 
@@ -611,6 +657,15 @@ export const contractsRouter = router({
         });
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'contracts',
+        entityId: contract.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return contract;
     }),
 
@@ -665,6 +720,15 @@ export const contractsRouter = router({
 
       // TODO: Send email via Resend
       console.log(`[Contracts] Would send contract ${contract.contractNumber} to ${contract.clientEmail}`);
+
+      await broadcastSync({
+        type: 'update',
+        module: 'contracts',
+        entityId: updated.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return updated;
     }),
@@ -816,6 +880,15 @@ export const contractsRouter = router({
         .where(eq(contracts.id, contract.id))
         .returning();
 
+      await broadcastSync({
+        type: 'update',
+        module: 'contracts',
+        entityId: updated.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return updated;
     }),
 
@@ -837,6 +910,15 @@ export const contractsRouter = router({
         .set({ status: 'cancelled', updatedAt: new Date() })
         .where(and(eq(contracts.id, input.id), eq(contracts.companyId, ctx.companyId)));
 
+      await broadcastSync({
+        type: 'update',
+        module: 'contracts',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return { success: true };
     }),
 
@@ -857,6 +939,15 @@ export const contractsRouter = router({
         .update(contracts)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(contracts.id, input.id), eq(contracts.companyId, ctx.companyId)));
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'contracts',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),

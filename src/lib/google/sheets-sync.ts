@@ -7,7 +7,7 @@
  * February 2026 - Full implementation
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { sheets_v4 } from 'googleapis';
 import { db } from '@/lib/db';
 import { eq, and } from 'drizzle-orm';
@@ -40,6 +40,123 @@ export interface SyncStats {
   exported: number;
   imported: number;
   errors: string[];
+  conflicts?: SyncConflict[];
+}
+
+export interface SyncConflict {
+  id: string;
+  module: string;
+  rowId: string;
+  sheetValues: Record<string, string>;
+  dbUpdatedAt: string;
+  exportTimestamp: string;
+}
+
+// ── Sync Metadata Helpers ──
+// Writes export hashes to a _SyncMetadata sheet so imports can detect conflicts
+
+const SYNC_METADATA_SHEET = '_SyncMetadata';
+const SYNC_METADATA_HEADERS = ['Module', 'RowID', 'ExportHash', 'ExportTimestamp'];
+
+function computeRowHash(values: (string | number | boolean)[]): string {
+  const normalized = values.map(v => String(v ?? '')).join('|');
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+}
+
+interface SyncMetadataEntry {
+  module: string;
+  rowId: string;
+  exportHash: string;
+  exportTimestamp: string;
+}
+
+async function writeSyncMetadata(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  entries: SyncMetadataEntry[]
+): Promise<void> {
+  try {
+    const data = [
+      SYNC_METADATA_HEADERS,
+      ...entries.map(e => [e.module, e.rowId, e.exportHash, e.exportTimestamp]),
+    ];
+    await writeSheetData(sheetsClient, spreadsheetId, SYNC_METADATA_SHEET, data);
+  } catch (error) {
+    // Don't fail the export if metadata write fails
+    console.error('[Sheets Sync] Failed to write sync metadata:', error);
+  }
+}
+
+async function readSyncMetadata(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string
+): Promise<Map<string, SyncMetadataEntry>> {
+  const map = new Map<string, SyncMetadataEntry>();
+  try {
+    const data = await readSheetData(sheetsClient, spreadsheetId, SYNC_METADATA_SHEET);
+    if (data.length <= 1) return map;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[0] && row[1]) {
+        const key = `${row[0]}:${row[1]}`;
+        map.set(key, {
+          module: row[0],
+          rowId: row[1],
+          exportHash: row[2] || '',
+          exportTimestamp: row[3] || '',
+        });
+      }
+    }
+  } catch {
+    // _SyncMetadata sheet may not exist yet — that's fine
+  }
+  return map;
+}
+
+function detectConflict(
+  module: string,
+  rowId: string,
+  currentSheetRow: (string | number | boolean)[],
+  dbUpdatedAt: Date | string | null | undefined,
+  metadata: Map<string, SyncMetadataEntry>
+): SyncConflict | null {
+  const key = `${module}:${rowId}`;
+  const meta = metadata.get(key);
+
+  if (!meta) {
+    // No metadata — first sync or metadata missing. No conflict detection possible.
+    return null;
+  }
+
+  const currentHash = computeRowHash(currentSheetRow);
+  const sheetWasEdited = currentHash !== meta.exportHash;
+
+  if (!sheetWasEdited) {
+    // Sheet row unchanged since export — no conflict even if DB changed
+    return null;
+  }
+
+  // Sheet was edited. Check if DB was also edited after the export.
+  if (dbUpdatedAt) {
+    const dbTime = new Date(dbUpdatedAt).getTime();
+    const exportTime = new Date(meta.exportTimestamp).getTime();
+
+    if (dbTime > exportTime) {
+      // BOTH Sheet and DB changed since last export — true conflict
+      return {
+        id: randomUUID(),
+        module,
+        rowId,
+        sheetValues: {},
+        dbUpdatedAt: new Date(dbUpdatedAt).toISOString(),
+        exportTimestamp: meta.exportTimestamp,
+      };
+    }
+  }
+
+  // Only Sheet was edited, DB unchanged — safe to import (no conflict)
+  return null;
 }
 
 // Sheet column definitions for each module
@@ -569,6 +686,47 @@ export async function syncAllToSheets(
 
   console.log(`[Sheets Sync] Complete: ${totalExported} records exported, ${allErrors.length} errors`);
 
+  // Write sync metadata for conflict detection on next import
+  // Read all exported sheets and compute row hashes
+  try {
+    const metadataEntries: SyncMetadataEntry[] = [];
+    const exportTimestamp = new Date().toISOString();
+    const moduleSheets = ['Guests', 'Budget', 'Timeline', 'Hotels', 'Transport', 'Vendors', 'Gifts'];
+
+    for (const sheetName of moduleSheets) {
+      try {
+        const sheetData = await readSheetData(sheetsClient, spreadsheetId, sheetName);
+        if (sheetData.length <= 1) continue;
+
+        const headers = sheetData[0];
+        const idIndex = headers.indexOf('ID');
+        if (idIndex === -1) continue;
+
+        for (let i = 1; i < sheetData.length; i++) {
+          const row = sheetData[i];
+          const rowId = row[idIndex];
+          if (!rowId) continue;
+
+          metadataEntries.push({
+            module: sheetName.toLowerCase(),
+            rowId,
+            exportHash: computeRowHash(row),
+            exportTimestamp,
+          });
+        }
+      } catch {
+        // Skip sheets that don't exist
+      }
+    }
+
+    if (metadataEntries.length > 0) {
+      await writeSyncMetadata(sheetsClient, spreadsheetId, metadataEntries);
+      console.log(`[Sheets Sync] Wrote ${metadataEntries.length} sync metadata entries`);
+    }
+  } catch (error) {
+    console.error('[Sheets Sync] Failed to write sync metadata (non-fatal):', error);
+  }
+
   return {
     success: allErrors.length === 0,
     totalExported,
@@ -586,13 +744,12 @@ export async function importGuestsFromSheet(
   clientId: string,
   companyId?: string | null
 ): Promise<SyncStats> {
-  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [], conflicts: [] };
 
   try {
     const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Guests');
 
     if (sheetData.length <= 1) {
-      // Only headers or empty
       return stats;
     }
 
@@ -605,7 +762,9 @@ export async function importGuestsFromSheet(
       return stats;
     }
 
-    // Get existing guests for timestamp comparison
+    // Read sync metadata for conflict detection
+    const metadata = await readSyncMetadata(sheetsClient, spreadsheetId);
+
     const existingGuests = await db
       .select({ id: guests.id, updatedAt: guests.updatedAt })
       .from(guests)
@@ -619,10 +778,17 @@ export async function importGuestsFromSheet(
         const row = dataRows[i];
         const rawId = row[idIndex];
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
-        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const dbUpdatedAt = existingMap.get(id);
 
-        // Skip if DB record is newer or same
+        // Conflict detection: check if both Sheet and DB changed since last export
+        const conflict = detectConflict('guests', id, row, dbUpdatedAt, metadata);
+        if (conflict) {
+          stats.conflicts!.push(conflict);
+          continue; // Skip conflicting rows — user must resolve
+        }
+
+        // Fallback: skip if DB record is newer (timestamp-based)
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
@@ -718,7 +884,7 @@ export async function importBudgetFromSheet(
   clientId: string,
   companyId?: string
 ): Promise<SyncStats> {
-  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [], conflicts: [] };
 
   try {
     const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Budget');
@@ -736,7 +902,9 @@ export async function importBudgetFromSheet(
       return stats;
     }
 
-    // Get existing budget items for timestamp comparison
+    // Read sync metadata for conflict detection
+    const metadata = await readSyncMetadata(sheetsClient, spreadsheetId);
+
     const existingBudget = await db
       .select({ id: budget.id, updatedAt: budget.updatedAt })
       .from(budget)
@@ -750,10 +918,17 @@ export async function importBudgetFromSheet(
         const row = dataRows[i];
         const rawId = row[idIndex];
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
-        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const dbUpdatedAt = existingMap.get(id);
 
-        // Skip if DB record is newer or same
+        // Conflict detection
+        const conflict = detectConflict('budget', id, row, dbUpdatedAt, metadata);
+        if (conflict) {
+          stats.conflicts!.push(conflict);
+          continue;
+        }
+
+        // Fallback: skip if DB record is newer
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
@@ -953,7 +1128,7 @@ export async function importHotelsFromSheet(
   clientId: string,
   companyId?: string | null
 ): Promise<SyncStats> {
-  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [], conflicts: [] };
 
   try {
     const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Hotels');
@@ -971,6 +1146,9 @@ export async function importHotelsFromSheet(
       return stats;
     }
 
+    // Read sync metadata for conflict detection
+    const metadata = await readSyncMetadata(sheetsClient, spreadsheetId);
+
     const existingHotels = await db
       .select({ id: hotels.id, updatedAt: hotels.updatedAt })
       .from(hotels)
@@ -984,9 +1162,16 @@ export async function importHotelsFromSheet(
         const row = dataRows[i];
         const rawId = row[idIndex];
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
-        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const dbUpdatedAt = existingMap.get(id);
 
+        // Conflict detection
+        const conflict = detectConflict('hotels', id, row, dbUpdatedAt, metadata);
+        if (conflict) {
+          stats.conflicts!.push(conflict);
+          continue;
+        }
+
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
@@ -1059,7 +1244,7 @@ export async function importTransportFromSheet(
   clientId: string,
   companyId?: string | null
 ): Promise<SyncStats> {
-  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [], conflicts: [] };
 
   try {
     const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Transport');
@@ -1077,6 +1262,9 @@ export async function importTransportFromSheet(
       return stats;
     }
 
+    // Read sync metadata for conflict detection
+    const metadata = await readSyncMetadata(sheetsClient, spreadsheetId);
+
     const existingTransport = await db
       .select({ id: guestTransport.id, updatedAt: guestTransport.updatedAt })
       .from(guestTransport)
@@ -1090,9 +1278,16 @@ export async function importTransportFromSheet(
         const row = dataRows[i];
         const rawId = row[idIndex];
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
-        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const dbUpdatedAt = existingMap.get(id);
 
+        // Conflict detection
+        const conflict = detectConflict('transport', id, row, dbUpdatedAt, metadata);
+        if (conflict) {
+          stats.conflicts!.push(conflict);
+          continue;
+        }
+
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
         }
@@ -1398,16 +1593,19 @@ export async function importAllFromSheets(
   totalImported: number;
   byModule: Record<string, number>;
   errors: string[];
+  conflicts: SyncConflict[];
 }> {
   let totalImported = 0;
   const byModule: Record<string, number> = {};
   const allErrors: string[] = [];
+  const allConflicts: SyncConflict[] = [];
 
-  // Import each module
+  // Import each module (collect conflicts from all)
   const guestStats = await importGuestsFromSheet(sheetsClient, spreadsheetId, clientId, companyId);
   totalImported += guestStats.imported;
   byModule.guests = guestStats.imported;
   allErrors.push(...guestStats.errors);
+  if (guestStats.conflicts) allConflicts.push(...guestStats.conflicts);
 
   // Recalculate per-guest budget items and cascade sync after guest import
   if (guestStats.imported > 0) {
@@ -1431,6 +1629,7 @@ export async function importAllFromSheets(
   totalImported += budgetStats.imported;
   byModule.budget = budgetStats.imported;
   allErrors.push(...budgetStats.errors);
+  if (budgetStats.conflicts) allConflicts.push(...budgetStats.conflicts);
 
   const vendorStats = await importVendorsFromSheet(sheetsClient, spreadsheetId, clientId, companyId);
   totalImported += vendorStats.imported;
@@ -1441,6 +1640,7 @@ export async function importAllFromSheets(
   totalImported += hotelStats.imported;
   byModule.hotels = hotelStats.imported;
   allErrors.push(...hotelStats.errors);
+  if (hotelStats.conflicts) allConflicts.push(...hotelStats.conflicts);
 
   if (hotelStats.imported > 0) {
     try {
@@ -1452,12 +1652,14 @@ export async function importAllFromSheets(
     } catch (err) {
       console.error('[Sheets Sync] Hotel cascade sync failed:', err);
     }
+    await recalcClientStats(db, clientId);
   }
 
   const transportStats = await importTransportFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += transportStats.imported;
   byModule.transport = transportStats.imported;
   allErrors.push(...transportStats.errors);
+  if (transportStats.conflicts) allConflicts.push(...transportStats.conflicts);
 
   if (transportStats.imported > 0) {
     try {
@@ -1469,6 +1671,7 @@ export async function importAllFromSheets(
     } catch (err) {
       console.error('[Sheets Sync] Transport cascade sync failed:', err);
     }
+    await recalcClientStats(db, clientId);
   }
 
   const timelineStats = await importTimelineFromSheet(sheetsClient, spreadsheetId, clientId);
@@ -1499,10 +1702,15 @@ export async function importAllFromSheets(
     }
   }
 
+  if (allConflicts.length > 0) {
+    console.log(`[Sheets Sync] ${allConflicts.length} conflicts detected — these rows were skipped`);
+  }
+
   return {
     success: allErrors.length === 0,
     totalImported,
     byModule,
     errors: allErrors,
+    conflicts: allConflicts,
   };
 }

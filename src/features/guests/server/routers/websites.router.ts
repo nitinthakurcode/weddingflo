@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { eq, and, desc, isNull, ne, sql } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 /**
  * Wedding Websites Router - Drizzle ORM
@@ -353,6 +354,15 @@ export const websitesRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'websites',
+        entityId: newWebsite.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return newWebsite;
     }),
 
@@ -475,6 +485,15 @@ export const websitesRouter = router({
         .where(eq(schema.weddingWebsites.id, websiteId))
         .returning();
 
+      await broadcastSync({
+        type: 'update',
+        module: 'websites',
+        entityId: updatedWebsite?.id || websiteId,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return updatedWebsite;
     }),
 
@@ -541,6 +560,15 @@ export const websitesRouter = router({
         })
         .where(eq(schema.weddingWebsites.id, websiteId))
         .returning();
+
+      await broadcastSync({
+        type: 'update',
+        module: 'websites',
+        entityId: updatedWebsite?.id || websiteId,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return updatedWebsite;
     }),
@@ -651,6 +679,15 @@ export const websitesRouter = router({
         .where(eq(schema.weddingWebsites.id, websiteId))
         .returning();
 
+      await broadcastSync({
+        type: 'update',
+        module: 'websites',
+        entityId: updatedWebsite?.id || websiteId,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return {
         ...updatedWebsite,
         dnsInstructions: newSettings.dnsInstructions,
@@ -725,6 +762,15 @@ export const websitesRouter = router({
                 updatedAt: new Date(),
               })
               .where(eq(schema.weddingWebsites.id, input.websiteId));
+
+            await broadcastSync({
+              type: 'update',
+              module: 'websites',
+              entityId: input.websiteId,
+              companyId: ctx.companyId!,
+              userId: ctx.userId!,
+              queryPaths: ['clients.list'],
+            });
 
             return { verified: true, success: true };
           } else {
@@ -893,6 +939,15 @@ export const websitesRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(schema.weddingWebsites.id, websiteId));
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'websites',
+        entityId: websiteId,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),

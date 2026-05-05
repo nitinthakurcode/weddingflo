@@ -47,6 +47,14 @@ export interface SyncAction {
     | 'clients'
     | 'floorPlans'
     | 'documents'
+    | 'team'
+    | 'proposals'
+    | 'contracts'
+    | 'workflows'
+    | 'pipeline'
+    | 'questionnaires'
+    | 'creatives'
+    | 'websites'
   /** ID of the entity that was affected */
   entityId: string
   /** Additional data about the mutation */
@@ -82,12 +90,14 @@ export async function storeSyncAction(action: SyncAction): Promise<void> {
       member: JSON.stringify(action),
     })
 
-    // Keep only last 1000 actions (remove oldest if over limit)
+    // Keep only last 5000 actions (remove oldest if over limit)
     // zremrangebyrank removes elements by rank (0 = lowest score = oldest)
-    await redis.zremrangebyrank(key, 0, -1001)
+    // 5000 covers ~50 hours at peak usage, handling weekend outages
+    await redis.zremrangebyrank(key, 0, -5001)
 
-    // Set TTL of 24 hours on the key (cleanup if company becomes inactive)
-    await redis.expire(key, 86400)
+    // Set TTL of 72 hours on the key (cleanup if company becomes inactive)
+    // 72h ensures actions survive long weekends for offline recovery
+    await redis.expire(key, 259200)
   } catch (error) {
     console.error('[Redis Pub/Sub] Failed to store sync action:', error)
     // Don't throw - storage failure shouldn't break the main operation
@@ -145,8 +155,9 @@ export async function* subscribeToCompany(
 ): AsyncGenerator<SyncAction, void, unknown> {
   const key = `sync:${companyId}:actions`
   let lastTimestamp = Date.now()
+  let errorBackoff = 1000
 
-  // Poll for new actions every 500ms
+  // Poll for new actions every 300ms
   // This is a fallback for Upstash REST API which doesn't support
   // persistent pub/sub connections. In production with Upstash
   // Redis TCP, you'd use actual subscription.
@@ -159,13 +170,17 @@ export async function* subscribeToCompany(
         yield action
       }
 
+      // Reset backoff on successful poll
+      errorBackoff = 1000
+
       // Wait before polling again
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      await new Promise((resolve) => setTimeout(resolve, 300))
     } catch (error) {
       if (signal?.aborted) break
       console.error('[Redis Pub/Sub] Subscription error:', error)
-      // Wait a bit longer on error
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      // Exponential backoff on error: 1s, 2s, 4s, 8s, ... up to 30s
+      await new Promise((resolve) => setTimeout(resolve, errorBackoff))
+      errorBackoff = Math.min(errorBackoff * 2, 30000)
     }
   }
 }

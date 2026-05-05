@@ -18,6 +18,7 @@ import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
 import { proposals, proposalTemplates, pipelineLeads, clients, user, companies } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
 import { createNotification, notifyTeamMembers } from '@/features/core/server/services/notification.service';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 // Input schemas
 const proposalStatusSchema = z.enum(['draft', 'sent', 'viewed', 'accepted', 'declined', 'expired']);
@@ -132,6 +133,15 @@ export const proposalsRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'proposals',
+          entityId: template.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return template;
       }),
 
@@ -183,6 +193,15 @@ export const proposalsRouter = router({
           .where(and(eq(proposalTemplates.id, id), eq(proposalTemplates.companyId, ctx.companyId)))
           .returning();
 
+        await broadcastSync({
+          type: 'update',
+          module: 'proposals',
+          entityId: template.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return template;
       }),
 
@@ -203,6 +222,15 @@ export const proposalsRouter = router({
           .update(proposalTemplates)
           .set({ isActive: false, updatedAt: new Date() })
           .where(and(eq(proposalTemplates.id, input.id), eq(proposalTemplates.companyId, ctx.companyId)));
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'proposals',
+          entityId: input.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
 
         return { success: true };
       }),
@@ -494,6 +522,15 @@ export const proposalsRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'proposals',
+        entityId: proposal.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return proposal;
     }),
 
@@ -565,6 +602,15 @@ export const proposalsRouter = router({
         });
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'proposals',
+        entityId: proposal.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return proposal;
     }),
 
@@ -620,6 +666,15 @@ export const proposalsRouter = router({
 
       // TODO: Send email via Resend
       console.log(`[Proposals] Would send proposal ${proposal.proposalNumber} to ${proposal.recipientEmail}`);
+
+      await broadcastSync({
+        type: 'update',
+        module: 'proposals',
+        entityId: updated.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return updated;
     }),
@@ -715,6 +770,15 @@ export const proposalsRouter = router({
         .update(proposals)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(proposals.id, input.id), eq(proposals.companyId, ctx.companyId)));
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'proposals',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),

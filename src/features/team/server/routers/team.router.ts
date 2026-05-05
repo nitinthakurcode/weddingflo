@@ -12,6 +12,7 @@ import { TRPCError } from '@trpc/server';
 import { eq, and, sql, count } from 'drizzle-orm';
 import { user as userTable, teamClientAssignments, clients } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
 // Role enum for team members
 const teamRoleSchema = z.enum(['company_admin', 'staff', 'client_user']);
@@ -187,6 +188,15 @@ export const teamRouter = router({
 
         console.log(`[Team Router] Assigned existing user ${input.email} to company ${ctx.companyId}`);
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'team',
+          entityId: globalUser.id,
+          companyId: ctx.companyId!,
+          userId: ctx.userId!,
+          queryPaths: ['clients.list'],
+        });
+
         return {
           success: true,
           user: { id: globalUser.id, email: input.email },
@@ -252,6 +262,15 @@ export const teamRouter = router({
         .where(eq(userTable.id, input.id))
         .returning();
 
+      await broadcastSync({
+        type: 'update',
+        module: 'team',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
+
       return updated;
     }),
 
@@ -300,6 +319,15 @@ export const teamRouter = router({
         .set({ isActive: input.isActive, updatedAt: new Date() })
         .where(eq(userTable.id, input.id))
         .returning();
+
+      await broadcastSync({
+        type: 'update',
+        module: 'team',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return updated;
     }),
@@ -353,6 +381,15 @@ export const teamRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(userTable.id, input.id));
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'team',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true };
     }),
@@ -423,6 +460,15 @@ export const teamRouter = router({
           await ctx.db.insert(teamClientAssignments).values(assignments);
         }
       }
+
+      await broadcastSync({
+        type: 'update',
+        module: 'team',
+        entityId: input.teamMemberId,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      });
 
       return { success: true, assignedCount: input.clientIds.length };
     }),

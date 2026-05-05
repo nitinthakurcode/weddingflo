@@ -22,6 +22,7 @@ import {
   broadcastSheetSync,
 } from '@/lib/google/sheets-sync';
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
+import { recalcClientStats } from '@/lib/sync/client-stats-sync';
 import {
   syncGuestsToHotelsAndTransportTx,
   syncHotelsToTimelineTx,
@@ -409,6 +410,7 @@ export const googleSheetsRouter = router({
           imported: allResult.totalImported,
           byModule: allResult.byModule,
           errors: allResult.errors.length > 0 ? allResult.errors : undefined,
+          conflicts: allResult.conflicts.length > 0 ? allResult.conflicts : undefined,
         };
       }
 
@@ -472,6 +474,7 @@ export const googleSheetsRouter = router({
         } catch (err) {
           console.error('[Sheets Router] Hotel cascade sync failed:', err);
         }
+        await recalcClientStats(db, input.clientId);
       }
 
       // Cascade sync after transport import
@@ -485,6 +488,7 @@ export const googleSheetsRouter = router({
         } catch (err) {
           console.error('[Sheets Router] Transport cascade sync failed:', err);
         }
+        await recalcClientStats(db, input.clientId);
       }
 
       // Broadcast sync action for real-time updates
@@ -502,6 +506,7 @@ export const googleSheetsRouter = router({
         success: result.errors.length === 0,
         imported: result.imported,
         errors: result.errors.length > 0 ? result.errors : undefined,
+        conflicts: result.conflicts && result.conflicts.length > 0 ? result.conflicts : undefined,
       };
     }),
 });

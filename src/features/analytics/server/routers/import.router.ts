@@ -775,6 +775,7 @@ export const importRouter = router({
           if (syncRes.created.timeline > 0) {
             cascadeActions.push({ module: 'timeline', action: 'hotel_checkins_created', count: syncRes.created.timeline })
           }
+          await recalcClientStats(ctx.db, input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'hotels',
@@ -782,7 +783,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll'],
+            queryPaths: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
@@ -800,6 +801,7 @@ export const importRouter = router({
           if (syncRes.created.timeline > 0) {
             cascadeActions.push({ module: 'timeline', action: 'transport_entries_created', count: syncRes.created.timeline })
           }
+          await recalcClientStats(ctx.db, input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'transport',
@@ -807,7 +809,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll'],
+            queryPaths: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
           })
         }
         return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
@@ -1295,18 +1297,16 @@ async function importGuest(
   }
 
   // If no ID or email match, try to match by name (case-insensitive)
-  if (!existingGuest && firstName) {
+  // Require BOTH firstName AND lastName to match to prevent false positives.
+  // firstName-only matching is too loose (e.g., "John" could match "John Smith" or "John Doe").
+  if (!existingGuest && firstName && lastName) {
     const allGuests = await db.query.guests.findMany({
       where: eq(schema.guests.clientId, clientId),
     })
     existingGuest = allGuests.find((g: any) => {
       const matchFirstName = g.firstName.toLowerCase().trim() === firstName.toLowerCase().trim()
-      // If lastName is provided, also match it
-      if (lastName) {
-        const matchLastName = (g.lastName || '').toLowerCase().trim() === lastName.toLowerCase().trim()
-        return matchFirstName && matchLastName
-      }
-      return matchFirstName
+      const matchLastName = (g.lastName || '').toLowerCase().trim() === lastName.toLowerCase().trim()
+      return matchFirstName && matchLastName
     })
   }
 

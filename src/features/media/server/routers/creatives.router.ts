@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, desc, isNull } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 
 interface CreativeJobData {
   description?: string
@@ -161,6 +162,15 @@ export const creativesRouter = router({
         })
         .returning()
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'creatives',
+        entityId: creativeJob.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      })
+
       return {
         ...creativeJob,
         ...data,
@@ -245,6 +255,15 @@ export const creativesRouter = router({
         .where(eq(schema.creativeJobs.id, input.id))
         .returning()
 
+      await broadcastSync({
+        type: 'update',
+        module: 'creatives',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      })
+
       return {
         ...creativeJob,
         ...newData,
@@ -282,6 +301,15 @@ export const creativesRouter = router({
       await ctx.db
         .delete(schema.creativeJobs)
         .where(eq(schema.creativeJobs.id, input.id))
+
+      await broadcastSync({
+        type: 'delete',
+        module: 'creatives',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      })
 
       return { success: true }
     }),
@@ -325,6 +353,15 @@ export const creativesRouter = router({
         })
         .where(eq(schema.creativeJobs.id, input.id))
         .returning()
+
+      await broadcastSync({
+        type: 'update',
+        module: 'creatives',
+        entityId: input.id,
+        companyId: ctx.companyId!,
+        userId: ctx.userId!,
+        queryPaths: ['clients.list'],
+      })
 
       return creativeJob
     }),

@@ -46,45 +46,32 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
   coverSheet.getRow(1).font = { bold: true, size: 16 };
   coverSheet.getRow(3).font = { bold: true, size: 14 };
 
-  // Guest List Sheet - All 15 required fields
+  // Guest List Sheet - Full round-trip compatible with import template
   if (data.guests.length > 0) {
     const guestSheet = workbook.addWorksheet('Guests');
     guestSheet.columns = [
-      { header: 'Serial #', key: 'serial', width: 10 },
-      // 1. Guest Name
-      { header: 'Guest Name', key: 'name', width: 25 },
-      // 2. Phone Number
-      { header: 'Phone Number', key: 'phone', width: 18 },
-      // 3. Email Address
-      { header: 'Email Address', key: 'email', width: 28 },
-      // 4. Number of Guests
-      { header: '# of Guests', key: 'partySize', width: 12 },
-      // 5. Additional Guest Names
-      { header: 'Additional Guests', key: 'additionalGuests', width: 35 },
-      // 6. Arrival Date & Time
-      { header: 'Arrival Date & Time', key: 'arrivalDatetime', width: 20 },
-      // 7. Arrival Transportation
-      { header: 'Arrival Transportation', key: 'arrivalMode', width: 18 },
-      // 8. Departure Date & Time
-      { header: 'Departure Date & Time', key: 'departureDatetime', width: 20 },
-      // 9. Departure Transportation
-      { header: 'Departure Transportation', key: 'departureMode', width: 18 },
-      // 10. Relationship to Family
-      { header: 'Relationship', key: 'relationship', width: 18 },
-      // 11. Events Attending
-      { header: 'Events Attending', key: 'eventsAttending', width: 30 },
-      // 12. Hotel Needed (Yes/No)
-      { header: 'Hotel Needed', key: 'hotelRequired', width: 15 },
-      // 13. Shuttle Needed (Yes/No)
-      { header: 'Shuttle Needed', key: 'transportRequired', width: 15 },
-      // 14. Gift Received
-      { header: 'Gift Received', key: 'giftToGive', width: 25 },
-      // 15. Special Notes
-      { header: 'Special Notes', key: 'notes', width: 40 },
-      // Additional context fields
-      { header: 'Guest Group', key: 'group', width: 18 },
+      { header: 'ID (Do not modify)', key: 'id', width: 40 },
+      { header: 'Name *', key: 'name', width: 25 },
+      { header: 'Email', key: 'email', width: 28 },
+      { header: 'Phone', key: 'phone', width: 18 },
+      { header: 'Group', key: 'group', width: 18 },
+      { header: 'Side', key: 'side', width: 15 },
       { header: 'RSVP Status', key: 'rsvp', width: 15 },
-      { header: 'Dietary Needs', key: 'dietary', width: 25 },
+      { header: 'Party Size', key: 'partySize', width: 12 },
+      { header: 'Additional Guest Names', key: 'additionalGuests', width: 35 },
+      { header: 'Relationship to Family', key: 'relationship', width: 20 },
+      { header: 'Attending Events', key: 'eventsAttending', width: 30 },
+      { header: 'Arrival Date/Time', key: 'arrivalDatetime', width: 20 },
+      { header: 'Arrival Mode', key: 'arrivalMode', width: 18 },
+      { header: 'Departure Date/Time', key: 'departureDatetime', width: 20 },
+      { header: 'Departure Mode', key: 'departureMode', width: 18 },
+      { header: 'Meal Preference', key: 'mealPreference', width: 15 },
+      { header: 'Dietary Restrictions', key: 'dietary', width: 25 },
+      { header: 'Hotel Required (TRUE/FALSE)', key: 'hotelRequired', width: 15 },
+      { header: 'Transport Required (TRUE/FALSE)', key: 'transportRequired', width: 18 },
+      { header: 'Gift Required (TRUE/FALSE)', key: 'giftRequired', width: 15 },
+      { header: 'Gift to Give', key: 'giftToGive', width: 25 },
+      { header: 'Notes', key: 'notes', width: 40 },
       { header: 'Checked In', key: 'checkedIn', width: 12 },
     ];
 
@@ -96,7 +83,6 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
     };
 
     data.guests.forEach((g) => {
-      // Handle both snake_case and camelCase field names (for compatibility)
       const name = g.name || `${g.firstName || g.first_name || ''} ${g.lastName || g.last_name || ''}`.trim();
       const additionalNames = g.additionalGuestNames || g.additional_guest_names || [];
       const arrivalDt = g.arrivalDatetime || g.arrival_datetime;
@@ -104,39 +90,57 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
       const attendingEvents = g.attendingEvents || g.attending_events || [];
 
       guestSheet.addRow({
-        serial: g.serialNumber || g.serial_number || '',
+        id: g.id || '',
         name: name,
-        phone: g.phone || '',
         email: g.email || '',
+        phone: g.phone || '',
+        group: g.groupName || g.group_name || g.group || '',
+        side: g.guestSide || g.guest_side || '',
+        rsvp: g.rsvpStatus || g.rsvp_status || 'pending',
         partySize: g.partySize || g.party_size || 1,
         additionalGuests: Array.isArray(additionalNames) ? additionalNames.join(', ') : '',
-        arrivalDatetime: arrivalDt ? new Date(arrivalDt).toLocaleString() : '',
-        arrivalMode: g.arrivalMode || g.arrival_mode || '',
-        departureDatetime: departureDt ? new Date(departureDt).toLocaleString() : '',
-        departureMode: g.departureMode || g.departure_mode || '',
         relationship: g.relationshipToFamily || g.relationship_to_family || '',
         eventsAttending: Array.isArray(attendingEvents) ? attendingEvents.join(', ') : '',
-        hotelRequired: (g.hotelRequired || g.hotel_required) ? 'Yes' : 'No',
-        transportRequired: (g.transportRequired || g.transport_required) ? 'Yes' : 'No',
+        arrivalDatetime: arrivalDt || '',
+        arrivalMode: g.arrivalMode || g.arrival_mode || '',
+        departureDatetime: departureDt || '',
+        departureMode: g.departureMode || g.departure_mode || '',
+        mealPreference: g.mealPreference || g.meal_preference || '',
+        dietary: g.dietaryRestrictions || g.dietary_restrictions || '',
+        hotelRequired: (g.hotelRequired || g.hotel_required) ? 'TRUE' : 'FALSE',
+        transportRequired: (g.transportRequired || g.transport_required) ? 'TRUE' : 'FALSE',
+        giftRequired: (g.giftRequired || g.gift_required) ? 'TRUE' : 'FALSE',
         giftToGive: g.giftToGive || g.gift_to_give || '',
         notes: g.notes || '',
-        group: g.groupName || g.group_name || g.group || '',
-        rsvp: g.rsvpStatus || g.rsvp_status || 'pending',
-        dietary: g.dietaryRestrictions || g.dietary_restrictions || '',
         checkedIn: (g.checkedIn || g.checked_in) ? 'Yes' : 'No',
       });
     });
   }
 
-  // Hotels Sheet
+  // Hotels Sheet - Full round-trip compatible with import template
   if (data.hotels.length > 0) {
     const hotelSheet = workbook.addWorksheet('Hotels');
     hotelSheet.columns = [
-      { header: 'Guest Name', key: 'guest', width: 25 },
-      { header: 'Hotel Name', key: 'hotel', width: 25 },
-      { header: 'Room Number', key: 'room', width: 15 },
-      { header: 'Check-In', key: 'checkIn', width: 15 },
-      { header: 'Check-Out', key: 'checkOut', width: 15 },
+      { header: 'ID (Do not modify)', key: 'id', width: 40 },
+      { header: 'Guest ID (Do not modify)', key: 'guestId', width: 40 },
+      { header: 'Guest Name * (Required)', key: 'guestName', width: 25 },
+      { header: 'Relationship (from guest list)', key: 'guestRelationship', width: 28 },
+      { header: 'Additional Guest Names (from guest list)', key: 'additionalGuestNames', width: 35 },
+      { header: 'Guest Names in Room (e.g., john and mary, sue)', key: 'guestNamesInRoom', width: 40 },
+      { header: '# in Room (auto or manual)', key: 'partySize', width: 22 },
+      { header: 'Email Address', key: 'guestEmail', width: 28 },
+      { header: 'Phone Number', key: 'guestPhone', width: 18 },
+      { header: 'Need Hotel? (Yes/No)', key: 'accommodationNeeded', width: 18 },
+      { header: 'Hotel Name', key: 'hotelName', width: 25 },
+      { header: 'Room Number', key: 'roomNumber', width: 15 },
+      { header: 'Room Type (Suite/Deluxe...)', key: 'roomType', width: 23 },
+      { header: 'Check-In (YYYY-MM-DD)', key: 'checkInDate', width: 20 },
+      { header: 'Check-Out (YYYY-MM-DD)', key: 'checkOutDate', width: 20 },
+      { header: 'Booking Confirmed (Yes/No)', key: 'bookingConfirmed', width: 23 },
+      { header: 'Checked In (Yes/No)', key: 'checkedIn', width: 18 },
+      { header: 'Room Cost (numbers only)', key: 'cost', width: 22 },
+      { header: 'Payment (pending/paid/overdue)', key: 'paymentStatus', width: 28 },
+      { header: 'Special Notes', key: 'notes', width: 40 },
     ];
 
     hotelSheet.getRow(1).font = { bold: true };
@@ -146,13 +150,35 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
       fgColor: { argb: 'FFE0E0E0' },
     };
 
+    // Create guest lookup map for enriching hotel data
+    const guestLookup = new Map(data.guests.map((g: any) => [g.id, g]));
+
     data.hotels.forEach((h) => {
+      const guest = guestLookup.get(h.guestId || h.guest_id);
+      const guestName = h.guestName || h.guest_name || (guest ? `${guest.firstName || guest.first_name || ''} ${guest.lastName || guest.last_name || ''}`.trim() : '');
+      const additionalNames = guest?.additionalGuestNames || guest?.additional_guest_names || [];
+
       hotelSheet.addRow({
-        guest: h.guest_name,
-        hotel: h.hotel_name || '',
-        room: h.room_number || '',
-        checkIn: h.check_in_date ? new Date(h.check_in_date).toLocaleDateString() : '',
-        checkOut: h.check_out_date ? new Date(h.check_out_date).toLocaleDateString() : '',
+        id: h.id || '',
+        guestId: h.guestId || h.guest_id || '',
+        guestName: guestName,
+        guestRelationship: h.guestRelationship || guest?.relationshipToFamily || guest?.relationship_to_family || '',
+        additionalGuestNames: Array.isArray(additionalNames) ? additionalNames.join(', ') : (additionalNames || ''),
+        guestNamesInRoom: '',
+        partySize: h.partySize || h.party_size || 1,
+        guestEmail: h.guestEmail || guest?.email || '',
+        guestPhone: h.guestPhone || guest?.phone || '',
+        accommodationNeeded: (h.accommodationNeeded || h.accommodation_needed) ? 'Yes' : 'No',
+        hotelName: h.hotelName || h.hotel_name || '',
+        roomNumber: h.roomNumber || h.room_number || '',
+        roomType: h.roomType || h.room_type || '',
+        checkInDate: h.checkInDate || h.check_in_date || '',
+        checkOutDate: h.checkOutDate || h.check_out_date || '',
+        bookingConfirmed: (h.bookingConfirmed || h.booking_confirmed) ? 'Yes' : 'No',
+        checkedIn: (h.checkedIn || h.checked_in) ? 'Yes' : 'No',
+        cost: h.cost || '',
+        paymentStatus: h.paymentStatus || h.payment_status || 'pending',
+        notes: h.notes || '',
       });
     });
   }
@@ -222,20 +248,23 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
     });
   }
 
-  // Transport Sheet - Multi-leg journey support
+  // Transport Sheet - Full round-trip compatible with import template
   if (data.transport && data.transport.length > 0) {
     const transportSheet = workbook.addWorksheet('Transport');
     transportSheet.columns = [
-      { header: 'Guest Name', key: 'guestName', width: 25 },
-      { header: 'Journey Type', key: 'legType', width: 18 },
-      { header: 'Trip #', key: 'legSequence', width: 10 },
+      { header: 'ID (Do not modify)', key: 'id', width: 40 },
+      { header: 'Guest ID (Do not modify)', key: 'guestId', width: 40 },
+      { header: 'Guest Name *', key: 'guestName', width: 25 },
+      { header: 'Guest Email', key: 'guestEmail', width: 25 },
+      { header: 'Guest Phone', key: 'guestPhone', width: 15 },
+      { header: 'Guest Group', key: 'guestGroup', width: 15 },
       { header: 'Pickup Date', key: 'pickupDate', width: 15 },
       { header: 'Pickup Time', key: 'pickupTime', width: 12 },
-      { header: 'Pickup Location', key: 'pickupFrom', width: 28 },
-      { header: 'Drop-off Location', key: 'dropTo', width: 28 },
-      { header: 'Status', key: 'transportStatus', width: 15 },
-      { header: 'Vehicle/Shuttle', key: 'vehicleInfo', width: 25 },
-      { header: 'Special Notes', key: 'notes', width: 40 },
+      { header: 'Pickup From', key: 'pickupFrom', width: 28 },
+      { header: 'Drop To', key: 'dropTo', width: 28 },
+      { header: 'Vehicle Info', key: 'vehicleInfo', width: 25 },
+      { header: 'Transport Status', key: 'transportStatus', width: 15 },
+      { header: 'Notes', key: 'notes', width: 40 },
     ];
 
     transportSheet.getRow(1).font = { bold: true };
@@ -246,32 +275,39 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
     };
 
     data.transport.forEach((t) => {
+      const guest = t.guest;
       transportSheet.addRow({
+        id: t.id || '',
+        guestId: t.guestId || t.guest_id || '',
         guestName: t.guestName || t.guest_name || '',
-        legType: t.legType || t.leg_type || '',
-        legSequence: t.legSequence || t.leg_sequence || 1,
+        guestEmail: t.guestEmail || t.guest_email || guest?.email || '',
+        guestPhone: t.guestPhone || t.guest_phone || guest?.phone || '',
+        guestGroup: t.guestGroup || t.guest_group || guest?.groupName || guest?.group_name || '',
         pickupDate: t.pickupDate || t.pickup_date || '',
         pickupTime: t.pickupTime || t.pickup_time || '',
         pickupFrom: t.pickupFrom || t.pickup_from || '',
         dropTo: t.dropTo || t.drop_to || '',
-        transportStatus: t.transportStatus || t.transport_status || 'scheduled',
         vehicleInfo: t.vehicleInfo || t.vehicle_info || '',
+        transportStatus: t.transportStatus || t.transport_status || 'scheduled',
         notes: t.notes || '',
       });
     });
   }
 
-  // Vendors Sheet
+  // Vendors Sheet - Full round-trip compatible with import template
   if (data.vendors.length > 0) {
     const vendorSheet = workbook.addWorksheet('Vendors');
     vendorSheet.columns = [
-      { header: 'Vendor Name', key: 'vendor', width: 30 },
-      { header: 'Service Category', key: 'category', width: 20 },
-      { header: 'Contact Person', key: 'contact', width: 25 },
-      { header: 'Phone Number', key: 'phone', width: 18 },
-      { header: 'Email Address', key: 'email', width: 28 },
-      { header: 'Contract Amount', key: 'cost', width: 18 },
-      { header: 'Payment Status', key: 'status', width: 18 },
+      { header: 'ID (Do not modify)', key: 'id', width: 40 },
+      { header: 'Vendor Name *', key: 'vendorName', width: 30 },
+      { header: 'Category *', key: 'category', width: 20 },
+      { header: 'Contact Name', key: 'contactName', width: 25 },
+      { header: 'Phone', key: 'phone', width: 18 },
+      { header: 'Email', key: 'email', width: 28 },
+      { header: 'Contract Amount', key: 'contractAmount', width: 18 },
+      { header: 'Payment Status', key: 'paymentStatus', width: 18 },
+      { header: 'Rating', key: 'rating', width: 10 },
+      { header: 'Notes', key: 'notes', width: 30 },
     ];
 
     vendorSheet.getRow(1).font = { bold: true };
@@ -283,26 +319,33 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
 
     data.vendors.forEach((v) => {
       vendorSheet.addRow({
-        vendor: v.vendor_name,
-        category: v.category,
-        contact: v.contact_name || '',
+        id: v.id || '',
+        vendorName: v.name || v.vendor_name || '',
+        category: v.category || '',
+        contactName: v.contactName || v.contact_name || '',
         phone: v.phone || '',
         email: v.email || '',
-        cost: v.cost || '',
-        status: v.payment_status || 'pending',
+        contractAmount: v.contractAmount || v.cost || '',
+        paymentStatus: v.paymentStatus || v.payment_status || 'pending',
+        rating: v.rating || '',
+        notes: v.notes || '',
       });
     });
   }
 
-  // Budget Sheet
+  // Budget Sheet - Full round-trip compatible with import template
   if (data.budget.length > 0) {
     const budgetSheet = workbook.addWorksheet('Budget');
     budgetSheet.columns = [
-      { header: 'Category', key: 'category', width: 20 },
-      { header: 'Budgeted Amount', key: 'estimated', width: 18 },
-      { header: 'Actual Spent', key: 'actual', width: 18 },
-      { header: 'Variance', key: 'difference', width: 15 },
-      { header: 'Payment Status', key: 'status', width: 18 },
+      { header: 'ID (Do not modify)', key: 'id', width: 40 },
+      { header: 'Item *', key: 'item', width: 25 },
+      { header: 'Category *', key: 'category', width: 20 },
+      { header: 'Segment', key: 'segment', width: 15 },
+      { header: 'Estimated Cost *', key: 'estimatedCost', width: 18 },
+      { header: 'Paid Amount', key: 'paidAmount', width: 18 },
+      { header: 'Actual Cost', key: 'actualCost', width: 18 },
+      { header: 'Payment Status', key: 'paymentStatus', width: 18 },
+      { header: 'Notes', key: 'notes', width: 30 },
     ];
 
     budgetSheet.getRow(1).font = { bold: true };
@@ -314,11 +357,15 @@ export async function exportToExcel(data: ExportData): Promise<ArrayBuffer> {
 
     data.budget.forEach((b) => {
       budgetSheet.addRow({
-        category: b.category,
-        estimated: b.estimated_cost,
-        actual: b.actual_cost || '-',
-        difference: b.actual_cost ? b.actual_cost - b.estimated_cost : '-',
-        status: b.payment_status || 'pending',
+        id: b.id || '',
+        item: b.item || '',
+        category: b.category || '',
+        segment: b.segment || 'other',
+        estimatedCost: b.estimatedCost || b.estimated_cost || 0,
+        paidAmount: b.paidAmount || b.paid_amount || 0,
+        actualCost: b.actualCost || b.actual_cost || '',
+        paymentStatus: b.paymentStatus || b.payment_status || 'pending',
+        notes: b.notes || '',
       });
     });
   }
