@@ -18,6 +18,7 @@
  */
 
 import type { ChatCompletionTool } from 'openai/resources/chat/completions'
+import type { Role } from '@/lib/permissions/roles'
 
 /**
  * Tool types for categorization and routing
@@ -47,6 +48,9 @@ export type ToolCategory =
   | 'qr_codes'
   | 'calendar'
   | 'documents'
+  | 'payments'
+  | 'floorPlan'
+  | 'questionnaires'
 
 export type ToolType = 'query' | 'mutation'
 
@@ -467,6 +471,177 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     description: 'Get a pre-signed URL to upload a document for a client',
   },
 
+  // ============================================
+  // PHASE 6: FULL CRUD COMPLETION TOOLS
+  // ============================================
+  create_budget_item: {
+    name: 'create_budget_item',
+    category: 'budget',
+    type: 'mutation',
+    description: 'Create a standalone budget line item',
+    cascadeEffects: [
+      'Recalculates client budget totals',
+    ],
+  },
+  update_hotel_booking: {
+    name: 'update_hotel_booking',
+    category: 'hotel',
+    type: 'mutation',
+    description: 'Update hotel booking details (room, dates, confirmation)',
+  },
+  delete_hotel_booking: {
+    name: 'delete_hotel_booking',
+    category: 'hotel',
+    type: 'mutation',
+    description: 'Delete a hotel booking',
+  },
+  update_transport: {
+    name: 'update_transport',
+    category: 'guest',
+    type: 'mutation',
+    description: 'Update transport details (pickup, vehicle, time)',
+  },
+  delete_transport: {
+    name: 'delete_transport',
+    category: 'guest',
+    type: 'mutation',
+    description: 'Delete a transport assignment',
+  },
+  update_timeline_item: {
+    name: 'update_timeline_item',
+    category: 'timeline',
+    type: 'mutation',
+    description: 'Update an individual timeline item (title, time, location)',
+  },
+  delete_seating_constraint: {
+    name: 'delete_seating_constraint',
+    category: 'seating',
+    type: 'mutation',
+    description: 'Remove a seating constraint',
+  },
+  update_proposal: {
+    name: 'update_proposal',
+    category: 'proposals',
+    type: 'mutation',
+    description: 'Update proposal details (title, amount, validity)',
+  },
+  delete_proposal: {
+    name: 'delete_proposal',
+    category: 'proposals',
+    type: 'mutation',
+    description: 'Delete a proposal',
+  },
+  create_contract: {
+    name: 'create_contract',
+    category: 'proposals',
+    type: 'mutation',
+    description: 'Create a contract for a client',
+    cascadeEffects: [
+      'Generates contract document',
+      'Creates public signing link',
+    ],
+  },
+  update_contract: {
+    name: 'update_contract',
+    category: 'proposals',
+    type: 'mutation',
+    description: 'Update contract details or status',
+  },
+  delete_contract: {
+    name: 'delete_contract',
+    category: 'proposals',
+    type: 'mutation',
+    description: 'Delete a contract',
+  },
+  update_invoice: {
+    name: 'update_invoice',
+    category: 'invoices',
+    type: 'mutation',
+    description: 'Update invoice details or status',
+  },
+  delete_invoice: {
+    name: 'delete_invoice',
+    category: 'invoices',
+    type: 'mutation',
+    description: 'Delete an invoice',
+  },
+  create_questionnaire: {
+    name: 'create_questionnaire',
+    category: 'client',
+    type: 'mutation',
+    description: 'Create a client questionnaire',
+    cascadeEffects: [
+      'May copy questions from template',
+    ],
+  },
+  update_questionnaire: {
+    name: 'update_questionnaire',
+    category: 'client',
+    type: 'mutation',
+    description: 'Update questionnaire details or status',
+  },
+  delete_questionnaire: {
+    name: 'delete_questionnaire',
+    category: 'client',
+    type: 'mutation',
+    description: 'Delete a questionnaire',
+  },
+  update_workflow: {
+    name: 'update_workflow',
+    category: 'workflows',
+    type: 'mutation',
+    description: 'Update workflow settings or activate/deactivate',
+  },
+  delete_workflow: {
+    name: 'delete_workflow',
+    category: 'workflows',
+    type: 'mutation',
+    description: 'Delete an automation workflow',
+    cascadeEffects: [
+      'Cascades to delete workflow steps',
+    ],
+  },
+  create_website: {
+    name: 'create_website',
+    category: 'website',
+    type: 'mutation',
+    description: 'Create a wedding website',
+    cascadeEffects: [
+      'Auto-generates subdomain',
+      'Creates initial website content',
+    ],
+  },
+  delete_website: {
+    name: 'delete_website',
+    category: 'website',
+    type: 'mutation',
+    description: 'Delete a wedding website',
+  },
+  create_pipeline_lead: {
+    name: 'create_pipeline_lead',
+    category: 'pipeline',
+    type: 'mutation',
+    description: 'Create a new CRM pipeline lead',
+  },
+  delete_pipeline_lead: {
+    name: 'delete_pipeline_lead',
+    category: 'pipeline',
+    type: 'mutation',
+    description: 'Delete a pipeline lead',
+  },
+  create_creative: {
+    name: 'create_creative',
+    category: 'creatives',
+    type: 'mutation',
+    description: 'Create a new creative job (video, photo, graphic, invitation)',
+  },
+  delete_creative: {
+    name: 'delete_creative',
+    category: 'creatives',
+    type: 'mutation',
+    description: 'Delete a creative job',
+  },
+
   // Delete tools
   delete_guest: {
     name: 'delete_guest',
@@ -507,6 +682,240 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     category: 'gifts',
     type: 'mutation',
     description: 'Delete a gift record',
+  },
+  delete_client: {
+    name: 'delete_client',
+    category: 'client',
+    type: 'mutation',
+    description: 'Soft-delete a client and cascade-delete all related data (19 tables)',
+    cascadeEffects: [
+      'Deletes floor plan guests, tables, and plans',
+      'Deletes all timeline entries',
+      'Deletes all hotel bookings and transport records',
+      'Deletes all guest gifts and guests',
+      'Deletes all vendor relationships and budget items',
+      'Deletes all events',
+      'Deletes all documents and e-signature data',
+      'Deletes all messages, payments, wedding websites',
+      'Deletes all activity logs and client-user relationships',
+      'Soft-deletes the client record (preserves for audit)',
+    ],
+  },
+
+  // ============================================
+  // DOCUMENT MANAGEMENT TOOLS
+  // ============================================
+  create_document: {
+    name: 'create_document',
+    category: 'documents',
+    type: 'mutation',
+    description: 'Create a document record for a client',
+    cascadeEffects: [
+      'Creates document record linked to client',
+      'Creates audit trail entry',
+    ],
+  },
+  update_document: {
+    name: 'update_document',
+    category: 'documents',
+    type: 'mutation',
+    description: 'Update document metadata (name, description)',
+    cascadeEffects: [
+      'Creates audit trail entry',
+    ],
+  },
+  delete_document: {
+    name: 'delete_document',
+    category: 'documents',
+    type: 'mutation',
+    description: 'Delete a document and its storage file',
+    cascadeEffects: [
+      'Removes file from storage',
+      'Cancels any pending signature requests',
+      'Creates audit trail entry',
+    ],
+  },
+  request_signature: {
+    name: 'request_signature',
+    category: 'documents',
+    type: 'mutation',
+    description: 'Request e-signatures on a document from one or more signers',
+    cascadeEffects: [
+      'Creates signature request record',
+      'Sends email notification to signers',
+      'Creates audit trail entry',
+    ],
+  },
+  send_signature_reminder: {
+    name: 'send_signature_reminder',
+    category: 'documents',
+    type: 'mutation',
+    description: 'Send a reminder to pending signers for a signature request',
+    cascadeEffects: [
+      'Sends reminder email to pending signers',
+      'Creates audit trail entry',
+    ],
+  },
+  cancel_signature_request: {
+    name: 'cancel_signature_request',
+    category: 'documents',
+    type: 'mutation',
+    description: 'Cancel a pending signature request',
+    cascadeEffects: [
+      'Marks request as cancelled',
+      'Sends cancellation notification to signers',
+      'Creates audit trail entry',
+    ],
+  },
+  get_document_audit_trail: {
+    name: 'get_document_audit_trail',
+    category: 'documents',
+    type: 'query',
+    description: 'Get the full audit trail for a document (views, edits, signatures)',
+  },
+
+  // ============================================
+  // PAYMENT TOOLS
+  // ============================================
+  record_payment: {
+    name: 'record_payment',
+    category: 'payments',
+    type: 'mutation',
+    description: 'Record a payment received from a client',
+    cascadeEffects: [
+      'Updates invoice status if linked',
+      'Recalculates client payment totals',
+      'Creates payment receipt record',
+    ],
+  },
+  get_payment_stats: {
+    name: 'get_payment_stats',
+    category: 'payments',
+    type: 'query',
+    description: 'Get payment statistics (total received, outstanding, by period)',
+  },
+  create_refund: {
+    name: 'create_refund',
+    category: 'payments',
+    type: 'mutation',
+    description: 'Create a refund for a previous payment',
+    cascadeEffects: [
+      'Updates original payment record',
+      'Recalculates client payment totals',
+      'Updates invoice status if linked',
+    ],
+  },
+
+  // ============================================
+  // FLOOR PLAN TOOLS
+  // ============================================
+  create_floor_plan: {
+    name: 'create_floor_plan',
+    category: 'floorPlan',
+    type: 'mutation',
+    description: 'Create a new floor plan for a client event',
+    cascadeEffects: [
+      'Links floor plan to event if eventId provided',
+    ],
+  },
+  add_table: {
+    name: 'add_table',
+    category: 'floorPlan',
+    type: 'mutation',
+    description: 'Add a table to a floor plan',
+    cascadeEffects: [
+      'Updates floor plan table count',
+      'Updates total seating capacity',
+    ],
+  },
+  remove_table: {
+    name: 'remove_table',
+    category: 'floorPlan',
+    type: 'mutation',
+    description: 'Remove a table from a floor plan',
+    cascadeEffects: [
+      'Unassigns all guests from the table',
+      'Updates floor plan table count',
+      'Updates total seating capacity',
+    ],
+  },
+  assign_guest_to_table: {
+    name: 'assign_guest_to_table',
+    category: 'floorPlan',
+    type: 'mutation',
+    description: 'Assign a guest to a specific table and optional seat',
+    cascadeEffects: [
+      'Updates guest seating assignment',
+      'Updates table occupancy count',
+    ],
+  },
+  batch_assign_guests: {
+    name: 'batch_assign_guests',
+    category: 'floorPlan',
+    type: 'mutation',
+    description: 'Assign multiple guests to tables in one operation',
+    cascadeEffects: [
+      'Updates seating assignments for all guests',
+      'Updates table occupancy counts',
+    ],
+  },
+
+  // ============================================
+  // PIPELINE ENHANCEMENT TOOLS
+  // ============================================
+  create_pipeline_stage: {
+    name: 'create_pipeline_stage',
+    category: 'pipeline',
+    type: 'mutation',
+    description: 'Create a new pipeline stage for lead tracking',
+    cascadeEffects: [
+      'Updates pipeline stage order',
+    ],
+  },
+  convert_lead_to_client: {
+    name: 'convert_lead_to_client',
+    category: 'pipeline',
+    type: 'mutation',
+    description: 'Convert a pipeline lead into a full wedding client',
+    cascadeEffects: [
+      'Creates new client record',
+      'Marks lead as won',
+      'Auto-creates main event if wedding date provided',
+      'Auto-generates budget categories',
+      'Logs pipeline activity',
+    ],
+  },
+  create_pipeline_activity: {
+    name: 'create_pipeline_activity',
+    category: 'pipeline',
+    type: 'mutation',
+    description: 'Log an activity (note, call, email, meeting) on a pipeline lead',
+    cascadeEffects: [
+      'Creates activity log entry',
+      'Updates lead last-activity timestamp',
+    ],
+  },
+
+  // ============================================
+  // FEATURE QUERY TOOLS
+  // ============================================
+  get_questionnaire_responses: {
+    name: 'get_questionnaire_responses',
+    category: 'questionnaires',
+    type: 'query',
+    description: 'Get all responses for a questionnaire',
+  },
+  get_website_analytics: {
+    name: 'get_website_analytics',
+    category: 'website',
+    type: 'query',
+    description: 'Get analytics data for a wedding website (visits, RSVP clicks, etc.)',
+  },
+  get_floor_plan_summary: {
+    name: 'get_floor_plan_summary',
+    category: 'floorPlan',
+    type: 'query',
+    description: 'Get floor plan summary with table layout, seating assignments, and capacity',
   },
 }
 
@@ -2763,6 +3172,498 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
   },
 
   // ============================================
+  // PHASE 6: FULL CRUD COMPLETION TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'create_budget_item',
+      description: 'Create a standalone budget line item. Useful for items not linked to vendors (e.g., flowers, decoration, catering extras).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['category', 'item', 'estimatedCost'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          category: { type: 'string', description: 'Budget category (e.g., Venue, Catering, Photography)' },
+          segment: { type: 'string', enum: ['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other'], description: 'Budget segment' },
+          item: { type: 'string', description: 'Budget item name' },
+          estimatedCost: { type: 'number', description: 'Estimated cost' },
+          actualCost: { type: 'number', description: 'Actual cost if known' },
+          vendorId: { type: 'string', description: 'Associated vendor UUID' },
+          eventId: { type: 'string', description: 'Associated event UUID' },
+          notes: { type: 'string', description: 'Notes about this budget item' },
+          isPerGuestItem: { type: 'boolean', description: 'Whether cost is per guest' },
+          perGuestCost: { type: 'number', description: 'Cost per guest if isPerGuestItem' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_hotel_booking',
+      description: 'Update a hotel booking. Can find by booking ID or guest name.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          hotelBookingId: { type: 'string', description: 'Hotel booking UUID' },
+          guestName: { type: 'string', description: 'Guest name for fuzzy matching' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+          hotelName: { type: 'string', description: 'Hotel name' },
+          roomType: { type: 'string', description: 'Room type (e.g., single, double, suite)' },
+          checkInDate: { type: 'string', description: 'Check-in date (YYYY-MM-DD)' },
+          checkOutDate: { type: 'string', description: 'Check-out date (YYYY-MM-DD)' },
+          roomRate: { type: 'number', description: 'Room rate per night' },
+          notes: { type: 'string', description: 'Booking notes' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_hotel_booking',
+      description: 'Delete a hotel booking. Can find by booking ID or guest name.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          hotelBookingId: { type: 'string', description: 'Hotel booking UUID' },
+          guestName: { type: 'string', description: 'Guest name for fuzzy matching' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_transport',
+      description: 'Update transport assignment details. Can find by transport ID or guest name.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          transportId: { type: 'string', description: 'Transport record UUID' },
+          guestName: { type: 'string', description: 'Guest name for fuzzy matching' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+          pickupDate: { type: 'string', description: 'Pickup date (YYYY-MM-DD)' },
+          pickupTime: { type: 'string', description: 'Pickup time (HH:MM)' },
+          pickupFrom: { type: 'string', description: 'Pickup location' },
+          dropTo: { type: 'string', description: 'Drop-off location' },
+          driverPhone: { type: 'string', description: 'Driver phone number' },
+          notes: { type: 'string', description: 'Transport notes' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_transport',
+      description: 'Delete a transport assignment. Can find by transport ID or guest name.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          transportId: { type: 'string', description: 'Transport record UUID' },
+          guestName: { type: 'string', description: 'Guest name for fuzzy matching' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_timeline_item',
+      description: 'Update an individual timeline item (title, time, location, phase, completion status).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['timelineItemId'],
+        additionalProperties: false,
+        properties: {
+          timelineItemId: { type: 'string', description: 'Timeline item UUID' },
+          title: { type: 'string', description: 'Timeline item title' },
+          description: { type: 'string', description: 'Description' },
+          startTime: { type: 'string', description: 'Start time (HH:MM or ISO datetime)' },
+          endTime: { type: 'string', description: 'End time (HH:MM or ISO datetime)' },
+          durationMinutes: { type: 'number', description: 'Duration in minutes' },
+          location: { type: 'string', description: 'Location' },
+          assignee: { type: 'string', description: 'Responsible person' },
+          phase: { type: 'string', enum: ['setup', 'showtime', 'wrapup'], description: 'Event phase' },
+          completed: { type: 'boolean', description: 'Whether item is completed' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_seating_constraint',
+      description: 'Remove a seating constraint (keep-together or keep-apart rule).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['constraintId'],
+        additionalProperties: false,
+        properties: {
+          constraintId: { type: 'string', description: 'Seating constraint UUID' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_proposal',
+      description: 'Update a proposal (title, amount, content, validity period).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['proposalId'],
+        additionalProperties: false,
+        properties: {
+          proposalId: { type: 'string', description: 'Proposal UUID' },
+          title: { type: 'string', description: 'Proposal title' },
+          content: { type: 'string', description: 'Proposal content' },
+          packageAmount: { type: 'number', description: 'Package total amount' },
+          currency: { type: 'string', description: 'Currency code (e.g., USD, INR)' },
+          validDays: { type: 'number', description: 'Days until proposal expires' },
+          notes: { type: 'string', description: 'Internal notes' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_proposal',
+      description: 'Delete a proposal.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['proposalId'],
+        additionalProperties: false,
+        properties: {
+          proposalId: { type: 'string', description: 'Proposal UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_contract',
+      description: 'Create a contract for a client. Optionally use a template.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['title'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          title: { type: 'string', description: 'Contract title' },
+          content: { type: 'string', description: 'Contract content/body' },
+          templateId: { type: 'string', description: 'Template UUID to use' },
+          totalAmount: { type: 'number', description: 'Total contract amount' },
+          depositAmount: { type: 'number', description: 'Required deposit amount' },
+          currency: { type: 'string', description: 'Currency code (default: USD)' },
+          validDays: { type: 'number', description: 'Days until contract expires (default: 30)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_contract',
+      description: 'Update contract details or status.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['contractId'],
+        additionalProperties: false,
+        properties: {
+          contractId: { type: 'string', description: 'Contract UUID' },
+          title: { type: 'string', description: 'Contract title' },
+          content: { type: 'string', description: 'Contract content' },
+          totalAmount: { type: 'number', description: 'Total amount' },
+          depositAmount: { type: 'number', description: 'Deposit amount' },
+          status: { type: 'string', enum: ['draft', 'sent', 'viewed', 'signed', 'countersigned', 'completed', 'expired', 'cancelled'], description: 'Contract status' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_contract',
+      description: 'Delete a contract.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['contractId'],
+        additionalProperties: false,
+        properties: {
+          contractId: { type: 'string', description: 'Contract UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_invoice',
+      description: 'Update invoice details or status.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['invoiceId'],
+        additionalProperties: false,
+        properties: {
+          invoiceId: { type: 'string', description: 'Invoice UUID' },
+          amount: { type: 'number', description: 'Invoice amount' },
+          dueDate: { type: 'string', description: 'Due date (YYYY-MM-DD)' },
+          status: { type: 'string', enum: ['pending', 'paid', 'overdue', 'cancelled'], description: 'Invoice status' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_invoice',
+      description: 'Delete an invoice.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['invoiceId'],
+        additionalProperties: false,
+        properties: {
+          invoiceId: { type: 'string', description: 'Invoice UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_questionnaire',
+      description: 'Create a client questionnaire. Optionally use a template.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['title'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          title: { type: 'string', description: 'Questionnaire title' },
+          description: { type: 'string', description: 'Description' },
+          templateId: { type: 'string', description: 'Template UUID to copy questions from' },
+          category: { type: 'string', description: 'Questionnaire category' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_questionnaire',
+      description: 'Update questionnaire details or status.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['questionnaireId'],
+        additionalProperties: false,
+        properties: {
+          questionnaireId: { type: 'string', description: 'Questionnaire UUID' },
+          title: { type: 'string', description: 'Questionnaire title' },
+          description: { type: 'string', description: 'Description' },
+          status: { type: 'string', enum: ['draft', 'sent', 'completed', 'expired'], description: 'Questionnaire status' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_questionnaire',
+      description: 'Delete a questionnaire and all responses.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['questionnaireId'],
+        additionalProperties: false,
+        properties: {
+          questionnaireId: { type: 'string', description: 'Questionnaire UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_workflow',
+      description: 'Update workflow settings or activate/deactivate.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['workflowId'],
+        additionalProperties: false,
+        properties: {
+          workflowId: { type: 'string', description: 'Workflow UUID' },
+          name: { type: 'string', description: 'Workflow name' },
+          description: { type: 'string', description: 'Workflow description' },
+          isActive: { type: 'boolean', description: 'Whether workflow is active' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_workflow',
+      description: 'Delete an automation workflow and its steps.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['workflowId'],
+        additionalProperties: false,
+        properties: {
+          workflowId: { type: 'string', description: 'Workflow UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_website',
+      description: 'Create a wedding website with subdomain and theme.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['clientId'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          subdomain: { type: 'string', description: 'Website subdomain (auto-generated if not provided)' },
+          theme: { type: 'string', enum: ['classic', 'modern', 'elegant', 'rustic', 'minimalist'], description: 'Website theme' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_website',
+      description: 'Delete a wedding website.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['websiteId'],
+        additionalProperties: false,
+        properties: {
+          websiteId: { type: 'string', description: 'Wedding website UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_pipeline_lead',
+      description: 'Create a new CRM pipeline lead for a potential client.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['firstName'],
+        additionalProperties: false,
+        properties: {
+          firstName: { type: 'string', description: 'Lead first name' },
+          lastName: { type: 'string', description: 'Lead last name' },
+          email: { type: 'string', description: 'Lead email' },
+          phone: { type: 'string', description: 'Lead phone' },
+          weddingDate: { type: 'string', description: 'Expected wedding date (YYYY-MM-DD)' },
+          estimatedBudget: { type: 'number', description: 'Estimated budget' },
+          source: { type: 'string', description: 'Lead source (e.g., referral, website, social)' },
+          priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'], description: 'Lead priority' },
+          notes: { type: 'string', description: 'Notes about the lead' },
+          stageId: { type: 'string', description: 'Pipeline stage UUID (uses default if not provided)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_pipeline_lead',
+      description: 'Delete a pipeline lead.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['leadId'],
+        additionalProperties: false,
+        properties: {
+          leadId: { type: 'string', description: 'Pipeline lead UUID' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_creative',
+      description: 'Create a new creative job (video, photo, graphic, invitation).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['clientId', 'title', 'jobType'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          title: { type: 'string', description: 'Creative job title' },
+          jobType: { type: 'string', enum: ['video', 'photo', 'graphic', 'invitation', 'other'], description: 'Type of creative job' },
+          description: { type: 'string', description: 'Job description' },
+          dueDate: { type: 'string', description: 'Due date (YYYY-MM-DD)' },
+          priority: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Job priority' },
+          assignedTo: { type: 'string', description: 'Assigned team member name' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_creative',
+      description: 'Delete a creative job.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['creativeId'],
+        additionalProperties: false,
+        properties: {
+          creativeId: { type: 'string', description: 'Creative job UUID' },
+        },
+      },
+    },
+  },
+
+  // ============================================
   // DELETE TOOLS
   // ============================================
   {
@@ -2903,6 +3804,462 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_client',
+      description: 'PERMANENTLY delete a wedding client and ALL related data across 19 tables. The client record is soft-deleted but ALL child data (guests, events, budget, vendors, timeline, documents, messages, payments, etc.) is permanently removed. This is the MOST DESTRUCTIVE operation in the system and is IRREVERSIBLE. ALWAYS confirm with the user and clearly list what will be deleted before proceeding. Admin-only.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['clientId'],
+        additionalProperties: false,
+        properties: {
+          clientId: {
+            type: 'string',
+            description: 'Client UUID to delete',
+          },
+        },
+      },
+    },
+  },
+
+  // ============================================
+  // DOCUMENT MANAGEMENT TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'create_document',
+      description: 'Create a document record for a client. Use for "Upload a contract for the Sharma wedding" or "Add a new document".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['fileName', 'storagePath'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          clientName: { type: 'string', description: 'Client name for fuzzy matching' },
+          fileName: { type: 'string', description: 'Document file name' },
+          fileType: { type: 'string', enum: ['contract', 'invoice', 'photo', 'proposal', 'questionnaire', 'other'], description: 'Type of document (default: other)' },
+          description: { type: 'string', description: 'Description of the document' },
+          storagePath: { type: 'string', description: 'Storage path or URL for the document' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_document',
+      description: 'Update document metadata (file name or description).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['documentId'],
+        additionalProperties: false,
+        properties: {
+          documentId: { type: 'string', description: 'Document UUID to update' },
+          fileName: { type: 'string', description: 'New file name' },
+          description: { type: 'string', description: 'Updated description' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_document',
+      description: 'Delete a document and its storage file. This also cancels any pending signature requests. Always confirm with the user before deleting.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['documentId'],
+        additionalProperties: false,
+        properties: {
+          documentId: { type: 'string', description: 'Document UUID to delete' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_signature',
+      description: 'Request e-signatures on a document from one or more signers. Use for "Send the contract to Priya for signing" or "Get signatures on the vendor agreement".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['documentId', 'title', 'signers'],
+        additionalProperties: false,
+        properties: {
+          documentId: { type: 'string', description: 'Document UUID to request signatures for' },
+          title: { type: 'string', description: 'Signature request title' },
+          message: { type: 'string', description: 'Message to include with signature request' },
+          signingOrder: { type: 'string', enum: ['parallel', 'sequential'], description: 'Order in which signers should sign (default: parallel)' },
+          signers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['name', 'email'],
+              properties: {
+                name: { type: 'string', description: 'Signer name' },
+                email: { type: 'string', description: 'Signer email address' },
+                role: { type: 'string', description: 'Signer role (e.g., "Client", "Vendor")' },
+              },
+            },
+            description: 'List of signers',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_signature_reminder',
+      description: 'Send a reminder to pending signers for a signature request. Use for "Remind Priya to sign the contract".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['requestId'],
+        additionalProperties: false,
+        properties: {
+          requestId: { type: 'string', description: 'Signature request UUID to send reminder for' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cancel_signature_request',
+      description: 'Cancel a pending signature request. Notifies all signers of the cancellation.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['requestId'],
+        additionalProperties: false,
+        properties: {
+          requestId: { type: 'string', description: 'Signature request UUID to cancel' },
+          reason: { type: 'string', description: 'Reason for cancellation' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_document_audit_trail',
+      description: 'Get the full audit trail for a document including views, edits, signatures, and downloads.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['documentId'],
+        additionalProperties: false,
+        properties: {
+          documentId: { type: 'string', description: 'Document UUID to get audit trail for' },
+        },
+      },
+    },
+  },
+
+  // ============================================
+  // PAYMENT TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'record_payment',
+      description: 'Record a payment received from a client. Optionally link to an invoice. Use for "Record $5000 payment from Sharma" or "Mark invoice as paid".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['amount'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          clientName: { type: 'string', description: 'Client name for fuzzy matching' },
+          invoiceId: { type: 'string', description: 'Invoice UUID to apply payment to' },
+          amount: { type: 'number', description: 'Payment amount' },
+          currency: { type: 'string', description: 'Currency code (default: USD)' },
+          paymentMethod: { type: 'string', enum: ['card', 'bank_transfer', 'cash', 'check', 'other'], description: 'Payment method' },
+          notes: { type: 'string', description: 'Payment notes' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_payment_stats',
+      description: 'Get payment statistics including total received, outstanding balance, and breakdown by period. Use for "How much has Sharma paid?" or "Show payment summary for this quarter".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          period: { type: 'string', enum: ['this_month', 'this_quarter', 'this_year', 'all'], description: 'Time period to filter (default: all)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_refund',
+      description: 'Create a refund for a previous payment. Defaults to full refund if amount not specified.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['paymentId'],
+        additionalProperties: false,
+        properties: {
+          paymentId: { type: 'string', description: 'Payment UUID to refund' },
+          amount: { type: 'number', description: 'Refund amount (defaults to full payment amount)' },
+          reason: { type: 'string', description: 'Reason for refund' },
+        },
+      },
+    },
+  },
+
+  // ============================================
+  // FLOOR PLAN TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'create_floor_plan',
+      description: 'Create a new floor plan for a client event. Use for "Create a floor plan for the Patel reception" or "Set up seating layout for the sangeet".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['clientId', 'name'],
+        additionalProperties: false,
+        properties: {
+          clientId: { type: 'string', description: 'Client UUID' },
+          eventId: { type: 'string', description: 'Event UUID to associate floor plan with' },
+          eventName: { type: 'string', description: 'Event name for fuzzy matching' },
+          name: { type: 'string', description: 'Floor plan name' },
+          width: { type: 'number', description: 'Floor plan width in pixels (default: 800)' },
+          height: { type: 'number', description: 'Floor plan height in pixels (default: 600)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_table',
+      description: 'Add a table to a floor plan. Use for "Add table 5 to the reception floor plan" or "Create a VIP table".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['floorPlanId', 'tableNumber'],
+        additionalProperties: false,
+        properties: {
+          floorPlanId: { type: 'string', description: 'Floor plan UUID' },
+          tableNumber: { type: 'string', description: 'Table number or label' },
+          tableName: { type: 'string', description: 'Display name for the table' },
+          tableShape: { type: 'string', enum: ['round', 'rectangle', 'square', 'oval'], description: 'Table shape (default: round)' },
+          capacity: { type: 'number', description: 'Table seating capacity (default: 10)' },
+          isVip: { type: 'boolean', description: 'Whether this is a VIP table' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_table',
+      description: 'Remove a table from a floor plan. Unassigns all seated guests. Always confirm with the user before removing.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['floorPlanId', 'tableId'],
+        additionalProperties: false,
+        properties: {
+          floorPlanId: { type: 'string', description: 'Floor plan UUID' },
+          tableId: { type: 'string', description: 'Table UUID to remove' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'assign_guest_to_table',
+      description: 'Assign a guest to a specific table and optional seat. Can identify guest and table by ID or name/number.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['floorPlanId'],
+        additionalProperties: false,
+        properties: {
+          floorPlanId: { type: 'string', description: 'Floor plan UUID' },
+          tableId: { type: 'string', description: 'Table UUID to assign guest to' },
+          tableNumber: { type: 'string', description: 'Table number for matching' },
+          guestId: { type: 'string', description: 'Guest UUID to assign' },
+          guestName: { type: 'string', description: 'Guest name for fuzzy matching' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+          seatNumber: { type: 'number', description: 'Specific seat number at the table' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'batch_assign_guests',
+      description: 'Assign multiple guests to tables in one operation. Use for "Seat the Patel family at table 3" or "Assign college friends to tables 5 and 6".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['floorPlanId', 'assignments'],
+        additionalProperties: false,
+        properties: {
+          floorPlanId: { type: 'string', description: 'Floor plan UUID' },
+          assignments: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                guestId: { type: 'string', description: 'Guest UUID' },
+                guestName: { type: 'string', description: 'Guest name for fuzzy matching' },
+                tableId: { type: 'string', description: 'Table UUID' },
+                tableNumber: { type: 'string', description: 'Table number for matching' },
+              },
+            },
+            description: 'List of guest-to-table assignments',
+          },
+        },
+      },
+    },
+  },
+
+  // ============================================
+  // PIPELINE ENHANCEMENT TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'create_pipeline_stage',
+      description: 'Create a new pipeline stage for lead tracking. Use for "Add a Consultation Booked stage" or "Create a new pipeline step".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['name'],
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', description: 'Stage name' },
+          description: { type: 'string', description: 'Stage description' },
+          color: { type: 'string', description: 'Stage color (hex or CSS color name)' },
+          isWon: { type: 'boolean', description: 'Whether this stage represents a won deal' },
+          isLost: { type: 'boolean', description: 'Whether this stage represents a lost deal' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'convert_lead_to_client',
+      description: 'Convert a pipeline lead into a full wedding client. Creates the client record and marks the lead as won. Use for "Convert Priya Sharma to a client" or "Win the Patel lead".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['leadId'],
+        additionalProperties: false,
+        properties: {
+          leadId: { type: 'string', description: 'Pipeline lead UUID to convert' },
+          weddingDate: { type: 'string', description: 'Wedding date in YYYY-MM-DD format' },
+          venue: { type: 'string', description: 'Wedding venue name' },
+          budget: { type: 'number', description: 'Total wedding budget' },
+          guestCount: { type: 'number', description: 'Expected guest count' },
+          weddingType: { type: 'string', description: 'Type of wedding' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_pipeline_activity',
+      description: 'Log an activity on a pipeline lead (note, call, email, meeting, task, or follow-up). Use for "Log a call with the Sharma lead" or "Add a note about the venue visit".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['leadId', 'type', 'title'],
+        additionalProperties: false,
+        properties: {
+          leadId: { type: 'string', description: 'Pipeline lead UUID' },
+          type: { type: 'string', enum: ['note', 'call', 'email', 'meeting', 'task', 'follow_up'], description: 'Activity type' },
+          title: { type: 'string', description: 'Activity title' },
+          description: { type: 'string', description: 'Activity description or notes' },
+        },
+      },
+    },
+  },
+
+  // ============================================
+  // FEATURE QUERY TOOLS
+  // ============================================
+  {
+    type: 'function',
+    function: {
+      name: 'get_questionnaire_responses',
+      description: 'Get all responses for a questionnaire. Use for "Show me the Sharma questionnaire answers" or "What did the client fill in?".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: ['questionnaireId'],
+        additionalProperties: false,
+        properties: {
+          questionnaireId: { type: 'string', description: 'Questionnaire UUID' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_website_analytics',
+      description: 'Get analytics data for a wedding website including page visits, RSVP submissions, and engagement metrics.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          websiteId: { type: 'string', description: 'Website UUID' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+          period: { type: 'string', enum: ['7d', '30d', '90d', 'all'], description: 'Analytics period (default: 30d)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_floor_plan_summary',
+      description: 'Get floor plan summary with table layout, seating assignments, and capacity overview. Use for "Show me the seating layout" or "How many seats are filled?".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        required: [],
+        additionalProperties: false,
+        properties: {
+          floorPlanId: { type: 'string', description: 'Floor plan UUID' },
+          clientId: { type: 'string', description: 'Client UUID for context' },
+        },
+      },
+    },
+  },
 ]
 
 /**
@@ -2934,4 +4291,20 @@ export function isMutationTool(toolName: string): boolean {
 export function getCascadeEffects(toolName: string): string[] {
   const metadata = TOOL_METADATA[toolName]
   return metadata?.cascadeEffects || []
+}
+
+/**
+ * Filter CHATBOT_TOOLS by role permission.
+ * Returns only the OpenAI function definitions that the given role can execute.
+ * Defense-in-depth: the LLM physically cannot call tools not in this list.
+ */
+export function getToolsForRoleOpenAI(role: Role): ChatCompletionTool[] {
+  const { getToolsForRole } = require('./tool-permissions') as { getToolsForRole: (r: Role) => string[] }
+  const allowedTools = getToolsForRole(role)
+  return CHATBOT_TOOLS.filter(t => {
+    if ('function' in t && t.function?.name) {
+      return allowedTools.includes(t.function.name)
+    }
+    return false
+  })
 }

@@ -254,6 +254,7 @@ export const sendCommunicationSchema = z.object({
   clientId: z.string().uuid().optional().describe('Client UUID'),
   communicationType: z.enum(['rsvp_reminder', 'wedding_reminder', 'vendor_reminder', 'questionnaire_reminder', 'custom']).describe('Type of communication'),
   recipientType: z.enum(['all_guests', 'pending_rsvp', 'confirmed_guests', 'specific_guest', 'client', 'all_vendors', 'vendor_category', 'specific_vendor']).optional().describe('Who to send to'),
+  channel: z.enum(['email', 'sms', 'whatsapp']).optional().default('email').describe('Communication channel (default: email). SMS/WhatsApp require valid phone numbers on recipients.'),
   guestId: z.string().uuid().optional().describe('Specific guest UUID'),
   guestName: z.string().optional().describe('Guest name for fuzzy matching'),
   vendorId: z.string().uuid().optional().describe('Specific vendor UUID'),
@@ -604,6 +605,198 @@ export const getDocumentUploadUrlSchema = z.object({
 })
 
 // ============================================
+// PHASE 6: FULL CRUD COMPLETION SCHEMAS
+// ============================================
+
+export const createBudgetItemSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Client UUID. Uses current context if not provided'),
+  category: z.string().min(1).max(100).describe('Budget category (e.g., Venue, Catering, Photography)'),
+  segment: z.enum(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']).optional().describe('Budget segment'),
+  item: z.string().min(1).max(200).describe('Budget item name'),
+  estimatedCost: z.number().positive().describe('Estimated cost'),
+  actualCost: z.number().positive().optional().describe('Actual cost if known'),
+  vendorId: z.string().uuid().optional().describe('Associated vendor UUID'),
+  eventId: z.string().uuid().optional().describe('Associated event UUID'),
+  notes: z.string().max(500).optional().describe('Notes about this budget item'),
+  isPerGuestItem: z.boolean().optional().default(false).describe('Whether cost is per guest'),
+  perGuestCost: z.number().positive().optional().describe('Cost per guest if isPerGuestItem'),
+})
+
+export const updateHotelBookingSchema = z.object({
+  hotelBookingId: z.string().uuid().optional().describe('Hotel booking UUID to update'),
+  guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+  hotelName: z.string().max(200).optional().describe('Hotel name'),
+  roomType: z.string().max(100).optional().describe('Room type (e.g., single, double, suite)'),
+  checkInDate: z.string().optional().describe('Check-in date (YYYY-MM-DD)'),
+  checkOutDate: z.string().optional().describe('Check-out date (YYYY-MM-DD)'),
+  roomRate: z.number().positive().optional().describe('Room rate per night'),
+  notes: z.string().max(500).optional().describe('Booking notes'),
+})
+
+export const deleteHotelBookingSchema = z.object({
+  hotelBookingId: z.string().uuid().optional().describe('Hotel booking UUID to delete'),
+  guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const updateTransportSchema = z.object({
+  transportId: z.string().uuid().optional().describe('Transport record UUID to update'),
+  guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+  pickupDate: z.string().optional().describe('Pickup date (YYYY-MM-DD)'),
+  pickupTime: z.string().optional().describe('Pickup time (HH:MM)'),
+  pickupFrom: z.string().max(200).optional().describe('Pickup location'),
+  dropTo: z.string().max(200).optional().describe('Drop-off location'),
+  driverPhone: z.string().max(20).optional().describe('Driver phone number'),
+  notes: z.string().max(500).optional().describe('Transport notes'),
+})
+
+export const deleteTransportSchema = z.object({
+  transportId: z.string().uuid().optional().describe('Transport record UUID to delete'),
+  guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const updateTimelineItemSchema = z.object({
+  timelineItemId: z.string().uuid().describe('Timeline item UUID to update'),
+  title: z.string().min(1).max(200).optional().describe('Timeline item title'),
+  description: z.string().max(500).optional().describe('Description'),
+  startTime: z.string().optional().describe('Start time (HH:MM or ISO datetime)'),
+  endTime: z.string().optional().describe('End time (HH:MM or ISO datetime)'),
+  durationMinutes: z.number().int().positive().optional().describe('Duration in minutes'),
+  location: z.string().max(200).optional().describe('Location'),
+  assignee: z.string().max(100).optional().describe('Responsible person'),
+  phase: z.enum(['setup', 'showtime', 'wrapup']).optional().describe('Event phase'),
+  completed: z.boolean().optional().describe('Whether item is completed'),
+})
+
+export const deleteSeatingConstraintSchema = z.object({
+  constraintId: z.string().uuid().describe('Seating constraint UUID to remove'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const updateProposalSchema = z.object({
+  proposalId: z.string().uuid().describe('Proposal UUID to update'),
+  title: z.string().max(200).optional().describe('Proposal title'),
+  content: z.string().optional().describe('Proposal content'),
+  packageAmount: z.number().positive().optional().describe('Package total amount'),
+  currency: z.string().max(3).optional().describe('Currency code (e.g., USD, INR)'),
+  validDays: z.number().int().positive().optional().describe('Days until proposal expires'),
+  notes: z.string().max(500).optional().describe('Internal notes'),
+})
+
+export const deleteProposalSchema = z.object({
+  proposalId: z.string().uuid().describe('Proposal UUID to delete'),
+})
+
+export const createContractSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Client UUID'),
+  title: z.string().min(1).max(200).describe('Contract title'),
+  content: z.string().optional().describe('Contract content/body'),
+  templateId: z.string().uuid().optional().describe('Template UUID to use'),
+  totalAmount: z.number().positive().optional().describe('Total contract amount'),
+  depositAmount: z.number().positive().optional().describe('Required deposit amount'),
+  currency: z.string().max(3).optional().default('USD').describe('Currency code'),
+  validDays: z.number().int().positive().optional().default(30).describe('Days until contract expires'),
+})
+
+export const updateContractSchema = z.object({
+  contractId: z.string().uuid().describe('Contract UUID to update'),
+  title: z.string().max(200).optional().describe('Contract title'),
+  content: z.string().optional().describe('Contract content'),
+  totalAmount: z.number().positive().optional().describe('Total amount'),
+  depositAmount: z.number().positive().optional().describe('Deposit amount'),
+  status: z.enum(['draft', 'sent', 'viewed', 'signed', 'countersigned', 'completed', 'expired', 'cancelled']).optional().describe('Contract status'),
+})
+
+export const deleteContractSchema = z.object({
+  contractId: z.string().uuid().describe('Contract UUID to delete'),
+})
+
+export const updateInvoiceSchema = z.object({
+  invoiceId: z.string().uuid().describe('Invoice UUID to update'),
+  amount: z.number().positive().optional().describe('Invoice amount'),
+  dueDate: z.string().optional().describe('Due date (YYYY-MM-DD)'),
+  status: z.enum(['pending', 'paid', 'overdue', 'cancelled']).optional().describe('Invoice status'),
+})
+
+export const deleteInvoiceSchema = z.object({
+  invoiceId: z.string().uuid().describe('Invoice UUID to delete'),
+})
+
+export const createQuestionnaireSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Client UUID'),
+  title: z.string().min(1).max(200).describe('Questionnaire title'),
+  description: z.string().max(500).optional().describe('Description'),
+  templateId: z.string().uuid().optional().describe('Template UUID to copy questions from'),
+  category: z.string().max(100).optional().describe('Questionnaire category'),
+})
+
+export const updateQuestionnaireSchema = z.object({
+  questionnaireId: z.string().uuid().describe('Questionnaire UUID to update'),
+  title: z.string().max(200).optional().describe('Questionnaire title'),
+  description: z.string().max(500).optional().describe('Description'),
+  status: z.enum(['draft', 'sent', 'completed', 'expired']).optional().describe('Questionnaire status'),
+})
+
+export const deleteQuestionnaireSchema = z.object({
+  questionnaireId: z.string().uuid().describe('Questionnaire UUID to delete'),
+})
+
+export const updateWorkflowSchema = z.object({
+  workflowId: z.string().uuid().describe('Workflow UUID to update'),
+  name: z.string().max(200).optional().describe('Workflow name'),
+  description: z.string().max(500).optional().describe('Workflow description'),
+  isActive: z.boolean().optional().describe('Whether workflow is active'),
+})
+
+export const deleteWorkflowSchema = z.object({
+  workflowId: z.string().uuid().describe('Workflow UUID to delete'),
+})
+
+export const createWebsiteSchema = z.object({
+  clientId: z.string().uuid().describe('Client UUID'),
+  subdomain: z.string().min(3).max(50).optional().describe('Website subdomain (auto-generated if not provided)'),
+  theme: z.enum(['classic', 'modern', 'elegant', 'rustic', 'minimalist']).optional().default('modern').describe('Website theme'),
+})
+
+export const deleteWebsiteSchema = z.object({
+  websiteId: z.string().uuid().describe('Wedding website UUID to delete'),
+})
+
+export const createPipelineLeadSchema = z.object({
+  firstName: z.string().min(1).max(100).describe('Lead first name'),
+  lastName: z.string().max(100).optional().describe('Lead last name'),
+  email: z.string().email().optional().describe('Lead email'),
+  phone: z.string().max(20).optional().describe('Lead phone'),
+  weddingDate: z.string().optional().describe('Expected wedding date (YYYY-MM-DD)'),
+  estimatedBudget: z.number().positive().optional().describe('Estimated budget'),
+  source: z.string().max(100).optional().describe('Lead source (e.g., referral, website, social)'),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional().default('medium').describe('Lead priority'),
+  notes: z.string().max(500).optional().describe('Notes about the lead'),
+  stageId: z.string().uuid().optional().describe('Pipeline stage UUID (uses default if not provided)'),
+})
+
+export const deletePipelineLeadSchema = z.object({
+  leadId: z.string().uuid().describe('Pipeline lead UUID to delete'),
+})
+
+export const createCreativeSchema = z.object({
+  clientId: z.string().uuid().describe('Client UUID'),
+  title: z.string().min(1).max(200).describe('Creative job title'),
+  jobType: z.enum(['video', 'photo', 'graphic', 'invitation', 'other']).describe('Type of creative job'),
+  description: z.string().max(500).optional().describe('Job description'),
+  dueDate: z.string().optional().describe('Due date (YYYY-MM-DD)'),
+  priority: z.enum(['low', 'medium', 'high']).optional().default('medium').describe('Job priority'),
+  assignedTo: z.string().max(100).optional().describe('Assigned team member name'),
+})
+
+export const deleteCreativeSchema = z.object({
+  creativeId: z.string().uuid().describe('Creative job UUID to delete'),
+})
+
+// ============================================
 // DELETE SCHEMAS
 // ============================================
 
@@ -635,6 +828,178 @@ export const deleteTimelineItemSchema = z.object({
 
 export const deleteGiftSchema = z.object({
   giftId: z.string().uuid().describe('Gift UUID to delete'),
+})
+
+export const deleteClientSchema = z.object({
+  clientId: z.string().uuid().describe('Client UUID to delete. This permanently removes all related data across 19 tables.'),
+})
+
+// ============================================
+// DOCUMENT MANAGEMENT SCHEMAS
+// ============================================
+
+export const createDocumentSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Client UUID'),
+  clientName: z.string().optional().describe('Client name for fuzzy matching'),
+  fileName: z.string().min(1).max(255).describe('Document file name'),
+  fileType: z.enum(['contract', 'invoice', 'photo', 'proposal', 'questionnaire', 'other']).optional().default('other').describe('Type of document'),
+  description: z.string().max(500).optional().describe('Description of the document'),
+  storagePath: z.string().min(1).describe('Storage path or URL for the document'),
+})
+
+export const updateDocumentSchema = z.object({
+  documentId: z.string().uuid().describe('Document UUID to update'),
+  fileName: z.string().min(1).max(255).optional().describe('New file name'),
+  description: z.string().max(500).optional().describe('Updated description'),
+})
+
+export const deleteDocumentSchema = z.object({
+  documentId: z.string().uuid().describe('Document UUID to delete'),
+})
+
+export const requestSignatureSchema = z.object({
+  documentId: z.string().uuid().describe('Document UUID to request signatures for'),
+  title: z.string().min(1).max(200).describe('Signature request title'),
+  message: z.string().max(1000).optional().describe('Message to include with signature request'),
+  signingOrder: z.enum(['parallel', 'sequential']).optional().default('parallel').describe('Order in which signers should sign'),
+  signers: z.array(z.object({
+    name: z.string().min(1).max(100).describe('Signer name'),
+    email: z.string().email().describe('Signer email address'),
+    role: z.string().max(100).optional().describe('Signer role (e.g., "Client", "Vendor")'),
+  })).min(1).describe('List of signers'),
+})
+
+export const sendSignatureReminderSchema = z.object({
+  requestId: z.string().uuid().describe('Signature request UUID to send reminder for'),
+})
+
+export const cancelSignatureRequestSchema = z.object({
+  requestId: z.string().uuid().describe('Signature request UUID to cancel'),
+  reason: z.string().max(500).optional().describe('Reason for cancellation'),
+})
+
+export const getDocumentAuditTrailSchema = z.object({
+  documentId: z.string().uuid().describe('Document UUID to get audit trail for'),
+})
+
+// ============================================
+// PAYMENT SCHEMAS
+// ============================================
+
+export const recordPaymentSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Client UUID'),
+  clientName: z.string().optional().describe('Client name for fuzzy matching'),
+  invoiceId: z.string().uuid().optional().describe('Invoice UUID to apply payment to'),
+  amount: z.number().positive().describe('Payment amount'),
+  currency: z.string().max(3).optional().default('USD').describe('Currency code (e.g., USD, INR)'),
+  paymentMethod: z.enum(['card', 'bank_transfer', 'cash', 'check', 'other']).optional().describe('Payment method'),
+  notes: z.string().max(500).optional().describe('Payment notes'),
+})
+
+export const getPaymentStatsSchema = z.object({
+  clientId: z.string().uuid().optional().describe('Client UUID'),
+  period: z.enum(['this_month', 'this_quarter', 'this_year', 'all']).optional().default('all').describe('Time period to filter'),
+})
+
+export const createRefundSchema = z.object({
+  paymentId: z.string().uuid().describe('Payment UUID to refund'),
+  amount: z.number().positive().optional().describe('Refund amount (defaults to full payment amount)'),
+  reason: z.string().max(500).optional().describe('Reason for refund'),
+})
+
+// ============================================
+// FLOOR PLAN SCHEMAS
+// ============================================
+
+export const createFloorPlanSchema = z.object({
+  clientId: z.string().uuid().describe('Client UUID'),
+  eventId: z.string().uuid().optional().describe('Event UUID to associate floor plan with'),
+  eventName: z.string().optional().describe('Event name for fuzzy matching'),
+  name: z.string().min(1).max(200).describe('Floor plan name'),
+  width: z.number().positive().optional().default(800).describe('Floor plan width in pixels'),
+  height: z.number().positive().optional().default(600).describe('Floor plan height in pixels'),
+})
+
+export const addTableToFloorPlanSchema = z.object({
+  floorPlanId: z.string().uuid().describe('Floor plan UUID'),
+  tableNumber: z.string().min(1).max(50).describe('Table number or label'),
+  tableName: z.string().max(100).optional().describe('Display name for the table'),
+  tableShape: z.enum(['round', 'rectangle', 'square', 'oval']).optional().default('round').describe('Table shape'),
+  capacity: z.number().int().positive().optional().default(10).describe('Table seating capacity'),
+  isVip: z.boolean().optional().default(false).describe('Whether this is a VIP table'),
+})
+
+export const removeTableFromFloorPlanSchema = z.object({
+  floorPlanId: z.string().uuid().describe('Floor plan UUID'),
+  tableId: z.string().uuid().describe('Table UUID to remove'),
+})
+
+export const assignGuestToTableSchema = z.object({
+  floorPlanId: z.string().uuid().describe('Floor plan UUID'),
+  tableId: z.string().uuid().optional().describe('Table UUID to assign guest to'),
+  tableNumber: z.string().optional().describe('Table number for matching'),
+  guestId: z.string().uuid().optional().describe('Guest UUID to assign'),
+  guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+  seatNumber: z.number().int().positive().optional().describe('Specific seat number at the table'),
+})
+
+export const batchAssignGuestsSchema = z.object({
+  floorPlanId: z.string().uuid().describe('Floor plan UUID'),
+  assignments: z.array(z.object({
+    guestId: z.string().uuid().optional().describe('Guest UUID'),
+    guestName: z.string().optional().describe('Guest name for fuzzy matching'),
+    tableId: z.string().uuid().optional().describe('Table UUID'),
+    tableNumber: z.string().optional().describe('Table number for matching'),
+  })).min(1).describe('List of guest-to-table assignments'),
+})
+
+// ============================================
+// PIPELINE ENHANCEMENT SCHEMAS
+// ============================================
+
+export const createPipelineStageSchema = z.object({
+  name: z.string().min(1).max(100).describe('Stage name'),
+  description: z.string().max(500).optional().describe('Stage description'),
+  color: z.string().max(20).optional().describe('Stage color (hex or CSS color name)'),
+  isWon: z.boolean().optional().default(false).describe('Whether this stage represents a won deal'),
+  isLost: z.boolean().optional().default(false).describe('Whether this stage represents a lost deal'),
+})
+
+export const convertLeadToClientSchema = z.object({
+  leadId: z.string().uuid().describe('Pipeline lead UUID to convert'),
+  weddingDate: z.string().optional().describe('Wedding date in ISO format (YYYY-MM-DD)'),
+  venue: z.string().max(200).optional().describe('Wedding venue name'),
+  budget: z.number().positive().optional().describe('Total wedding budget'),
+  guestCount: z.number().int().positive().optional().describe('Expected guest count'),
+  weddingType: z.string().max(50).optional().describe('Type of wedding'),
+})
+
+export const createPipelineActivitySchema = z.object({
+  leadId: z.string().uuid().describe('Pipeline lead UUID'),
+  type: z.enum(['note', 'call', 'email', 'meeting', 'task', 'follow_up']).describe('Activity type'),
+  title: z.string().min(1).max(200).describe('Activity title'),
+  description: z.string().max(2000).optional().describe('Activity description or notes'),
+})
+
+// ============================================
+// FEATURE QUERY SCHEMAS
+// ============================================
+
+export const getQuestionnaireResponsesSchema = z.object({
+  questionnaireId: z.string().uuid().describe('Questionnaire UUID to get responses for'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+})
+
+export const getWebsiteAnalyticsSchema = z.object({
+  websiteId: z.string().uuid().optional().describe('Website UUID'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
+  period: z.enum(['7d', '30d', '90d', 'all']).optional().default('30d').describe('Analytics period'),
+})
+
+export const getFloorPlanSummarySchema = z.object({
+  floorPlanId: z.string().uuid().optional().describe('Floor plan UUID'),
+  clientId: z.string().uuid().optional().describe('Client UUID for context'),
 })
 
 // ============================================
@@ -693,6 +1058,33 @@ export type QueryAnalyticsInput = z.infer<typeof queryAnalyticsSchema>
 export type CreateWorkflowInput = z.infer<typeof createWorkflowSchema>
 export type GenerateQrCodesInput = z.infer<typeof generateQrCodesSchema>
 
+// Phase 6: Full CRUD Completion Types
+export type CreateBudgetItemInput = z.infer<typeof createBudgetItemSchema>
+export type UpdateHotelBookingInput = z.infer<typeof updateHotelBookingSchema>
+export type DeleteHotelBookingInput = z.infer<typeof deleteHotelBookingSchema>
+export type UpdateTransportInput = z.infer<typeof updateTransportSchema>
+export type DeleteTransportInput = z.infer<typeof deleteTransportSchema>
+export type UpdateTimelineItemInput = z.infer<typeof updateTimelineItemSchema>
+export type DeleteSeatingConstraintInput = z.infer<typeof deleteSeatingConstraintSchema>
+export type UpdateProposalInput = z.infer<typeof updateProposalSchema>
+export type DeleteProposalInput = z.infer<typeof deleteProposalSchema>
+export type CreateContractInput = z.infer<typeof createContractSchema>
+export type UpdateContractInput = z.infer<typeof updateContractSchema>
+export type DeleteContractInput = z.infer<typeof deleteContractSchema>
+export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>
+export type DeleteInvoiceInput = z.infer<typeof deleteInvoiceSchema>
+export type CreateQuestionnaireInput = z.infer<typeof createQuestionnaireSchema>
+export type UpdateQuestionnaireInput = z.infer<typeof updateQuestionnaireSchema>
+export type DeleteQuestionnaireInput = z.infer<typeof deleteQuestionnaireSchema>
+export type UpdateWorkflowInput = z.infer<typeof updateWorkflowSchema>
+export type DeleteWorkflowInput = z.infer<typeof deleteWorkflowSchema>
+export type CreateWebsiteInput = z.infer<typeof createWebsiteSchema>
+export type DeleteWebsiteInput = z.infer<typeof deleteWebsiteSchema>
+export type CreatePipelineLeadInput = z.infer<typeof createPipelineLeadSchema>
+export type DeletePipelineLeadInput = z.infer<typeof deletePipelineLeadSchema>
+export type CreateCreativeInput = z.infer<typeof createCreativeSchema>
+export type DeleteCreativeInput = z.infer<typeof deleteCreativeSchema>
+
 // Calendar & Documents Types
 export type SyncCalendarInput = z.infer<typeof syncCalendarSchema>
 export type GetDocumentUploadUrlInput = z.infer<typeof getDocumentUploadUrlSchema>
@@ -704,3 +1096,35 @@ export type DeleteVendorInput = z.infer<typeof deleteVendorSchema>
 export type DeleteBudgetItemInput = z.infer<typeof deleteBudgetItemSchema>
 export type DeleteTimelineItemInput = z.infer<typeof deleteTimelineItemSchema>
 export type DeleteGiftInput = z.infer<typeof deleteGiftSchema>
+export type DeleteClientInput = z.infer<typeof deleteClientSchema>
+
+// Document Management Types
+export type CreateDocumentInput = z.infer<typeof createDocumentSchema>
+export type UpdateDocumentInput = z.infer<typeof updateDocumentSchema>
+export type DeleteDocumentInput = z.infer<typeof deleteDocumentSchema>
+export type RequestSignatureInput = z.infer<typeof requestSignatureSchema>
+export type SendSignatureReminderInput = z.infer<typeof sendSignatureReminderSchema>
+export type CancelSignatureRequestInput = z.infer<typeof cancelSignatureRequestSchema>
+export type GetDocumentAuditTrailInput = z.infer<typeof getDocumentAuditTrailSchema>
+
+// Payment Types
+export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>
+export type GetPaymentStatsInput = z.infer<typeof getPaymentStatsSchema>
+export type CreateRefundInput = z.infer<typeof createRefundSchema>
+
+// Floor Plan Types
+export type CreateFloorPlanInput = z.infer<typeof createFloorPlanSchema>
+export type AddTableToFloorPlanInput = z.infer<typeof addTableToFloorPlanSchema>
+export type RemoveTableFromFloorPlanInput = z.infer<typeof removeTableFromFloorPlanSchema>
+export type AssignGuestToTableInput = z.infer<typeof assignGuestToTableSchema>
+export type BatchAssignGuestsInput = z.infer<typeof batchAssignGuestsSchema>
+
+// Pipeline Enhancement Types
+export type CreatePipelineStageInput = z.infer<typeof createPipelineStageSchema>
+export type ConvertLeadToClientInput = z.infer<typeof convertLeadToClientSchema>
+export type CreatePipelineActivityInput = z.infer<typeof createPipelineActivitySchema>
+
+// Feature Query Types
+export type GetQuestionnaireResponsesInput = z.infer<typeof getQuestionnaireResponsesSchema>
+export type GetWebsiteAnalyticsInput = z.infer<typeof getWebsiteAnalyticsSchema>
+export type GetFloorPlanSummaryInput = z.infer<typeof getFloorPlanSummarySchema>

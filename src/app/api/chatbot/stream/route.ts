@@ -17,9 +17,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from '@/lib/auth/server'
 import { getAIClient, AI_CONFIG, fallbackAI } from '@/lib/ai/openai-client'
 import { checkRateLimit } from '@/lib/ai/rate-limiter'
-import { CHATBOT_TOOLS, isQueryTool } from '@/features/chatbot/tools/definitions'
+import { CHATBOT_TOOLS, isQueryTool, getToolsForRoleOpenAI } from '@/features/chatbot/tools/definitions'
 import { buildChatbotContext, extractClientIdFromPath } from '@/features/chatbot/server/services/context-builder'
 import { buildChatbotSystemPrompt } from '@/lib/ai/prompts/chatbot-system'
+import type { Role } from '@/lib/permissions/roles'
 import type { ChatCompletionMessageParam, ChatCompletionToolChoiceOption } from 'openai/resources/chat/completions'
 
 export const runtime = 'nodejs'
@@ -41,6 +42,12 @@ export async function POST(request: NextRequest) {
     }
 
     const companyId = user.companyId
+    const userRole = ((user as unknown as Record<string, unknown>).role || 'staff') as Role
+
+    // Block client_user from chatbot streaming endpoint
+    if (userRole === 'client_user') {
+      return new NextResponse('Chatbot is not available for client portal users.', { status: 403 })
+    }
 
     // Rate limit check
     try {
@@ -67,9 +74,12 @@ export async function POST(request: NextRequest) {
     // Extract clientId from URL or use provided
     const clientId = providedClientId || (pathname ? extractClientIdFromPath(pathname) : null)
 
-    // Build context
+    // Build context with role-aware system prompt
     const context = await buildChatbotContext(clientId, companyId)
-    const systemPrompt = buildChatbotSystemPrompt(context)
+    const systemPrompt = buildChatbotSystemPrompt(context, userRole)
+
+    // Filter tools by role (defense-in-depth: LLM can't call forbidden tools)
+    const roleFilteredTools = getToolsForRoleOpenAI(userRole)
 
     // Prepare messages for API
     const apiMessages: ChatCompletionMessageParam[] = [
@@ -98,7 +108,7 @@ export async function POST(request: NextRequest) {
             streamResponse = await client.chat.completions.create({
               model: AI_CONFIG.model,
               messages: apiMessages,
-              tools: CHATBOT_TOOLS,
+              tools: roleFilteredTools,
               tool_choice: 'auto' as ChatCompletionToolChoiceOption,
               max_tokens: AI_CONFIG.maxTokens,
               temperature: 0.7,
@@ -112,7 +122,7 @@ export async function POST(request: NextRequest) {
               streamResponse = await fallbackAI.chat.completions.create({
                 model: AI_CONFIG.fallbackModel,
                 messages: apiMessages,
-                tools: CHATBOT_TOOLS,
+                tools: roleFilteredTools,
                 tool_choice: 'auto' as ChatCompletionToolChoiceOption,
                 max_tokens: AI_CONFIG.maxTokens,
                 temperature: 0.7,

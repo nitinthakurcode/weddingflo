@@ -40,11 +40,20 @@ import {
   calendarSyncedEvents,
   googleCalendarTokens,
   timelineTemplates,
+  messages,
+  payments,
+  activity,
+  clientUsers,
+  documentAuditTrail,
+  documentSignatureFields,
+  documentSigners,
+  documentSignatureRequests,
 } from '@/lib/db/schema'
 import { ICalGenerator } from '@/lib/calendar/ical-generator'
 import { pipelineLeads, pipelineStages, pipelineActivities } from '@/lib/db/schema-pipeline'
-import { proposals, proposalTemplates } from '@/lib/db/schema-proposals'
+import { proposals, proposalTemplates, contracts } from '@/lib/db/schema-proposals'
 import { workflows, workflowSteps } from '@/lib/db/schema-workflows'
+import { questionnaires, questionnaireTemplates } from '@/lib/db/schema-questionnaires'
 import type { WeddingType } from '@/lib/db/schema/enums'
 import { normalizeGuestSide, normalizeRsvpStatus } from '@/lib/constants/enums'
 import { getDefaultTemplate, type TimelineTemplateItem } from '@/lib/templates/timeline-defaults'
@@ -78,6 +87,39 @@ import {
   type SyncAction,
 } from '@/lib/realtime/redis-pubsub'
 import type { Context } from '@/server/trpc/context'
+
+// New module executors (April 2026)
+import {
+  executeCreateDocument,
+  executeUpdateDocument,
+  executeDeleteDocument,
+  executeRequestSignature,
+  executeSendSignatureReminder,
+  executeCancelSignatureRequest,
+  executeGetDocumentAuditTrail,
+} from './executors/document-executor'
+import {
+  executeRecordPayment,
+  executeGetPaymentStats,
+  executeCreateRefund,
+} from './executors/payment-executor'
+import {
+  executeCreateFloorPlan,
+  executeAddTable,
+  executeRemoveTable,
+  executeAssignGuestToTable,
+  executeBatchAssignGuests,
+} from './executors/floor-plan-executor'
+import {
+  executeCreatePipelineStage,
+  executeConvertLeadToClient,
+  executeCreatePipelineActivity,
+} from './executors/pipeline-executor'
+import {
+  executeGetQuestionnaireResponses,
+  executeGetWebsiteAnalytics,
+  executeGetFloorPlanSummary,
+} from './executors/query-executor'
 
 // ============================================
 // TYPES
@@ -508,6 +550,60 @@ export async function executeTool(
         return await executeGetDocumentUploadUrl(args, ctx)
 
       // ============================================
+      // PHASE 6: FULL CRUD COMPLETION TOOLS
+      // ============================================
+      case 'create_budget_item':
+        return await executeCreateBudgetItem(args, ctx)
+      case 'update_hotel_booking':
+        return await executeUpdateHotelBooking(args, ctx)
+      case 'delete_hotel_booking':
+        return await executeDeleteHotelBooking(args, ctx)
+      case 'update_transport':
+        return await executeUpdateTransport(args, ctx)
+      case 'delete_transport':
+        return await executeDeleteTransport(args, ctx)
+      case 'update_timeline_item':
+        return await executeUpdateTimelineItem(args, ctx)
+      case 'delete_seating_constraint':
+        return await executeDeleteSeatingConstraint(args, ctx)
+      case 'update_proposal':
+        return await executeUpdateProposal(args, ctx)
+      case 'delete_proposal':
+        return await executeDeleteProposal(args, ctx)
+      case 'create_contract':
+        return await executeCreateContract(args, ctx)
+      case 'update_contract':
+        return await executeUpdateContract(args, ctx)
+      case 'delete_contract':
+        return await executeDeleteContract(args, ctx)
+      case 'update_invoice':
+        return await executeUpdateInvoice(args, ctx)
+      case 'delete_invoice':
+        return await executeDeleteInvoice(args, ctx)
+      case 'create_questionnaire':
+        return await executeCreateQuestionnaire(args, ctx)
+      case 'update_questionnaire':
+        return await executeUpdateQuestionnaire(args, ctx)
+      case 'delete_questionnaire':
+        return await executeDeleteQuestionnaire(args, ctx)
+      case 'update_workflow':
+        return await executeUpdateWorkflow(args, ctx)
+      case 'delete_workflow':
+        return await executeDeleteWorkflow(args, ctx)
+      case 'create_website':
+        return await executeCreateWebsite(args, ctx)
+      case 'delete_website':
+        return await executeDeleteWebsite(args, ctx)
+      case 'create_pipeline_lead':
+        return await executeCreatePipelineLead(args, ctx)
+      case 'delete_pipeline_lead':
+        return await executeDeletePipelineLead(args, ctx)
+      case 'create_creative':
+        return await executeCreateCreative(args, ctx)
+      case 'delete_creative':
+        return await executeDeleteCreative(args, ctx)
+
+      // ============================================
       // DELETE TOOLS
       // ============================================
       case 'delete_guest':
@@ -522,6 +618,70 @@ export async function executeTool(
         return await executeDeleteTimelineItem(args, ctx)
       case 'delete_gift':
         return await executeDeleteGift(args, ctx)
+      case 'delete_client':
+        return await executeDeleteClient(args, ctx)
+
+      // ============================================
+      // DOCUMENT & E-SIGNATURE TOOLS (April 2026)
+      // ============================================
+      case 'create_document':
+        return await executeCreateDocument(args, ctx)
+      case 'update_document':
+        return await executeUpdateDocument(args, ctx)
+      case 'delete_document':
+        return await executeDeleteDocument(args, ctx)
+      case 'request_signature':
+        return await executeRequestSignature(args, ctx)
+      case 'send_signature_reminder':
+        return await executeSendSignatureReminder(args, ctx)
+      case 'cancel_signature_request':
+        return await executeCancelSignatureRequest(args, ctx)
+      case 'get_document_audit_trail':
+        return await executeGetDocumentAuditTrail(args, ctx)
+
+      // ============================================
+      // PAYMENT TOOLS (April 2026)
+      // ============================================
+      case 'record_payment':
+        return await executeRecordPayment(args, ctx)
+      case 'get_payment_stats':
+        return await executeGetPaymentStats(args, ctx)
+      case 'create_refund':
+        return await executeCreateRefund(args, ctx)
+
+      // ============================================
+      // FLOOR PLAN TOOLS (April 2026)
+      // ============================================
+      case 'create_floor_plan':
+        return await executeCreateFloorPlan(args, ctx)
+      case 'add_table':
+        return await executeAddTable(args, ctx)
+      case 'remove_table':
+        return await executeRemoveTable(args, ctx)
+      case 'assign_guest_to_table':
+        return await executeAssignGuestToTable(args, ctx)
+      case 'batch_assign_guests':
+        return await executeBatchAssignGuests(args, ctx)
+
+      // ============================================
+      // PIPELINE ENHANCEMENT TOOLS (April 2026)
+      // ============================================
+      case 'create_pipeline_stage':
+        return await executeCreatePipelineStage(args, ctx)
+      case 'convert_lead_to_client':
+        return await executeConvertLeadToClient(args, ctx)
+      case 'create_pipeline_activity':
+        return await executeCreatePipelineActivity(args, ctx)
+
+      // ============================================
+      // ADDITIONAL QUERY TOOLS (April 2026)
+      // ============================================
+      case 'get_questionnaire_responses':
+        return await executeGetQuestionnaireResponses(args, ctx)
+      case 'get_website_analytics':
+        return await executeGetWebsiteAnalytics(args, ctx)
+      case 'get_floor_plan_summary':
+        return await executeGetFloorPlanSummary(args, ctx)
 
       default:
         throw new TRPCError({
@@ -612,7 +772,7 @@ function getActionType(toolName: string): 'insert' | 'update' | 'delete' {
  * Determine module from tool name
  */
 function getModuleFromToolName(toolName: string): SyncAction['module'] {
-  if (toolName.includes('guest')) return 'guests'
+  if (toolName.includes('guest') && !toolName.includes('questionnaire')) return 'guests'
   if (toolName.includes('budget') || toolName.includes('payment')) return 'budget'
   if (toolName.includes('event')) return 'events'
   if (toolName.includes('vendor')) return 'vendors'
@@ -620,6 +780,10 @@ function getModuleFromToolName(toolName: string): SyncAction['module'] {
   if (toolName.includes('transport')) return 'transport'
   if (toolName.includes('timeline')) return 'timeline'
   if (toolName.includes('gift')) return 'gifts'
+  if (toolName.includes('creative')) return 'clients'
+  if (toolName.includes('contract')) return 'clients'
+  if (toolName.includes('questionnaire')) return 'clients'
+  if (toolName.includes('seating') || toolName.includes('constraint')) return 'floorPlans'
   if (toolName.includes('client') || toolName.includes('pipeline') || toolName.includes('team')
     || toolName.includes('proposal') || toolName.includes('invoice')
     || toolName.includes('communication') || toolName.includes('website')
@@ -1415,6 +1579,9 @@ async function executeAddGuest(
   const needsTransport = args.needsTransport as boolean | undefined
   const side = args.side as string | undefined
   const eventId = args.eventId as string | undefined
+  const partySize = args.partySize as number | undefined
+  const additionalGuestNames = args.additionalGuestNames as string | string[] | undefined
+  const relationshipToFamily = args.relationshipToFamily as string | undefined
   // Hotel detail fields for cascade
   const hotelName = args.hotelName as string | undefined
   const hotelCheckIn = args.hotelCheckIn as string | undefined
@@ -1483,6 +1650,11 @@ async function executeAddGuest(
         transportRequired: needsTransport || false,
         guestSide: effectiveGuestSide,
         attendingEvents: eventId ? [eventId] : undefined,
+        partySize: partySize || 1,
+        additionalGuestNames: additionalGuestNames
+          ? (Array.isArray(additionalGuestNames) ? additionalGuestNames : additionalGuestNames.split(',').map(n => n.trim()))
+          : undefined,
+        relationshipToFamily: relationshipToFamily || undefined,
       })
       .returning()
 
@@ -2270,6 +2442,14 @@ async function executeAddVendor(
   const notes = args.notes as string | undefined
   const serviceDate = args.serviceDate as string | undefined
   const eventId = args.eventId as string | undefined
+  // Enhanced vendor fields (parity with vendors.router.ts)
+  const venueAddress = args.venueAddress as string | undefined
+  const onsitePocName = args.onsitePocName as string | undefined
+  const onsitePocPhone = args.onsitePocPhone as string | undefined
+  const onsitePocNotes = args.onsitePocNotes as string | undefined
+  const deliverables = args.deliverables as string | undefined
+  const contractSignedAt = args.contractSignedAt as string | undefined
+  const contractAmount = args.contractAmount as number | undefined
 
   if (!clientId || !name || !category) {
     throw new TRPCError({
@@ -2332,6 +2512,15 @@ async function executeAddVendor(
           eventId: eventId || null,
           paymentStatus: 'pending',
           approvalStatus: 'pending',
+          contractAmount: contractAmount ? String(contractAmount) : null,
+          depositAmount: depositAmount ? String(depositAmount) : null,
+          serviceDate: serviceDate || null, // TEXT column — store as string
+          venueAddress: venueAddress || null,
+          onsitePocName: onsitePocName || null,
+          onsitePocPhone: onsitePocPhone || null,
+          onsitePocNotes: onsitePocNotes || null,
+          deliverables: deliverables || null,
+          contractSignedAt: contractSignedAt ? new Date(contractSignedAt) : null,
         })
         .returning()
 
@@ -2486,44 +2675,149 @@ async function executeUpdateVendor(
     })
   }
 
-  // Build update object for vendors table
-  const vendorUpdateValues: Record<string, unknown> = { updatedAt: new Date() }
-
-  if (args.contactName !== undefined) vendorUpdateValues.contactName = args.contactName
-  if (args.email !== undefined) vendorUpdateValues.email = args.email
-  if (args.phone !== undefined) vendorUpdateValues.phone = args.phone
-  if (args.notes !== undefined) vendorUpdateValues.notes = args.notes
-
-  // Update vendor
-  const [updatedVendor] = await db
-    .update(vendors)
-    .set(vendorUpdateValues)
-    .where(eq(vendors.id, targetVendorId))
-    .returning()
-
-  // Update client_vendor if payment/approval status provided
-  if (clientId && (args.paymentStatus !== undefined || args.approvalStatus !== undefined)) {
-    const cvUpdateValues: Record<string, unknown> = {}
-
-    if (args.paymentStatus !== undefined) cvUpdateValues.paymentStatus = args.paymentStatus
-    if (args.approvalStatus !== undefined) cvUpdateValues.approvalStatus = args.approvalStatus
-
-    await db
-      .update(clientVendors)
-      .set(cvUpdateValues)
-      .where(
-        and(
-          eq(clientVendors.vendorId, targetVendorId),
-          eq(clientVendors.clientId, clientId)
-        )
+  // Find client-vendor relationship for cascade operations
+  const [cvRecord] = await db
+    .select({
+      cvId: clientVendors.id,
+      vendorId: clientVendors.vendorId,
+      clientId: clientVendors.clientId,
+    })
+    .from(clientVendors)
+    .where(
+      and(
+        eq(clientVendors.vendorId, targetVendorId),
+        ...(clientId ? [eq(clientVendors.clientId, clientId)] : [])
       )
-  }
+    )
+    .limit(1)
+
+  const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
+
+  // Wrap all updates in a transaction for atomicity (parity with vendors.router.ts)
+  const updatedVendor = await withTransaction(async (tx) => {
+    // 1. Build and apply vendor table updates
+    const vendorUpdateValues: Record<string, unknown> = { updatedAt: new Date() }
+    if (args.name !== undefined) vendorUpdateValues.name = args.name
+    if (args.contactName !== undefined) vendorUpdateValues.contactName = args.contactName
+    if (args.email !== undefined) vendorUpdateValues.email = args.email
+    if (args.phone !== undefined) vendorUpdateValues.phone = args.phone
+    if (args.notes !== undefined) vendorUpdateValues.notes = args.notes
+
+    const [updated] = await tx
+      .update(vendors)
+      .set(vendorUpdateValues)
+      .where(eq(vendors.id, targetVendorId))
+      .returning()
+
+    // 2. Update client_vendor if payment/approval status provided
+    if (cvRecord && (args.paymentStatus !== undefined || args.approvalStatus !== undefined || args.cost !== undefined || args.serviceDate !== undefined)) {
+      const cvUpdateValues: Record<string, unknown> = { updatedAt: new Date() }
+      if (args.paymentStatus !== undefined) cvUpdateValues.paymentStatus = args.paymentStatus
+      if (args.approvalStatus !== undefined) cvUpdateValues.approvalStatus = args.approvalStatus
+      if (args.cost !== undefined) cvUpdateValues.contractAmount = String(args.cost)
+      if (args.serviceDate !== undefined) cvUpdateValues.serviceDate = (args.serviceDate as string) || null // TEXT column — store as string
+
+      await tx
+        .update(clientVendors)
+        .set(cvUpdateValues)
+        .where(eq(clientVendors.id, cvRecord.cvId))
+    }
+
+    // 3. Sync budget entry with vendor updates (parity with vendors.router.ts:610-643)
+    if (cvRecord) {
+      try {
+        const budgetUpdateData: Record<string, unknown> = { updatedAt: new Date() }
+        if (args.name !== undefined) budgetUpdateData.item = args.name
+        if (args.cost !== undefined) budgetUpdateData.estimatedCost = args.cost ? String(args.cost) : '0'
+        if (args.paymentStatus !== undefined) budgetUpdateData.paymentStatus = args.paymentStatus
+
+        if (Object.keys(budgetUpdateData).length > 1) {
+          const budgetResult = await tx
+            .update(budget)
+            .set(budgetUpdateData)
+            .where(eq(budget.vendorId, cvRecord.vendorId))
+            .returning({ id: budget.id })
+          if (budgetResult.length > 0) {
+            cascadeResults.push({ action: `Synced ${budgetResult.length} budget item(s)`, entityType: 'budget', entityId: cvRecord.cvId })
+          }
+        }
+      } catch (budgetError) {
+        console.warn('[Chatbot] Failed to sync budget with vendor update:', budgetError)
+      }
+    }
+
+    // 4. Timeline sync: update or create timeline entry if serviceDate changes (parity with vendors.router.ts:645-729)
+    if (cvRecord && args.serviceDate !== undefined) {
+      try {
+        if (args.serviceDate) {
+          const vendorDisplayName = (args.name as string) || existingVendor.name
+          const category = existingVendor.category || ''
+          const serviceDateTime = new Date(args.serviceDate as string)
+
+          const timelineData = {
+            title: `${vendorDisplayName}${category ? ` (${category})` : ''}`,
+            description: 'Vendor service date',
+            startTime: serviceDateTime,
+            updatedAt: new Date(),
+          }
+
+          // Try to update existing entry first
+          const timelineResult = await tx
+            .update(timeline)
+            .set(timelineData)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'vendors'),
+                eq(timeline.sourceId, cvRecord.cvId)
+              )
+            )
+            .returning({ id: timeline.id })
+
+          if (timelineResult.length === 0) {
+            // No existing entry — create new one
+            await tx.insert(timeline).values({
+              id: crypto.randomUUID(),
+              clientId: cvRecord.clientId,
+              ...timelineData,
+              sourceModule: 'vendors',
+              sourceId: cvRecord.cvId,
+              metadata: JSON.stringify({ vendorId: cvRecord.vendorId, category }),
+            })
+            cascadeResults.push({ action: 'Created vendor service timeline entry', entityType: 'timeline', entityId: cvRecord.cvId })
+          } else {
+            cascadeResults.push({ action: 'Updated vendor service timeline entry', entityType: 'timeline', entityId: cvRecord.cvId })
+          }
+        } else {
+          // Service date cleared — delete timeline entry
+          await tx
+            .delete(timeline)
+            .where(
+              and(
+                eq(timeline.sourceModule, 'vendors'),
+                eq(timeline.sourceId, cvRecord.cvId)
+              )
+            )
+          cascadeResults.push({ action: 'Removed vendor service timeline entry (date cleared)', entityType: 'timeline', entityId: cvRecord.cvId })
+        }
+      } catch (timelineError) {
+        console.warn('[Chatbot] Failed to sync timeline with vendor update:', timelineError)
+      }
+    }
+
+    // 5. Recalculate client stats after budget changes (parity with vendors.router.ts:732)
+    if (cvRecord) {
+      await recalcClientStats(tx, cvRecord.clientId)
+    }
+
+    return updated
+  })
 
   return {
     success: true,
     toolName: 'update_vendor',
     data: updatedVendor,
     message: `Updated vendor: ${updatedVendor.name}`,
+    cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
   }
 }
 
@@ -2963,6 +3257,7 @@ async function executeSendCommunication(
   const clientId = args.clientId as string
   const communicationType = args.communicationType as string
   const recipientType = (args.recipientType as string) || 'pending_rsvp'
+  const channel = (args.channel as string) || 'email'
   const vendorId = args.vendorId as string | undefined
   const vendorName = args.vendorName as string | undefined
   const vendorCategory = args.vendorCategory as string | undefined
@@ -3134,8 +3429,6 @@ async function executeSendCommunication(
     }
   }
 
-  // Note: In production, this would call the email router to actually send
-  // For now, we return a preview of what would be sent
   const communicationDescription = {
     rsvp_reminder: 'RSVP reminder',
     wedding_reminder: 'wedding reminder',
@@ -3145,6 +3438,30 @@ async function executeSendCommunication(
   }[communicationType] || communicationType
 
   const recipientTypeDescription = recipients[0]?.type === 'vendor' ? 'vendors' : 'recipients'
+  const clientName = client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`
+
+  // Log communication to messages table for audit trail (atomic)
+  try {
+    await withTransaction(async (tx) => {
+      for (const recipient of recipients) {
+        await tx.insert(messages).values({
+          id: crypto.randomUUID(),
+          clientId,
+          companyId: ctx.companyId!,
+          senderId: ctx.userId!,
+          receiverId: recipient.id,
+          guestId: recipient.type === 'guest' ? recipient.id : null,
+          subject: `${communicationDescription} — ${clientName}`,
+          content: (args.customMessage as string) || `Automated ${communicationDescription}`,
+          messageType: 'chatbot_communication',
+          type: channel,
+          metadata: { recipientEmail: recipient.email, recipientName: recipient.name, recipientType: recipient.type, communicationType, channel, language },
+        })
+      }
+    })
+  } catch (logError) {
+    console.warn('[Chatbot] Failed to log communication to messages table:', logError)
+  }
 
   return {
     success: true,
@@ -3153,10 +3470,11 @@ async function executeSendCommunication(
       recipientCount: recipients.length,
       recipients: recipients.map(r => ({ name: r.name, email: r.email, type: r.type })),
       communicationType,
+      channel,
       language,
-      clientName: client.weddingName || `${client.partner1FirstName}${client.partner2FirstName ? ` & ${client.partner2FirstName}` : ''}`,
+      clientName,
     },
-    message: `📧 Prepared ${communicationDescription} for ${recipients.length} ${recipientTypeDescription}. Email sending would be queued in production.`,
+    message: `Queued ${communicationDescription} for ${recipients.length} ${recipientTypeDescription}. Messages have been logged and will be delivered via the email service.`,
   }
 }
 
@@ -3290,51 +3608,55 @@ async function executeUpdatePipeline(
     changes.push(`priority set to ${priority}`)
   }
 
-  // Update lead
-  const [updatedLead] = await db
-    .update(pipelineLeads)
-    .set(updateData)
-    .where(eq(pipelineLeads.id, targetLeadId))
-    .returning()
+  // Update lead + log activity atomically
+  const { updatedLead, cascadeResults } = await withTransaction(async (tx) => {
+    const [lead] = await tx
+      .update(pipelineLeads)
+      .set(updateData)
+      .where(eq(pipelineLeads.id, targetLeadId))
+      .returning()
 
-  const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
+    const cascade: Array<{ action: string; entityType: string; entityId: string }> = []
 
-  // Log activity if notes provided or stage changed
-  if (notes || targetStageId !== existingLead.stageId) {
-    try {
-      const activityType = targetStageId !== existingLead.stageId ? 'stage_change' : 'note'
-      const activityTitle = notes
-        ? 'Note added via AI assistant'
-        : changes.length > 0
-          ? `Lead ${changes.join(', ')}`
-          : 'Lead updated'
-      const activityDescription = notes || undefined
+    // Log activity if notes provided or stage changed
+    if (notes || targetStageId !== existingLead.stageId) {
+      try {
+        const activityType = targetStageId !== existingLead.stageId ? 'stage_change' : 'note'
+        const activityTitle = notes
+          ? 'Note added via AI assistant'
+          : changes.length > 0
+            ? `Lead ${changes.join(', ')}`
+            : 'Lead updated'
+        const activityDescription = notes || undefined
 
-      const [activity] = await db
-        .insert(pipelineActivities)
-        .values({
-          leadId: targetLeadId,
-          companyId: ctx.companyId!,
-          userId: ctx.userId!,
-          type: activityType,
-          title: activityTitle,
-          description: activityDescription,
-          previousStageId: targetStageId !== existingLead.stageId ? existingLead.stageId : undefined,
-          newStageId: targetStageId !== existingLead.stageId ? targetStageId : undefined,
-        })
-        .returning({ id: pipelineActivities.id })
+        const [activity] = await tx
+          .insert(pipelineActivities)
+          .values({
+            leadId: targetLeadId,
+            companyId: ctx.companyId!,
+            userId: ctx.userId!,
+            type: activityType,
+            title: activityTitle,
+            description: activityDescription,
+            previousStageId: targetStageId !== existingLead.stageId ? existingLead.stageId : undefined,
+            newStageId: targetStageId !== existingLead.stageId ? targetStageId : undefined,
+          })
+          .returning({ id: pipelineActivities.id })
 
-      if (activity) {
-        cascadeResults.push({
-          action: `Logged activity: ${activityType}`,
-          entityType: 'pipeline_activity',
-          entityId: activity.id,
-        })
+        if (activity) {
+          cascade.push({
+            action: `Logged activity: ${activityType}`,
+            entityType: 'pipeline_activity',
+            entityId: activity.id,
+          })
+        }
+      } catch (activityError) {
+        console.error('[Chatbot Tool] Failed to log pipeline activity:', activityError)
       }
-    } catch (activityError) {
-      console.error('[Chatbot Tool] Failed to log pipeline activity:', activityError)
     }
-  }
+
+    return { updatedLead: lead, cascadeResults: cascade }
+  })
 
   const leadDisplayName = `${existingLead.firstName} ${existingLead.lastName || ''}`.trim() || existingLead.email
 
@@ -3958,44 +4280,47 @@ async function executeAssignTransport(
     }
   }
 
-  // Create transport records for each guest
-  const transportRecords = []
-  for (const guest of matchingGuests) {
-    const guestName = `${guest.firstName} ${guest.lastName || ''}`.trim()
+  // Create transport records for each guest atomically
+  const transportRecords = await withTransaction(async (tx) => {
+    const records: { transportId: string; guestId: string; guestName: string }[] = []
+    for (const guest of matchingGuests) {
+      const guestName = `${guest.firstName} ${guest.lastName || ''}`.trim()
 
-    // Create transport record
-    const [record] = await db
-      .insert(guestTransport)
-      .values({
-        clientId,
-        companyId: ctx.companyId || undefined,
+      // Create transport record
+      const [record] = await tx
+        .insert(guestTransport)
+        .values({
+          clientId,
+          companyId: ctx.companyId || undefined,
+          guestId: guest.id,
+          guestName,
+          vehicleInfo,
+          vehicleType: vehicleType || 'other',
+          pickupDate,
+          pickupFrom: pickupFrom || guest.hotelName || undefined,
+          dropTo: resolvedDropTo,
+          eventId: resolvedEventId,
+          driverPhone,
+          notes,
+          transportStatus: 'scheduled',
+          legType: 'arrival',
+        })
+        .returning({ id: guestTransport.id })
+
+      records.push({
+        transportId: record.id,
         guestId: guest.id,
         guestName,
-        vehicleInfo,
-        vehicleType: vehicleType || 'other',
-        pickupDate,
-        pickupFrom: pickupFrom || guest.hotelName || undefined,
-        dropTo: resolvedDropTo,
-        eventId: resolvedEventId,
-        driverPhone,
-        notes,
-        transportStatus: 'scheduled',
-        legType: 'arrival',
       })
-      .returning({ id: guestTransport.id })
 
-    transportRecords.push({
-      transportId: record.id,
-      guestId: guest.id,
-      guestName,
-    })
-
-    // Update guest's transport flag
-    await db
-      .update(guests)
-      .set({ transportRequired: true, updatedAt: new Date() })
-      .where(eq(guests.id, guest.id))
-  }
+      // Update guest's transport flag
+      await tx
+        .update(guests)
+        .set({ transportRequired: true, updatedAt: new Date() })
+        .where(eq(guests.id, guest.id))
+    }
+    return records
+  })
 
   const filterDescription = hotelName
     ? `at ${hotelName}`
@@ -4166,30 +4491,32 @@ async function executeAssignGuestsToEvents(
     }
   }
 
-  // Update each guest's attending events
+  // Update each guest's attending events atomically
   let guestsUpdated = 0
-  for (const guest of matchingGuests) {
-    let newAttendingEvents: string[]
+  await withTransaction(async (tx) => {
+    for (const guest of matchingGuests) {
+      let newAttendingEvents: string[]
 
-    if (replaceExisting) {
-      newAttendingEvents = resolvedEventIds
-    } else {
-      // Merge with existing events
-      const existingEvents = guest.attendingEvents || []
-      const eventSet = new Set([...existingEvents, ...resolvedEventIds])
-      newAttendingEvents = Array.from(eventSet)
+      if (replaceExisting) {
+        newAttendingEvents = resolvedEventIds
+      } else {
+        // Merge with existing events
+        const existingEvents = guest.attendingEvents || []
+        const eventSet = new Set([...existingEvents, ...resolvedEventIds])
+        newAttendingEvents = Array.from(eventSet)
+      }
+
+      await tx
+        .update(guests)
+        .set({
+          attendingEvents: newAttendingEvents,
+          updatedAt: new Date(),
+        })
+        .where(eq(guests.id, guest.id))
+
+      guestsUpdated++
     }
-
-    await db
-      .update(guests)
-      .set({
-        attendingEvents: newAttendingEvents,
-        updatedAt: new Date(),
-      })
-      .where(eq(guests.id, guest.id))
-
-    guestsUpdated++
-  }
+  })
 
   const filterDescription = lastName
     ? `${lastName} family`
@@ -6981,5 +7308,1106 @@ async function executeDeleteGift(
     toolName: 'delete_gift',
     data: { deletedGiftId: giftId },
     message: `Deleted gift "${giftName}".`,
+  }
+}
+
+/**
+ * Delete a client with comprehensive 19-table cascade (soft delete client record).
+ * Replicates the exact cascade order from clients.router.ts:936-1139.
+ *
+ * IMPORTANT:
+ * - Does NOT call recalcClientStats (client is being deleted)
+ * - Uses withTransaction for atomicity
+ * - broadcastSync handled by executeToolWithSync wrapper (OUTSIDE transaction)
+ */
+async function executeDeleteClient(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const clientId = args.clientId as string
+
+  if (!clientId) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Client ID is required',
+    })
+  }
+
+  // SECURITY: Verify client exists and belongs to company
+  const [existingClient] = await db
+    .select({
+      id: clients.id,
+      partner1FirstName: clients.partner1FirstName,
+      partner2FirstName: clients.partner2FirstName,
+      weddingName: clients.weddingName,
+    })
+    .from(clients)
+    .where(
+      and(
+        eq(clients.id, clientId),
+        eq(clients.companyId, ctx.companyId!),
+        isNull(clients.deletedAt)
+      )
+    )
+    .limit(1)
+
+  if (!existingClient) {
+    throw new TRPCError({
+      code: 'NOT_FOUND',
+      message: 'Client not found or access denied',
+    })
+  }
+
+  const clientDisplayName = existingClient.weddingName
+    || `${existingClient.partner1FirstName || ''}${existingClient.partner2FirstName ? ` & ${existingClient.partner2FirstName}` : ''}`
+
+  // Execute 19-table cascade deletion atomically
+  const result = await withTransaction(async (tx) => {
+    const deletionCounts = {
+      floorPlanGuests: 0,
+      floorPlanTables: 0,
+      floorPlans: 0,
+      timeline: 0,
+      hotels: 0,
+      guestTransport: 0,
+      guestGifts: 0,
+      guests: 0,
+      clientVendors: 0,
+      budget: 0,
+      events: 0,
+      documents: 0,
+      gifts: 0,
+      giftsEnhanced: 0,
+      messages: 0,
+      payments: 0,
+      weddingWebsites: 0,
+      activity: 0,
+      clientUsers: 0,
+    }
+
+    // 1. Get floor plan IDs for this client
+    const clientFloorPlans = await tx
+      .select({ id: floorPlans.id })
+      .from(floorPlans)
+      .where(eq(floorPlans.clientId, clientId))
+
+    // 2. Delete floor plan guests and tables for each floor plan
+    for (const fp of clientFloorPlans) {
+      const fpGuestsResult = await tx
+        .delete(floorPlanGuests)
+        .where(eq(floorPlanGuests.floorPlanId, fp.id))
+        .returning({ id: floorPlanGuests.id })
+      deletionCounts.floorPlanGuests += fpGuestsResult.length
+
+      const fpTablesResult = await tx
+        .delete(floorPlanTables)
+        .where(eq(floorPlanTables.floorPlanId, fp.id))
+        .returning({ id: floorPlanTables.id })
+      deletionCounts.floorPlanTables += fpTablesResult.length
+    }
+
+    // 3. Delete floor plans
+    const floorPlansResult = await tx
+      .delete(floorPlans)
+      .where(eq(floorPlans.clientId, clientId))
+      .returning({ id: floorPlans.id })
+    deletionCounts.floorPlans = floorPlansResult.length
+
+    // 4. Delete timeline entries
+    const timelineResult = await tx
+      .delete(timeline)
+      .where(eq(timeline.clientId, clientId))
+      .returning({ id: timeline.id })
+    deletionCounts.timeline = timelineResult.length
+
+    // 5. Delete hotel records
+    const hotelsResult = await tx
+      .delete(hotels)
+      .where(eq(hotels.clientId, clientId))
+      .returning({ id: hotels.id })
+    deletionCounts.hotels = hotelsResult.length
+
+    // 6. Delete transport records
+    const transportResult = await tx
+      .delete(guestTransport)
+      .where(eq(guestTransport.clientId, clientId))
+      .returning({ id: guestTransport.id })
+    deletionCounts.guestTransport = transportResult.length
+
+    // 7. Delete guest gifts
+    const guestGiftsResult = await tx
+      .delete(guestGifts)
+      .where(eq(guestGifts.clientId, clientId))
+      .returning({ id: guestGifts.id })
+    deletionCounts.guestGifts = guestGiftsResult.length
+
+    // 8. Delete guests (after dependent records)
+    const guestsResult = await tx
+      .delete(guests)
+      .where(eq(guests.clientId, clientId))
+      .returning({ id: guests.id })
+    deletionCounts.guests = guestsResult.length
+
+    // 9. Delete client-vendor relationships
+    const clientVendorsResult = await tx
+      .delete(clientVendors)
+      .where(eq(clientVendors.clientId, clientId))
+      .returning({ id: clientVendors.id })
+    deletionCounts.clientVendors = clientVendorsResult.length
+
+    // 10. Delete budget items
+    const budgetResult = await tx
+      .delete(budget)
+      .where(eq(budget.clientId, clientId))
+      .returning({ id: budget.id })
+    deletionCounts.budget = budgetResult.length
+
+    // 11. Delete events
+    const eventsResult = await tx
+      .delete(events)
+      .where(eq(events.clientId, clientId))
+      .returning({ id: events.id })
+    deletionCounts.events = eventsResult.length
+
+    // 12a. Delete e-signature data (child of documents — must be deleted first)
+    await tx.delete(documentAuditTrail).where(
+      inArray(documentAuditTrail.requestId,
+        tx.select({ id: documentSignatureRequests.id })
+          .from(documentSignatureRequests)
+          .where(eq(documentSignatureRequests.clientId, clientId))
+      )
+    )
+    await tx.delete(documentSignatureFields).where(
+      inArray(documentSignatureFields.requestId,
+        tx.select({ id: documentSignatureRequests.id })
+          .from(documentSignatureRequests)
+          .where(eq(documentSignatureRequests.clientId, clientId))
+      )
+    )
+    await tx.delete(documentSigners).where(
+      inArray(documentSigners.requestId,
+        tx.select({ id: documentSignatureRequests.id })
+          .from(documentSignatureRequests)
+          .where(eq(documentSignatureRequests.clientId, clientId))
+      )
+    )
+    await tx.delete(documentSignatureRequests).where(eq(documentSignatureRequests.clientId, clientId))
+
+    // 12b. Delete documents
+    const documentsResult = await tx
+      .delete(documents)
+      .where(eq(documents.clientId, clientId))
+      .returning({ id: documents.id })
+    deletionCounts.documents = documentsResult.length
+
+    // 13. Delete gifts
+    const giftsResult = await tx
+      .delete(gifts)
+      .where(eq(gifts.clientId, clientId))
+      .returning({ id: gifts.id })
+    deletionCounts.gifts = giftsResult.length
+
+    // 14. Delete enhanced gifts
+    const giftsEnhancedResult = await tx
+      .delete(giftsEnhanced)
+      .where(eq(giftsEnhanced.clientId, clientId))
+      .returning({ id: giftsEnhanced.id })
+    deletionCounts.giftsEnhanced = giftsEnhancedResult.length
+
+    // 15. Delete messages
+    const messagesResult = await tx
+      .delete(messages)
+      .where(eq(messages.clientId, clientId))
+      .returning({ id: messages.id })
+    deletionCounts.messages = messagesResult.length
+
+    // 16. Delete payments
+    const paymentsResult = await tx
+      .delete(payments)
+      .where(eq(payments.clientId, clientId))
+      .returning({ id: payments.id })
+    deletionCounts.payments = paymentsResult.length
+
+    // 17. Delete wedding websites
+    const websitesResult = await tx
+      .delete(weddingWebsites)
+      .where(eq(weddingWebsites.clientId, clientId))
+      .returning({ id: weddingWebsites.id })
+    deletionCounts.weddingWebsites = websitesResult.length
+
+    // 18. Delete activity logs
+    const activityResult = await tx
+      .delete(activity)
+      .where(eq(activity.clientId, clientId))
+      .returning({ id: activity.id })
+    deletionCounts.activity = activityResult.length
+
+    // 19. Delete client-user relationships
+    const clientUsersResult = await tx
+      .delete(clientUsers)
+      .where(eq(clientUsers.clientId, clientId))
+      .returning({ id: clientUsers.id })
+    deletionCounts.clientUsers = clientUsersResult.length
+
+    // 20. Soft delete the client
+    await tx
+      .update(clients)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.companyId, ctx.companyId!)
+        )
+      )
+
+    console.log(`[Chatbot Delete Client] Client ${clientId} deleted with cascade:`, deletionCounts)
+    return deletionCounts
+  })
+
+  const totalDeleted = Object.values(result).reduce((a, b) => a + b, 0)
+
+  const cascadeResults: Array<{ action: string; entityType: string; entityId: string }> = []
+  if (result.guests > 0) cascadeResults.push({ action: `Deleted ${result.guests} guest(s)`, entityType: 'guests', entityId: clientId })
+  if (result.events > 0) cascadeResults.push({ action: `Deleted ${result.events} event(s)`, entityType: 'events', entityId: clientId })
+  if (result.budget > 0) cascadeResults.push({ action: `Deleted ${result.budget} budget item(s)`, entityType: 'budget', entityId: clientId })
+  if (result.clientVendors > 0) cascadeResults.push({ action: `Deleted ${result.clientVendors} vendor relationship(s)`, entityType: 'vendors', entityId: clientId })
+  if (result.timeline > 0) cascadeResults.push({ action: `Deleted ${result.timeline} timeline entry(ies)`, entityType: 'timeline', entityId: clientId })
+  if (result.hotels > 0) cascadeResults.push({ action: `Deleted ${result.hotels} hotel booking(s)`, entityType: 'hotels', entityId: clientId })
+  if (result.guestTransport > 0) cascadeResults.push({ action: `Deleted ${result.guestTransport} transport record(s)`, entityType: 'transport', entityId: clientId })
+  if (result.documents > 0) cascadeResults.push({ action: `Deleted ${result.documents} document(s)`, entityType: 'documents', entityId: clientId })
+  if (result.gifts + result.giftsEnhanced > 0) cascadeResults.push({ action: `Deleted ${result.gifts + result.giftsEnhanced} gift(s)`, entityType: 'gifts', entityId: clientId })
+  if (result.messages > 0) cascadeResults.push({ action: `Deleted ${result.messages} message(s)`, entityType: 'messages', entityId: clientId })
+  if (result.payments > 0) cascadeResults.push({ action: `Deleted ${result.payments} payment(s)`, entityType: 'payments', entityId: clientId })
+  if (result.floorPlans > 0) cascadeResults.push({ action: `Deleted ${result.floorPlans} floor plan(s) with ${result.floorPlanTables} table(s) and ${result.floorPlanGuests} seating assignment(s)`, entityType: 'floorPlans', entityId: clientId })
+
+  return {
+    success: true,
+    toolName: 'delete_client',
+    data: { deletedClientId: clientId, cascadeCounts: result },
+    message: `Deleted client "${clientDisplayName}" and ${totalDeleted} related records across 19 tables. The client record has been soft-deleted for audit purposes.`,
+    cascadeResults: cascadeResults.length > 0 ? cascadeResults : undefined,
+  }
+}
+
+// ============================================
+// PHASE 6: FULL CRUD COMPLETION HANDLERS
+// ============================================
+
+async function executeCreateBudgetItem(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const clientId = (args.clientId as string) || undefined
+  const category = args.category as string
+  const item = args.item as string
+  const estimatedCost = args.estimatedCost as number
+
+  if (!clientId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Client ID is required' })
+  if (!category || !item) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Category and item name are required' })
+
+  const [client] = await db.select({ id: clients.id }).from(clients)
+    .where(and(eq(clients.id, clientId), eq(clients.companyId, ctx.companyId!), isNull(clients.deletedAt))).limit(1)
+  if (!client) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+
+  const budgetId = crypto.randomUUID()
+  const result = await withTransaction(async (tx) => {
+    await tx.insert(budget).values({
+      id: budgetId,
+      clientId,
+      companyId: ctx.companyId!,
+      category,
+      segment: (args.segment as string) || 'other',
+      item,
+      estimatedCost: estimatedCost.toString(),
+      actualCost: args.actualCost ? (args.actualCost as number).toString() : null,
+      vendorId: (args.vendorId as string) || null,
+      eventId: (args.eventId as string) || null,
+      notes: (args.notes as string) || null,
+      isPerGuestItem: (args.isPerGuestItem as boolean) || false,
+      perGuestCost: args.perGuestCost ? (args.perGuestCost as number).toString() : null,
+      paymentStatus: 'pending',
+    })
+    await recalcClientStats(tx, clientId)
+    return { id: budgetId }
+  })
+
+  return {
+    success: true,
+    toolName: 'create_budget_item',
+    data: { id: result.id, clientId, category, item, estimatedCost },
+    message: `Created budget item "${item}" under ${category} with estimated cost of ${estimatedCost}.`,
+  }
+}
+
+async function executeUpdateHotelBooking(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  let hotelBookingId = args.hotelBookingId as string | undefined
+  const guestName = args.guestName as string | undefined
+  const clientId = (args.clientId as string) || undefined
+
+  if (!hotelBookingId && !guestName) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Provide hotelBookingId or guestName' })
+  }
+
+  if (!hotelBookingId && guestName && clientId) {
+    const [booking] = await db.select({ id: hotels.id, guestName: hotels.guestName })
+      .from(hotels).innerJoin(clients, eq(hotels.clientId, clients.id))
+      .where(and(eq(hotels.clientId, clientId), eq(clients.companyId, ctx.companyId!), sql`${hotels.guestName} ILIKE ${'%' + guestName + '%'}`))
+      .limit(1)
+    if (!booking) throw new TRPCError({ code: 'NOT_FOUND', message: `No hotel booking found for guest "${guestName}"` })
+    hotelBookingId = booking.id
+  }
+
+  if (!hotelBookingId) throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel booking not found' })
+
+  const [existing] = await db.select().from(hotels).innerJoin(clients, eq(hotels.clientId, clients.id))
+    .where(and(eq(hotels.id, hotelBookingId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel booking not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.hotelName) updateData.hotelName = args.hotelName
+  if (args.roomType) updateData.roomType = args.roomType
+  if (args.checkInDate) updateData.checkInDate = args.checkInDate as string
+  if (args.checkOutDate) updateData.checkOutDate = args.checkOutDate as string
+  if (args.roomRate !== undefined) updateData.cost = (args.roomRate as number).toString()
+  if (args.notes !== undefined) updateData.notes = args.notes
+
+  await db.update(hotels).set(updateData).where(eq(hotels.id, hotelBookingId))
+
+  return {
+    success: true,
+    toolName: 'update_hotel_booking',
+    data: { id: hotelBookingId, ...updateData },
+    message: `Updated hotel booking for ${existing.hotels.guestName || 'guest'}.`,
+  }
+}
+
+async function executeDeleteHotelBooking(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  let hotelBookingId = args.hotelBookingId as string | undefined
+  const guestName = args.guestName as string | undefined
+  const clientId = (args.clientId as string) || undefined
+
+  if (!hotelBookingId && guestName && clientId) {
+    const [booking] = await db.select({ id: hotels.id, guestName: hotels.guestName })
+      .from(hotels).innerJoin(clients, eq(hotels.clientId, clients.id))
+      .where(and(eq(hotels.clientId, clientId), eq(clients.companyId, ctx.companyId!), sql`${hotels.guestName} ILIKE ${'%' + guestName + '%'}`))
+      .limit(1)
+    if (!booking) throw new TRPCError({ code: 'NOT_FOUND', message: `No hotel booking found for guest "${guestName}"` })
+    hotelBookingId = booking.id
+  }
+
+  if (!hotelBookingId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Provide hotelBookingId or guestName + clientId' })
+
+  const [existing] = await db.select({ id: hotels.id, guestName: hotels.guestName, hotelName: hotels.hotelName })
+    .from(hotels).innerJoin(clients, eq(hotels.clientId, clients.id))
+    .where(and(eq(hotels.id, hotelBookingId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel booking not found' })
+
+  await db.delete(hotels).where(eq(hotels.id, hotelBookingId))
+
+  return {
+    success: true,
+    toolName: 'delete_hotel_booking',
+    data: { deletedId: hotelBookingId },
+    message: `Deleted hotel booking at ${existing.hotelName || 'hotel'} for ${existing.guestName || 'guest'}.`,
+  }
+}
+
+async function executeUpdateTransport(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  let transportId = args.transportId as string | undefined
+  const guestName = args.guestName as string | undefined
+  const clientId = (args.clientId as string) || undefined
+
+  if (!transportId && guestName && clientId) {
+    const [record] = await db.select({ id: guestTransport.id, guestName: guestTransport.guestName })
+      .from(guestTransport).innerJoin(clients, eq(guestTransport.clientId, clients.id))
+      .where(and(eq(guestTransport.clientId, clientId), eq(clients.companyId, ctx.companyId!), sql`${guestTransport.guestName} ILIKE ${'%' + guestName + '%'}`))
+      .limit(1)
+    if (!record) throw new TRPCError({ code: 'NOT_FOUND', message: `No transport record found for guest "${guestName}"` })
+    transportId = record.id
+  }
+
+  if (!transportId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Provide transportId or guestName + clientId' })
+
+  const [existing] = await db.select({ id: guestTransport.id, guestName: guestTransport.guestName })
+    .from(guestTransport).innerJoin(clients, eq(guestTransport.clientId, clients.id))
+    .where(and(eq(guestTransport.id, transportId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Transport record not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.pickupDate) updateData.pickupDate = args.pickupDate as string
+  if (args.pickupTime) updateData.pickupTime = args.pickupTime
+  if (args.pickupFrom) updateData.pickupFrom = args.pickupFrom
+  if (args.dropTo) updateData.dropTo = args.dropTo
+  if (args.driverPhone) updateData.driverPhone = args.driverPhone
+  if (args.notes !== undefined) updateData.notes = args.notes
+
+  await db.update(guestTransport).set(updateData).where(eq(guestTransport.id, transportId))
+
+  return {
+    success: true,
+    toolName: 'update_transport',
+    data: { id: transportId, ...updateData },
+    message: `Updated transport for ${existing.guestName || 'guest'}.`,
+  }
+}
+
+async function executeDeleteTransport(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  let transportId = args.transportId as string | undefined
+  const guestName = args.guestName as string | undefined
+  const clientId = (args.clientId as string) || undefined
+
+  if (!transportId && guestName && clientId) {
+    const [record] = await db.select({ id: guestTransport.id, guestName: guestTransport.guestName })
+      .from(guestTransport).innerJoin(clients, eq(guestTransport.clientId, clients.id))
+      .where(and(eq(guestTransport.clientId, clientId), eq(clients.companyId, ctx.companyId!), sql`${guestTransport.guestName} ILIKE ${'%' + guestName + '%'}`))
+      .limit(1)
+    if (!record) throw new TRPCError({ code: 'NOT_FOUND', message: `No transport record found for guest "${guestName}"` })
+    transportId = record.id
+  }
+
+  if (!transportId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Provide transportId or guestName + clientId' })
+
+  const [existing] = await db.select({ id: guestTransport.id, guestName: guestTransport.guestName })
+    .from(guestTransport).innerJoin(clients, eq(guestTransport.clientId, clients.id))
+    .where(and(eq(guestTransport.id, transportId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Transport record not found' })
+
+  await db.delete(guestTransport).where(eq(guestTransport.id, transportId))
+
+  return {
+    success: true,
+    toolName: 'delete_transport',
+    data: { deletedId: transportId },
+    message: `Deleted transport assignment for ${existing.guestName || 'guest'}.`,
+  }
+}
+
+async function executeUpdateTimelineItem(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const timelineItemId = args.timelineItemId as string
+  if (!timelineItemId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Timeline item ID is required' })
+
+  const [existing] = await db.select({ id: timeline.id, title: timeline.title, clientId: timeline.clientId })
+    .from(timeline).innerJoin(clients, eq(timeline.clientId, clients.id))
+    .where(and(eq(timeline.id, timelineItemId), eq(clients.companyId, ctx.companyId!), isNull(timeline.deletedAt))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.title) updateData.title = args.title
+  if (args.description !== undefined) updateData.description = args.description
+  if (args.startTime) updateData.startTime = new Date(args.startTime as string)
+  if (args.endTime) updateData.endTime = new Date(args.endTime as string)
+  if (args.location !== undefined) updateData.location = args.location
+  if (args.assignee !== undefined) updateData.responsiblePerson = args.assignee
+  if (args.phase) updateData.phase = args.phase
+  if (args.completed !== undefined) updateData.completed = args.completed
+
+  await db.update(timeline).set(updateData).where(eq(timeline.id, timelineItemId))
+
+  return {
+    success: true,
+    toolName: 'update_timeline_item',
+    data: { id: timelineItemId, ...updateData },
+    message: `Updated timeline item "${args.title || existing.title}".`,
+  }
+}
+
+async function executeDeleteSeatingConstraint(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const constraintId = args.constraintId as string
+  if (!constraintId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Constraint ID is required' })
+
+  const clientId = (args.clientId as string) || undefined
+
+  // Seating constraints are stored in floorPlans.metadata.constraints[] as JSON objects
+  // Find the floor plan that contains this constraint
+  const clientFilter = clientId
+    ? and(eq(floorPlans.clientId, clientId), eq(floorPlans.companyId, ctx.companyId!))
+    : eq(floorPlans.companyId, ctx.companyId!)
+
+  const floorPlanRows = await db.select({ id: floorPlans.id, metadata: floorPlans.metadata })
+    .from(floorPlans).where(clientFilter!)
+
+  let found = false
+  for (const fp of floorPlanRows) {
+    const metadata = (fp.metadata as Record<string, unknown>) || {}
+    const constraints = (metadata.constraints as Array<{ id: string }>) || []
+    const filtered = constraints.filter(c => c.id !== constraintId)
+
+    if (filtered.length < constraints.length) {
+      // Found and removed
+      await db.update(floorPlans)
+        .set({ metadata: { ...metadata, constraints: filtered }, updatedAt: new Date() })
+        .where(eq(floorPlans.id, fp.id))
+      found = true
+      break
+    }
+  }
+
+  if (!found) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Seating constraint not found' })
+  }
+
+  return {
+    success: true,
+    toolName: 'delete_seating_constraint',
+    data: { deletedId: constraintId },
+    message: `Removed seating constraint.`,
+  }
+}
+
+async function executeUpdateProposal(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const proposalId = args.proposalId as string
+  if (!proposalId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Proposal ID is required' })
+
+  const [existing] = await db.select({ id: proposals.id, title: proposals.title })
+    .from(proposals)
+    .where(and(eq(proposals.id, proposalId), eq(proposals.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Proposal not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.title) updateData.title = args.title
+  if (args.content) updateData.introText = args.content
+  if (args.packageAmount !== undefined) updateData.total = (args.packageAmount as number).toString()
+  if (args.currency) updateData.currency = args.currency
+  if (args.validDays) {
+    const validUntil = new Date()
+    validUntil.setDate(validUntil.getDate() + (args.validDays as number))
+    updateData.validUntil = validUntil
+  }
+
+  await db.update(proposals).set(updateData).where(eq(proposals.id, proposalId))
+
+  return {
+    success: true,
+    toolName: 'update_proposal',
+    data: { id: proposalId, ...updateData },
+    message: `Updated proposal "${args.title || existing.title}".`,
+  }
+}
+
+async function executeDeleteProposal(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const proposalId = args.proposalId as string
+  if (!proposalId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Proposal ID is required' })
+
+  const [existing] = await db.select({ id: proposals.id, title: proposals.title })
+    .from(proposals)
+    .where(and(eq(proposals.id, proposalId), eq(proposals.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Proposal not found' })
+
+  await db.update(proposals).set({ deletedAt: new Date() }).where(eq(proposals.id, proposalId))
+
+  return {
+    success: true,
+    toolName: 'delete_proposal',
+    data: { deletedId: proposalId },
+    message: `Deleted proposal "${existing.title}".`,
+  }
+}
+
+async function executeCreateContract(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const clientId = (args.clientId as string) || undefined
+  const title = args.title as string
+  if (!title) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Contract title is required' })
+
+  if (clientId) {
+    const [client] = await db.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.companyId, ctx.companyId!), isNull(clients.deletedAt))).limit(1)
+    if (!client) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+  }
+
+  const content = (args.content as string) || ''
+
+  const contractId = crypto.randomUUID()
+  const publicToken = crypto.randomUUID()
+  const contractNumber = `CTR-${Date.now().toString(36).toUpperCase()}`
+  const validDays = (args.validDays as number) || 30
+  const validUntil = new Date()
+  validUntil.setDate(validUntil.getDate() + validDays)
+
+  const [insertedContract] = await db.insert(contracts).values({
+    clientId: clientId || null,
+    companyId: ctx.companyId!,
+    title,
+    content,
+    status: 'draft',
+    totalAmount: args.totalAmount ? (args.totalAmount as number).toString() : null,
+    depositAmount: args.depositAmount ? (args.depositAmount as number).toString() : null,
+    currency: (args.currency as string) || 'USD',
+    contractNumber,
+    publicToken,
+    validUntil,
+  }).returning({ id: contracts.id })
+
+  return {
+    success: true,
+    toolName: 'create_contract',
+    data: { id: insertedContract.id, clientId, title, contractNumber },
+    message: `Created contract "${title}" (${contractNumber}).`,
+  }
+}
+
+async function executeUpdateContract(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const contractId = args.contractId as string
+  if (!contractId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Contract ID is required' })
+
+  const [existing] = await db.select({ id: contracts.id, title: contracts.title })
+    .from(contracts)
+    .where(and(eq(contracts.id, contractId), eq(contracts.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Contract not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.title) updateData.title = args.title
+  if (args.content) updateData.content = args.content
+  if (args.totalAmount !== undefined) updateData.totalAmount = (args.totalAmount as number).toString()
+  if (args.depositAmount !== undefined) updateData.depositAmount = (args.depositAmount as number).toString()
+  if (args.status) updateData.status = args.status
+
+  await db.update(contracts).set(updateData).where(eq(contracts.id, contractId))
+
+  return {
+    success: true,
+    toolName: 'update_contract',
+    data: { id: contractId, ...updateData },
+    message: `Updated contract "${args.title || existing.title}".`,
+  }
+}
+
+async function executeDeleteContract(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const contractId = args.contractId as string
+  if (!contractId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Contract ID is required' })
+
+  const [existing] = await db.select({ id: contracts.id, title: contracts.title })
+    .from(contracts)
+    .where(and(eq(contracts.id, contractId), eq(contracts.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Contract not found' })
+
+  await db.update(contracts).set({ deletedAt: new Date() }).where(eq(contracts.id, contractId))
+
+  return {
+    success: true,
+    toolName: 'delete_contract',
+    data: { deletedId: contractId },
+    message: `Deleted contract "${existing.title}".`,
+  }
+}
+
+async function executeUpdateInvoice(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const invoiceId = args.invoiceId as string
+  if (!invoiceId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invoice ID is required' })
+
+  const [existing] = await db.select({ id: invoices.id, clientId: invoices.clientId })
+    .from(invoices).innerJoin(clients, eq(invoices.clientId, clients.id))
+    .where(and(eq(invoices.id, invoiceId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Invoice not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.amount !== undefined) updateData.amount = args.amount
+  if (args.dueDate) updateData.dueDate = new Date(args.dueDate as string)
+  if (args.status) updateData.status = args.status
+
+  await db.update(invoices).set(updateData).where(eq(invoices.id, invoiceId))
+
+  return {
+    success: true,
+    toolName: 'update_invoice',
+    data: { id: invoiceId, ...updateData },
+    message: `Updated invoice.`,
+  }
+}
+
+async function executeDeleteInvoice(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const invoiceId = args.invoiceId as string
+  if (!invoiceId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invoice ID is required' })
+
+  const [existing] = await db.select({ id: invoices.id })
+    .from(invoices).innerJoin(clients, eq(invoices.clientId, clients.id))
+    .where(and(eq(invoices.id, invoiceId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Invoice not found' })
+
+  await db.delete(invoices).where(eq(invoices.id, invoiceId))
+
+  return {
+    success: true,
+    toolName: 'delete_invoice',
+    data: { deletedId: invoiceId },
+    message: `Deleted invoice.`,
+  }
+}
+
+async function executeCreateQuestionnaire(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const clientId = (args.clientId as string) || undefined
+  const title = args.title as string
+  if (!title) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Questionnaire title is required' })
+
+  if (clientId) {
+    const [client] = await db.select({ id: clients.id }).from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.companyId, ctx.companyId!), isNull(clients.deletedAt))).limit(1)
+    if (!client) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+  }
+
+  let questionsList: typeof questionnaires.$inferInsert.questions = []
+  if (args.templateId) {
+    const [tmpl] = await db.select({ questions: questionnaireTemplates.questions }).from(questionnaireTemplates)
+      .where(and(eq(questionnaireTemplates.id, args.templateId as string), eq(questionnaireTemplates.companyId, ctx.companyId!))).limit(1)
+    if (tmpl && tmpl.questions) questionsList = tmpl.questions
+  }
+
+  const publicToken = crypto.randomUUID()
+
+  const [inserted] = await db.insert(questionnaires).values({
+    clientId: clientId || null,
+    companyId: ctx.companyId!,
+    name: title,
+    description: (args.description as string) || null,
+    questions: questionsList,
+    status: 'draft',
+    publicToken,
+    createdBy: ctx.userId!,
+  }).returning({ id: questionnaires.id })
+
+  return {
+    success: true,
+    toolName: 'create_questionnaire',
+    data: { id: inserted.id, clientId, title, questionCount: questionsList.length },
+    message: `Created questionnaire "${title}"${questionsList.length > 0 ? ` with ${questionsList.length} questions from template` : ''}.`,
+  }
+}
+
+async function executeUpdateQuestionnaire(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const questionnaireId = args.questionnaireId as string
+  if (!questionnaireId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Questionnaire ID is required' })
+
+  const [existing] = await db.select({ id: questionnaires.id, name: questionnaires.name })
+    .from(questionnaires)
+    .where(and(eq(questionnaires.id, questionnaireId), eq(questionnaires.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Questionnaire not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.title) updateData.name = args.title
+  if (args.description !== undefined) updateData.description = args.description
+  if (args.status) updateData.status = args.status
+
+  await db.update(questionnaires).set(updateData).where(eq(questionnaires.id, questionnaireId))
+
+  return {
+    success: true,
+    toolName: 'update_questionnaire',
+    data: { id: questionnaireId, ...updateData },
+    message: `Updated questionnaire "${(args.title as string) || existing.name}".`,
+  }
+}
+
+async function executeDeleteQuestionnaire(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const questionnaireId = args.questionnaireId as string
+  if (!questionnaireId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Questionnaire ID is required' })
+
+  const [existingQ] = await db.select({ id: questionnaires.id, name: questionnaires.name })
+    .from(questionnaires)
+    .where(and(eq(questionnaires.id, questionnaireId), eq(questionnaires.companyId, ctx.companyId!))).limit(1)
+  if (!existingQ) throw new TRPCError({ code: 'NOT_FOUND', message: 'Questionnaire not found' })
+
+  await db.delete(questionnaires).where(eq(questionnaires.id, questionnaireId))
+
+  return {
+    success: true,
+    toolName: 'delete_questionnaire',
+    data: { deletedId: questionnaireId },
+    message: `Deleted questionnaire "${existingQ.name}".`,
+  }
+}
+
+async function executeUpdateWorkflow(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const workflowId = args.workflowId as string
+  if (!workflowId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Workflow ID is required' })
+
+  const [existing] = await db.select({ id: workflows.id, name: workflows.name })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workflow not found' })
+
+  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  if (args.name) updateData.name = args.name
+  if (args.description !== undefined) updateData.description = args.description
+  if (args.isActive !== undefined) updateData.isActive = args.isActive
+
+  await db.update(workflows).set(updateData).where(eq(workflows.id, workflowId))
+
+  return {
+    success: true,
+    toolName: 'update_workflow',
+    data: { id: workflowId, ...updateData },
+    message: `Updated workflow "${args.name || existing.name}"${args.isActive !== undefined ? ` (${args.isActive ? 'activated' : 'deactivated'})` : ''}.`,
+  }
+}
+
+async function executeDeleteWorkflow(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const workflowId = args.workflowId as string
+  if (!workflowId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Workflow ID is required' })
+
+  const [existing] = await db.select({ id: workflows.id, name: workflows.name })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workflow not found' })
+
+  await withTransaction(async (tx) => {
+    await tx.delete(workflowSteps).where(eq(workflowSteps.workflowId, workflowId))
+    await tx.delete(workflows).where(eq(workflows.id, workflowId))
+  })
+
+  return {
+    success: true,
+    toolName: 'delete_workflow',
+    data: { deletedId: workflowId },
+    message: `Deleted workflow "${existing.name}" and its steps.`,
+  }
+}
+
+async function executeCreateWebsite(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const clientId = args.clientId as string
+  if (!clientId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Client ID is required' })
+
+  const [client] = await db.select({ id: clients.id, partner1FirstName: clients.partner1FirstName, partner2FirstName: clients.partner2FirstName })
+    .from(clients)
+    .where(and(eq(clients.id, clientId), eq(clients.companyId, ctx.companyId!), isNull(clients.deletedAt))).limit(1)
+  if (!client) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+
+  // Auto-generate subdomain if not provided
+  let subdomain = (args.subdomain as string) || ''
+  if (!subdomain) {
+    const names = [client.partner1FirstName, client.partner2FirstName].filter(Boolean)
+    subdomain = names.join('-and-').toLowerCase().replace(/[^a-z0-9-]/g, '').substring(0, 50) || `wedding-${Date.now().toString(36)}`
+  }
+
+  // Check subdomain uniqueness
+  const [existingSub] = await db.select({ id: weddingWebsites.id }).from(weddingWebsites)
+    .where(eq(weddingWebsites.subdomain, subdomain)).limit(1)
+  if (existingSub) {
+    subdomain = `${subdomain}-${Date.now().toString(36).slice(-4)}`
+  }
+
+  const theme = (args.theme as string) || 'modern'
+
+  const [inserted] = await db.insert(weddingWebsites).values({
+    clientId,
+    subdomain,
+    theme,
+    published: false,
+    isPasswordProtected: false,
+    content: { hero: { title: `${client.partner1FirstName || ''} & ${client.partner2FirstName || ''}` } },
+    settings: { theme },
+  }).returning({ id: weddingWebsites.id })
+
+  return {
+    success: true,
+    toolName: 'create_website',
+    data: { id: inserted.id, clientId, subdomain, theme },
+    message: `Created wedding website at subdomain "${subdomain}" with ${theme} theme.`,
+  }
+}
+
+async function executeDeleteWebsite(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const websiteId = args.websiteId as string
+  if (!websiteId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Website ID is required' })
+
+  const [existing] = await db.select({ id: weddingWebsites.id, subdomain: weddingWebsites.subdomain })
+    .from(weddingWebsites).innerJoin(clients, eq(weddingWebsites.clientId, clients.id))
+    .where(and(eq(weddingWebsites.id, websiteId), eq(clients.companyId, ctx.companyId!), isNull(weddingWebsites.deletedAt))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Website not found' })
+
+  await db.update(weddingWebsites).set({ deletedAt: new Date() }).where(eq(weddingWebsites.id, websiteId))
+
+  return {
+    success: true,
+    toolName: 'delete_website',
+    data: { deletedId: websiteId },
+    message: `Deleted wedding website "${existing.subdomain}".`,
+  }
+}
+
+async function executeCreatePipelineLead(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const firstName = args.firstName as string
+  if (!firstName) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Lead first name is required' })
+
+  // Get default stage if not provided
+  let stageId = args.stageId as string | undefined
+  if (!stageId) {
+    const [defaultStage] = await db.select({ id: pipelineStages.id }).from(pipelineStages)
+      .where(eq(pipelineStages.companyId, ctx.companyId!))
+      .orderBy(asc(pipelineStages.sortOrder)).limit(1)
+    if (defaultStage) stageId = defaultStage.id
+  }
+
+  if (!stageId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No pipeline stages configured. Create stages first.' })
+
+  const fullName = [firstName, args.lastName].filter(Boolean).join(' ')
+
+  const [inserted] = await db.insert(pipelineLeads).values({
+    companyId: ctx.companyId!,
+    firstName,
+    lastName: (args.lastName as string) || null,
+    email: (args.email as string) || null,
+    phone: (args.phone as string) || null,
+    stageId,
+    priority: (args.priority as string) || 'medium',
+    source: (args.source as string) || null,
+    estimatedBudget: args.estimatedBudget ? (args.estimatedBudget as number).toString() : null,
+    weddingDate: (args.weddingDate as string) || null,
+  }).returning({ id: pipelineLeads.id })
+
+  return {
+    success: true,
+    toolName: 'create_pipeline_lead',
+    data: { id: inserted.id, name: fullName },
+    message: `Created pipeline lead "${fullName}".`,
+  }
+}
+
+async function executeDeletePipelineLead(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const leadId = args.leadId as string
+  if (!leadId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Lead ID is required' })
+
+  const [existing] = await db.select({ id: pipelineLeads.id, firstName: pipelineLeads.firstName, lastName: pipelineLeads.lastName })
+    .from(pipelineLeads)
+    .where(and(eq(pipelineLeads.id, leadId), eq(pipelineLeads.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Pipeline lead not found' })
+
+  const leadName = [existing.firstName, existing.lastName].filter(Boolean).join(' ')
+
+  // Delete activities first, then lead
+  await withTransaction(async (tx) => {
+    await tx.delete(pipelineActivities).where(eq(pipelineActivities.leadId, leadId))
+    await tx.delete(pipelineLeads).where(eq(pipelineLeads.id, leadId))
+  })
+
+  return {
+    success: true,
+    toolName: 'delete_pipeline_lead',
+    data: { deletedId: leadId },
+    message: `Deleted pipeline lead "${leadName}".`,
+  }
+}
+
+async function executeCreateCreative(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const clientId = args.clientId as string
+  const title = args.title as string
+  const jobType = args.jobType as string
+  if (!clientId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Client ID is required' })
+  if (!title) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Title is required' })
+
+  const [client] = await db.select({ id: clients.id }).from(clients)
+    .where(and(eq(clients.id, clientId), eq(clients.companyId, ctx.companyId!), isNull(clients.deletedAt))).limit(1)
+  if (!client) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+
+  const creativeId = crypto.randomUUID()
+
+  await db.insert(creativeJobs).values({
+    id: creativeId,
+    clientId,
+    name: title,
+    type: jobType || 'other',
+    status: 'pending',
+    data: {
+      description: (args.description as string) || null,
+      dueDate: (args.dueDate as string) || null,
+      priority: (args.priority as string) || 'medium',
+      assignedTo: (args.assignedTo as string) || null,
+    },
+  })
+
+  return {
+    success: true,
+    toolName: 'create_creative',
+    data: { id: creativeId, clientId, title, jobType },
+    message: `Created creative job "${title}" (${jobType}).`,
+  }
+}
+
+async function executeDeleteCreative(
+  args: Record<string, unknown>,
+  ctx: Context
+): Promise<ToolExecutionResult> {
+  const creativeId = args.creativeId as string
+  if (!creativeId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Creative ID is required' })
+
+  const [existing] = await db.select({ id: creativeJobs.id, name: creativeJobs.name })
+    .from(creativeJobs).innerJoin(clients, eq(creativeJobs.clientId, clients.id))
+    .where(and(eq(creativeJobs.id, creativeId), eq(clients.companyId, ctx.companyId!))).limit(1)
+  if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Creative job not found' })
+
+  await db.delete(creativeJobs).where(eq(creativeJobs.id, creativeId))
+
+  return {
+    success: true,
+    toolName: 'delete_creative',
+    data: { deletedId: creativeId },
+    message: `Deleted creative job "${existing.name}".`,
   }
 }

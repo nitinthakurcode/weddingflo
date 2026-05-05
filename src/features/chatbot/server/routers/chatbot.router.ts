@@ -18,7 +18,9 @@ import { clients } from '@/lib/db/schema'
 import { eq, and, isNull } from 'drizzle-orm'
 import { callAIWithTracking, getAIUsage } from '@/lib/ai/ai-helpers'
 import { checkRateLimit } from '@/lib/ai/rate-limiter'
-import { CHATBOT_TOOLS, isQueryTool, getCascadeEffects, getToolMetadata } from '../../tools/definitions'
+import { CHATBOT_TOOLS, isQueryTool, getCascadeEffects, getToolMetadata, getToolsForRoleOpenAI } from '../../tools/definitions'
+import { canUserExecuteTool, getPermissionDeniedMessage } from '../../tools/tool-permissions'
+import type { Role } from '@/lib/permissions/roles'
 import {
   buildChatbotContext,
   extractClientIdFromPath,
@@ -160,6 +162,14 @@ export const chatbotRouter = router({
         })
       }
 
+      // Block client_user from chatbot — portal users cannot access AI tools
+      if (ctx.role === 'client_user') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Chatbot is not available for client portal users. Please contact your wedding planner for assistance.',
+        })
+      }
+
       // Rate limit check
       try {
         await checkRateLimit(userId)
@@ -204,7 +214,7 @@ export const chatbotRouter = router({
       const resolvedEntity = resolvePronouns(userMessage, memory)
 
       // Inject resolution into context for system prompt
-      let systemPrompt = buildChatbotSystemPrompt(context)
+      let systemPrompt = buildChatbotSystemPrompt(context, ctx.role as Role)
       if (resolvedEntity) {
         systemPrompt += `\n\n## Pronoun Resolution
 When the user says "them", "it", "that", or similar pronouns in this message, they likely mean:
@@ -233,11 +243,14 @@ Use this information to correctly interpret the user's request.`
           async () => {
             const client = getAIClient()
 
+            // Filter tools by user role (defense-in-depth: LLM can't call forbidden tools)
+            const roleFilteredTools = getToolsForRoleOpenAI(ctx.role as Role)
+
             try {
               const completion = await client.chat.completions.create({
                 model: AI_CONFIG.model,
                 messages: apiMessages,
-                tools: CHATBOT_TOOLS,
+                tools: roleFilteredTools,
                 tool_choice: 'auto' as ChatCompletionToolChoiceOption,
                 max_tokens: AI_CONFIG.maxTokens,
                 temperature: 0.7,
@@ -258,7 +271,7 @@ Use this information to correctly interpret the user's request.`
               const fallbackCompletion = await fallbackAI.chat.completions.create({
                 model: AI_CONFIG.fallbackModel,
                 messages: apiMessages,
-                tools: CHATBOT_TOOLS,
+                tools: roleFilteredTools,
                 tool_choice: 'auto' as ChatCompletionToolChoiceOption,
                 max_tokens: AI_CONFIG.maxTokens,
                 temperature: 0.7,
@@ -365,11 +378,14 @@ Use this information to correctly interpret the user's request.`
             }
           }
 
-          // SECURITY: Only admins can execute mutations via chatbot
-          if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
+          // SECURITY: Granular per-tool permission check using roles.ts permission matrix
+          if (!canUserExecuteTool(ctx.role as Role, toolName)) {
+            const denialMessage = await getPermissionDeniedMessage(
+              ctx.role as Role, toolName, ctx.db, companyId
+            )
             return {
               type: 'error' as const,
-              content: 'You don\'t have permission to make changes via chatbot. Contact your admin for write access.',
+              content: denialMessage,
               error: 'FORBIDDEN',
             }
           }
@@ -442,11 +458,14 @@ Use this information to correctly interpret the user's request.`
         })
       }
 
-      // SECURITY: Only admins can confirm/execute mutations via chatbot
-      if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
+      // SECURITY: Granular per-tool permission check (re-verified at execution time)
+      if (!canUserExecuteTool(ctx.role as Role, input.toolName)) {
+        const denialMessage = await getPermissionDeniedMessage(
+          ctx.role as Role, input.toolName, ctx.db, companyId
+        )
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'Insufficient permissions to execute mutations. Admin role required.',
+          message: denialMessage,
         })
       }
 
@@ -562,7 +581,24 @@ Use this information to correctly interpret the user's request.`
    */
   cancelToolCall: protectedProcedure
     .input(z.object({ pendingCallId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // SECURITY: Verify pending call exists and belongs to this user/company
+      const pending = await getPendingCall(input.pendingCallId)
+
+      if (!pending) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Pending call not found or expired',
+        })
+      }
+
+      if (pending.companyId !== ctx.companyId || pending.userId !== ctx.userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Access denied to this pending call',
+        })
+      }
+
       await deletePendingCall(input.pendingCallId)
 
       return {
