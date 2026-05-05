@@ -1,7 +1,7 @@
 # WeddingFlo — Production Deployment Runbook
 
-> **Last Updated:** 2026-02-24 (Session 8)
-> **Applies To:** Post-audit deployment with 28 migrations (0000–0027)
+> **Last Updated:** 2026-04-12 (Chatbot RBAC + Cascade Integrity)
+> **Applies To:** Post-audit deployment with 31 migrations (0000–0029)
 > **Target:** Dokploy on Hetzner
 
 ---
@@ -23,7 +23,7 @@ Run all checks locally against the codebase before deploying:
 # 1. TypeScript — zero errors required
 npx tsc --noEmit
 
-# 2. Tests — 307 pass, 0 fail
+# 2. Tests — 311 pass, 0 fail (8 skipped: RLS tests need live DB)
 npx vitest run
 
 # 3. Production build — all routes must compile
@@ -39,9 +39,22 @@ npx drizzle-kit check
 
 ## Phase 2: Database Backup
 
+### Automated Backups (Daily)
+
+The `backup-cron` Docker service runs `scripts/backup-postgres.sh` daily at 2 AM:
+- Compressed pg_dump uploaded to Cloudflare R2
+- 30-day retention (local + R2)
+- Weekly restore verification via `scripts/verify-backup.sh` (Sundays 3 AM)
+- Cron API endpoint: `POST /api/cron/backup-database` (auth: Bearer CRON_SECRET)
+
+### Manual Pre-Deploy Backup
+
 ```bash
 # Full database backup (adjust connection string)
 pg_dump "$DATABASE_URL" --format=custom --file="backup-$(date +%Y%m%d-%H%M%S).dump"
+
+# Or use the automated script directly:
+./scripts/backup-postgres.sh
 
 # Verify backup is non-empty
 ls -lh backup-*.dump
@@ -65,6 +78,8 @@ npx drizzle-kit migrate
 - Migration 0025: OAuth token encryption preparation
 - Migration 0026: Schema reconciliation (type fixes, NOT NULL constraints)
 - Migration 0027: company_id backfill + RLS catch-up for late tables
+- Migration 0028: company_id + RLS for client_vendors
+- Migration 0029: Additional schema refinements
 
 **Note:** Migration 0026 wraps all SET NOT NULL in exception handlers — they silently skip if NULLs exist. The normalization script in Phase 4 re-applies them after backfill.
 
@@ -159,10 +174,18 @@ Run through these 8 QA flows manually after deploy:
 - [ ] Export guests to Excel — verify column headers and data
 - [ ] Google Sheets sync (if configured) — import and verify
 
-### Flow 6: Chatbot
-- [ ] Start a conversation
-- [ ] Ask chatbot to add a guest — verify `recalcClientStats` runs
-- [ ] Ask chatbot to add a vendor — verify budget item created
+### Flow 6: Chatbot (Role-Based)
+- [ ] **Admin**: Start a conversation, add a guest — verify `recalcClientStats` runs
+- [ ] **Admin**: Add a vendor — verify budget item and timeline entry created
+- [ ] **Admin**: Update a vendor — verify budget + timeline sync cascades
+- [ ] **Admin**: Delete a client — verify 19-table cascade completes with counts
+- [ ] **Staff**: Try add_guest — verify it WORKS (staff has create permission)
+- [ ] **Staff**: Try delete_guest — verify BLOCKED with "Contact [admin name]" message
+- [ ] **Staff**: Verify LLM does NOT present delete tools (client/guest/vendor/budget)
+- [ ] **Client**: Query wedding data — verify it WORKS (view-only)
+- [ ] **Client**: Try any mutation — verify BLOCKED with "Contact [planner name]" message
+- [ ] **Client**: Verify LLM only presents query tools + send_communication
+- [ ] Cancel another user's pending call — verify FORBIDDEN
 
 ### Flow 7: Multi-Tenant Isolation
 - [ ] Log in as Company A user — verify only Company A data visible
@@ -189,6 +212,7 @@ Watch for these signals in the first day:
 | Client stats drift | Dashboard showing wrong guest/budget counts | Run emergency SQL (Section 9) |
 | Auth failures | Sign-in page errors | Verify BetterAuth session table, check cookie domain |
 | Chatbot errors | Chatbot conversation UI | Check SSE streaming endpoint, verify tRPC router |
+| Chatbot RBAC denials | Chatbot UI (staff/client users) | Verify `tool-permissions.ts` mapping matches `roles.ts`; check admin lookup query |
 | Enum display issues | Guest list showing raw values | Verify normalization script ran; check UI label mapping |
 
 ---
@@ -252,7 +276,7 @@ This matches the logic in `src/lib/sync/client-stats-sync.ts` and is idempotent.
 
 ## Reference
 
-- **Migration files:** `drizzle/migrations/0000–0027`
+- **Migration files:** `drizzle/migrations/0000–0029`
 - **Normalization script:** `scripts/normalize-existing-data.sql`
 - **Session 8 final report:** `docs/audit/session-8-final-report.md`
 - **Architecture rules:** `docs/audit/session-8-final-report.md` Section 7 (38 rules)

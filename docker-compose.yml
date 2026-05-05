@@ -104,6 +104,35 @@ services:
     networks:
       - weddingflo-network
 
+  # Automated Database Backup (daily at 2 AM)
+  backup-cron:
+    image: alpine:3.19
+    container_name: weddingflo-backup-cron
+    restart: unless-stopped
+    volumes:
+      - ./scripts:/scripts:ro
+      - backup_data:/tmp/weddingflo-backups
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-weddingflo}
+      POSTGRES_USER: ${POSTGRES_USER:-weddingflo}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+    command: >
+      sh -c "apk add --no-cache postgresql16-client aws-cli bash gzip &&
+             echo '0 2 * * * /scripts/backup-postgres.sh >> /var/log/backup.log 2>&1' > /etc/crontabs/root &&
+             echo '0 3 * * 0 /scripts/verify-backup.sh >> /var/log/verify-backup.log 2>&1' >> /etc/crontabs/root &&
+             crond -f -l 2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - weddingflo-network
+
   # Redis for caching (optional)
   redis:
     image: redis:7-alpine
@@ -126,6 +155,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  backup_data:
     driver: local
 
 networks:
