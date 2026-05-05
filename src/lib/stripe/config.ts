@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 
 // Initialize Stripe with your secret key (Latest API version: January 2026)
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
+  apiVersion: '2026-04-22.dahlia',
   typescript: true,
 });
 
