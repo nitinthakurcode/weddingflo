@@ -1,7 +1,7 @@
 # WeddingFlo — Production Deployment Runbook
 
 > **Last Updated:** 2026-04-12 (Chatbot RBAC + Cascade Integrity)
-> **Applies To:** Post-audit deployment with 31 migrations (0000–0030)
+> **Applies To:** Post-audit deployment with 32 migrations (0000–0031)
 > **Target:** Dokploy on Hetzner
 
 ---
@@ -277,7 +277,7 @@ This matches the logic in `src/lib/sync/client-stats-sync.ts` and is idempotent.
 
 ## Reference
 
-- **Migration files:** `drizzle/migrations/0000–0030`
+- **Migration files:** `drizzle/migrations/0000–0031`
 - **Normalization script:** `scripts/normalize-existing-data.sql`
 - **Session 8 final report:** `docs/audit/session-8-final-report.md`
 - **Architecture rules:** `docs/audit/session-8-final-report.md` Section 7 (38 rules)

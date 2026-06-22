@@ -178,7 +178,7 @@ Read `docs/DEVELOPER_HANDBOOK.md` Section F for propagation checklist.
 
 | File | Purpose |
 |------|---------|
-| `src/server/trpc/routers/_app.ts` | Main tRPC router (52 sub-routers) |
+| `src/server/trpc/routers/_app.ts` | Main tRPC router (53 sub-routers) |
 | `src/lib/auth.ts` | BetterAuth server config |
 | `src/lib/auth/server.ts` | `getServerSession()` |
 | `src/lib/auth-client.ts` | Client auth hooks (`useAuth`, `signIn*`, `signOut*`) |

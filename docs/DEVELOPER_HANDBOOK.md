@@ -772,7 +772,7 @@ weddingflo/
 | Schema File              | Table Count |
 |--------------------------|-------------|
 | schema.ts                | 6           |
-| schema-features.ts       | 68          |
+| schema-features.ts       | 70          |
 | schema-pipeline.ts       | 3           |
 | schema-proposals.ts      | 4           |
 | schema-workflows.ts      | 4           |
@@ -780,7 +780,7 @@ weddingflo/
 | schema-chatbot.ts        | 4           |
 | schema-invitations.ts    | 2           |
 | schema-esignature.ts     | 5           |
-| **Total**                | **99**      |
+| **Total**                | **101**     |
 
 ---
 
