@@ -157,24 +157,35 @@ export async function* subscribeToCompany(
   let lastTimestamp = Date.now()
   let errorBackoff = 1000
 
-  // Poll for new actions every 300ms
-  // This is a fallback for Upstash REST API which doesn't support
-  // persistent pub/sub connections. In production with Upstash
-  // Redis TCP, you'd use actual subscription.
+  // Adaptive poll interval. This is a fallback for the Upstash REST API which
+  // doesn't support persistent pub/sub (see docs/audit/realtime-pubsub-rfc.md
+  // for the proper migration). Most connections are idle most of the time, so
+  // we poll fast (300ms) right after activity and back off toward 2s while
+  // idle — cutting steady-state Redis ops ~5–10x at scale with no perceived
+  // latency cost during active use.
+  const MIN_INTERVAL = 300
+  const MAX_INTERVAL = 2000
+  let interval = MIN_INTERVAL
+
   while (!signal?.aborted) {
     try {
       const newActions = await getMissedActions(companyId, lastTimestamp)
 
-      for (const action of newActions) {
-        lastTimestamp = Math.max(lastTimestamp, action.timestamp)
-        yield action
+      if (newActions.length > 0) {
+        for (const action of newActions) {
+          lastTimestamp = Math.max(lastTimestamp, action.timestamp)
+          yield action
+        }
+        interval = MIN_INTERVAL // activity → poll fast again
+      } else {
+        interval = Math.min(Math.round(interval * 1.5), MAX_INTERVAL) // idle → back off
       }
 
-      // Reset backoff on successful poll
+      // Reset error backoff on successful poll
       errorBackoff = 1000
 
-      // Wait before polling again
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      // Wait (adaptive) before polling again
+      await new Promise((resolve) => setTimeout(resolve, interval))
     } catch (error) {
       if (signal?.aborted) break
       console.error('[Redis Pub/Sub] Subscription error:', error)
