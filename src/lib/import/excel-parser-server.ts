@@ -31,12 +31,22 @@ import {
  * Reads budget rows from the 'Budget' sheet, validates headers,
  * and upserts into the budget table (update if ID matches, insert otherwise).
  */
+/**
+ * Returns true when a spreadsheet row's "Action" column marks it for deletion.
+ * Mirrors the explicit, opt-in delete pattern (no row is ever deleted unless the
+ * user types DELETE/REMOVE in the Action column for a row that has a matching ID).
+ */
+function isDeleteMarker(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === 'delete' || v === 'remove';
+}
+
 export async function importBudgetExcel(
   buffer: Buffer,
   clientId: string,
   companyId: string,
-): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
-  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+): Promise<{ inserted: number; updated: number; deleted: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, deleted: 0, skipped: 0, errors: [] as string[] };
 
   // ── Upfront header validation ──
   const { headerMap } = await validateExcelFile(
@@ -117,6 +127,18 @@ export async function importBudgetExcel(
 
     try {
       const id = getCell(row, 'id');
+
+      // Explicit delete: row marked DELETE in the Action column with a matching ID
+      if (isDeleteMarker(getCell(row, 'action'))) {
+        if (id && existingIds.has(id)) {
+          await db.delete(budget).where(and(eq(budget.id, id), eq(budget.clientId, clientId)));
+          results.deleted++;
+        } else {
+          results.skipped++;
+        }
+        continue;
+      }
+
       const item = getCell(row, 'item');
       const category = getCell(row, 'category');
       const segment = getCell(row, 'segment');
@@ -182,8 +204,8 @@ export async function importHotelsExcel(
   buffer: Buffer,
   clientId: string,
   companyId: string,
-): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
-  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+): Promise<{ inserted: number; updated: number; deleted: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, deleted: 0, skipped: 0, errors: [] as string[] };
 
   // Support both "Hotels" (master export / standard) and "Hotel Accommodations" (individual export)
   let headerMap: Map<string, number>;
@@ -246,6 +268,18 @@ export async function importHotelsExcel(
 
     try {
       const id = getCell(row, 'id');
+
+      // Explicit delete: row marked DELETE in the Action column with a matching ID
+      if (isDeleteMarker(getCell(row, 'action'))) {
+        if (id && existingIds.has(id)) {
+          await db.delete(hotels).where(and(eq(hotels.id, id), eq(hotels.clientId, clientId)));
+          results.deleted++;
+        } else {
+          results.skipped++;
+        }
+        continue;
+      }
+
       const guestName = getCell(row, 'guest name');
 
       if (!guestName) {
@@ -301,8 +335,8 @@ export async function importTransportExcel(
   buffer: Buffer,
   clientId: string,
   companyId: string,
-): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
-  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+): Promise<{ inserted: number; updated: number; deleted: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, deleted: 0, skipped: 0, errors: [] as string[] };
 
   let headerMap: Map<string, number>;
   let sheetName = 'Guest Transport';
@@ -366,6 +400,18 @@ export async function importTransportExcel(
 
     try {
       const id = getCell(row, 'id');
+
+      // Explicit delete: row marked DELETE in the Action column with a matching ID
+      if (isDeleteMarker(getCell(row, 'action'))) {
+        if (id && existingIds.has(id)) {
+          await db.delete(guestTransport).where(and(eq(guestTransport.id, id), eq(guestTransport.clientId, clientId)));
+          results.deleted++;
+        } else {
+          results.skipped++;
+        }
+        continue;
+      }
+
       const guestName = getCell(row, 'guest name');
 
       if (!guestName) {
@@ -424,8 +470,8 @@ export async function importVendorsExcel(
   buffer: Buffer,
   clientId: string,
   companyId: string,
-): Promise<{ inserted: number; updated: number; skipped: number; errors: string[] }> {
-  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as string[] };
+): Promise<{ inserted: number; updated: number; deleted: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, deleted: 0, skipped: 0, errors: [] as string[] };
 
   const { headerMap } = await validateExcelFile(
     buffer, EXPECTED_VENDOR_HEADERS, REQUIRED_VENDOR_HEADERS, 'Vendors',
@@ -483,6 +529,27 @@ export async function importVendorsExcel(
 
     try {
       const id = getCell(row, 'id');
+
+      // Explicit delete: row marked DELETE in the Action column removes this
+      // vendor's association with the client (the global vendor record is kept).
+      if (isDeleteMarker(getCell(row, 'action'))) {
+        if (id) {
+          const removed = await db
+            .delete(clientVendors)
+            .where(and(
+              eq(clientVendors.vendorId, id),
+              eq(clientVendors.clientId, clientId),
+              eq(clientVendors.companyId, companyId),
+            ))
+            .returning({ id: clientVendors.id });
+          if (removed.length > 0) results.deleted++;
+          else results.skipped++;
+        } else {
+          results.skipped++;
+        }
+        continue;
+      }
+
       const name = getCell(row, 'name');
 
       if (!name) {

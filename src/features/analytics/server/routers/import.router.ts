@@ -747,7 +747,7 @@ export const importRouter = router({
       // These handle their own Excel parsing, header validation, and DB upsert.
       if (input.module === 'budget') {
         const result = await importBudgetExcel(buffer, input.clientId, companyId)
-        if (result.inserted > 0 || result.updated > 0) {
+        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
           await recalcClientStats(ctx.db, input.clientId)
           await recalcPerGuestBudgetItems(ctx.db, input.clientId)
           await broadcastSync({
@@ -760,14 +760,14 @@ export const importRouter = router({
             queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
           })
         }
-        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
+        return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
       }
 
       if (input.module === 'hotels') {
         const result = await importHotelsExcel(buffer, input.clientId, companyId)
         const cascadeActions: { module: string; action: string; count: number }[] = []
         // Cross-module: sync hotels to timeline
-        if (result.inserted > 0 || result.updated > 0) {
+        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
           const syncRes: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] }
           await withTransaction(async (tx) => {
             await syncHotelsToTimelineTx(tx, input.clientId, syncRes)
@@ -786,14 +786,14 @@ export const importRouter = router({
             queryPaths: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
           })
         }
-        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
+        return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions }
       }
 
       if (input.module === 'transport') {
         const result = await importTransportExcel(buffer, input.clientId, companyId)
         const cascadeActions: { module: string; action: string; count: number }[] = []
         // Cross-module: sync transport to timeline
-        if (result.inserted > 0 || result.updated > 0) {
+        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
           const syncRes: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] }
           await withTransaction(async (tx) => {
             await syncTransportToTimelineTx(tx, input.clientId, syncRes)
@@ -812,12 +812,12 @@ export const importRouter = router({
             queryPaths: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
           })
         }
-        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions }
+        return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions }
       }
 
       if (input.module === 'vendors') {
         const result = await importVendorsExcel(buffer, input.clientId, companyId)
-        if (result.inserted > 0 || result.updated > 0) {
+        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
           await broadcastSync({
             type: 'insert',
             module: 'vendors',
@@ -828,7 +828,7 @@ export const importRouter = router({
             queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
           })
         }
-        return { created: result.inserted, updated: result.updated, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
+        return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
       }
 
       // ── Inline import for guests, gifts, guestGifts (row-by-row within transaction) ──
@@ -954,6 +954,7 @@ export const importRouter = router({
       const results = {
         updated: 0,
         created: 0,
+        deleted: 0,
         skipped: 0,
         errors: [] as string[],
         cascadeActions: [] as { module: string; action: string; count: number }[]
@@ -975,6 +976,25 @@ export const importRouter = router({
           const rowNum = index + 2 // Excel row (1-indexed + header)
 
           try {
+            // Explicit delete: row marked DELETE in the Action column with a matching ID
+            const rowAction = String(row['Action'] ?? row['action'] ?? '').trim().toLowerCase()
+            if (rowAction === 'delete' || rowAction === 'remove') {
+              const rowId = String(row['ID (Do not modify)'] ?? row['ID'] ?? row['id'] ?? '').trim()
+              if (rowId && input.module === 'guests') {
+                await tx.delete(schema.guests).where(and(eq(schema.guests.id, rowId), eq(schema.guests.clientId, input.clientId)))
+                results.deleted++
+              } else if (rowId && input.module === 'gifts') {
+                await tx.delete(schema.gifts).where(and(eq(schema.gifts.id, rowId), eq(schema.gifts.clientId, input.clientId)))
+                results.deleted++
+              } else if (rowId && input.module === 'guestGifts') {
+                await tx.delete(schema.guestGifts).where(and(eq(schema.guestGifts.id, rowId), eq(schema.guestGifts.clientId, input.clientId)))
+                results.deleted++
+              } else {
+                results.skipped++
+              }
+              continue
+            }
+
             switch (input.module) {
               case 'guests':
                 await importGuest(tx, companyId, input.clientId, row, results)
@@ -1071,7 +1091,7 @@ export const importRouter = router({
       })
 
       // Broadcast real-time sync after successful import (outside transaction)
-      if (results.created > 0 || results.updated > 0) {
+      if (results.created > 0 || results.updated > 0 || results.deleted > 0) {
         // Module-specific queryPaths for targeted cache invalidation
         const queryPathsMap: Record<string, string[]> = {
           guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'budget.getAll', 'clients.list', 'clients.getAll'],

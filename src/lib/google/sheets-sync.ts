@@ -39,6 +39,7 @@ import {
 export interface SyncStats {
   exported: number;
   imported: number;
+  deleted?: number;
   errors: string[];
   conflicts?: SyncConflict[];
 }
@@ -738,6 +739,37 @@ export async function syncAllToSheets(
  * Import guests from Google Sheet (bi-directional sync)
  * Compares timestamps and imports newer records from Sheet
  */
+/**
+ * Shared delete-marker handler for bi-directional sheet imports. If the row's
+ * "Action" column says DELETE/REMOVE and the row references an existing record
+ * (had an ID in the sheet), the record is deleted (scoped to id + clientId).
+ * Returns true when the row was a delete row, signalling the caller to `continue`.
+ */
+async function applySheetRowDelete(
+  tx: any,
+  table: any,
+  headers: string[],
+  row: any[],
+  rawId: string | undefined,
+  id: string,
+  clientId: string,
+  stats: SyncStats,
+): Promise<boolean> {
+  const actionIndex = headers.indexOf('Action');
+  if (actionIndex === -1) return false;
+  const action = String(row[actionIndex] ?? '').trim().toLowerCase();
+  if (action !== 'delete' && action !== 'remove') return false;
+
+  if (rawId && rawId.trim()) {
+    const removed = await tx
+      .delete(table)
+      .where(and(eq(table.id, id), eq(table.clientId, clientId)))
+      .returning({ id: table.id });
+    stats.deleted = (stats.deleted || 0) + removed.length;
+  }
+  return true;
+}
+
 export async function importGuestsFromSheet(
   sheetsClient: sheets_v4.Sheets,
   spreadsheetId: string,
@@ -779,6 +811,8 @@ export async function importGuestsFromSheet(
         const rawId = row[idIndex];
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const dbUpdatedAt = existingMap.get(id);
+
+        if (await applySheetRowDelete(tx, guests, headers, row, rawId, id, clientId, stats)) continue;
 
         // Conflict detection: check if both Sheet and DB changed since last export
         const conflict = detectConflict('guests', id, row, dbUpdatedAt, metadata);
@@ -920,6 +954,8 @@ export async function importBudgetFromSheet(
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const dbUpdatedAt = existingMap.get(id);
 
+        if (await applySheetRowDelete(tx, budget, headers, row, rawId, id, clientId, stats)) continue;
+
         // Conflict detection
         const conflict = detectConflict('budget', id, row, dbUpdatedAt, metadata);
         if (conflict) {
@@ -1035,6 +1071,22 @@ export async function importVendorsFromSheet(
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const dbUpdatedAt = existingMap.get(id);
+
+        // Explicit delete: row marked DELETE removes the client↔vendor link
+        {
+          const actionIndex = headers.indexOf('Action');
+          const action = actionIndex !== -1 ? String(row[actionIndex] ?? '').trim().toLowerCase() : '';
+          if (action === 'delete' || action === 'remove') {
+            if (rawId && rawId.trim()) {
+              const removed = await tx
+                .delete(clientVendors)
+                .where(and(eq(clientVendors.vendorId, id), eq(clientVendors.clientId, clientId)))
+                .returning({ id: clientVendors.id });
+              stats.deleted = (stats.deleted || 0) + removed.length;
+            }
+            continue;
+          }
+        }
 
         // Skip if DB record is newer or same
         if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
@@ -1164,6 +1216,8 @@ export async function importHotelsFromSheet(
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const dbUpdatedAt = existingMap.get(id);
 
+        if (await applySheetRowDelete(tx, hotels, headers, row, rawId, id, clientId, stats)) continue;
+
         // Conflict detection
         const conflict = detectConflict('hotels', id, row, dbUpdatedAt, metadata);
         if (conflict) {
@@ -1280,6 +1334,8 @@ export async function importTransportFromSheet(
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const dbUpdatedAt = existingMap.get(id);
 
+        if (await applySheetRowDelete(tx, guestTransport, headers, row, rawId, id, clientId, stats)) continue;
+
         // Conflict detection
         const conflict = detectConflict('transport', id, row, dbUpdatedAt, metadata);
         if (conflict) {
@@ -1386,6 +1442,8 @@ export async function importTimelineFromSheet(
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const existing = existingMap.get(id);
+
+        if (await applySheetRowDelete(tx, timeline, headers, row, rawId, id, clientId, stats)) continue;
 
         // Skip if DB record is newer
         if (existing?.updatedAt && sheetUpdatedAt && new Date(existing.updatedAt) >= sheetUpdatedAt) {
@@ -1521,6 +1579,8 @@ export async function importGiftsFromSheet(
         const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
         const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
         const dbUpdatedAt = existingMap.get(id);
+
+        if (await applySheetRowDelete(tx, gifts, headers, row, rawId, id, clientId, stats)) continue;
 
         if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
           continue;
