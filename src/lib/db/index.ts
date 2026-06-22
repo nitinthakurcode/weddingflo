@@ -16,7 +16,10 @@ const connectionString = process.env.DATABASE_URL!;
 
 // Create postgres client
 const client = postgres(connectionString, {
-  max: 10,
+  // Per long-running app instance. PgBouncer (transaction mode) sits in front
+  // in production, so this is the per-instance ceiling, not the DB total —
+  // scale horizontally (more instances) behind the bouncer for throughput.
+  max: 20,
   idle_timeout: 20,
   connect_timeout: 10,
 });

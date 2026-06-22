@@ -225,6 +225,13 @@
       "when": 1782137694837,
       "tag": "0031_api_keys_and_integration_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782142818277,
+      "tag": "0032_hot_path_indexes",
+      "breakpoints": true
     }
   ]
 }

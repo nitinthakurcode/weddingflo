@@ -12,7 +12,9 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60000,
+            // 20s: real-time sync invalidations drive freshness; this just
+            // caps how stale data can get if a sync event is missed.
+            staleTime: 20000,
           },
         },
       })

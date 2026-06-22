@@ -823,6 +823,11 @@ export const messages = pgTable('messages', {
   deletedAt: timestamp('deleted_at'),
 }, (table) => [
   index('messages_company_id_idx').on(table.companyId),
+  index('messages_client_id_idx').on(table.clientId),
+  // Unread-count lookups: WHERE receiver_id = ? AND is_read = false
+  index('messages_receiver_read_idx').on(table.receiverId, table.isRead),
+  // Recent-first ordering
+  index('messages_created_at_idx').on(table.createdAt),
 ]);
 
 // Payments
@@ -836,6 +841,8 @@ export const payments = pgTable('payments', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
   index('payments_client_id_idx').on(table.clientId),
+  // Payment-status filters within a client (e.g. pending/overdue lists)
+  index('payments_client_status_idx').on(table.clientId, table.status),
 ]);
 
 // Stripe Connect Accounts

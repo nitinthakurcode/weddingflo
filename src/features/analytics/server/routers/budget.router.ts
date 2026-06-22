@@ -73,9 +73,20 @@ export const budgetRouter = router({
           .orderBy(asc(advancePayments.paymentDate))
       }
 
+      // Group advances by budgetItemId once (O(n+m)) instead of filtering the
+      // full list per item (O(n*m)).
+      const advancesByItem = new Map<string, typeof advancePaymentsList>()
+      for (const a of advancePaymentsList) {
+        const key = a.budgetItemId
+        if (!key) continue
+        const list = advancesByItem.get(key)
+        if (list) list.push(a)
+        else advancesByItem.set(key, [a])
+      }
+
       // Attach events and advances to each budget item
       const itemsWithAdvances = budgetItems.map(item => {
-        const itemAdvances = advancePaymentsList.filter(a => a.budgetItemId === item.id)
+        const itemAdvances = advancesByItem.get(item.id) ?? []
         const totalAdvance = itemAdvances.reduce((sum, a) => sum + Number(a.amount), 0)
         const balance = Number(item.estimatedCost || 0) - totalAdvance
 
