@@ -78,10 +78,10 @@ export const syncRouter = router({
             )
 
             for (const action of missed) {
-              // Don't echo back actions from the same user
-              if (action.userId !== userId) {
-                yield action
-              }
+              // Yield all actions, including the user's own. Invalidation is
+              // idempotent, and the user's OTHER tabs/devices must also refresh
+              // (the acting tab already invalidated locally on mutation success).
+              yield action
             }
           } catch (error) {
             console.error('[Sync Router] Failed to get missed actions:', error)
@@ -92,10 +92,10 @@ export const syncRouter = router({
         // Phase 2: Stream live updates via Redis subscription
         try {
           for await (const action of subscribeToCompany(companyId, signal)) {
-            // Don't echo back actions from the same user
-            if (action.userId !== userId) {
-              yield action
-            }
+            // Yield all actions, including the user's own — so the user's other
+            // tabs/devices update too. Idempotent; the acting tab also updates
+            // locally and immediately via the global mutation-cache handler.
+            yield action
           }
         } catch (error) {
           if (signal?.aborted) {
@@ -136,7 +136,7 @@ export const syncRouter = router({
       let missedCount = 0
       if (input.since) {
         const missed = await getMissedActions(companyId, input.since)
-        missedCount = missed.filter((a) => a.userId !== userId).length
+        missedCount = missed.length
       }
 
       return {

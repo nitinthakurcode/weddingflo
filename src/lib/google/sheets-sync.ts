@@ -29,6 +29,7 @@ import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
 import { recalcClientStats } from '@/lib/sync/client-stats-sync';
 import { storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
+import { getQueryPathsForModule } from '@/lib/realtime/query-paths';
 import {
   syncGuestsToHotelsAndTransportTx,
   syncHotelsToTimelineTx,
@@ -205,20 +206,6 @@ const GIFT_HEADERS = [
   'ID', 'Gift Name', 'Guest ID', 'Guest Name',
   'Value', 'Status', 'Last Updated'
 ];
-
-// Query paths to invalidate per module after import (includes cascade paths)
-function getQueryPathsForModule(module: string): string[] {
-  const map: Record<string, string[]> = {
-    guests: ['guests.getAll', 'guests.getStats', 'guests.getDietaryStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
-    budget: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
-    timeline: ['timeline.getAll', 'timeline.getStats'],
-    hotels: ['hotels.getAll', 'timeline.getAll'],
-    transport: ['guestTransport.getAll', 'timeline.getAll'],
-    vendors: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
-    gifts: ['gifts.getAll', 'gifts.getStats'],
-  };
-  return map[module] ?? [`${module}.getAll`];
-}
 
 /**
  * Broadcast a sync action to Redis for real-time updates

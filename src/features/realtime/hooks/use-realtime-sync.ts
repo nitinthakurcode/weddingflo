@@ -18,6 +18,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { trpc } from '@/lib/trpc/client'
 import type { SyncAction } from '@/lib/realtime/redis-pubsub'
+import { invalidateQueryPaths } from '@/lib/realtime/invalidate-query-paths'
 
 const SYNC_TIMESTAMP_KEY = 'weddingflo:lastSyncTimestamp'
 
@@ -94,32 +95,7 @@ export function useRealtimeSync(
    */
   const invalidateQueries = useCallback(
     (queryPaths: string[]) => {
-      for (const path of queryPaths) {
-        const parts = path.split('.')
-
-        try {
-          queryClient.invalidateQueries({
-            predicate: (query) => {
-              const key = query.queryKey
-              // Check if this is a tRPC query
-              if (Array.isArray(key) && key.length > 0 && Array.isArray(key[0])) {
-                const trpcKey = key[0] as string[]
-                // Check if it matches the path
-                for (let i = 0; i < parts.length; i++) {
-                  if (trpcKey[i] !== parts[i]) {
-                    return false
-                  }
-                }
-                return true
-              }
-              return false
-            },
-          })
-          console.log(`[Realtime Sync] Invalidated queries for: ${path}`)
-        } catch (error) {
-          console.error(`[Realtime Sync] Failed to invalidate ${path}:`, error)
-        }
-      }
+      invalidateQueryPaths(queryClient, queryPaths)
     },
     [queryClient]
   )
