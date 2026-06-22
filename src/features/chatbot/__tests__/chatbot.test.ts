@@ -100,10 +100,22 @@ describe('Chatbot Tool Definitions', () => {
     }
   })
 
-  it('should have strict JSON schemas for all tools', () => {
+  it('should have OpenAI-compatible JSON schemas for all tools', () => {
     for (const tool of CHATBOT_TOOLS) {
-      expect(tool.function.strict).toBe(true)
-      expect(tool.function.parameters.additionalProperties).toBe(false)
+      const params = tool.function.parameters as {
+        properties?: Record<string, unknown>
+        required?: string[]
+      }
+      expect(params.additionalProperties).toBe(false)
+
+      // OpenAI strict function-calling requires `required` to include EVERY
+      // property key. Tools here use strict:false (they have genuinely optional
+      // fields), but if any tool opts into strict mode this invariant must hold
+      // — otherwise OpenAI 400-rejects the whole request. Guard against that.
+      if (tool.function.strict) {
+        const propKeys = Object.keys(params.properties ?? {})
+        expect(params.required ?? []).toEqual(expect.arrayContaining(propKeys))
+      }
     }
   })
 })

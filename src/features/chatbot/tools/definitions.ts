@@ -522,7 +522,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'create_client',
       description: 'Create a new wedding client. Auto-creates main event if wedding_date is provided. Auto-generates budget categories based on wedding type.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['partner1FirstName', 'partner1Email'],
@@ -590,7 +590,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_client',
       description: 'Update an existing wedding client. Changes to wedding details are synced to the main event.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['clientId'],
@@ -650,7 +650,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_client_summary',
       description: 'Get a comprehensive summary of a wedding client including guest count, budget status, upcoming events, and tasks.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -673,7 +673,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'add_guest',
       description: 'Add a new guest to a wedding. Optionally creates hotel booking or transport record if needed.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['firstName'],
@@ -783,7 +783,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_guest_rsvp',
       description: 'Update the RSVP status for a guest. Can identify guest by ID or name.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['rsvpStatus'],
@@ -815,7 +815,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_guest_stats',
       description: 'Get guest statistics including RSVP counts, dietary requirements, hotel needs, and transport needs.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -838,7 +838,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'bulk_update_guests',
       description: 'Update multiple guests at once by IDs or group name.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['updates'],
@@ -889,7 +889,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'create_event',
       description: 'Create a new event for a wedding (ceremony, reception, sangeet, etc.). Auto-generates timeline items.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['title', 'eventType', 'eventDate'],
@@ -945,7 +945,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_event',
       description: 'Update an existing event. Date changes may shift associated timeline items.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['eventId'],
@@ -1001,7 +1001,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'add_timeline_item',
       description: 'Add an item to the wedding day timeline.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['title', 'startTime'],
@@ -1061,7 +1061,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'shift_timeline',
       description: 'Shift all timeline items by a specified duration. Useful when schedule needs to be pushed back or forward.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['shiftMinutes'],
@@ -1101,7 +1101,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'add_vendor',
       description: 'Add a new vendor to a wedding. Auto-creates budget item and timeline entry if service date provided.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['name', 'category'],
@@ -1165,7 +1165,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_vendor',
       description: 'Update vendor details or payment status. Can identify vendor by ID or name.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1230,7 +1230,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'add_hotel_booking',
       description: 'Add a hotel booking for a guest. Can identify guest by ID or name.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['hotelName', 'checkInDate', 'checkOutDate'],
@@ -1285,7 +1285,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'sync_hotel_guests',
       description: 'Get hotel accommodation summary grouped by hotel.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1312,7 +1312,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_budget_overview',
       description: 'Get budget overview with totals, breakdown by category, and payment status.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1335,7 +1335,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_budget_item',
       description: 'Update a budget item amount or payment status.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1391,7 +1391,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'search_entities',
       description: 'Search across all entity types (clients, guests, events, vendors, etc.).',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['query'],
@@ -1430,7 +1430,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'send_communication',
       description: 'Send email communications to guests, clients, or vendors. Supports RSVP reminders, wedding reminders, vendor coordination, questionnaire reminders, and custom messages.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['communicationType'],
@@ -1497,7 +1497,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_pipeline',
       description: 'Update a pipeline lead - move to different stage, update status, or add activity.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1546,7 +1546,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_wedding_summary',
       description: 'Get a comprehensive wedding summary report including all events, guest statistics, budget breakdown, vendor status, upcoming tasks, and action items. Use this when the user asks for a "summary", "overview", or "status report" of a wedding.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1573,7 +1573,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'check_in_guest',
       description: 'Fast check-in for day-of event management. Marks a guest as arrived and returns their details (table, dietary, notes).',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1612,7 +1612,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_recommendations',
       description: 'Get proactive recommendations and alerts for a wedding. Returns payment reminders, incomplete RSVPs, seating issues, and other action items.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1643,7 +1643,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'assign_transport',
       description: 'Assign transport (vehicle/shuttle) to guests. Can filter by hotel, group name, event, or specific guests. Example: "Assign shuttle A to all guests at Marriott for ceremony transport"',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['vehicleInfo'],
@@ -1720,7 +1720,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'assign_guests_to_events',
       description: 'Assign guests to multiple events. Can filter by last name (family), group name, or specific guests. Example: "Add all Sharma family guests to Mehndi and Reception events"',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['eventIds'],
@@ -1780,7 +1780,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'query_data',
       description: 'Universal query tool with aggregations and filters. Use for questions like "How many guests confirmed?", "Total budget spent?", "List vendors by category". Supports count, sum, avg, and list operations.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['entityType', 'operation'],
@@ -1867,7 +1867,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'query_cross_client_events',
       description: 'Query events across all clients. Use for questions like "All events this weekend", "Upcoming weddings in March". Returns events from all clients you have access to.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1904,7 +1904,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'budget_currency_convert',
       description: 'Convert budget amounts between currencies. Use for questions like "Show total in USD", "What is ₹150,000 in USD?". Supports major currencies.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['targetCurrency'],
@@ -1941,7 +1941,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_weather',
       description: 'Get weather forecast for wedding date and location. Use for questions like "What\'s the weather for the wedding date?", "Will it rain on Saturday?"',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -1976,7 +1976,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'bulk_add_hotel_bookings',
       description: 'Add hotel bookings for multiple guests at once. Use for "Book 20 rooms at Hilton for groom\'s family" or "Assign all out-of-town guests to Marriott".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['hotelName', 'checkInDate', 'checkOutDate'],
@@ -2041,7 +2041,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_table_dietary',
       description: 'Update dietary preference for all guests at a table. Use for "Mark table 7 as vegetarian" or "Set table 3 as gluten-free".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['tableNumber', 'mealPreference'],
@@ -2077,7 +2077,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'add_seating_constraint',
       description: 'Add a seating constraint to keep guests together or apart. Use for "Keep Raj and Vikram 3 tables apart" or "Seat all Sharma family together".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['constraintType'],
@@ -2132,7 +2132,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'add_gift',
       description: 'Record a gift received from a guest. Use for "Add gift from Sharma family: Silver serving set worth $500".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['name'],
@@ -2180,7 +2180,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_gift',
       description: 'Update gift status. Use for "Mark gift from Sharma family as received" or "Send thank you for Johnson gift".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2224,7 +2224,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_creative',
       description: 'Update creative job status (invitations, signage, etc.). Use for "Update invitation status to approved" or "Mark save-the-dates as completed".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2278,7 +2278,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'assign_team_member',
       description: 'Assign a team member to handle a client or specific task. Use for "Assign Sarah to vendor coordination" or "Add Maria to Sharma wedding team".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['teamMemberName'],
@@ -2319,7 +2319,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'create_proposal',
       description: 'Create a proposal for a lead or client. Use for "Create proposal for new lead, $15,000 package" or "Generate proposal for Sharma wedding".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['title'],
@@ -2376,7 +2376,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'create_invoice',
       description: 'Create an invoice for a client. Use for "Create invoice for Patel, $5,000 first installment" or "Invoice for final payment".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['amount'],
@@ -2436,7 +2436,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'export_data',
       description: 'Export data to Excel or PDF. Use for "Export guest list for caterer" or "Download budget breakdown".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['exportType', 'format'],
@@ -2479,7 +2479,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'update_website',
       description: 'Update wedding website content. Use for "Update venue on Sharma website" or "Change RSVP deadline on website".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2533,7 +2533,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'query_analytics',
       description: 'Query business analytics. Use for "Show revenue this quarter" or "How many weddings completed this year?".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['metric'],
@@ -2579,7 +2579,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'create_workflow',
       description: 'Create an automated workflow. Use for "When RSVP received, send confirmation email" or "Send reminder 1 week before wedding".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['name', 'triggerType', 'actionType'],
@@ -2639,7 +2639,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'generate_qr_codes',
       description: 'Generate QR codes for guest check-in. Use for "Generate QR codes for sangeet guests" or "Create check-in QR sheet".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2689,7 +2689,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'sync_calendar',
       description: 'Sync client events to external calendar (Google Calendar or iCal feed). Use for "Sync all Patel events to my Google Calendar" or "Set up calendar sync for this wedding".',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2730,7 +2730,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'get_document_upload_url',
       description: 'Get a pre-signed URL to upload a document. Use for "Upload new version of the contract" or "I want to upload a document for the Sharma wedding". Returns an upload URL that the UI will use to open a file picker.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['fileName'],
@@ -2770,7 +2770,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'delete_guest',
       description: 'Delete a guest and all related records (hotel bookings, transport, gifts, seating assignments). This action is irreversible. Always confirm with the user before deleting.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2797,7 +2797,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'delete_event',
       description: 'Delete an event and its linked timeline entries. Removes event from guest attending lists. This action is irreversible. Always confirm with the user before deleting.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2824,7 +2824,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'delete_vendor',
       description: 'Delete a vendor relationship from a client, including linked budget items and timeline entries. The vendor record remains in the system for reuse. This action is irreversible. Always confirm with the user before deleting.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: [],
@@ -2851,7 +2851,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'delete_budget_item',
       description: 'Delete a budget line item and any linked timeline payment entries. This action is irreversible. Always confirm with the user before deleting.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['budgetItemId'],
@@ -2870,7 +2870,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'delete_timeline_item',
       description: 'Delete a timeline item. This action is irreversible. Always confirm with the user before deleting.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['timelineItemId'],
@@ -2889,7 +2889,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'delete_gift',
       description: 'Delete a gift record. This action is irreversible. Always confirm with the user before deleting.',
-      strict: true,
+      strict: false,
       parameters: {
         type: 'object',
         required: ['giftId'],
