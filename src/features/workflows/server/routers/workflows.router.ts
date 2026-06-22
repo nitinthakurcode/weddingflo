@@ -18,6 +18,7 @@ import { eq, and, desc, asc, count } from 'drizzle-orm';
 import { workflows, workflowSteps, workflowExecutions, workflowExecutionLogs, WORKFLOW_TEMPLATES, user } from '@/lib/db/schema';
 import { enqueueJob } from '@/lib/jobs/pg-queue';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+import { startWorkflowExecution } from '@/lib/workflows/engine';
 
 // Input schemas
 const triggerTypeSchema = z.enum([
@@ -134,6 +135,50 @@ export const workflowsRouter = router({
   getTemplates: protectedProcedure.query(async () => {
     return WORKFLOW_TEMPLATES;
   }),
+
+  /**
+   * Manually run a workflow now (creates an execution and enqueues its first step).
+   * Automatic event triggers should call startWorkflowsForTrigger() from the engine.
+   */
+  run: adminProcedure
+    .input(
+      z.object({
+        workflowId: z.string().uuid(),
+        entityType: z.string().optional(),
+        entityId: z.string().optional(),
+        executionData: z.record(z.string(), z.unknown()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found in session' });
+      }
+
+      const [workflow] = await ctx.db
+        .select()
+        .from(workflows)
+        .where(and(eq(workflows.id, input.workflowId), eq(workflows.companyId, ctx.companyId)))
+        .limit(1);
+
+      if (!workflow) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workflow not found' });
+      }
+
+      const result = await startWorkflowExecution({
+        workflowId: workflow.id,
+        companyId: ctx.companyId,
+        triggerType: workflow.triggerType,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        executionData: input.executionData,
+      });
+
+      if (!result) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Workflow has no active steps to run' });
+      }
+
+      return result;
+    }),
 
   /**
    * Create a workflow

@@ -12,8 +12,14 @@
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { fetchJobsForProcessing, completeJob, failJob } from '@/lib/jobs/pg-queue';
+import { fetchJobsForProcessing, completeJob, failJob, cleanupOldJobs } from '@/lib/jobs/pg-queue';
 import type { Job, JobType, EmailJobPayload, SmsJobPayload, WorkflowStepJobPayload } from '@/lib/jobs/pg-queue';
+import { sendEmail } from '@/lib/email/resend-client';
+import { sendSms } from '@/lib/sms/twilio';
+import { sendWhatsAppMessage } from '@/lib/whatsapp/whatsapp-client';
+import { processWorkflowStep } from '@/lib/workflows/engine';
+import { session } from '@/lib/db/schema';
+import { lt } from 'drizzle-orm';
 
 // Cron secret for security (optional, set in env)
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -61,18 +67,17 @@ async function processJob(job: Job): Promise<void> {
 async function processEmailJob(job: Job): Promise<void> {
   const payload = job.payload as EmailJobPayload;
 
-  // TODO: Integrate with Resend
-  console.log(`[Job Processor] Would send email to ${payload.to} with subject: ${payload.subject}`);
+  const result = await sendEmail({
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.body ?? '',
+  });
 
-  // Simulate sending
-  // const { Resend } = await import('resend');
-  // const resend = new Resend(process.env.RESEND_API_KEY);
-  // await resend.emails.send({
-  //   from: 'WeddingFlo <noreply@weddingflo.app>',
-  //   to: payload.to,
-  //   subject: payload.subject,
-  //   html: payload.body,
-  // });
+  if (!result.success) {
+    throw new Error(`Email send failed: ${result.error}`);
+  }
+
+  console.log(`[Job Processor] Sent email to ${payload.to} (subject: ${payload.subject})`);
 }
 
 /**
@@ -81,8 +86,13 @@ async function processEmailJob(job: Job): Promise<void> {
 async function processSmsJob(job: Job): Promise<void> {
   const payload = job.payload as SmsJobPayload;
 
-  // TODO: Integrate with Twilio
-  console.log(`[Job Processor] Would send SMS to ${payload.to}: ${payload.message}`);
+  const result = await sendSms({ to: payload.to, message: payload.message });
+
+  if (!result.success) {
+    throw new Error(`SMS send failed: ${result.error}`);
+  }
+
+  console.log(`[Job Processor] Sent SMS to ${payload.to}`);
 }
 
 /**
@@ -91,8 +101,13 @@ async function processSmsJob(job: Job): Promise<void> {
 async function processWhatsAppJob(job: Job): Promise<void> {
   const payload = job.payload as SmsJobPayload;
 
-  // TODO: Integrate with Twilio WhatsApp
-  console.log(`[Job Processor] Would send WhatsApp to ${payload.to}: ${payload.message}`);
+  const result = await sendWhatsAppMessage({ to: payload.to, body: payload.message });
+
+  if (!result.success) {
+    throw new Error(`WhatsApp send failed: ${result.error}`);
+  }
+
+  console.log(`[Job Processor] Sent WhatsApp to ${payload.to}`);
 }
 
 /**
@@ -100,9 +115,8 @@ async function processWhatsAppJob(job: Job): Promise<void> {
  */
 async function processWorkflowStepJob(job: Job): Promise<void> {
   const payload = job.payload as WorkflowStepJobPayload;
-
-  // TODO: Implement workflow step processing
-  console.log(`[Job Processor] Would process workflow step ${payload.stepId} for execution ${payload.executionId}`);
+  await processWorkflowStep(payload);
+  console.log(`[Job Processor] Processed workflow step ${payload.stepId} for execution ${payload.executionId}`);
 }
 
 /**
@@ -173,8 +187,18 @@ async function processReminderJob(job: Job): Promise<void> {
  * Process cleanup job
  */
 async function processCleanupJob(job: Job): Promise<void> {
-  // TODO: Implement session cleanup
-  console.log(`[Job Processor] Would clean up old sessions`);
+  // Delete expired auth sessions
+  const deletedSessions = await db
+    .delete(session)
+    .where(lt(session.expiresAt, new Date()))
+    .returning({ id: session.id });
+
+  // Purge completed/failed jobs older than 7 days
+  const { deleted: deletedJobs } = await cleanupOldJobs(db as any, 7);
+
+  console.log(
+    `[Job Processor] Cleanup: removed ${deletedSessions.length} expired sessions, ${deletedJobs} old jobs`
+  );
 }
 
 /**
