@@ -9,7 +9,9 @@ function getStripeClient(): Stripe {
       throw new Error('STRIPE_SECRET_KEY is not set');
     }
     stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2026-04-22.dahlia',
+      // Intentionally pinned to the account's API version; the SDK type tracks its
+      // own newer default, so cast to keep the pin while staying type-safe.
+      apiVersion: '2026-04-22.dahlia' as NonNullable<ConstructorParameters<typeof Stripe>[1]>['apiVersion'],
       typescript: true,
     });
   }

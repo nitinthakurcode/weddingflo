@@ -2,7 +2,9 @@ import Stripe from 'stripe';
 
 // Initialize Stripe with your secret key (Latest API version: January 2026)
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-04-22.dahlia',
+  // Intentionally pinned to the account's API version; the SDK type tracks its
+  // own newer default, so cast to keep the pin while staying type-safe.
+  apiVersion: '2026-04-22.dahlia' as NonNullable<ConstructorParameters<typeof Stripe>[1]>['apiVersion'],
   typescript: true,
 });
 
