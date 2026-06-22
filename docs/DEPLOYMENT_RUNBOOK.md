@@ -1,7 +1,7 @@
 # WeddingFlo — Production Deployment Runbook
 
 > **Last Updated:** 2026-04-12 (Chatbot RBAC + Cascade Integrity)
-> **Applies To:** Post-audit deployment with 31 migrations (0000–0029)
+> **Applies To:** Post-audit deployment with 31 migrations (0000–0030)
 > **Target:** Dokploy on Hetzner
 
 ---
@@ -78,8 +78,9 @@ npx drizzle-kit migrate
 - Migration 0025: OAuth token encryption preparation
 - Migration 0026: Schema reconciliation (type fixes, NOT NULL constraints)
 - Migration 0027: company_id backfill + RLS catch-up for late tables
-- Migration 0028: company_id + RLS for client_vendors
+- Migration 0028: E-signature tables (document signing, signers, fields, audit trail)
 - Migration 0029: Additional schema refinements
+- Migration 0030: company_id + RLS for client_vendors (now journaled; previously applied out-of-band)
 
 **Note:** Migration 0026 wraps all SET NOT NULL in exception handlers — they silently skip if NULLs exist. The normalization script in Phase 4 re-applies them after backfill.
 
@@ -276,7 +277,7 @@ This matches the logic in `src/lib/sync/client-stats-sync.ts` and is idempotent.
 
 ## Reference
 
-- **Migration files:** `drizzle/migrations/0000–0029`
+- **Migration files:** `drizzle/migrations/0000–0030`
 - **Normalization script:** `scripts/normalize-existing-data.sql`
 - **Session 8 final report:** `docs/audit/session-8-final-report.md`
 - **Architecture rules:** `docs/audit/session-8-final-report.md` Section 7 (38 rules)

@@ -1,9 +1,17 @@
+-- Custom SQL migration file, put your code below! --
+
 -- ============================================================================
--- Migration 0028: Add company_id + RLS to client_vendors
+-- Migration 0030: Add company_id + RLS to client_vendors
 -- ============================================================================
 -- client_vendors was listed as a "child table" in migration 0024, relying on
 -- transitive FK isolation. However, direct queries bypass parent RLS, so it
 -- needs its own company_id column and tenant_isolation policy.
+--
+-- NOTE: This migration was previously applied out-of-band (formerly the
+-- un-journaled file 0028_add_company_id_rls_client_vendors.sql). It is now
+-- tracked in the drizzle journal so fresh `drizzle-kit migrate` runs apply it.
+-- All statements are idempotent, so re-running on an environment where it was
+-- already applied manually is a safe no-op.
 -- ============================================================================
 
 -- 1. Add column (nullable — existing rows need backfill)
