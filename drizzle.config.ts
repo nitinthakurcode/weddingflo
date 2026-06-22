@@ -1,4 +1,12 @@
 import { defineConfig } from 'drizzle-kit';
+import { config } from 'dotenv';
+
+// drizzle-kit is a standalone CLI and does NOT auto-load Next.js's .env.local.
+// Load it here (with .env as fallback) so db:generate/migrate/studio "just work".
+// Real environment variables (CI/production) take precedence — dotenv does not
+// override values already present in process.env.
+config({ path: '.env.local' });
+config(); // .env fallback
 
 /**
  * Drizzle Kit Configuration
