@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from '@/lib/navigation';
 import { useEffect, useRef } from 'react';
+import { trpc } from '@/lib/trpc/client';
 
 interface NotificationDropdownProps {
   userId: string;
@@ -23,17 +24,24 @@ interface NotificationDropdownProps {
 export function NotificationDropdown({ userId, onClose }: NotificationDropdownProps) {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const utils = trpc.useUtils();
 
-  // TODO: Implement notifications via tRPC
-  // For now, notifications are disabled
-  const notifications: any[] = [];
+  const { data: notifications = [] } = trpc.notifications.list.useQuery({ limit: 20 });
+
+  const invalidate = () => {
+    utils.notifications.list.invalidate();
+    utils.notifications.unreadCount.invalidate();
+  };
+
+  const markAsReadMutation = trpc.notifications.markAsRead.useMutation({ onSuccess: invalidate });
+  const markAllAsReadMutation = trpc.notifications.markAllAsRead.useMutation({ onSuccess: invalidate });
 
   const handleMarkAsRead = async (notificationId: string) => {
-    // TODO: Implement via tRPC
+    await markAsReadMutation.mutateAsync({ id: notificationId });
   };
 
   const handleMarkAllAsRead = async () => {
-    // TODO: Implement via tRPC
+    await markAllAsReadMutation.mutateAsync();
   };
 
   // Close dropdown when clicking outside
@@ -79,13 +87,14 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
 
   const handleNotificationClick = async (notification: any) => {
     // Mark as read
-    if (!notification.read) {
+    if (!notification.isRead) {
       await handleMarkAsRead(notification.id);
     }
 
-    // Navigate if there's an action URL
-    if (notification.action_url) {
-      router.push(notification.action_url);
+    // Navigate if the notification carries a deep link in its metadata
+    const link = (notification.metadata as { link?: string } | null)?.link;
+    if (link) {
+      router.push(link);
       onClose();
     }
   };
@@ -125,14 +134,14 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
           <div className="divide-y">
             {notifications.map((notification) => {
               const Icon = getNotificationIcon(notification.type);
-              const colorClass = getNotificationColor(notification.priority, notification.read);
+              const colorClass = getNotificationColor('normal', !!notification.isRead);
 
               return (
                 <button
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
                   className={`w-full p-4 text-left hover:bg-muted transition-colors ${
-                    !notification.read ? 'bg-cobalt-50/50 dark:bg-cobalt-950/30' : ''
+                    !notification.isRead ? 'bg-cobalt-50/50 dark:bg-cobalt-950/30' : ''
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -142,21 +151,18 @@ export function NotificationDropdown({ userId, onClose }: NotificationDropdownPr
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <h4 className="font-semibold text-sm">{notification.title}</h4>
-                        {!notification.read && (
+                        {!notification.isRead && (
                           <div className="w-2 h-2 rounded-full bg-teal-600 flex-shrink-0 mt-1" />
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
                         {notification.message}
                       </p>
-                      {notification.action_label && (
-                        <span className="text-xs text-teal-600 dark:text-teal-400 mt-2 inline-block">
-                          {notification.action_label} →
-                        </span>
+                      {notification.createdAt && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                        </p>
                       )}
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {formatDistanceToNow(notification.created_at, { addSuffix: true })}
-                      </p>
                     </div>
                   </div>
                 </button>

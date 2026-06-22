@@ -29,3 +29,4 @@ export { smsRouter } from './sms.router';
 export { whatsappRouter } from './whatsapp.router';
 export { pushRouter } from './push.router';
 export { aiRouter } from './ai.router';
+export { notificationsRouter } from './notifications.router';

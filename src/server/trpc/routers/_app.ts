@@ -33,7 +33,8 @@ import {
   smsRouter,
   whatsappRouter,
   pushRouter,
-  aiRouter
+  aiRouter,
+  notificationsRouter
 } from '../../../features/communications/server/routers';
 
 // Payments Feature Pocket
@@ -133,6 +134,7 @@ export const appRouter = router({
   pdf: pdfRouter,
   calendar: calendarRouter,
   push: pushRouter,
+  notifications: notificationsRouter,
   storage: storageRouter,
   websites: websitesRouter,
   pipeline: pipelineRouter,

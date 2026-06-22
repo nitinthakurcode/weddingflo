@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Bell } from 'lucide-react';
 import { NotificationDropdown } from './notification-dropdown';
 import { Badge } from '@/components/ui/badge';
+import { trpc } from '@/lib/trpc/client';
 
 interface NotificationBellProps {
   userId: string;
@@ -13,9 +14,11 @@ interface NotificationBellProps {
 export function NotificationBell({ userId }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // TODO: Implement notifications via tRPC
-  // For now, notifications are disabled
-  const unreadCount = 0;
+  // Poll unread count every 30s so the badge stays fresh without a socket.
+  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, {
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
 
   return (
     <div className="relative">
