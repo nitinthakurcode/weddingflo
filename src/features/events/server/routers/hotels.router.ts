@@ -1,4 +1,4 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, sql } from 'drizzle-orm'
@@ -14,7 +14,7 @@ import { broadcastSync } from '@/lib/realtime/broadcast-sync'
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const hotelsRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -51,7 +51,7 @@ export const hotelsRouter = router({
   /**
    * SECURITY: Verifies hotel belongs to a client owned by the user's company
    */
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -76,10 +76,13 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(result.hotel.clientId)
+
       return result.hotel
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       guestId: z.string().uuid().optional(),
@@ -283,7 +286,7 @@ export const hotelsRouter = router({
    * SECURITY: Verifies hotel belongs to a client owned by the user's company
    * TRANSACTION: All update operations including accommodation and timeline sync are atomic
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -329,6 +332,9 @@ export const hotelsRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       // Build update object
       const updateData: Record<string, any> = {
@@ -519,7 +525,7 @@ export const hotelsRouter = router({
    * SECURITY: Verifies hotel belongs to a client owned by the user's company
    * TRANSACTION: Hotel deletion and timeline cleanup are atomic
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -543,6 +549,9 @@ export const hotelsRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       // Execute hotel deletion and timeline cleanup atomically
       const result = await withTransaction(async (tx) => {
@@ -590,7 +599,7 @@ export const hotelsRouter = router({
   /**
    * SECURITY: Verifies hotel belongs to a client owned by the user's company
    */
-  checkIn: adminProcedure
+  checkIn: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -615,6 +624,9 @@ export const hotelsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Hotel record not found' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
+
       const [hotel] = await ctx.db
         .update(hotels)
         .set({
@@ -637,7 +649,7 @@ export const hotelsRouter = router({
       return hotel
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -683,7 +695,7 @@ export const hotelsRouter = router({
     }),
 
   // Sync hotels with guests who have hotel_required = true
-  syncWithGuests: adminProcedure
+  syncWithGuests: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -793,7 +805,7 @@ export const hotelsRouter = router({
    * Get accommodation capacity summary with alerts
    * Returns total capacity, allocated guests, and capacity warnings
    */
-  getCapacitySummary: adminProcedure
+  getCapacitySummary: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -959,7 +971,7 @@ export const hotelsRouter = router({
     }),
 
   // Get hotels with guest information
-  getAllWithGuests: adminProcedure
+  getAllWithGuests: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {

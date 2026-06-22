@@ -1,4 +1,4 @@
-import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, or, isNull, asc, inArray } from 'drizzle-orm'
@@ -17,7 +17,7 @@ import { recalcClientStats } from '@/lib/sync/client-stats-sync'
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const guestsRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -54,7 +54,7 @@ export const guestsRouter = router({
       return guestList
     }),
 
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -81,10 +81,13 @@ export const guestsRouter = router({
         })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(result.guest.clientId)
+
       return result.guest
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       name: z.string().min(1),
@@ -272,7 +275,7 @@ export const guestsRouter = router({
       }
     }),
 
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -345,6 +348,9 @@ export const guestsRouter = router({
           message: 'Guest not found'
         })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingGuest.guest.clientId)
 
       // Build update object
       const updateData: Record<string, any> = {
@@ -733,7 +739,7 @@ export const guestsRouter = router({
    * - Gifts (gifts given)
    * - Timeline entries linked to guest
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -759,6 +765,9 @@ export const guestsRouter = router({
           message: 'Guest not found'
         })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingGuest.guest.clientId)
 
       // Execute cascade deletion in a transaction for atomicity
       const result = await withTransaction(async (tx) => {
@@ -868,7 +877,7 @@ export const guestsRouter = router({
       return { success: true, deleted: result }
     }),
 
-  bulkImport: adminProcedure
+  bulkImport: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       guests: z.array(z.object({
@@ -1036,7 +1045,7 @@ export const guestsRouter = router({
       }
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1080,7 +1089,7 @@ export const guestsRouter = router({
       return stats
     }),
 
-  getDietaryStats: adminProcedure
+  getDietaryStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1268,7 +1277,7 @@ export const guestsRouter = router({
       }
     }),
 
-  checkIn: adminProcedure
+  checkIn: staffProcedure
     .input(z.object({
       guestId: z.string().uuid(),
     }))

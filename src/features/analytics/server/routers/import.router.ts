@@ -1,4 +1,4 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import ExcelJS from 'exceljs'
@@ -28,7 +28,7 @@ const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 't
 
 export const importRouter = router({
   // Download template with existing data
-  downloadTemplate: adminProcedure
+  downloadTemplate: staffProcedure
     .input(z.object({
       module: moduleTypes,
       clientId: z.string().uuid(),
@@ -599,7 +599,7 @@ export const importRouter = router({
     }),
 
   // Pre-import validation - validate file structure before import
-  validateImport: adminProcedure
+  validateImport: staffProcedure
     .input(z.object({
       module: moduleTypes,
       clientId: z.string().uuid(),
@@ -716,7 +716,7 @@ export const importRouter = router({
     }),
 
   // Upload and import data
-  importData: adminProcedure
+  importData: staffProcedure
     .input(z.object({
       module: moduleTypes,
       clientId: z.string().uuid(),

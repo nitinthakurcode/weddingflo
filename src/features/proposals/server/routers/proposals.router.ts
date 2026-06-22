@@ -11,7 +11,7 @@
  * - Client acceptance/decline
  */
 
-import { router, protectedProcedure, publicProcedure, adminProcedure } from '@/server/trpc/trpc';
+import { router, protectedProcedure, publicProcedure, adminProcedure, staffProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
@@ -774,7 +774,7 @@ export const proposalsRouter = router({
   /**
    * Delete a proposal
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -782,6 +782,25 @@ export const proposalsRouter = router({
           code: 'FORBIDDEN',
           message: 'Company ID not found in session',
         });
+      }
+
+      // Load proposal to derive clientId for staff authorization
+      const [proposal] = await ctx.db
+        .select({ clientId: proposals.clientId })
+        .from(proposals)
+        .where(and(eq(proposals.id, input.id), eq(proposals.companyId, ctx.companyId)))
+        .limit(1);
+
+      if (!proposal) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Proposal not found',
+        });
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      if (proposal.clientId) {
+        await ctx.assertClientAccess(proposal.clientId);
       }
 
       await ctx.db

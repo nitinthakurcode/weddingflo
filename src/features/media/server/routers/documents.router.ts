@@ -1,4 +1,4 @@
-import { router, adminProcedure, publicProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, adminProcedure, publicProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc, count, sql, asc, inArray } from 'drizzle-orm'
@@ -19,7 +19,7 @@ import { nanoid } from 'nanoid'
  * Storage uses Cloudflare R2 (S3-compatible) - December 2025
  */
 export const documentsRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -56,7 +56,7 @@ export const documentsRouter = router({
   /**
    * SECURITY: Verifies document belongs to a client owned by the user's company
    */
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -81,10 +81,13 @@ export const documentsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(result.document.clientId)
+
       return result.document
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       fileName: z.string().min(1),
@@ -169,7 +172,7 @@ export const documentsRouter = router({
   /**
    * SECURITY: Verifies document belongs to a client owned by the user's company
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -187,7 +190,7 @@ export const documentsRouter = router({
 
       // Verify document belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: documents.id })
+        .select({ id: documents.id, clientId: documents.clientId })
         .from(documents)
         .innerJoin(clients, eq(documents.clientId, clients.id))
         .where(
@@ -202,6 +205,9 @@ export const documentsRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       // Build update object (matching simplified schema: id, clientId, name, url, type, size)
       const updateData: Record<string, unknown> = {
@@ -226,7 +232,7 @@ export const documentsRouter = router({
   /**
    * SECURITY: Verifies document belongs to a client owned by the user's company
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -235,7 +241,7 @@ export const documentsRouter = router({
 
       // Verify document belongs to a client owned by this company
       const [document] = await ctx.db
-        .select({ id: documents.id, url: documents.url })
+        .select({ id: documents.id, url: documents.url, clientId: documents.clientId })
         .from(documents)
         .innerJoin(clients, eq(documents.clientId, clients.id))
         .where(
@@ -250,6 +256,9 @@ export const documentsRouter = router({
       if (!document) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(document.clientId)
 
       if (document.url) {
         // Delete file from R2 Storage
@@ -282,7 +291,7 @@ export const documentsRouter = router({
       return { success: true }
     }),
 
-  getByType: adminProcedure
+  getByType: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       fileType: z.string(),
@@ -324,7 +333,7 @@ export const documentsRouter = router({
       return documentList
     }),
 
-  generateUploadUrl: adminProcedure
+  generateUploadUrl: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       fileName: z.string(),
@@ -364,7 +373,7 @@ export const documentsRouter = router({
       }
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -425,7 +434,7 @@ export const documentsRouter = router({
   // ========================================
 
   // Create a signature request with multiple signers
-  requestSignature: adminProcedure
+  requestSignature: staffProcedure
     .input(z.object({
       documentId: z.string(),
       title: z.string().min(1),
@@ -466,6 +475,9 @@ export const documentsRouter = router({
         .where(and(eq(clients.id, doc.clientId), eq(clients.companyId, ctx.companyId), isNull(clients.deletedAt)))
         .limit(1)
       if (!client) throw new TRPCError({ code: 'FORBIDDEN' })
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(doc.clientId)
 
       const requestToken = nanoid(32)
       const expiresAt = new Date()
@@ -548,7 +560,7 @@ export const documentsRouter = router({
     }),
 
   // Get signature statistics for a client
-  getSignatureStats: adminProcedure
+  getSignatureStats: staffProcedure
     .input(z.object({ clientId: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -572,7 +584,7 @@ export const documentsRouter = router({
     }),
 
   // Get pending/active signature requests for a client
-  getPendingSignatures: adminProcedure
+  getPendingSignatures: staffProcedure
     .input(z.object({ clientId: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -602,7 +614,7 @@ export const documentsRouter = router({
     }),
 
   // Send reminder to unsigned signers
-  sendSignatureReminder: adminProcedure
+  sendSignatureReminder: staffProcedure
     .input(z.object({ requestId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -617,6 +629,9 @@ export const documentsRouter = router({
         ))
         .limit(1)
       if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(request.clientId)
 
       const pendingSigners = await ctx.db
         .select()
@@ -639,7 +654,7 @@ export const documentsRouter = router({
     }),
 
   // Cancel a signature request
-  cancelSignatureRequest: adminProcedure
+  cancelSignatureRequest: staffProcedure
     .input(z.object({ requestId: z.string().uuid(), reason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -654,6 +669,10 @@ export const documentsRouter = router({
         ))
         .limit(1)
       if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(request.clientId)
+
       if (request.status === 'completed') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot cancel a completed request. Use void instead.' })
       }
@@ -692,7 +711,7 @@ export const documentsRouter = router({
     }),
 
   // Void a completed signature request
-  voidSignatureRequest: adminProcedure
+  voidSignatureRequest: staffProcedure
     .input(z.object({ requestId: z.string().uuid(), reason: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -707,6 +726,9 @@ export const documentsRouter = router({
         ))
         .limit(1)
       if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(request.clientId)
 
       await ctx.db
         .update(documentSignatureRequests)
@@ -1024,7 +1046,7 @@ export const documentsRouter = router({
   // AUDIT TRAIL & VERIFICATION
   // ========================================
 
-  getDocumentAuditTrail: adminProcedure
+  getDocumentAuditTrail: staffProcedure
     .input(z.object({ requestId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1032,7 +1054,7 @@ export const documentsRouter = router({
       }
       // Verify request belongs to this company
       const [request] = await ctx.db
-        .select({ id: documentSignatureRequests.id })
+        .select({ id: documentSignatureRequests.id, clientId: documentSignatureRequests.clientId })
         .from(documentSignatureRequests)
         .where(and(
           eq(documentSignatureRequests.id, input.requestId),
@@ -1040,6 +1062,9 @@ export const documentsRouter = router({
         ))
         .limit(1)
       if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(request.clientId)
 
       return ctx.db
         .select()
@@ -1048,7 +1073,7 @@ export const documentsRouter = router({
         .orderBy(asc(documentAuditTrail.createdAt))
     }),
 
-  verifyDocumentIntegrity: adminProcedure
+  verifyDocumentIntegrity: staffProcedure
     .input(z.object({ requestId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1063,6 +1088,9 @@ export const documentsRouter = router({
         ))
         .limit(1)
       if (!request) throw new TRPCError({ code: 'NOT_FOUND' })
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(request.clientId)
 
       const signers = await ctx.db
         .select()
@@ -1094,7 +1122,7 @@ export const documentsRouter = router({
   // E-SIGNATURE STATUS (replaces DocuSign stubs)
   // ========================================
 
-  getESignatureStatus: adminProcedure
+  getESignatureStatus: staffProcedure
     .query(() => {
       return { available: true, provider: 'self-hosted' }
     }),
@@ -1161,7 +1189,7 @@ export const documentsRouter = router({
     }),
 
   // Get all signature requests for a client (for SignatureTracker)
-  getSignatureRequests: adminProcedure
+  getSignatureRequests: staffProcedure
     .input(z.object({ clientId: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1196,7 +1224,7 @@ export const documentsRouter = router({
     }),
 
   // Expire stale requests (called by cron/API route)
-  expireStaleRequests: adminProcedure
+  expireStaleRequests: staffProcedure
     .mutation(async ({ ctx }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })

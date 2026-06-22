@@ -1,4 +1,4 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
@@ -11,7 +11,7 @@ import { accommodations, clients, hotels } from '@/lib/db/schema'
  * Accommodations are hotel definitions that can be used for guest room allotment.
  */
 export const accommodationsRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -50,7 +50,7 @@ export const accommodationsRouter = router({
       return accommodationList
     }),
 
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -72,10 +72,13 @@ export const accommodationsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(accommodation.clientId)
+
       return accommodation
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       name: z.string().min(1, 'Hotel name is required'),
@@ -156,7 +159,7 @@ export const accommodationsRouter = router({
       return accommodation
     }),
 
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -194,6 +197,9 @@ export const accommodationsRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Accommodation not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       // If setting as default, unset other defaults
       if (input.data.isDefault) {
@@ -238,7 +244,7 @@ export const accommodationsRouter = router({
       return accommodation
     }),
 
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -255,6 +261,9 @@ export const accommodationsRouter = router({
       if (!accommodation) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Accommodation not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(accommodation.clientId)
 
       // Soft delete the accommodation
       await ctx.db
@@ -282,7 +291,7 @@ export const accommodationsRouter = router({
     }),
 
   // Set a specific accommodation as default
-  setDefault: adminProcedure
+  setDefault: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       clientId: z.string().uuid(),

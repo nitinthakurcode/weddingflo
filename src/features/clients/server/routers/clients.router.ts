@@ -6,8 +6,10 @@ import {
   clients, user as userTable, companies, events, clientUsers, budget, timeline, vendors, clientVendors,
   guests, hotels, guestTransport, documents, floorPlans, floorPlanTables, floorPlanGuests,
   gifts, giftsEnhanced, guestGifts, messages, payments, weddingWebsites, activity,
-  documentAuditTrail, documentSignatureFields, documentSigners, documentSignatureRequests
+  documentAuditTrail, documentSignatureFields, documentSigners, documentSignatureRequests,
+  teamClientAssignments
 } from '@/lib/db/schema';
+import { assertClientAccess } from '@/server/trpc/client-access';
 import type { SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
@@ -182,6 +184,19 @@ export const clientsRouter = router({
         isNull(clients.deletedAt)
       ];
 
+      // Staff see ONLY clients they're assigned to (admins see all company clients)
+      if (ctx.role === 'staff' && ctx.userId) {
+        conditions.push(
+          inArray(
+            clients.id,
+            ctx.db
+              .select({ id: teamClientAssignments.clientId })
+              .from(teamClientAssignments)
+              .where(eq(teamClientAssignments.teamMemberId, ctx.userId))
+          )
+        );
+      }
+
       // Add search filter if provided
       if (input.search) {
         const searchPattern = `%${input.search}%`;
@@ -244,6 +259,11 @@ export const clientsRouter = router({
           code: 'NOT_FOUND',
           message: 'Client not found',
         });
+      }
+
+      // Staff may only open clients they're assigned to
+      if (ctx.role === 'staff') {
+        await assertClientAccess(ctx, input.id);
       }
 
       return data;
@@ -1165,15 +1185,28 @@ export const clientsRouter = router({
         });
       }
 
+      const getAllConditions = [
+        eq(clients.companyId, ctx.companyId),
+        isNull(clients.deletedAt)
+      ];
+
+      // Staff see ONLY clients they're assigned to
+      if (ctx.role === 'staff' && ctx.userId) {
+        getAllConditions.push(
+          inArray(
+            clients.id,
+            ctx.db
+              .select({ id: teamClientAssignments.clientId })
+              .from(teamClientAssignments)
+              .where(eq(teamClientAssignments.teamMemberId, ctx.userId))
+          )
+        );
+      }
+
       const data = await ctx.db
         .select()
         .from(clients)
-        .where(
-          and(
-            eq(clients.companyId, ctx.companyId),
-            isNull(clients.deletedAt)
-          )
-        )
+        .where(and(...getAllConditions))
         .orderBy(desc(clients.weddingDate));
 
       return data;

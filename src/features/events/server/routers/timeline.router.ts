@@ -1,4 +1,4 @@
-import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
@@ -12,7 +12,7 @@ import { broadcastSync } from '@/lib/realtime/broadcast-sync'
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const timelineRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -54,7 +54,7 @@ export const timelineRouter = router({
   /**
    * SECURITY: Verifies timeline item belongs to a client owned by the user's company
    */
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -79,10 +79,13 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(result.timelineItem.clientId)
+
       return result.timelineItem
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       eventId: z.string().uuid().optional(), // Optional link to specific event
@@ -164,7 +167,7 @@ export const timelineRouter = router({
   /**
    * SECURITY: Verifies timeline item belongs to a client owned by the user's company
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -187,7 +190,7 @@ export const timelineRouter = router({
 
       // Verify timeline item belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: timeline.id })
+        .select({ id: timeline.id, clientId: timeline.clientId })
         .from(timeline)
         .innerJoin(clients, eq(timeline.clientId, clients.id))
         .where(
@@ -202,6 +205,9 @@ export const timelineRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       // Build update object
       const updateData: Record<string, any> = {
@@ -242,7 +248,7 @@ export const timelineRouter = router({
   /**
    * SECURITY: Verifies timeline item belongs to a client owned by the user's company
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -267,6 +273,9 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
+
       await ctx.db
         .delete(timeline)
         .where(eq(timeline.id, input.id))
@@ -284,7 +293,7 @@ export const timelineRouter = router({
       return { success: true }
     }),
 
-  reorder: adminProcedure
+  reorder: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       itemIds: z.array(z.string().uuid()),
@@ -338,7 +347,7 @@ export const timelineRouter = router({
   /**
    * SECURITY: Verifies timeline item belongs to a client owned by the user's company
    */
-  markComplete: adminProcedure
+  markComplete: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       completed: z.boolean(),
@@ -350,7 +359,7 @@ export const timelineRouter = router({
 
       // Verify timeline item belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: timeline.id })
+        .select({ id: timeline.id, clientId: timeline.clientId })
         .from(timeline)
         .innerJoin(clients, eq(timeline.clientId, clients.id))
         .where(
@@ -365,6 +374,9 @@ export const timelineRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       const [timelineItem] = await ctx.db
         .update(timeline)
@@ -388,7 +400,7 @@ export const timelineRouter = router({
       return timelineItem
     }),
 
-  detectConflicts: adminProcedure
+  detectConflicts: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -479,7 +491,7 @@ export const timelineRouter = router({
       return conflicts
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -586,7 +598,7 @@ export const timelineRouter = router({
    * Bulk import timeline items from Excel
    * Supports create, update, and delete operations
    */
-  bulkImport: adminProcedure
+  bulkImport: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       items: z.array(z.object({
@@ -746,7 +758,7 @@ export const timelineRouter = router({
       return results
     }),
 
-  getGroupedByEvent: adminProcedure
+  getGroupedByEvent: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {

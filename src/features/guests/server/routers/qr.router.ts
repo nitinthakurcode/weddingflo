@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { router, adminProcedure } from '@/server/trpc/trpc';
+import { router, staffProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and } from 'drizzle-orm';
@@ -22,7 +22,7 @@ export const qrRouter = router({
   /**
    * Generate QR code for a single guest (encrypted token)
    */
-  generateForGuest: adminProcedure
+  generateForGuest: staffProcedure
     .input(z.object({
       guestId: z.string().uuid(),
       type: z.enum(['check-in', 'rsvp', 'guest-form']).default('rsvp'),
@@ -67,6 +67,9 @@ export const qrRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(guest.clientId);
+
       // Generate encrypted QR token (secure, time-limited)
       const encryptedData = generateGuestQRToken(
         input.guestId,
@@ -105,7 +108,7 @@ export const qrRouter = router({
   /**
    * Generate QR codes for all guests of a client (encrypted)
    */
-  generateBulk: adminProcedure
+  generateBulk: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       type: z.enum(['check-in', 'rsvp', 'guest-form']).default('rsvp'),
@@ -188,7 +191,7 @@ export const qrRouter = router({
    * Generate a single QR code for client-level guest registration
    * This QR links to the public guest registration form
    */
-  generateClientFormQR: adminProcedure
+  generateClientFormQR: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       baseUrl: z.string().optional(),
@@ -251,7 +254,7 @@ export const qrRouter = router({
   /**
    * Verify QR code and check in guest
    */
-  verifyCheckin: adminProcedure
+  verifyCheckin: staffProcedure
     .input(z.object({ qrData: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
@@ -295,6 +298,9 @@ export const qrRouter = router({
         if (!client) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Invalid QR code' });
         }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(guest.clientId);
 
         // Check in guest
         await db

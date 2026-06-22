@@ -1,4 +1,4 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { exportToExcel, exportToPDF } from '@/lib/export/export-utils'
@@ -6,7 +6,7 @@ import { eq, and } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
 
 export const exportRouter = router({
-  exportClientData: adminProcedure
+  exportClientData: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       format: z.enum(['excel', 'pdf']),

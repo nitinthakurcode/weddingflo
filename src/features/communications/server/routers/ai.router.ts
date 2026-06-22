@@ -1,4 +1,4 @@
-import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
+import { router, protectedProcedure, staffProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { openai, AI_CONFIG } from '@/lib/ai/openai-client';
@@ -363,7 +363,7 @@ Provide personalized, actionable advice based on these details. Be warm, profess
    * })
    * ```
    */
-  generateSeatingPlan: adminProcedure
+  generateSeatingPlan: staffProcedure
     .input(
       z.object({
         clientId: z.string().uuid(),
@@ -517,7 +517,7 @@ Respond with a JSON object:
    * })
    * ```
    */
-  analyzeBudget: adminProcedure
+  analyzeBudget: staffProcedure
     .input(
       z.object({
         clientId: z.string().uuid(),

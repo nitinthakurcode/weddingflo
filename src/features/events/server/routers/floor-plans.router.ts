@@ -8,7 +8,7 @@
  * - BetterAuth session for authentication
  */
 
-import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
+import { router, protectedProcedure, staffProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, or, desc, inArray } from 'drizzle-orm';
@@ -148,7 +148,7 @@ export const floorPlansRouter = router({
   /**
    * Create new floor plan
    */
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       name: z.string().min(1).max(100),
@@ -219,7 +219,7 @@ export const floorPlansRouter = router({
   /**
    * Update floor plan settings
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       name: z.string().optional(),
@@ -269,6 +269,9 @@ export const floorPlansRouter = router({
         if (!client) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(existing.clientId);
 
         const existingMetadata = (existing.metadata as Record<string, unknown>) || {};
 
@@ -322,7 +325,7 @@ export const floorPlansRouter = router({
   /**
    * Add table to floor plan
    */
-  addTable: adminProcedure
+  addTable: staffProcedure
     .input(z.object({
       floorPlanId: z.string().uuid(),
       tableNumber: z.string(),
@@ -346,6 +349,13 @@ export const floorPlansRouter = router({
         const floorPlan = await db.query.floorPlans.findFirst({
           where: eq(schema.floorPlans.id, input.floorPlanId),
         });
+
+        if (!floorPlan) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Floor plan not found' });
+        }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
 
         const [table] = await db
           .insert(schema.floorPlanTables)
@@ -395,7 +405,7 @@ export const floorPlansRouter = router({
   /**
    * Update table position and properties
    */
-  updateTable: adminProcedure
+  updateTable: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       x: z.number().int().optional(),
@@ -419,6 +429,17 @@ export const floorPlansRouter = router({
         if (!existing) {
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Table not found' });
         }
+
+        // Staff: authorize against client assignment (derived clientId via floor plan)
+        const parentFloorPlan = existing.floorPlanId
+          ? await db.query.floorPlans.findFirst({
+              where: eq(schema.floorPlans.id, existing.floorPlanId),
+            })
+          : null;
+        if (!parentFloorPlan) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Floor plan not found' });
+        }
+        await ctx.assertClientAccess(parentFloorPlan.clientId);
 
         const existingMetadata = (existing.metadata as Record<string, unknown>) || {};
 
@@ -455,22 +476,15 @@ export const floorPlansRouter = router({
           .returning();
 
         // Broadcast real-time sync
-        if (existing.floorPlanId) {
-          const floorPlan = await db.query.floorPlans.findFirst({
-            where: eq(schema.floorPlans.id, existing.floorPlanId),
-          });
-          if (floorPlan) {
-            await broadcastSync({
-              type: 'update',
-              module: 'floorPlans',
-              entityId: existing.floorPlanId,
-              companyId: ctx.companyId!,
-              clientId: floorPlan.clientId,
-              userId: ctx.userId!,
-              queryPaths: ['floorPlans.list', 'floorPlans.getById'],
-            });
-          }
-        }
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: parentFloorPlan.id,
+          companyId: ctx.companyId!,
+          clientId: parentFloorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+        });
 
         return updated;
       } catch (error) {
@@ -486,7 +500,7 @@ export const floorPlansRouter = router({
   /**
    * Delete table
    */
-  deleteTable: adminProcedure
+  deleteTable: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { db } = ctx;
@@ -497,26 +511,34 @@ export const floorPlansRouter = router({
           where: eq(schema.floorPlanTables.id, input.id),
         });
 
+        if (!table) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Table not found' });
+        }
+
+        // Staff: authorize against client assignment (derived clientId via floor plan)
+        const parentFloorPlan = table.floorPlanId
+          ? await db.query.floorPlans.findFirst({
+              where: eq(schema.floorPlans.id, table.floorPlanId),
+            })
+          : null;
+        if (!parentFloorPlan) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Floor plan not found' });
+        }
+        await ctx.assertClientAccess(parentFloorPlan.clientId);
+
         await db
           .delete(schema.floorPlanTables)
           .where(eq(schema.floorPlanTables.id, input.id));
 
-        if (table?.floorPlanId) {
-          const floorPlan = await db.query.floorPlans.findFirst({
-            where: eq(schema.floorPlans.id, table.floorPlanId),
-          });
-          if (floorPlan) {
-            await broadcastSync({
-              type: 'update',
-              module: 'floorPlans',
-              entityId: table.floorPlanId,
-              companyId: ctx.companyId!,
-              clientId: floorPlan.clientId,
-              userId: ctx.userId!,
-              queryPaths: ['floorPlans.list', 'floorPlans.getById'],
-            });
-          }
-        }
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: parentFloorPlan.id,
+          companyId: ctx.companyId!,
+          clientId: parentFloorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
+        });
 
         return { success: true };
       } catch (error) {
@@ -583,7 +605,7 @@ export const floorPlansRouter = router({
    * seatingConflicts = guest IDs this guest must NOT sit with.
    * seatingPreferences = guest IDs this guest prefers to sit with.
    */
-  updateGuestSeatingRules: adminProcedure
+  updateGuestSeatingRules: staffProcedure
     .input(z.object({
       guestId: z.string().uuid(),
       seatingConflicts: z.array(z.string().uuid()).optional(),
@@ -603,6 +625,9 @@ export const floorPlansRouter = router({
       if (!guest) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found' });
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(guest.clientId);
 
       // Replace conflicts involving this guest
       if (input.seatingConflicts) {
@@ -653,7 +678,7 @@ export const floorPlansRouter = router({
   /**
    * Assign guest to table (with optional conflict check)
    */
-  assignGuest: adminProcedure
+  assignGuest: staffProcedure
     .input(z.object({
       floorPlanId: z.string().uuid(),
       tableId: z.string().uuid(),
@@ -665,6 +690,18 @@ export const floorPlansRouter = router({
       const { db } = ctx;
 
       try {
+        // Look up floor plan and authorize (derived clientId)
+        const floorPlan = await db.query.floorPlans.findFirst({
+          where: eq(schema.floorPlans.id, input.floorPlanId),
+        });
+
+        if (!floorPlan) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Floor plan not found' });
+        }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
+
         // Check table capacity
         const table = await db.query.floorPlanTables.findFirst({
           where: eq(schema.floorPlanTables.id, input.tableId),
@@ -702,20 +739,15 @@ export const floorPlansRouter = router({
           .returning();
 
         // Broadcast floor plan update for real-time sync
-        const floorPlan = await db.query.floorPlans.findFirst({
-          where: eq(schema.floorPlans.id, input.floorPlanId),
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: input.floorPlanId,
+          companyId: ctx.companyId!,
+          clientId: floorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
         });
-        if (floorPlan) {
-          await broadcastSync({
-            type: 'update',
-            module: 'floorPlans',
-            entityId: input.floorPlanId,
-            companyId: ctx.companyId!,
-            clientId: floorPlan.clientId,
-            userId: ctx.userId!,
-            queryPaths: ['floorPlans.list', 'floorPlans.getById'],
-          });
-        }
 
         return assignment;
       } catch (error) {
@@ -731,7 +763,7 @@ export const floorPlansRouter = router({
   /**
    * Remove guest from table
    */
-  unassignGuest: adminProcedure
+  unassignGuest: staffProcedure
     .input(z.object({
       floorPlanId: z.string().uuid(),
       guestId: z.string().uuid(),
@@ -740,6 +772,18 @@ export const floorPlansRouter = router({
       const { db } = ctx;
 
       try {
+        // Look up floor plan and authorize (derived clientId)
+        const floorPlan = await db.query.floorPlans.findFirst({
+          where: eq(schema.floorPlans.id, input.floorPlanId),
+        });
+
+        if (!floorPlan) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Floor plan not found' });
+        }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
+
         await db
           .delete(schema.floorPlanGuests)
           .where(and(
@@ -748,23 +792,19 @@ export const floorPlansRouter = router({
           ));
 
         // Broadcast floor plan update for real-time sync
-        const floorPlan = await db.query.floorPlans.findFirst({
-          where: eq(schema.floorPlans.id, input.floorPlanId),
+        await broadcastSync({
+          type: 'update',
+          module: 'floorPlans',
+          entityId: input.floorPlanId,
+          companyId: ctx.companyId!,
+          clientId: floorPlan.clientId,
+          userId: ctx.userId!,
+          queryPaths: ['floorPlans.list', 'floorPlans.getById'],
         });
-        if (floorPlan) {
-          await broadcastSync({
-            type: 'update',
-            module: 'floorPlans',
-            entityId: input.floorPlanId,
-            companyId: ctx.companyId!,
-            clientId: floorPlan.clientId,
-            userId: ctx.userId!,
-            queryPaths: ['floorPlans.list', 'floorPlans.getById'],
-          });
-        }
 
         return { success: true };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error('Error unassigning guest:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -780,7 +820,7 @@ export const floorPlansRouter = router({
    * Performance: Uses single transaction for consistency
    * Validates capacity before any inserts
    */
-  batchAssignGuests: adminProcedure
+  batchAssignGuests: staffProcedure
     .input(z.object({
       floorPlanId: z.string().uuid(),
       assignments: z.array(z.object({
@@ -823,6 +863,9 @@ export const floorPlansRouter = router({
         if (!client) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
 
         // Get all tables for capacity validation
         const tableIds = [...new Set(input.assignments.map(a => a.tableId))];
@@ -972,7 +1015,7 @@ export const floorPlansRouter = router({
   /**
    * Delete floor plan
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
@@ -1004,6 +1047,9 @@ export const floorPlansRouter = router({
         if (!client) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
 
         // Atomic cascade delete (S7-M05)
         await db.transaction(async (tx) => {
@@ -1098,7 +1144,7 @@ export const floorPlansRouter = router({
   /**
    * Save current floor plan state as a new version
    */
-  saveVersion: adminProcedure
+  saveVersion: staffProcedure
     .input(z.object({
       floorPlanId: z.string().uuid(),
       name: z.string().min(1).max(100),
@@ -1130,6 +1176,9 @@ export const floorPlansRouter = router({
         if (!client) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
 
         // Get current tables
         const tables = await db.query.floorPlanTables.findMany({
@@ -1198,7 +1247,7 @@ export const floorPlansRouter = router({
   /**
    * Load/restore a specific version
    */
-  loadVersion: adminProcedure
+  loadVersion: staffProcedure
     .input(z.object({
       versionId: z.string().uuid(),
       floorPlanId: z.string().uuid(),
@@ -1239,6 +1288,9 @@ export const floorPlansRouter = router({
         if (!client) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
+
+        // Staff: authorize against client assignment (derived clientId)
+        await ctx.assertClientAccess(floorPlan.clientId);
 
         // Parse layout JSONB
         const layout = version.layout as {
@@ -1323,7 +1375,7 @@ export const floorPlansRouter = router({
   /**
    * Delete a saved version
    */
-  deleteVersion: adminProcedure
+  deleteVersion: staffProcedure
     .input(z.object({ versionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
@@ -1358,6 +1410,9 @@ export const floorPlansRouter = router({
           if (!client) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
           }
+
+          // Staff: authorize against client assignment (derived clientId)
+          await ctx.assertClientAccess(floorPlan.clientId);
         }
 
         await db
@@ -1425,7 +1480,7 @@ export const floorPlansRouter = router({
    * Log a seating change (called from client after each change)
    * Schema: id, floorPlanId, userId, changeType, previousData, newData, createdAt
    */
-  logChange: adminProcedure
+  logChange: staffProcedure
     .input(z.object({
       floorPlanId: z.string().uuid(),
       action: z.enum(['assign', 'unassign', 'move_table', 'add_table', 'delete_table', 'batch_assign']),
@@ -1440,6 +1495,15 @@ export const floorPlansRouter = router({
       if (!companyId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID required' });
       }
+
+      // Staff: authorize against client assignment (derived clientId via floor plan)
+      const parentFloorPlan = await db.query.floorPlans.findFirst({
+        where: eq(schema.floorPlans.id, input.floorPlanId),
+      });
+      if (!parentFloorPlan) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Floor plan not found' });
+      }
+      await ctx.assertClientAccess(parentFloorPlan.clientId);
 
       try {
         const [log] = await db
@@ -1530,7 +1594,7 @@ export const floorPlansRouter = router({
   /**
    * Add a guest conflict
    */
-  addGuestConflict: adminProcedure
+  addGuestConflict: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       guestOneId: z.string().uuid(),
@@ -1583,7 +1647,7 @@ export const floorPlansRouter = router({
   /**
    * Add a guest preference
    */
-  addGuestPreference: adminProcedure
+  addGuestPreference: staffProcedure
     .input(z.object({
       guestId: z.string().uuid(),
       preferences: z.record(z.string(), z.unknown()).optional(),
@@ -1594,6 +1658,15 @@ export const floorPlansRouter = router({
       if (!companyId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID required' });
       }
+
+      // Staff: authorize against client assignment (derived clientId via guest)
+      const guest = await db.query.guests.findFirst({
+        where: eq(schema.guests.id, input.guestId),
+      });
+      if (!guest) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found' });
+      }
+      await ctx.assertClientAccess(guest.clientId);
 
       try {
         const [preference] = await db
@@ -1627,7 +1700,7 @@ export const floorPlansRouter = router({
   /**
    * Remove a guest conflict
    */
-  removeGuestConflict: adminProcedure
+  removeGuestConflict: staffProcedure
     .input(z.object({ conflictId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
@@ -1635,6 +1708,15 @@ export const floorPlansRouter = router({
       if (!companyId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID required' });
       }
+
+      // Staff: authorize against client assignment (derived clientId via conflict)
+      const conflict = await db.query.guestConflicts.findFirst({
+        where: eq(schema.guestConflicts.id, input.conflictId),
+      });
+      if (!conflict) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Conflict not found' });
+      }
+      await ctx.assertClientAccess(conflict.clientId);
 
       try {
         await db
@@ -1663,7 +1745,7 @@ export const floorPlansRouter = router({
   /**
    * Remove a guest preference
    */
-  removeGuestPreference: adminProcedure
+  removeGuestPreference: staffProcedure
     .input(z.object({ preferenceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { db, companyId } = ctx;
@@ -1671,6 +1753,23 @@ export const floorPlansRouter = router({
       if (!companyId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID required' });
       }
+
+      // Staff: authorize against client assignment (derived clientId via preference → guest)
+      const preference = await db.query.guestPreferences.findFirst({
+        where: eq(schema.guestPreferences.id, input.preferenceId),
+      });
+      if (!preference) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Preference not found' });
+      }
+      const preferenceGuest = preference.guestId
+        ? await db.query.guests.findFirst({
+            where: eq(schema.guests.id, preference.guestId),
+          })
+        : null;
+      if (!preferenceGuest) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found' });
+      }
+      await ctx.assertClientAccess(preferenceGuest.clientId);
 
       try {
         await db

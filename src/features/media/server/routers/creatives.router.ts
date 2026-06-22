@@ -5,7 +5,7 @@
  * All extra fields are stored in the data JSONB field
  */
 
-import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, desc, isNull } from 'drizzle-orm'
@@ -32,7 +32,7 @@ interface CreativeJobData {
 }
 
 export const creativesRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -68,7 +68,7 @@ export const creativesRouter = router({
   /**
    * SECURITY: Verifies creative job belongs to a client owned by the user's company
    */
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -93,13 +93,16 @@ export const creativesRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(result.creativeJob.clientId)
+
       return {
         ...result.creativeJob,
         ...(result.creativeJob.data as CreativeJobData || {}),
       }
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       jobType: z.enum(['video', 'photo', 'graphic', 'invitation', 'other']),
@@ -180,7 +183,7 @@ export const creativesRouter = router({
   /**
    * SECURITY: Verifies creative job belongs to a client owned by the user's company
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -225,6 +228,9 @@ export const creativesRouter = router({
       }
 
       const existing = result.creativeJob
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       const existingData = (existing.data as CreativeJobData) || {}
       const newData: CreativeJobData = {
@@ -273,7 +279,7 @@ export const creativesRouter = router({
   /**
    * SECURITY: Verifies creative job belongs to a client owned by the user's company
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -282,7 +288,7 @@ export const creativesRouter = router({
 
       // Verify creative job belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: schema.creativeJobs.id })
+        .select({ id: schema.creativeJobs.id, clientId: schema.creativeJobs.clientId })
         .from(schema.creativeJobs)
         .innerJoin(schema.clients, eq(schema.creativeJobs.clientId, schema.clients.id))
         .where(
@@ -297,6 +303,9 @@ export const creativesRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       await ctx.db
         .delete(schema.creativeJobs)
@@ -317,7 +326,7 @@ export const creativesRouter = router({
   /**
    * SECURITY: Verifies creative job belongs to a client owned by the user's company
    */
-  updateStatus: adminProcedure
+  updateStatus: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       status: z.enum(['requested', 'in_progress', 'review', 'approved', 'completed']),
@@ -329,7 +338,7 @@ export const creativesRouter = router({
 
       // Verify creative job belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: schema.creativeJobs.id })
+        .select({ id: schema.creativeJobs.id, clientId: schema.creativeJobs.clientId })
         .from(schema.creativeJobs)
         .innerJoin(schema.clients, eq(schema.creativeJobs.clientId, schema.clients.id))
         .where(
@@ -344,6 +353,9 @@ export const creativesRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       const [creativeJob] = await ctx.db
         .update(schema.creativeJobs)
@@ -366,7 +378,7 @@ export const creativesRouter = router({
       return creativeJob
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {

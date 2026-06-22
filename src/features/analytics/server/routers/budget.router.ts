@@ -1,4 +1,4 @@
-import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
@@ -14,7 +14,7 @@ import { recalcClientStats } from '@/lib/sync/client-stats-sync'
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const budgetRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -105,7 +105,7 @@ export const budgetRouter = router({
   /**
    * SECURITY: Verifies budget item belongs to a client owned by the user's company
    */
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -131,6 +131,8 @@ export const budgetRouter = router({
       }
 
       const budgetItem = result.budgetItem
+
+      await ctx.assertClientAccess(budgetItem.clientId)
 
       // Get event info if eventId exists
       let eventInfo = null
@@ -162,7 +164,7 @@ export const budgetRouter = router({
       }
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       category: z.string().min(1),
@@ -286,7 +288,7 @@ export const budgetRouter = router({
   /**
    * SECURITY: Verifies budget item belongs to a client owned by the user's company
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -331,6 +333,8 @@ export const budgetRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
+
+      await ctx.assertClientAccess(existing.clientId)
 
       // Build update object
       const updateData: Record<string, any> = {
@@ -482,7 +486,7 @@ export const budgetRouter = router({
   /**
    * SECURITY: Verifies budget item belongs to a client owned by the user's company
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -506,6 +510,8 @@ export const budgetRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
+
+      await ctx.assertClientAccess(existing.clientId)
 
       // Delete budget item + linked timeline atomically
       await ctx.db.transaction(async (tx) => {
@@ -546,7 +552,7 @@ export const budgetRouter = router({
   /**
    * SECURITY: Verifies budget item belongs to a client owned by the user's company
    */
-  addAdvancePayment: adminProcedure
+  addAdvancePayment: staffProcedure
     .input(z.object({
       budgetItemId: z.string().uuid(),
       amount: z.number().min(0),
@@ -577,6 +583,8 @@ export const budgetRouter = router({
       if (!budgetItem) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found' })
       }
+
+      await ctx.assertClientAccess(budgetItem.clientId)
 
       // Create advance payment + update budget + sync vendor atomically
       const advance = await ctx.db.transaction(async (tx) => {
@@ -650,7 +658,7 @@ export const budgetRouter = router({
       return advance
     }),
 
-  updateAdvancePayment: adminProcedure
+  updateAdvancePayment: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -665,6 +673,27 @@ export const budgetRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
+
+      // Verify the advance's budget item belongs to a client owned by this company
+      const [existingAdvance] = await ctx.db
+        .select({ clientId: budget.clientId })
+        .from(advancePayments)
+        .innerJoin(budget, eq(advancePayments.budgetItemId, budget.id))
+        .innerJoin(clients, eq(budget.clientId, clients.id))
+        .where(
+          and(
+            eq(advancePayments.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
+        .limit(1)
+
+      if (!existingAdvance) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
+      }
+
+      await ctx.assertClientAccess(existingAdvance.clientId)
 
       const updateData: Record<string, any> = {
         updatedAt: new Date(),
@@ -746,23 +775,34 @@ export const budgetRouter = router({
       return result.advance
     }),
 
-  deleteAdvancePayment: adminProcedure
+  deleteAdvancePayment: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
-      // Get the advance payment first to know which budget item to update
+      // Get the advance payment first to know which budget item to update,
+      // verifying the budget item belongs to a client owned by this company
       const [advance] = await ctx.db
-        .select({ budgetItemId: advancePayments.budgetItemId })
+        .select({ budgetItemId: advancePayments.budgetItemId, clientId: budget.clientId })
         .from(advancePayments)
-        .where(eq(advancePayments.id, input.id))
+        .innerJoin(budget, eq(advancePayments.budgetItemId, budget.id))
+        .innerJoin(clients, eq(budget.clientId, clients.id))
+        .where(
+          and(
+            eq(advancePayments.id, input.id),
+            eq(clients.companyId, ctx.companyId),
+            isNull(clients.deletedAt)
+          )
+        )
         .limit(1)
 
       if (!advance) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
       }
+
+      await ctx.assertClientAccess(advance.clientId)
 
       // Delete advance + recalc budget + sync vendor atomically
       const deleteResult = await ctx.db.transaction(async (tx) => {
@@ -825,7 +865,7 @@ export const budgetRouter = router({
       return { success: true }
     }),
 
-  getAdvancePayments: adminProcedure
+  getAdvancePayments: staffProcedure
     .input(z.object({ budgetItemId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -841,7 +881,7 @@ export const budgetRouter = router({
       return advances
     }),
 
-  getSummary: adminProcedure
+  getSummary: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -911,7 +951,7 @@ export const budgetRouter = router({
       return summary
     }),
 
-  getByCategory: adminProcedure
+  getByCategory: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       category: z.string(),
@@ -961,7 +1001,7 @@ export const budgetRouter = router({
       }
     }),
 
-  getCategorySummary: adminProcedure
+  getCategorySummary: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1026,7 +1066,7 @@ export const budgetRouter = router({
     }),
 
   // Segment-based summary (vendors, travel, creatives, artists, accommodation, other)
-  getSegmentSummary: adminProcedure
+  getSegmentSummary: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1159,7 +1199,7 @@ export const budgetRouter = router({
     }),
 
   // Get budget items by segment
-  getBySegment: adminProcedure
+  getBySegment: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       segment: z.enum(['vendors', 'travel', 'creatives', 'artists', 'accommodation', 'other']),

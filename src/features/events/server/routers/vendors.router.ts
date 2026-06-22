@@ -1,4 +1,4 @@
-import { router, adminProcedure, protectedProcedure, publicProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, protectedProcedure, publicProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
@@ -54,7 +54,7 @@ async function autoLinkVendorToEvent(
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const vendorsRouter = router({
-  // Changed from adminProcedure to protectedProcedure - staff should be able to view vendors
+  // Changed from staffProcedure to protectedProcedure - staff should be able to view vendors
   getAll: protectedProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -225,7 +225,7 @@ export const vendorsRouter = router({
       return vendorsList
     }),
 
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -283,6 +283,9 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(clientVendor.clientId)
+
       return {
         ...clientVendor,
         name: clientVendor.vendorName,
@@ -292,7 +295,7 @@ export const vendorsRouter = router({
       }
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       vendorName: z.string().min(1),
@@ -514,7 +517,7 @@ export const vendorsRouter = router({
       }
     }),
 
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -557,6 +560,9 @@ export const vendorsRouter = router({
       if (!clientVendorRecord) {
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(clientVendorRecord.clientId)
 
       // Helper to convert empty strings to null for database
       const emptyToNull = (val: string | undefined | null) => val === '' ? null : val
@@ -750,7 +756,7 @@ export const vendorsRouter = router({
    * Delete vendor with cascade cleanup (transaction-wrapped).
    * Deletes: client-vendor relationship, budget item, timeline entry
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -771,6 +777,11 @@ export const vendorsRouter = router({
           .from(clientVendors)
           .where(eq(clientVendors.id, input.id))
           .limit(1)
+
+        // Staff: authorize against client assignment (derived clientId)
+        if (clientVendorRecord?.clientId) {
+          await ctx.assertClientAccess(clientVendorRecord.clientId)
+        }
 
         // 1. Delete from client_vendors (vendor remains in vendors table for reuse)
         const cvResult = await tx
@@ -825,7 +836,7 @@ export const vendorsRouter = router({
     }),
 
   // Approval workflow
-  updateApprovalStatus: adminProcedure
+  updateApprovalStatus: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       status: z.enum(['pending', 'approved', 'rejected']),
@@ -836,6 +847,20 @@ export const vendorsRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
+
+      // Load clientVendor to derive clientId for staff authorization
+      const [existingClientVendor] = await ctx.db
+        .select({ clientId: clientVendors.clientId })
+        .from(clientVendors)
+        .where(eq(clientVendors.id, input.id))
+        .limit(1)
+
+      if (!existingClientVendor) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingClientVendor.clientId)
 
       const updateData: Record<string, any> = {
         approvalStatus: input.status as any,
@@ -875,7 +900,7 @@ export const vendorsRouter = router({
     }),
 
   // Add comment to vendor
-  addComment: adminProcedure
+  addComment: staffProcedure
     .input(z.object({
       clientVendorId: z.string().uuid(),
       comment: z.string().min(1),
@@ -897,6 +922,9 @@ export const vendorsRouter = router({
       if (!clientVendor) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Client vendor not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(clientVendor.clientId)
 
       const [comment] = await ctx.db
         .insert(vendorComments)
@@ -929,7 +957,7 @@ export const vendorsRouter = router({
     }),
 
   // Get comments for vendor
-  getComments: adminProcedure
+  getComments: staffProcedure
     .input(z.object({ clientVendorId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -938,7 +966,7 @@ export const vendorsRouter = router({
 
       // Get vendorId from clientVendor record
       const [clientVendor] = await ctx.db
-        .select({ vendorId: clientVendors.vendorId })
+        .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
         .from(clientVendors)
         .where(eq(clientVendors.id, input.clientVendorId))
         .limit(1)
@@ -946,6 +974,9 @@ export const vendorsRouter = router({
       if (!clientVendor) {
         return []
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(clientVendor.clientId)
 
       const comments = await ctx.db
         .select()
@@ -957,12 +988,27 @@ export const vendorsRouter = router({
     }),
 
   // Delete comment
-  deleteComment: adminProcedure
+  deleteComment: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
+
+      // Load comment and derive clientId via the vendor's clientVendors link
+      const [commentRow] = await ctx.db
+        .select({ clientId: clientVendors.clientId })
+        .from(vendorComments)
+        .innerJoin(clientVendors, eq(vendorComments.vendorId, clientVendors.vendorId))
+        .where(eq(vendorComments.id, input.id))
+        .limit(1)
+
+      if (!commentRow) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Comment not found' })
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(commentRow.clientId)
 
       await ctx.db
         .delete(vendorComments)
@@ -980,7 +1026,7 @@ export const vendorsRouter = router({
       return { success: true }
     }),
 
-  updatePaymentStatus: adminProcedure
+  updatePaymentStatus: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       paymentStatus: z.enum(['pending', 'paid', 'overdue']),
@@ -990,6 +1036,20 @@ export const vendorsRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
+
+      // Load clientVendor to derive clientId for staff authorization
+      const [existingClientVendor] = await ctx.db
+        .select({ clientId: clientVendors.clientId })
+        .from(clientVendors)
+        .where(eq(clientVendors.id, input.id))
+        .limit(1)
+
+      if (!existingClientVendor) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingClientVendor.clientId)
 
       const updateData: Record<string, any> = {
         paymentStatus: input.paymentStatus as any,
@@ -1023,7 +1083,7 @@ export const vendorsRouter = router({
       return clientVendor
     }),
 
-  getByCategory: adminProcedure
+  getByCategory: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       category: z.string(),
@@ -1065,7 +1125,7 @@ export const vendorsRouter = router({
       return clientVendorData
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1187,7 +1247,7 @@ export const vendorsRouter = router({
    * @param vendorNames - Comma-separated list of vendor names
    * @returns Array of created vendors
    */
-  bulkCreateFromCommaList: adminProcedure
+  bulkCreateFromCommaList: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       eventId: z.string().uuid().optional(),
@@ -1344,7 +1404,7 @@ export const vendorsRouter = router({
    * Get advance payments for a vendor.
    * Fetches from the linked budget entry's advance_payments.
    */
-  getVendorAdvances: adminProcedure
+  getVendorAdvances: staffProcedure
     .input(z.object({ vendorId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1353,7 +1413,7 @@ export const vendorsRouter = router({
 
       // Find the budget entry linked to this vendor
       const [budgetItem] = await ctx.db
-        .select({ id: budget.id, estimatedCost: budget.estimatedCost })
+        .select({ id: budget.id, estimatedCost: budget.estimatedCost, clientId: budget.clientId })
         .from(budget)
         .where(eq(budget.vendorId, input.vendorId))
         .limit(1)
@@ -1362,6 +1422,9 @@ export const vendorsRouter = router({
         // No budget entry = no advances
         return { advances: [], total: 0, balance: 0, estimatedCost: 0 }
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(budgetItem.clientId)
 
       // Fetch advance payments for this budget item
       const advances = await ctx.db
@@ -1386,7 +1449,7 @@ export const vendorsRouter = router({
    * Add an advance payment for a vendor.
    * Creates the advance in the linked budget entry.
    */
-  addVendorAdvance: adminProcedure
+  addVendorAdvance: staffProcedure
     .input(z.object({
       vendorId: z.string().uuid(),
       amount: z.number().min(0),
@@ -1415,6 +1478,9 @@ export const vendorsRouter = router({
           message: 'No budget entry found for this vendor. Please set a contract amount first.'
         })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(budgetItem.clientId)
 
       // Create advance payment
       const [advance] = await ctx.db
@@ -1469,7 +1535,7 @@ export const vendorsRouter = router({
   /**
    * Update an advance payment for a vendor.
    */
-  updateVendorAdvance: adminProcedure
+  updateVendorAdvance: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -1486,6 +1552,21 @@ export const vendorsRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
+
+      // Load advance and derive clientId via its linked budget item
+      const [existingAdvance] = await ctx.db
+        .select({ clientId: budget.clientId })
+        .from(advancePayments)
+        .innerJoin(budget, eq(advancePayments.budgetItemId, budget.id))
+        .where(eq(advancePayments.id, input.id))
+        .limit(1)
+
+      if (!existingAdvance) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingAdvance.clientId)
 
       const updateData: Record<string, any> = {
         updatedAt: new Date(),
@@ -1550,7 +1631,7 @@ export const vendorsRouter = router({
   /**
    * Delete an advance payment for a vendor.
    */
-  deleteVendorAdvance: adminProcedure
+  deleteVendorAdvance: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1558,14 +1639,21 @@ export const vendorsRouter = router({
       }
 
       // Get the advance payment first to know which budget item to update
+      // Left join to budget to derive clientId for staff authorization
       const [advance] = await ctx.db
-        .select({ budgetItemId: advancePayments.budgetItemId })
+        .select({ budgetItemId: advancePayments.budgetItemId, clientId: budget.clientId })
         .from(advancePayments)
+        .leftJoin(budget, eq(advancePayments.budgetItemId, budget.id))
         .where(eq(advancePayments.id, input.id))
         .limit(1)
 
       if (!advance) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      if (advance.clientId) {
+        await ctx.assertClientAccess(advance.clientId)
       }
 
       // Delete the advance payment
@@ -1617,7 +1705,7 @@ export const vendorsRouter = router({
    * Add a review for a vendor (from company admin perspective)
    * Automatically recalculates vendor rating and review count
    */
-  addReview: adminProcedure
+  addReview: staffProcedure
     .input(z.object({
       vendorId: z.string().uuid(),
       clientId: z.string().uuid(),
@@ -1705,12 +1793,26 @@ export const vendorsRouter = router({
   /**
    * Get all reviews for a vendor
    */
-  getReviews: adminProcedure
+  getReviews: staffProcedure
     .input(z.object({ vendorId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not authenticated' })
       }
+
+      // Derive clientId via the vendor's clientVendors link for staff authorization
+      const [vendorLink] = await ctx.db
+        .select({ clientId: clientVendors.clientId })
+        .from(clientVendors)
+        .where(eq(clientVendors.vendorId, input.vendorId))
+        .limit(1)
+
+      if (!vendorLink) {
+        return []
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(vendorLink.clientId)
 
       const reviews = await ctx.db
         .select()
@@ -1724,7 +1826,7 @@ export const vendorsRouter = router({
   /**
    * Delete a review and recalculate vendor rating
    */
-  deleteReview: adminProcedure
+  deleteReview: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -1733,7 +1835,7 @@ export const vendorsRouter = router({
 
       // Get the review to know which vendor to update
       const [review] = await ctx.db
-        .select({ vendorId: vendorReviews.vendorId })
+        .select({ vendorId: vendorReviews.vendorId, clientId: vendorReviews.clientId })
         .from(vendorReviews)
         .where(eq(vendorReviews.id, input.id))
         .limit(1)
@@ -1741,6 +1843,9 @@ export const vendorsRouter = router({
       if (!review) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Review not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(review.clientId)
 
       // Delete the review
       await ctx.db

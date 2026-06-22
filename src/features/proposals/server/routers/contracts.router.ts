@@ -11,7 +11,7 @@
  * - Auto-generated contract numbers
  */
 
-import { router, protectedProcedure, publicProcedure, adminProcedure } from '@/server/trpc/trpc';
+import { router, protectedProcedure, publicProcedure, adminProcedure, staffProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, isNull, desc, asc, count } from 'drizzle-orm';
@@ -913,7 +913,7 @@ export const contractsRouter = router({
   /**
    * Cancel a contract
    */
-  cancel: adminProcedure
+  cancel: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -921,6 +921,25 @@ export const contractsRouter = router({
           code: 'FORBIDDEN',
           message: 'Company ID not found in session',
         });
+      }
+
+      // Load contract to derive clientId for staff authorization
+      const [existing] = await ctx.db
+        .select({ clientId: contracts.clientId })
+        .from(contracts)
+        .where(and(eq(contracts.id, input.id), eq(contracts.companyId, ctx.companyId)))
+        .limit(1);
+
+      if (!existing) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Contract not found',
+        });
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      if (existing.clientId) {
+        await ctx.assertClientAccess(existing.clientId);
       }
 
       const [updated] = await ctx.db
@@ -943,7 +962,7 @@ export const contractsRouter = router({
   /**
    * Delete a contract
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -951,6 +970,25 @@ export const contractsRouter = router({
           code: 'FORBIDDEN',
           message: 'Company ID not found in session',
         });
+      }
+
+      // Load contract to derive clientId for staff authorization
+      const [existing] = await ctx.db
+        .select({ clientId: contracts.clientId })
+        .from(contracts)
+        .where(and(eq(contracts.id, input.id), eq(contracts.companyId, ctx.companyId)))
+        .limit(1);
+
+      if (!existing) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Contract not found',
+        });
+      }
+
+      // Staff: authorize against client assignment (derived clientId)
+      if (existing.clientId) {
+        await ctx.assertClientAccess(existing.clientId);
       }
 
       await ctx.db

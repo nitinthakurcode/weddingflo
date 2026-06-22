@@ -20,6 +20,9 @@ import { checkRateLimit } from '@/lib/ai/rate-limiter'
 import { CHATBOT_TOOLS, isQueryTool } from '@/features/chatbot/tools/definitions'
 import { buildChatbotContext, extractClientIdFromPath } from '@/features/chatbot/server/services/context-builder'
 import { buildChatbotSystemPrompt } from '@/lib/ai/prompts/chatbot-system'
+import { assertClientAccess } from '@/server/trpc/client-access'
+import { db } from '@/lib/db'
+import type { Roles } from '@/types/globals'
 import type { ChatCompletionMessageParam, ChatCompletionToolChoiceOption } from 'openai/resources/chat/completions'
 
 export const runtime = 'nodejs'
@@ -66,6 +69,20 @@ export async function POST(request: NextRequest) {
 
     // Extract clientId from URL or use provided
     const clientId = providedClientId || (pathname ? extractClientIdFromPath(pathname) : null)
+
+    // Authorize the caller for this client. Mirrors the tRPC staffProcedure gate
+    // (Rule 26: auth changes apply to BOTH tRPC and the SSE route) so a staff
+    // member can't read or mutate an unassigned client's data via the chatbot.
+    if (clientId) {
+      try {
+        await assertClientAccess(
+          { db, role: (user.role ?? 'staff') as Roles, userId, companyId },
+          clientId
+        )
+      } catch {
+        return new NextResponse('Forbidden', { status: 403 })
+      }
+    }
 
     // Build context
     const context = await buildChatbotContext(clientId, companyId)

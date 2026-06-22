@@ -1,4 +1,4 @@
-import { router, adminProcedure, protectedProcedure, publicProcedure } from '@/server/trpc/trpc';
+import { router, staffProcedure, protectedProcedure, publicProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import bcrypt from 'bcryptjs';
@@ -247,7 +247,7 @@ export const websitesRouter = router({
   /**
    * Create new wedding website
    */
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       subdomain: z.string().regex(/^[a-z0-9-]+$/).optional(),
@@ -369,7 +369,7 @@ export const websitesRouter = router({
   /**
    * Update website content
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       websiteId: z.string().uuid().optional(),
       id: z.string().uuid().optional(),
@@ -440,6 +440,9 @@ export const websitesRouter = router({
         });
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(website.wedding_websites.clientId);
+
       // Merge data from both input formats
       const updates = input.data || input;
       const currentContent = (website.wedding_websites.content as WebsiteContent) || {};
@@ -500,7 +503,7 @@ export const websitesRouter = router({
   /**
    * Toggle publish status
    */
-  togglePublish: adminProcedure
+  togglePublish: staffProcedure
     .input(z.object({
       websiteId: z.string().uuid().optional(),
       id: z.string().uuid().optional(),
@@ -544,6 +547,9 @@ export const websitesRouter = router({
         });
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(website.wedding_websites.clientId);
+
       // Update publish status and store publishedAt in settings
       const currentSettings = (website.wedding_websites.settings as WebsiteSettings) || {};
       const newSettings: WebsiteSettings = {
@@ -576,7 +582,7 @@ export const websitesRouter = router({
   /**
    * Add custom domain (Premium feature)
    */
-  addCustomDomain: adminProcedure
+  addCustomDomain: staffProcedure
     .input(z.object({
       websiteId: z.string().uuid().optional(),
       id: z.string().uuid().optional(),
@@ -649,6 +655,9 @@ export const websitesRouter = router({
         });
       }
 
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(website.wedding_websites.clientId);
+
       // Generate verification token
       const verificationToken = 'wf-verify-' + crypto.randomUUID().slice(0, 16);
 
@@ -697,7 +706,7 @@ export const websitesRouter = router({
   /**
    * Verify custom domain DNS configuration
    */
-  verifyCustomDomain: adminProcedure
+  verifyCustomDomain: staffProcedure
     .input(z.object({
       websiteId: z.string().uuid(),
     }))
@@ -730,6 +739,9 @@ export const websitesRouter = router({
           message: 'Website not found',
         });
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(website.wedding_websites.clientId);
 
       const settings = website.wedding_websites.settings as WebsiteSettings;
       if (!website.wedding_websites.customDomain || !settings?.dnsVerificationToken) {
@@ -888,7 +900,7 @@ export const websitesRouter = router({
   /**
    * Delete website
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({
       websiteId: z.string().uuid().optional(),
       id: z.string().uuid().optional(),
@@ -930,6 +942,9 @@ export const websitesRouter = router({
           message: 'Website not found',
         });
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(website.wedding_websites.clientId);
 
       // Soft delete
       await db

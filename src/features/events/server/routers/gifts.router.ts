@@ -4,7 +4,7 @@
  * - gifts: id, clientId, guestId, name, value, status, createdAt, updatedAt
  */
 
-import { router, adminProcedure, protectedProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure, protectedProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc } from 'drizzle-orm'
@@ -101,7 +101,7 @@ export const giftsRouter = router({
   /**
    * Create gift
    */
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string(),
       guestId: z.string().optional(),
@@ -161,7 +161,7 @@ export const giftsRouter = router({
    * Update gift
    * SECURITY: Verifies gift belongs to a client owned by the user's company
    */
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string(),
       name: z.string().optional(),
@@ -176,7 +176,7 @@ export const giftsRouter = router({
 
       // Verify gift belongs to a client owned by this company
       const [existing] = await ctx.db
-        .select({ id: gifts.id })
+        .select({ id: gifts.id, clientId: gifts.clientId })
         .from(gifts)
         .innerJoin(clients, eq(gifts.clientId, clients.id))
         .where(
@@ -191,6 +191,9 @@ export const giftsRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       const updates: Record<string, unknown> = { updatedAt: new Date() }
       if (input.name !== undefined) updates.name = input.name
@@ -221,7 +224,7 @@ export const giftsRouter = router({
    * Delete gift
    * SECURITY: Verifies gift belongs to a client owned by the user's company
    */
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -245,6 +248,9 @@ export const giftsRouter = router({
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existing.clientId)
 
       await ctx.db
         .delete(gifts)

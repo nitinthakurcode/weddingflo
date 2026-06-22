@@ -1,4 +1,4 @@
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, gte, lte, inArray, sql } from 'drizzle-orm'
@@ -16,7 +16,7 @@ import { broadcastSync } from '@/lib/realtime/broadcast-sync'
  * Migrated from Supabase to Drizzle - December 2025
  */
 export const eventsRouter = router({
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -50,7 +50,7 @@ export const eventsRouter = router({
       return eventList
     }),
 
-  getById: adminProcedure
+  getById: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -74,10 +74,12 @@ export const eventsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND' })
       }
 
+      await ctx.assertClientAccess(result.event.clientId)
+
       return result.event
     }),
 
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       title: z.string().min(1),
@@ -256,7 +258,7 @@ export const eventsRouter = router({
       return event
     }),
 
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -298,6 +300,8 @@ export const eventsRouter = router({
           message: 'Event not found'
         })
       }
+
+      await ctx.assertClientAccess(existingEvent.event.clientId)
 
       // Build update object
       const updateData: Record<string, any> = {
@@ -394,7 +398,7 @@ export const eventsRouter = router({
       return event
     }),
 
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -420,6 +424,8 @@ export const eventsRouter = router({
           message: 'Event not found'
         })
       }
+
+      await ctx.assertClientAccess(existingEvent.event.clientId)
 
       // ATOMIC DELETE: All cleanup + delete in a transaction for data consistency
       // Order: clean up references first, then delete the entity
@@ -465,7 +471,7 @@ export const eventsRouter = router({
       return { success: true }
     }),
 
-  updateStatus: adminProcedure
+  updateStatus: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       status: z.enum(['planned', 'confirmed', 'completed', 'cancelled']),
@@ -495,6 +501,8 @@ export const eventsRouter = router({
         })
       }
 
+      await ctx.assertClientAccess(existingEvent.event.clientId)
+
       // Update status (already verified ownership)
       const [event] = await ctx.db
         .update(events)
@@ -515,7 +523,7 @@ export const eventsRouter = router({
       return event
     }),
 
-  getUpcoming: adminProcedure
+  getUpcoming: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -557,7 +565,7 @@ export const eventsRouter = router({
       return eventList
     }),
 
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -602,7 +610,7 @@ export const eventsRouter = router({
    * Get all events for the current month across all clients in the company.
    * Used for dashboard stats like "Active This Month".
    */
-  getEventsThisMonth: adminProcedure
+  getEventsThisMonth: staffProcedure
     .query(async ({ ctx }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })

@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import { ZodError } from 'zod';
 import type { Context } from './context';
+import { assertClientAccess, clientIdFromInput } from './client-access';
 
 /**
  * Initialize tRPC with context and superjson transformer.
@@ -117,6 +118,63 @@ export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
     throw new TRPCError({ code: 'FORBIDDEN' });
   }
   return next({ ctx });
+});
+
+/**
+ * Staff procedure - client-scoped access for company_admin, super_admin, AND staff.
+ *
+ * Use this (instead of adminProcedure) on procedures that operate on a single
+ * client's data (guests, budget, vendors, events, timeline, hotels, transport,
+ * gifts, documents, floor plans, etc.). It:
+ *  - allows company_admin / super_admin / staff (rejects client_user + others)
+ *  - requires a company context (except super_admin)
+ *  - for STAFF, auto-verifies access when the input carries a top-level
+ *    `clientId` (the common case) via assertClientAccess
+ *  - exposes `ctx.assertClientAccess(clientId)` so resolvers that DERIVE the
+ *    clientId from an entity id can authorize after loading it
+ *
+ * Fail-closed: a staff request whose clientId can't be verified here MUST be
+ * authorized by the resolver calling ctx.assertClientAccess(...).
+ *
+ * @example
+ * ```ts
+ * getById: staffProcedure
+ *   .input(z.object({ id: z.string() }))
+ *   .query(async ({ ctx, input }) => {
+ *     const [row] = await ctx.db.select(...).from(guests)... // loads clientId
+ *     await ctx.assertClientAccess(row.clientId) // derived-id authorization
+ *     return row
+ *   })
+ * ```
+ */
+export const staffProcedure = t.procedure.use(async ({ ctx, next, getRawInput }) => {
+  if (!ctx.userId) {
+    throw new TRPCError({ code: 'UNAUTHORIZED' });
+  }
+  if (
+    ctx.role !== 'company_admin' &&
+    ctx.role !== 'super_admin' &&
+    ctx.role !== 'staff'
+  ) {
+    throw new TRPCError({ code: 'FORBIDDEN' });
+  }
+  if (!ctx.companyId && ctx.role !== 'super_admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'No company context' });
+  }
+
+  // Per-request asserter bound to this ctx, for derived-clientId resolvers.
+  const boundAssertClientAccess = (clientId: string | null | undefined) =>
+    assertClientAccess(ctx, clientId);
+
+  // Auto-authorize the common direct-`clientId` input case for staff.
+  if (ctx.role === 'staff') {
+    const clientId = clientIdFromInput(await getRawInput());
+    if (clientId) {
+      await boundAssertClientAccess(clientId);
+    }
+  }
+
+  return next({ ctx: { ...ctx, assertClientAccess: boundAssertClientAccess } });
 });
 
 /**

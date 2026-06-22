@@ -6,7 +6,7 @@
  * January 2026 - Added fleet vehicle tracking with auto-availability
  */
 
-import { router, adminProcedure } from '@/server/trpc/trpc'
+import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, or, lte } from 'drizzle-orm'
@@ -37,7 +37,7 @@ function calculateAvailableAt(pickupDate: string | null, pickupTime: string | nu
 
 export const guestTransportRouter = router({
   // Get all transport entries for a client
-  getAll: adminProcedure
+  getAll: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -71,7 +71,7 @@ export const guestTransportRouter = router({
     }),
 
   // Get transport stats
-  getStats: adminProcedure
+  getStats: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -93,7 +93,7 @@ export const guestTransportRouter = router({
     }),
 
   // Create transport entry
-  create: adminProcedure
+  create: staffProcedure
     .input(z.object({
       clientId: z.string().uuid(),
       guestId: z.string().uuid().optional(),
@@ -262,7 +262,7 @@ export const guestTransportRouter = router({
 
   // Update transport entry
   // TRANSACTION: All update operations including vehicle and timeline sync are atomic
-  update: adminProcedure
+  update: staffProcedure
     .input(z.object({
       id: z.string().uuid(),
       data: z.object({
@@ -296,6 +296,9 @@ export const guestTransportRouter = router({
       if (!existingTransport) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Transport not found' })
       }
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingTransport.clientId)
 
       // Execute all transport update operations atomically within a transaction
       const result = await withTransaction(async (tx) => {
@@ -540,7 +543,7 @@ export const guestTransportRouter = router({
 
   // Delete transport entry
   // TRANSACTION: Transport deletion and timeline cleanup are atomic
-  delete: adminProcedure
+  delete: staffProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -553,6 +556,9 @@ export const guestTransportRouter = router({
         .from(guestTransport)
         .where(eq(guestTransport.id, input.id))
         .limit(1)
+
+      // Staff: authorize against client assignment (derived clientId)
+      await ctx.assertClientAccess(existingTransport?.clientId)
 
       // Execute transport deletion and cleanup atomically
       const result = await withTransaction(async (tx) => {
@@ -613,7 +619,7 @@ export const guestTransportRouter = router({
 
   // Sync transport with guests who have transport_required = true
   // Creates both arrival and departure transport entries
-  syncWithGuests: adminProcedure
+  syncWithGuests: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -775,14 +781,14 @@ export const guestTransportRouter = router({
     }),
 
   // Legacy compatibility - list endpoint
-  list: adminProcedure
+  list: staffProcedure
     .input(z.object({ eventId: z.string().optional() }))
     .query(async () => {
       return []
     }),
 
   // Get all transport entries with guest information (party details)
-  getAllWithGuests: adminProcedure
+  getAllWithGuests: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
@@ -848,7 +854,7 @@ export const guestTransportRouter = router({
     }),
 
   // Get all vehicles for a client with availability status
-  getVehicles: adminProcedure
+  getVehicles: staffProcedure
     .input(z.object({ clientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
