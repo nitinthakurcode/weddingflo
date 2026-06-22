@@ -1,8 +1,9 @@
 /**
- * Event Flow Router - Stub
+ * Event Flow Router
  *
- * Manages event flow/schedule tracking for wedding events.
- * TODO: Implement full functionality
+ * Event flow/schedule tracking. No dedicated `event_flow` table exists yet —
+ * day-of flow currently lives in the timeline module. Returns an empty list
+ * (safe, non-throwing default) until a dedicated table is introduced.
  */
 
 import { router, protectedProcedure } from '@/server/trpc/trpc';

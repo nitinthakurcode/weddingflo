@@ -1156,3 +1156,47 @@ export const googleSheetsSyncSettings = pgTable('google_sheets_sync_settings', {
   index('google_sheets_sync_user_id_idx').on(table.userId),
   index('google_sheets_sync_company_id_idx').on(table.companyId),
 ]);
+
+/**
+ * API Keys — company-scoped keys for the public API / Zapier integration.
+ * Only a SHA-256 hash of the key is stored; the plaintext is shown once on create.
+ */
+export const apiKeys = pgTable('api_keys', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: text('company_id').notNull(),
+  name: text('name').notNull(),
+  service: text('service').default('zapier'), // zapier, public_api, etc.
+  keyHash: text('key_hash').notNull(), // SHA-256 hash of the full key
+  keyPrefix: text('key_prefix').notNull(), // leading chars for display (wf_live_abcd…)
+  isActive: boolean('is_active').default(true),
+  lastUsedAt: timestamp('last_used_at'),
+  expiresAt: timestamp('expires_at'),
+  createdBy: text('created_by'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('api_keys_company_id_idx').on(table.companyId),
+  index('api_keys_key_hash_idx').on(table.keyHash),
+]);
+
+/**
+ * Integration Connections — company-scoped OAuth connections to external
+ * providers (QuickBooks, etc.). Tokens are stored encrypted.
+ */
+export const integrationConnections = pgTable('integration_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: text('company_id').notNull(),
+  provider: text('provider').notNull(), // quickbooks, xero, etc.
+  isActive: boolean('is_active').default(true),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  realmId: text('realm_id'), // QuickBooks company/realm id
+  companyName: text('company_name'),
+  expiresAt: timestamp('expires_at'),
+  lastSyncAt: timestamp('last_sync_at'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('integration_connections_company_id_idx').on(table.companyId),
+  index('integration_connections_provider_idx').on(table.companyId, table.provider),
+]);
