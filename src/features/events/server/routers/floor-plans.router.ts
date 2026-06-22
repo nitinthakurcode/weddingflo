@@ -11,7 +11,7 @@
 import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
@@ -530,22 +530,58 @@ export const floorPlansRouter = router({
     }),
 
   /**
-   * Check seating conflicts for a guest at a table
-   * Note: Seating conflicts/preferences feature not yet implemented in schema
+   * Check seating conflicts for a guest at a table: returns any conflicting
+   * guests already seated at that table, plus the guest's seating preferences.
    */
   checkConflicts: protectedProcedure
     .input(z.object({
       guestId: z.string().uuid(),
       tableId: z.string().uuid(),
     }))
-    .query(async () => {
-      // Seating conflicts/preferences not in schema yet
-      return { conflicts: [], preferences: [], hasConflicts: false, hasPreferences: false };
+    .query(async ({ ctx, input }) => {
+      const { db, companyId } = ctx;
+      if (!companyId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
+      }
+
+      // All conflicts involving this guest
+      const conflictRows = await db.query.guestConflicts.findMany({
+        where: or(
+          eq(schema.guestConflicts.guest1Id, input.guestId),
+          eq(schema.guestConflicts.guest2Id, input.guestId),
+        ),
+      });
+
+      // Of those, which conflicting guests are already seated at this table?
+      let conflicts = conflictRows;
+      if (conflictRows.length > 0) {
+        const seated = await db
+          .select({ guestId: schema.floorPlanGuests.guestId })
+          .from(schema.floorPlanGuests)
+          .where(eq(schema.floorPlanGuests.tableId, input.tableId));
+        const seatedIds = new Set(seated.map((s) => s.guestId).filter(Boolean));
+        conflicts = conflictRows.filter((c) => {
+          const other = c.guest1Id === input.guestId ? c.guest2Id : c.guest1Id;
+          return seatedIds.has(other);
+        });
+      }
+
+      const preferences = await db.query.guestPreferences.findMany({
+        where: eq(schema.guestPreferences.guestId, input.guestId),
+      });
+
+      return {
+        conflicts,
+        preferences,
+        hasConflicts: conflicts.length > 0,
+        hasPreferences: preferences.length > 0,
+      };
     }),
 
   /**
-   * Update guest seating conflicts and preferences
-   * Note: Seating conflicts/preferences feature not yet implemented in schema
+   * Replace a guest's seating conflicts and preferences in one call.
+   * seatingConflicts = guest IDs this guest must NOT sit with.
+   * seatingPreferences = guest IDs this guest prefers to sit with.
    */
   updateGuestSeatingRules: adminProcedure
     .input(z.object({
@@ -560,7 +596,6 @@ export const floorPlansRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
       }
 
-      // Seating conflicts/preferences not in schema yet - just return guest
       const guest = await db.query.guests.findFirst({
         where: eq(schema.guests.id, input.guestId),
       });
@@ -569,7 +604,49 @@ export const floorPlansRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found' });
       }
 
-      return guest;
+      // Replace conflicts involving this guest
+      if (input.seatingConflicts) {
+        await db
+          .delete(schema.guestConflicts)
+          .where(or(
+            eq(schema.guestConflicts.guest1Id, input.guestId),
+            eq(schema.guestConflicts.guest2Id, input.guestId),
+          ));
+        for (const otherId of input.seatingConflicts) {
+          if (otherId === input.guestId) continue;
+          const [g1, g2] = input.guestId < otherId
+            ? [input.guestId, otherId]
+            : [otherId, input.guestId];
+          await db.insert(schema.guestConflicts).values({
+            id: crypto.randomUUID(),
+            clientId: guest.clientId,
+            guest1Id: g1,
+            guest2Id: g2,
+          });
+        }
+      }
+
+      // Replace this guest's seating preferences (preferred-with guest IDs)
+      if (input.seatingPreferences) {
+        await db.delete(schema.guestPreferences).where(eq(schema.guestPreferences.guestId, input.guestId));
+        await db.insert(schema.guestPreferences).values({
+          id: crypto.randomUUID(),
+          guestId: input.guestId,
+          preferences: { seatWith: input.seatingPreferences },
+        });
+      }
+
+      await broadcastSync({
+        type: 'update',
+        module: 'floorPlans',
+        entityId: input.guestId,
+        companyId: companyId!,
+        clientId: guest.clientId,
+        userId: ctx.userId!,
+        queryPaths: ['floorPlans.getById'],
+      });
+
+      return { success: true };
     }),
 
 
@@ -1426,15 +1503,28 @@ export const floorPlansRouter = router({
     }),
 
   /**
-   * Get guest preferences for a client
-   * Note: Schema uses guestId, not clientId
+   * Get all guest seating preferences for a client (joined via the guests table,
+   * since preferences are stored per guest).
    */
   getGuestPreferences: protectedProcedure
     .input(z.object({ clientId: z.string().uuid() }))
-    .query(async () => {
-      // Guest preferences are stored per guest, not per client
-      // Return empty for now - feature needs schema update
-      return [];
+    .query(async ({ ctx, input }) => {
+      const { db, companyId } = ctx;
+      if (!companyId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
+      }
+
+      return db
+        .select({
+          id: schema.guestPreferences.id,
+          guestId: schema.guestPreferences.guestId,
+          preferences: schema.guestPreferences.preferences,
+          createdAt: schema.guestPreferences.createdAt,
+          updatedAt: schema.guestPreferences.updatedAt,
+        })
+        .from(schema.guestPreferences)
+        .innerJoin(schema.guests, eq(schema.guestPreferences.guestId, schema.guests.id))
+        .where(eq(schema.guests.clientId, input.clientId));
     }),
 
   /**
