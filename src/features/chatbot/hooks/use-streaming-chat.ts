@@ -60,7 +60,11 @@ interface StreamEvent {
 interface UseStreamingChatOptions {
   clientId?: string | null
   pathname?: string
-  onToolCall?: (toolCall: StreamEvent['toolCall'], requiresConfirmation: boolean) => void
+  onToolCall?: (
+    toolCall: StreamEvent['toolCall'],
+    requiresConfirmation: boolean,
+    assistantMessageId: string | null
+  ) => void
   onError?: (error: Error) => void
 }
 
@@ -196,7 +200,8 @@ export function useStreamingChat({
                   )
                 ),
               },
-              true
+              true,
+              currentAssistantMessageIdRef.current
             )
           }
         }
@@ -279,30 +284,35 @@ export function useStreamingChat({
                   break
 
                 case 'tool_call':
-                  // Handle tool call
+                  // Handle tool call. Pass the known assistant message id so the
+                  // consumer can attach a confirmation dialog without searching a
+                  // stale `messages` closure.
                   if (event.toolCall && onToolCall) {
-                    onToolCall(event.toolCall, event.requiresConfirmation ?? false)
+                    onToolCall(
+                      event.toolCall,
+                      event.requiresConfirmation ?? false,
+                      currentAssistantMessageIdRef.current
+                    )
                   }
 
-                  // Update message with tool call info
+                  // Update message with tool call info. When confirmation is
+                  // required the action has NOT run yet — keep the message in a
+                  // streaming state so the confirmation dialog drives it (do not
+                  // mark it 'success').
                   if (currentAssistantMessageIdRef.current && event.toolCall) {
                     setMessages((prev) =>
                       prev.map((m) =>
                         m.id === currentAssistantMessageIdRef.current
-                          ? {
-                              ...m,
-                              status: 'success' as const,
-                              ...(event.requiresConfirmation
-                                ? {
-                                    // Will be handled by confirmation dialog
-                                  }
-                                : {
-                                    toolResult: {
-                                      toolName: event.toolCall!.name,
-                                      success: true,
-                                    },
-                                  }),
-                            }
+                          ? event.requiresConfirmation
+                            ? { ...m, status: 'streaming' as const }
+                            : {
+                                ...m,
+                                status: 'success' as const,
+                                toolResult: {
+                                  toolName: event.toolCall!.name,
+                                  success: true,
+                                },
+                              }
                           : m
                       )
                     )

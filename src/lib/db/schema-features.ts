@@ -1055,7 +1055,10 @@ export const teamClientAssignments = pgTable('team_client_assignments', {
   role: text('role').default('assigned'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  // Hot path: assertClientAccess() checks (teamMemberId, clientId) on every staff request
+  index('team_client_assignments_member_client_idx').on(table.teamMemberId, table.clientId),
+]);
 
 // Wedding Websites
 export const weddingWebsites = pgTable('wedding_websites', {

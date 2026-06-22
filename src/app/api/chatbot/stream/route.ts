@@ -21,6 +21,7 @@ import { CHATBOT_TOOLS, isQueryTool } from '@/features/chatbot/tools/definitions
 import { buildChatbotContext, extractClientIdFromPath } from '@/features/chatbot/server/services/context-builder'
 import { buildChatbotSystemPrompt } from '@/lib/ai/prompts/chatbot-system'
 import { assertClientAccess } from '@/server/trpc/client-access'
+import { setPendingCall } from '@/features/chatbot/server/services/pending-calls'
 import { db } from '@/lib/db'
 import type { Roles } from '@/types/globals'
 import type { ChatCompletionMessageParam, ChatCompletionToolChoiceOption } from 'openai/resources/chat/completions'
@@ -193,6 +194,48 @@ export async function POST(request: NextRequest) {
             const finishReason = chunk.choices[0]?.finish_reason
 
             if (finishReason === 'tool_calls' && currentToolCall) {
+              const requiresConfirmation = !isQueryTool(currentToolCall.name)
+
+              // For a mutation, persist a pending call under the SAME id we send
+              // to the client, so chatbot.confirmToolCall can find + execute it
+              // (the SSE path previously emitted the tool_call but never stored
+              // it → Confirm 404'd). confirmToolCall executes from pending.args.
+              if (requiresConfirmation) {
+                try {
+                  const parsedArgs = JSON.parse(currentToolCall.arguments || '{}') as Record<string, unknown>
+                  // Inject the active clientId if the model didn't supply it — the
+                  // executor (e.g. add_guest) requires args.clientId (mirrors the
+                  // tRPC path in chatbot.router.ts).
+                  if (!parsedArgs.clientId && clientId) {
+                    parsedArgs.clientId = clientId
+                  }
+                  await setPendingCall(currentToolCall.id, {
+                    id: currentToolCall.id,
+                    toolName: currentToolCall.name,
+                    args: parsedArgs,
+                    preview: {
+                      toolName: currentToolCall.name,
+                      action: 'Create/Update',
+                      description: `Execute ${currentToolCall.name}`,
+                      fields: Object.entries(parsedArgs).map(([name, value]) => ({
+                        name,
+                        value: value as string | number | boolean | null,
+                        displayValue: String(value),
+                      })),
+                      cascadeEffects: [],
+                      warnings: [],
+                      requiresConfirmation: true,
+                    },
+                    userId,
+                    companyId,
+                    createdAt: new Date(),
+                    expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+                  })
+                } catch (storeErr) {
+                  console.error('[Chatbot Stream] Failed to persist pending tool call:', storeErr)
+                }
+              }
+
               // Tool call completed - send tool call event
               const sseData = JSON.stringify({
                 type: 'tool_call',
@@ -201,8 +244,7 @@ export async function POST(request: NextRequest) {
                   name: currentToolCall.name,
                   arguments: currentToolCall.arguments,
                 },
-                // Indicate if this requires confirmation
-                requiresConfirmation: !isQueryTool(currentToolCall.name),
+                requiresConfirmation,
               })
               controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
             }

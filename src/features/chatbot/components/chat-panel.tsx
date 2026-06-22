@@ -177,7 +177,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
   } = useStreamingChat({
     clientId,
     pathname,
-    onToolCall: (toolCall, requiresConfirmation) => {
+    onToolCall: (toolCall, requiresConfirmation, assistantMessageId) => {
       if (requiresConfirmation && toolCall) {
         // Parse arguments to create preview
         try {
@@ -196,11 +196,9 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
             requiresConfirmation: true,
           }
 
-          // Find the assistant message that triggered this
-          const assistantMessageId = messages.find(
-            (m) => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'pending')
-          )?.id
-
+          // Use the assistant message id supplied by the stream hook (avoids a
+          // stale `messages` closure that previously returned undefined → the
+          // confirmation dialog never opened).
           if (assistantMessageId) {
             setPendingConfirmation({
               pendingCallId: toolCall.id,

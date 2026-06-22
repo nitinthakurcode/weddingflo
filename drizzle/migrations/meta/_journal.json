@@ -232,6 +232,13 @@
       "when": 1782142818277,
       "tag": "0032_hot_path_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782153710426,
+      "tag": "0033_team_assignment_index",
+      "breakpoints": true
     }
   ]
 }

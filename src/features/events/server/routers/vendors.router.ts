@@ -763,24 +763,26 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Load + authorize BEFORE the transaction. Throwing inside withTransaction
+      // is retried and surfaces as a 500; doing the NOT_FOUND / assertClientAccess
+      // check out here yields clean 404/403. Mandatory, fail-closed.
+      const [clientVendorRecord] = await ctx.db
+        .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
+        .from(clientVendors)
+        .where(eq(clientVendors.id, input.id))
+        .limit(1)
+
+      if (!clientVendorRecord?.clientId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Vendor not found' })
+      }
+      await ctx.assertClientAccess(clientVendorRecord.clientId)
+
       // Execute cascade deletion in a transaction for atomicity
       const result = await withTransaction(async (tx) => {
         const deletionCounts = {
           clientVendors: 0,
           budget: 0,
           timeline: 0,
-        }
-
-        // Get vendor ID before deleting client_vendor relationship
-        const [clientVendorRecord] = await tx
-          .select({ vendorId: clientVendors.vendorId, clientId: clientVendors.clientId })
-          .from(clientVendors)
-          .where(eq(clientVendors.id, input.id))
-          .limit(1)
-
-        // Staff: authorize against client assignment (derived clientId)
-        if (clientVendorRecord?.clientId) {
-          await ctx.assertClientAccess(clientVendorRecord.clientId)
         }
 
         // 1. Delete from client_vendors (vendor remains in vendors table for reuse)
@@ -1651,10 +1653,13 @@ export const vendorsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
       }
 
-      // Staff: authorize against client assignment (derived clientId)
-      if (advance.clientId) {
-        await ctx.assertClientAccess(advance.clientId)
+      // Authorize against client assignment (derived clientId) — mandatory,
+      // fail-closed: an orphaned advance (deleted budget → null clientId) is
+      // rejected rather than silently skipping the access check.
+      if (!advance.clientId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Advance payment not found' })
       }
+      await ctx.assertClientAccess(advance.clientId)
 
       // Delete the advance payment
       await ctx.db
