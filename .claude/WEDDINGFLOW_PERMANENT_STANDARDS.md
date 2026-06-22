@@ -339,17 +339,20 @@ If you see ANY of these patterns, **REJECT the code**:
 
 ---
 
-## PACKAGES (December 2025)
+## PACKAGES (current — June 2026)
 
 ### CORRECT:
 
 ```json
 {
-  "better-auth": "^1.4.5",
-  "drizzle-orm": "^0.45.0",
+  "better-auth": "^1.6.9",
+  "drizzle-orm": "^0.45.2",
   "@supabase/supabase-js": "^2.86.0"
 }
 ```
+
+> Stack snapshot (installed): Next 16.2.9 · React 19.2.7 · TypeScript 6.0.3 ·
+> tRPC 11.18.0 · Drizzle ORM 0.45.2 · BetterAuth 1.6.20 · Zod 4.4.3 · Tailwind 4.3.1.
 
 ### NEVER INSTALL:
 

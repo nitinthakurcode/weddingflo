@@ -96,7 +96,7 @@ handbook: updated Sections B, D.1, G
 5. RSVP changes MUST call `recalcPerGuestBudgetItems()`.
 6. Multi-table writes MUST use `withTransaction()`.
 7. Normalize enums at ingestion: `normalizeRsvpStatus()`, `normalizeGuestSide()`.
-8. Client delete is MANUAL 19-table cascade — new child tables must be added to `clients.router.ts`.
+8. Client delete is MANUAL 23-table cascade — new child tables must be added to `clients.router.ts`.
 9. Soft-delete queries MUST filter `isNull(clients.deletedAt)`.
 
 ### Real-Time Sync
@@ -104,7 +104,7 @@ handbook: updated Sections B, D.1, G
 11. `broadcastSync` failures must never block or throw.
 12. Cascade sync functions are broadcast-blind — callers must include cascade queryPaths.
 13. `recalcClientStats` callers must include `clients.list` + `clients.getAll` in broadcastSync.
-14. queryPaths must match actual tRPC procedure names (see 18 canonical paths below).
+14. queryPaths must match actual tRPC procedure names (see canonical paths below).
 
 ### Auth & Routing
 15. Never add `middleware.ts` — Next.js 16 uses `proxy.ts` for i18n only, no auth.
@@ -138,15 +138,25 @@ handbook: updated Sections B, D.1, G
 
 ---
 
-## 18 Canonical queryPaths
+## Canonical queryPaths (broadcastSync invalidation set)
+
+Source of truth: the `queryPaths` arrays passed to `broadcastSync()` calls + the
+chatbot map in `src/features/chatbot/server/services/query-invalidation-map.ts`.
+Do not treat this list as exhaustive — derive it from code when in doubt
+(`grep -rhoE "'[a-z][a-zA-Z]+\.[a-z][a-zA-Z]+'" src`). Current set (~32 paths):
 
 ```
-budget.getAll        budget.getSummary     clients.getAll
-clients.getById      clients.list          events.getAll
-floorPlans.getById   floorPlans.list       gifts.getAll
-gifts.getStats       guestTransport.getAll guests.getAll
-guests.getStats      hotels.getAll         timeline.getAll
-timeline.getStats    vendors.getAll        vendors.getStats
+budget.getAll          budget.getSummary       clients.getAll
+clients.getById        clients.list            communications.list
+creatives.list         documents.getAll        documents.getPendingSignatures
+documents.getSignatureStats                    events.getAll
+floorPlans.getById     floorPlans.list         gifts.getAll
+gifts.getStats         guestTransport.getAll   guestTransport.getStats
+guests.getAll          guests.getDietaryStats  guests.getStats
+hotels.getAll          hotels.getStats         invoices.list
+pipeline.list          proposals.list          team.list
+timeline.getAll        timeline.getStats       vendors.getAll
+vendors.getStats       websites.list           workflows.list
 ```
 
 ---
@@ -155,7 +165,7 @@ timeline.getStats    vendors.getAll        vendors.getStats
 
 ```bash
 npx tsc --noEmit          # 0 errors
-npx vitest run            # 307 passed, 8 skipped, 0 failed
+npx vitest run            # 311 passed, 8 skipped, 0 failed
 npm run build             # All routes compile
 npx drizzle-kit check     # "Everything's fine"
 ```
@@ -168,7 +178,7 @@ Read `docs/DEVELOPER_HANDBOOK.md` Section F for propagation checklist.
 
 | File | Purpose |
 |------|---------|
-| `src/server/trpc/routers/_app.ts` | Main tRPC router (40+ sub-routers) |
+| `src/server/trpc/routers/_app.ts` | Main tRPC router (52 sub-routers) |
 | `src/lib/auth.ts` | BetterAuth server config |
 | `src/lib/auth/server.ts` | `getServerSession()` |
 | `src/lib/auth-client.ts` | Client auth hooks (`useAuth`, `signIn*`, `signOut*`) |
@@ -177,7 +187,7 @@ Read `docs/DEVELOPER_HANDBOOK.md` Section F for propagation checklist.
 | `src/lib/db/schema-features.ts` | All feature tables |
 | `src/lib/realtime/broadcast-sync.ts` | `broadcastSync()` |
 | `src/lib/sync/client-stats-sync.ts` | `recalcClientStats()` |
-| `src/features/clients/server/routers/clients.router.ts` | Client CRUD + 19-table cascade delete |
+| `src/features/clients/server/routers/clients.router.ts` | Client CRUD + 23-table cascade delete |
 | `src/features/guests/server/routers/guests.router.ts` | Guest CRUD + RSVP |
 | `src/features/events/server/routers/vendors.router.ts` | Vendor CRUD + budget |
 | `src/features/analytics/server/routers/budget.router.ts` | Budget mutations |

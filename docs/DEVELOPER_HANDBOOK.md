@@ -772,7 +772,7 @@ weddingflo/
 | Schema File              | Table Count |
 |--------------------------|-------------|
 | schema.ts                | 6           |
-| schema-features.ts       | 51          |
+| schema-features.ts       | 68          |
 | schema-pipeline.ts       | 3           |
 | schema-proposals.ts      | 4           |
 | schema-workflows.ts      | 4           |
@@ -780,7 +780,7 @@ weddingflo/
 | schema-chatbot.ts        | 4           |
 | schema-invitations.ts    | 2           |
 | schema-esignature.ts     | 5           |
-| **Total**                | **82**      |
+| **Total**                | **99**      |
 
 ---
 
@@ -1450,7 +1450,7 @@ When a mutation fires in **Source Module**, these **Target Queries** are also in
 
 **File:** `src/features/chatbot/server/services/query-invalidation-map.ts`
 
-The chatbot has 31 mutation tools + 14 query-only tools. Each mutation tool maps to the same `queryPaths` used by UI routers:
+The chatbot has 37 mutation tools + 14 query-only tools (51 total). Each mutation tool maps to the same `queryPaths` used by UI routers:
 
 | Chatbot Tool            | Invalidated Queries                                                             |
 |-------------------------|---------------------------------------------------------------------------------|
@@ -1648,6 +1648,8 @@ WeddingFlo has three independent header systems that must stay in sync:
 | Excel Export   | `src/lib/export/excel-exporter.ts`      | Download .xlsx         | Row 1: Header, Row 2: Hint |
 | Excel Import   | `src/lib/import/excel-parser.ts`        | Upload .xlsx           | Row 1: Header (+ aliases)  |
 | Google Sheets  | `src/lib/google/sheets-sync.ts`         | Bi-directional sync    | Row 1: Header              |
+
+**Delete-on-import marker:** add an optional **`Action`** column to any import sheet and set it to `DELETE` (or `REMOVE`) on a row that has a matching `ID` to delete that record. Supported on Excel import (budget/hotels/transport/vendors via `excel-parser-server.ts`; guests/gifts via the inline importer in `import.router.ts`) and Google Sheets import (all 7 modules via `applySheetRowDelete()` in `sheets-sync.ts`; vendors removes the client↔vendor link, not the global vendor). Deletes trigger `recalcClientStats()` + `broadcastSync()` like any other mutation. The column is read from the live sheet header, so it works even though the exporters do not yet emit an `Action` column.
 
 ### G.2 Guests — Header Comparison
 
@@ -2449,7 +2451,7 @@ chatbot.router.ts — chat procedure
 | Your Role                | 19-23   | Wedding planner assistant, execute via tools      |
 | Language Support          | 25-36   | en, hi, es, fr, de, ja, zh — respond in user's language |
 | Tool Usage Rules          | 38-48   | Queries auto-execute; mutations require confirmation |
-| Available Tools Reference | 50-129  | All 52 tools organized by feature category        |
+| Available Tools Reference | 50-129  | All 51 tools organized by feature category        |
 | Entity Resolution         | 131-134 | Fuzzy matching, natural language date parsing     |
 | Cascade Effects           | 136-140 | Auto-creation of related records                  |
 | Multi-Turn Conversations  | 142-164 | Progressive disclosure, pronoun resolution        |
@@ -2472,7 +2474,7 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 |-------------------|----------|---------------------------------|
 | `create_client`   | mutation | Create new wedding client       |
 | `update_client`   | mutation | Update client details           |
-| `delete_client`   | mutation | Soft-delete client + 19-table cascade |
+| `delete_client`   | mutation | Soft-delete client + 23-table cascade |
 | `get_client_summary` | query | Get client overview             |
 
 #### Guest Management (6 tools)
@@ -3053,7 +3055,7 @@ Mutations call `broadcastSync()` → `storeSyncAction()` → writes to Redis sor
 - Clients poll via `sync.subscribeToCompany` tRPC subscription
 
 **Query invalidation map:** `src/features/chatbot/server/services/query-invalidation-map.ts` (lines 18-93)
-- Maps 31 mutation tools to tRPC query paths that need invalidation
+- Maps 37 mutation tools to tRPC query paths that need invalidation
 - If a tool isn't in `TOOL_QUERY_MAP`, its queries won't invalidate
 
 **Checklist:**
