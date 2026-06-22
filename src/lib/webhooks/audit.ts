@@ -452,8 +452,22 @@ export async function checkWebhookErrorRate(
       },
     });
 
-    // TODO: Send alert to ops team (email, Slack, PagerDuty, etc.)
-    // await sendOpsAlert({...});
+    // Alert the ops team by email when configured (OPS_ALERT_EMAIL). No-op
+    // otherwise — monitoring should never throw on a missing channel.
+    const opsEmail = process.env.OPS_ALERT_EMAIL;
+    if (opsEmail) {
+      try {
+        const { sendEmail } = await import('@/lib/email/resend-client');
+        await sendEmail({
+          to: opsEmail,
+          subject: `[WeddingFlo] ${provider} webhook error rate ${errorRate.toFixed(1)}%`,
+          html: `<p>Webhook error rate for <strong>${provider}</strong> is <strong>${errorRate.toFixed(2)}%</strong> over the last ${hours}h (threshold ${threshold}%).</p>
+                 <p>Total: ${providerStats.total_webhooks}, Failed: ${providerStats.failed_webhooks}.</p>`,
+        });
+      } catch (err) {
+        console.error('[Webhook Audit] Failed to send ops alert email:', err);
+      }
+    }
   }
 
   return {
