@@ -4,8 +4,8 @@
 # This bypasses the need for psql or MCP
 
 MIGRATION_FILE="supabase/migrations/20251118070157_fix_function_search_path_security.sql"
-PROJECT_REF="gkrcaeymhgjepncbceag"
-SUPABASE_ACCESS_TOKEN="sbp_8f2c87204b1bf14dd7b8bfe6e0b80c3288ad938e"
+PROJECT_REF="${SUPABASE_PROJECT_REF:-gkrcaeymhgjepncbceag}"
+SUPABASE_ACCESS_TOKEN="$SUPABASE_ACCESS_TOKEN"
 
 echo "🔧 WeddingFlo - SQL Migration Applicator"
 echo "═══════════════════════════════════════════════"

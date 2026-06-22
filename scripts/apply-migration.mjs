@@ -13,7 +13,7 @@ dotenv.config({ path: join(__dirname, '..', '.env.local') });
 async function applyMigration() {
   // Connection string - using transaction mode (port 5432) for DDL operations
   const connectionString = process.env.DATABASE_URL ||
-    'postgresql://postgres.gkrcaeymhgjepncbceag:Nitin%40123@aws-0-ap-south-1.pooler.supabase.com:5432/postgres';
+    process.env.DATABASE_URL;
 
   const client = new pg.Client({
     connectionString,

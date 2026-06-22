@@ -4,7 +4,7 @@ import pkg from 'pg';
 const { Client } = pkg;
 
 // Try direct connection (port 5432) instead of pooler (port 6543)
-const connectionString = 'postgresql://postgres.gkrcaeymhgjepncbceag:Nitin@123@aws-0-ap-south-1.pooler.supabase.com:5432/postgres';
+const connectionString = process.env.DATABASE_URL;
 
 async function createHelperFunctions() {
   const client = new Client({ connectionString });

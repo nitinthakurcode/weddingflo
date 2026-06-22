@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Supabase Management API approach
-PROJECT_REF="gkrcaeymhgjepncbceag"
-ACCESS_TOKEN="sbp_8f2c87204b1bf14dd7b8bfe6e0b80c3288ad938e"
+PROJECT_REF="${SUPABASE_PROJECT_REF:-gkrcaeymhgjepncbceag}"
+ACCESS_TOKEN="$SUPABASE_ACCESS_TOKEN"
 
 echo "📦 Creating RLS helper functions via Supabase Management API..."
 echo ""

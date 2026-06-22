@@ -3,8 +3,8 @@
 # This script applies RLS performance optimizations
 # It wraps auth.jwt() and auth.uid() calls in (SELECT ...) to prevent re-evaluation per row
 
-export PGPASSWORD="Nitin@123"
-DB_URL="postgresql://postgres.gkrcaeymhgjepncbceag@aws-0-ap-south-1.pooler.supabase.com:6543/postgres"
+export PGPASSWORD="${PGPASSWORD:?set PGPASSWORD in env}"
+DB_URL="$DATABASE_URL"
 
 echo "🔧 Applying RLS Performance Optimizations..."
 echo ""

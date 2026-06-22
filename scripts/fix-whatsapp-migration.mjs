@@ -60,7 +60,7 @@ async function fixMigration() {
 
     } else {
       console.log('✅ Migration record removed');
-      console.log('\nNow run: SUPABASE_ACCESS_TOKEN=sbp_8f2c87204b1bf14dd7b8bfe6e0b80c3288ad938e supabase db push');
+      console.log('\nNow run: SUPABASE_ACCESS_TOKEN=process.env.SUPABASE_ACCESS_TOKEN supabase db push');
     }
 
   } catch (error) {
