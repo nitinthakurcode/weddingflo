@@ -10,9 +10,12 @@ import { router, protectedProcedure, adminProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, sql, count } from 'drizzle-orm';
-import { user as userTable, teamClientAssignments, clients } from '@/lib/db/schema';
+import { user as userTable, teamClientAssignments, clients, teamInvitations, companies } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+import { render } from '@react-email/render';
+import { sendEmail } from '@/lib/email/resend-client';
+import { TeamInviteEmail } from '@/lib/email/templates/team-invite-email';
 
 // Role enum for team members
 const teamRoleSchema = z.enum(['company_admin', 'staff', 'client_user']);
@@ -204,15 +207,63 @@ export const teamRouter = router({
         };
       }
 
-      // User doesn't exist - TODO: Create invitation record and send email
-      // For now, return a message indicating the user needs to sign up first
-      console.log(`[Team Router] Invitation would be sent to ${input.email}`);
+      // User doesn't exist - create an invitation record and email a signup token
+      const token = nanoid(32);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      await ctx.db.insert(teamInvitations).values({
+        companyId: ctx.companyId,
+        email: input.email,
+        role: input.role === 'company_admin' ? 'company_admin' : 'staff',
+        token,
+        invitedBy: ctx.userId!,
+        expiresAt,
+      });
+
+      // Best-effort invitation email (never blocks the invite from being created)
+      try {
+        const [company] = await ctx.db
+          .select({ name: companies.name })
+          .from(companies)
+          .where(eq(companies.id, ctx.companyId))
+          .limit(1);
+
+        const [inviter] = await ctx.db
+          .select({ name: userTable.name })
+          .from(userTable)
+          .where(eq(userTable.id, ctx.userId!))
+          .limit(1);
+
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+        const html = await render(
+          TeamInviteEmail({
+            recipientName: input.firstName || undefined,
+            recipientEmail: input.email,
+            inviterName: inviter?.name || 'Your team admin',
+            companyName: company?.name || 'WeddingFlo',
+            role: input.role,
+            inviteUrl: `${appUrl}/sign-up?invite=${token}`,
+            expiresAt: expiresAt.toISOString(),
+          })
+        );
+
+        const result = await sendEmail({
+          to: input.email,
+          subject: `You've been invited to join ${company?.name || 'WeddingFlo'}`,
+          html,
+        });
+
+        if (!result.success) {
+          console.error(`[Team Router] Invite email failed to ${input.email}: ${result.error}`);
+        }
+      } catch (error) {
+        console.error('[Team Router] Failed to render/send team invite email:', error);
+      }
 
       return {
         success: true,
         user: null,
-        message: `Invitation would be sent to ${input.email}. They need to sign up first, then you can add them.`,
-        // TODO: Implement invitation flow with email token
+        message: `Invitation sent to ${input.email}`,
       };
     }),
 

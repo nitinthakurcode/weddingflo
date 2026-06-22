@@ -19,6 +19,7 @@ import { proposals, proposalTemplates, pipelineLeads, clients, user, companies }
 import { nanoid } from 'nanoid';
 import { createNotification, notifyTeamMembers } from '@/features/core/server/services/notification.service';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+import { sendNotificationEmail } from '@/lib/email/notification-email';
 
 // Input schemas
 const proposalStatusSchema = z.enum(['draft', 'sent', 'viewed', 'accepted', 'declined', 'expired']);
@@ -664,8 +665,25 @@ export const proposalsRouter = router({
         .where(eq(proposals.id, input.id))
         .returning();
 
-      // TODO: Send email via Resend
-      console.log(`[Proposals] Would send proposal ${proposal.proposalNumber} to ${proposal.recipientEmail}`);
+      // Best-effort notification email (proposal is already marked sent above)
+      {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+        const emailResult = await sendNotificationEmail({
+          to: proposal.recipientEmail,
+          subject: `Proposal ${proposal.proposalNumber ?? ''} from your wedding planner`.trim(),
+          heading: 'You have a new proposal',
+          lines: [
+            `Hi ${proposal.recipientName || 'there'},`,
+            `Your wedding planner has shared proposal <strong>${proposal.proposalNumber ?? ''}</strong> with you.`,
+            'Click below to review the details.',
+          ],
+          ctaLabel: 'View Proposal',
+          ctaUrl: proposal.publicToken ? `${appUrl}/proposals/${proposal.publicToken}` : undefined,
+        });
+        if (!emailResult.success) {
+          console.error(`[Proposals] Send email failed to ${proposal.recipientEmail}: ${emailResult.error}`);
+        }
+      }
 
       await broadcastSync({
         type: 'update',

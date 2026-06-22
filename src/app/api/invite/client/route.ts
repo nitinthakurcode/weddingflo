@@ -10,6 +10,47 @@ import { getServerSession } from '@/lib/auth/server';
 import { db, eq, and, isNull } from '@/lib/db';
 import { weddingInvitations, user as userTable, clients } from '@/lib/db/schema';
 import { nanoid } from 'nanoid';
+import { render } from '@react-email/render';
+import { sendEmail } from '@/lib/email/resend-client';
+import { ClientInviteEmail } from '@/lib/email/templates/client-invite-email';
+
+/**
+ * Render + send a wedding portal invitation email.
+ * Never throws — the invitation is already persisted, so a send failure is
+ * logged but does not break the response (caller still returns the invite URL).
+ */
+async function sendWeddingInviteEmail(opts: {
+  email: string;
+  token: string;
+  plannerName: string;
+}): Promise<void> {
+  try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+    const inviteLink = `${appUrl}/portal/sign-up/${opts.token}`;
+    const clientName = opts.email.split('@')[0] || 'there';
+
+    const html = await render(
+      ClientInviteEmail({
+        clientName,
+        plannerName: opts.plannerName,
+        inviteLink,
+        locale: 'en',
+      })
+    );
+
+    const result = await sendEmail({
+      to: opts.email,
+      subject: "You're invited to your WeddingFlo portal",
+      html,
+    });
+
+    if (!result.success) {
+      console.error(`[Invite Client] Email send failed to ${opts.email}: ${result.error}`);
+    }
+  } catch (error) {
+    console.error('[Invite Client] Failed to render/send invitation email:', error);
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -81,8 +122,11 @@ export async function POST(request: NextRequest) {
         })
         .where(eq(weddingInvitations.id, existingInvite.id));
 
-      // TODO: Send invitation email
-      console.log(`[Invite Client] Resent invitation to ${email} with token ${token}`);
+      await sendWeddingInviteEmail({
+        email,
+        token,
+        plannerName: user.name || 'Your wedding planner',
+      });
 
       return NextResponse.json({
         success: true,
@@ -103,8 +147,11 @@ export async function POST(request: NextRequest) {
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     });
 
-    // TODO: Send invitation email via Resend
-    console.log(`[Invite Client] Created invitation for ${email} with token ${token}`);
+    await sendWeddingInviteEmail({
+      email,
+      token,
+      plannerName: user.name || 'Your wedding planner',
+    });
 
     return NextResponse.json({
       success: true,

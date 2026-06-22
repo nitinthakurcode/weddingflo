@@ -22,6 +22,8 @@ import {
   type QuestionAnswer,
 } from '@/lib/db/schema-questionnaires';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { clients } from '@/lib/db/schema';
+import { sendNotificationEmail } from '@/lib/email/notification-email';
 import { randomBytes } from 'crypto';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 
@@ -773,7 +775,33 @@ export const questionnairesRouter = router({
         });
       }
 
-      // TODO: Send email notification if sendEmail is true
+      // Best-effort email to the client (questionnaire is already marked sent above)
+      if (input.sendEmail && questionnaire.clientId) {
+        const [client] = await ctx.db
+          .select({ email: clients.partner1Email, altEmail: clients.partner2Email })
+          .from(clients)
+          .where(eq(clients.id, questionnaire.clientId))
+          .limit(1);
+        const recipient = client?.email || client?.altEmail;
+
+        if (recipient) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+          const emailResult = await sendNotificationEmail({
+            to: recipient,
+            subject: 'Please complete your wedding questionnaire',
+            heading: 'Your planner sent you a questionnaire',
+            lines: [
+              'Your wedding planner would like you to complete a short questionnaire.',
+              'Click below to fill it out — it only takes a few minutes.',
+            ],
+            ctaLabel: 'Open Questionnaire',
+            ctaUrl: `${appUrl}/questionnaire/${publicToken}`,
+          });
+          if (!emailResult.success) {
+            console.error(`[Questionnaires] Send email failed to ${recipient}: ${emailResult.error}`);
+          }
+        }
+      }
 
       await broadcastSync({
         type: 'update',
@@ -824,7 +852,33 @@ export const questionnairesRouter = router({
         });
       }
 
-      // TODO: Send reminder email
+      // Best-effort reminder email (reminderSentAt already recorded above)
+      if (questionnaire.clientId && questionnaire.publicToken) {
+        const [client] = await ctx.db
+          .select({ email: clients.partner1Email, altEmail: clients.partner2Email })
+          .from(clients)
+          .where(eq(clients.id, questionnaire.clientId))
+          .limit(1);
+        const recipient = client?.email || client?.altEmail;
+
+        if (recipient) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+          const emailResult = await sendNotificationEmail({
+            to: recipient,
+            subject: 'Reminder: please complete your wedding questionnaire',
+            heading: 'A quick reminder',
+            lines: [
+              'This is a friendly reminder to complete the questionnaire your wedding planner sent you.',
+              'Click below to finish it — it only takes a few minutes.',
+            ],
+            ctaLabel: 'Open Questionnaire',
+            ctaUrl: `${appUrl}/questionnaire/${questionnaire.publicToken}`,
+          });
+          if (!emailResult.success) {
+            console.error(`[Questionnaires] Reminder email failed to ${recipient}: ${emailResult.error}`);
+          }
+        }
+      }
 
       await broadcastSync({
         type: 'update',

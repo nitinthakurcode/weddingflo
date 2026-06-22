@@ -14,7 +14,49 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe/config';
-import { db, sql } from '@/lib/db';
+import { db, sql, eq, and } from '@/lib/db';
+import { user as userTable } from '@/lib/db/schema';
+import { sendNotificationEmail } from '@/lib/email/notification-email';
+
+/**
+ * Best-effort billing notification to a company's admin. Never throws —
+ * webhook processing must not fail because an email couldn't be delivered.
+ */
+async function notifyCompanyBilling(
+  companyId: string,
+  subject: string,
+  heading: string,
+  lines: string[]
+): Promise<void> {
+  try {
+    const [admin] = await db
+      .select({ email: userTable.email, name: userTable.name })
+      .from(userTable)
+      .where(and(eq(userTable.companyId, companyId), eq(userTable.role, 'company_admin')))
+      .limit(1);
+
+    if (!admin?.email) {
+      console.warn(`[Stripe Webhook] No company_admin email found for company ${companyId}`);
+      return;
+    }
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+    const result = await sendNotificationEmail({
+      to: admin.email,
+      subject,
+      heading,
+      lines: [`Hi ${admin.name || 'there'},`, ...lines],
+      ctaLabel: 'Manage Billing',
+      ctaUrl: `${appUrl}/settings/billing`,
+    });
+
+    if (!result.success) {
+      console.error(`[Stripe Webhook] Billing email failed for company ${companyId}: ${result.error}`);
+    }
+  } catch (error) {
+    console.error('[Stripe Webhook] Failed to send billing email:', error);
+  }
+}
 
 // Import professional webhook helpers
 import {
@@ -418,7 +460,15 @@ async function handlePaymentFailed(
     );
   }
 
-  // TODO: Send payment failure email
+  await notifyCompanyBilling(
+    companyId,
+    'Payment failed — action required',
+    'There was a problem with your payment',
+    [
+      'Your most recent WeddingFlo subscription payment could not be processed.',
+      'Please update your payment method to avoid any interruption to your account.',
+    ]
+  );
 }
 
 async function handleTrialWillEnd(
@@ -439,7 +489,15 @@ async function handleTrialWillEnd(
 
   console.log(`⏰ Trial ending soon for company ${companyId} - Ends: ${trialEnd}`);
 
-  // TODO: Send trial ending email
+  await notifyCompanyBilling(
+    companyId,
+    'Your WeddingFlo trial is ending soon',
+    'Your trial is ending soon',
+    [
+      `Your free trial ends on ${trialEnd}.`,
+      'Add a payment method now to keep full access to your account without interruption.',
+    ]
+  );
 }
 
 // ============================================================================

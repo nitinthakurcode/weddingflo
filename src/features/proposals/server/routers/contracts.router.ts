@@ -19,6 +19,7 @@ import { contracts, contractTemplates, proposals, clients, user, companies, DEFA
 import { nanoid } from 'nanoid';
 import { createNotification, notifyTeamMembers } from '@/features/core/server/services/notification.service';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+import { sendNotificationEmail } from '@/lib/email/notification-email';
 
 // Input schemas
 const contractStatusSchema = z.enum(['draft', 'pending_signature', 'signed', 'expired', 'cancelled']);
@@ -718,8 +719,25 @@ export const contractsRouter = router({
         .where(eq(contracts.id, input.id))
         .returning();
 
-      // TODO: Send email via Resend
-      console.log(`[Contracts] Would send contract ${contract.contractNumber} to ${contract.clientEmail}`);
+      // Best-effort notification email (contract is already marked pending_signature above)
+      {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.weddingflo.com';
+        const emailResult = await sendNotificationEmail({
+          to: contract.clientEmail,
+          subject: `Contract ${contract.contractNumber ?? ''} ready for signature`.trim(),
+          heading: 'Your contract is ready to sign',
+          lines: [
+            `Hi ${contract.clientName || 'there'},`,
+            `Contract <strong>${contract.contractNumber ?? ''}</strong> is ready for your review and signature.`,
+            'Click below to view and sign the document.',
+          ],
+          ctaLabel: 'Review & Sign',
+          ctaUrl: contract.publicToken ? `${appUrl}/sign/${contract.publicToken}` : undefined,
+        });
+        if (!emailResult.success) {
+          console.error(`[Contracts] Send email failed to ${contract.clientEmail}: ${emailResult.error}`);
+        }
+      }
 
       await broadcastSync({
         type: 'update',
