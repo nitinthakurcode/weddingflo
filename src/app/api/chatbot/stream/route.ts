@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from '@/lib/auth/server'
-import { openai, AI_CONFIG } from '@/lib/ai/ai-client'
+import { streamChatWithFailover, AI_CONFIG } from '@/lib/ai/ai-client'
 import { checkRateLimit } from '@/lib/ai/rate-limiter'
 import { CHATBOT_TOOLS, isQueryTool } from '@/features/chatbot/tools/definitions'
 import { buildChatbotContext, extractClientIdFromPath } from '@/features/chatbot/server/services/context-builder'
@@ -113,38 +113,26 @@ export async function POST(request: NextRequest) {
         const timeout = setTimeout(() => abortController.abort(), 30000)
 
         try {
-          // Provider failover (Gemini → OpenAI) is handled inside `openai`.
-          let streamResponse
-          try {
-            streamResponse = await openai.chat.completions.create({
-              model: AI_CONFIG.model,
-              messages: apiMessages,
-              tools: CHATBOT_TOOLS,
-              tool_choice: 'auto' as ChatCompletionToolChoiceOption,
-              max_tokens: AI_CONFIG.maxTokens,
-              temperature: 0.7,
-              stream: true,
-            }, { signal: abortController.signal })
-          } catch (aiError) {
-            console.error('[Chatbot Stream] All AI providers failed:', aiError)
-            const sseData = JSON.stringify({
-              type: 'error',
-              error: 'An error occurred while generating the response. Please try again.',
-            })
-            controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
-            controller.close()
-            return
-          }
-
-          // Track tool calls
+          // Provider failover (incl. empty/errored-stream failover) is handled by
+          // streamChatWithFailover: it forwards chunks live and transparently moves
+          // to the next provider if one returns an empty or errored stream. Terminal
+          // events (`done`/`[DONE]`) are emitted ONCE after the loop so an empty
+          // primary's finish chunk can't close the stream before failover happens.
           let currentToolCall: {
             id: string
             name: string
             arguments: string
           } | null = null
+          let toolCallEmitted = false
 
-          // Process stream
-          for await (const chunk of streamResponse) {
+          for await (const chunk of streamChatWithFailover({
+            model: AI_CONFIG.model,
+            messages: apiMessages,
+            tools: CHATBOT_TOOLS,
+            tool_choice: 'auto' as ChatCompletionToolChoiceOption,
+            max_tokens: AI_CONFIG.maxTokens,
+            temperature: 0.7,
+          }, { signal: abortController.signal })) {
             const delta = chunk.choices[0]?.delta
 
             // Check for tool calls
@@ -235,19 +223,16 @@ export async function POST(request: NextRequest) {
                 requiresConfirmation,
               })
               controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
-            }
-
-            if (finishReason === 'stop') {
-              // Normal completion
-              const sseData = JSON.stringify({
-                type: 'done',
-                finishReason: 'stop',
-              })
-              controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
+              toolCallEmitted = true
             }
           }
 
-          // End stream
+          // Terminal events — sent once, after the (possibly failed-over) stream.
+          // A pure-content turn gets a `done`; a tool-call turn already signalled
+          // completion via the `tool_call` event, so we only send `[DONE]`.
+          if (!toolCallEmitted) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', finishReason: 'stop' })}\n\n`))
+          }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (error) {

@@ -6,7 +6,8 @@
  */
 import ExcelJS from 'exceljs';
 import { db, eq, and } from '@/lib/db';
-import { budget, hotels, guestTransport, vendors, clientVendors } from '@/lib/db/schema';
+import { budget, hotels, guestTransport, vendors, clientVendors, events } from '@/lib/db/schema';
+import { syncVendorBudgetItem, cascadeVendorLinkDelete } from '@/lib/sync/vendor-budget-sync';
 import {
   validateExcelFile,
   buildPresentUpdate,
@@ -560,6 +561,20 @@ export async function importVendorsExcel(
     .where(eq(clientVendors.clientId, clientId));
   const linkedVendorIds = new Set(existingLinks.map((l) => l.vendorId));
 
+  // Event lookup for the "Event" column round-trip: title → eventId. The export
+  // writes the event title; importing it back must re-link the vendor to the
+  // correct event (clientVendors.eventId + the linked budget item's eventId).
+  const eventRows = await db
+    .select({ id: events.id, title: events.title })
+    .from(events)
+    .where(eq(events.clientId, clientId));
+  const eventByTitle = new Map(
+    eventRows
+      .filter((e) => !!e.title)
+      .map((e) => [e.title!.toLowerCase().trim(), e.id]),
+  );
+  const hasEventCol = headerMap.has('event');
+
   const totalRows = worksheet.rowCount;
 
   for (let rowIdx = 2; rowIdx <= totalRows; rowIdx++) {
@@ -591,8 +606,19 @@ export async function importVendorsExcel(
               eq(clientVendors.companyId, companyId),
             ))
             .returning({ id: clientVendors.id });
-          if (removed.length > 0) results.deleted++;
-          else results.skipped++;
+          if (removed.length > 0) {
+            results.deleted++;
+            // Fire the same cascade as vendors.router.delete: remove the linked
+            // budget line + timeline entry so the delete propagates cross-module.
+            await cascadeVendorLinkDelete(db, {
+              clientId,
+              vendorId: id,
+              clientVendorId: removed[0].id,
+            });
+            linkedVendorIds.delete(id);
+          } else {
+            results.skipped++;
+          }
         } else {
           results.skipped++;
         }
@@ -693,6 +719,28 @@ export async function importVendorsExcel(
         approvalComments: 'approval comments',
       });
 
+      // Resolve the "Event" column → eventId for round-trip event re-linking.
+      //   undefined = column absent          → leave existing event link untouched
+      //   null      = column present + blank  → unassign
+      //   <id>      = column present + match  → link to that event
+      let resolvedEventId: string | null | undefined = undefined;
+      if (hasEventCol) {
+        const eventName = getCell(row, 'event');
+        if (!eventName) {
+          resolvedEventId = null;
+        } else {
+          const match = eventByTitle.get(eventName.toLowerCase());
+          if (match) {
+            resolvedEventId = match;
+          } else {
+            results.errors.push(`Row ${rowIdx}: event "${eventName}" not found — vendor's event left unchanged`);
+          }
+        }
+      }
+      if (resolvedEventId !== undefined) {
+        (cvPresent as Record<string, unknown>).eventId = resolvedEventId;
+      }
+
       if (linkedVendorIds.has(vendorId)) {
         // Only touch the link when the file actually carries per-client columns.
         if (Object.keys(cvPresent).length > 1) {
@@ -714,6 +762,21 @@ export async function importVendorsExcel(
         }).onConflictDoNothing();
         linkedVendorIds.add(vendorId);
       }
+
+      // Vendor → budget automation (parity with vendors.router create/update):
+      // keep the linked budget item's cost / deposit / payment / event in sync,
+      // creating it when missing. Only pass columns actually present in the file
+      // so the import stays non-destructive. recalcClientStats runs in the caller.
+      await syncVendorBudgetItem(db, {
+        clientId,
+        companyId,
+        vendorId,
+        vendorName: name,
+        ...(headerMap.has('contract amount') ? { cost: clientVendorData.contractAmount } : {}),
+        ...(headerMap.has('deposit amount') ? { depositAmount: clientVendorData.depositAmount } : {}),
+        ...(headerMap.has('payment status') ? { paymentStatus: clientVendorData.paymentStatus } : {}),
+        ...(resolvedEventId !== undefined ? { eventId: resolvedEventId } : {}),
+      });
     } catch (error: unknown) {
       results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
     }

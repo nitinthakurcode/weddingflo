@@ -782,7 +782,10 @@ export const importRouter = router({
           if (syncRes.created.timeline > 0) {
             cascadeActions.push({ module: 'timeline', action: 'hotel_checkins_created', count: syncRes.created.timeline })
           }
-          await recalcClientStats(ctx.db, input.clientId)
+          // Hotels have no client-stat coupling (recalcClientStats reads only
+          // budget+guests, which a hotel import never touches), so we use the
+          // canonical HOTEL_MUTATION_PATHS (which deliberately omit clients.*)
+          // and skip the redundant recalc — matches hotels.router.ts behavior.
           await broadcastSync({
             type: 'insert',
             module: 'hotels',
@@ -790,7 +793,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
+            queryPaths: [...HOTEL_MUTATION_PATHS],
           })
         }
         return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions }
@@ -808,7 +811,10 @@ export const importRouter = router({
           if (syncRes.created.timeline > 0) {
             cascadeActions.push({ module: 'timeline', action: 'transport_entries_created', count: syncRes.created.timeline })
           }
-          await recalcClientStats(ctx.db, input.clientId)
+          // Transport has no client-stat coupling (recalcClientStats reads only
+          // budget+guests, which a transport import never touches), so we use the
+          // canonical TRANSPORT_MUTATION_PATHS (which deliberately omit clients.*)
+          // and skip the redundant recalc — matches guestTransport.router.ts.
           await broadcastSync({
             type: 'insert',
             module: 'transport',
@@ -816,7 +822,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
+            queryPaths: [...TRANSPORT_MUTATION_PATHS],
           })
         }
         return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions }

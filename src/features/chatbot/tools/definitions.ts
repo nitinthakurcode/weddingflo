@@ -190,9 +190,12 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     name: 'update_vendor',
     category: 'vendor',
     type: 'mutation',
-    description: 'Update vendor details or payment status',
+    description: 'Update vendor details, cost, payment/approval status, or assign the vendor to a specific event',
     cascadeEffects: [
-      'Updates linked budget item amounts',
+      'Syncs the linked budget item (cost, deposit, payment status, event)',
+      'Assigns/auto-links the vendor to an event (per-event segregation)',
+      'Updates the vendor service timeline entry',
+      'Recalculates client budget totals',
     ],
   },
   add_hotel_booking: {
@@ -1164,7 +1167,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_vendor',
-      description: 'Update vendor details or payment status. Can identify vendor by ID or name.',
+      description: 'Update vendor details, cost, payment/approval status, or assign the vendor to a specific event. Cost/event changes sync to the linked budget item. Can identify vendor by ID or name.',
       strict: false,
       parameters: {
         type: 'object',
@@ -1197,7 +1200,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
           },
           estimatedCost: {
             type: 'number',
-            description: 'Estimated cost',
+            description: 'Contract amount — syncs to the linked budget item',
           },
           depositAmount: {
             type: 'number',
@@ -1212,6 +1215,14 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             enum: ['pending', 'approved', 'rejected'],
             description: 'Approval status',
+          },
+          eventId: {
+            type: 'string',
+            description: 'Assign this vendor to a specific event (per-event segregation)',
+          },
+          serviceDate: {
+            type: 'string',
+            description: 'ISO date the vendor provides service; auto-links to a matching event when no eventId is given',
           },
           notes: {
             type: 'string',

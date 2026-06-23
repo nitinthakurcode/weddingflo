@@ -184,10 +184,12 @@ export const updateVendorSchema = z.object({
   contactName: z.string().max(100).optional(),
   email: z.string().email().optional(),
   phone: z.string().max(20).optional(),
-  estimatedCost: z.number().positive().optional(),
+  estimatedCost: z.number().positive().optional().describe('Contract amount — syncs to the linked budget item'),
   depositAmount: z.number().positive().optional(),
   paymentStatus: z.enum(['pending', 'deposit_paid', 'partial', 'paid', 'refunded']).optional(),
   approvalStatus: z.enum(['pending', 'approved', 'rejected']).optional(),
+  eventId: z.string().uuid().optional().describe('Assign this vendor to a specific event (for per-event segregation)'),
+  serviceDate: z.string().optional().describe('ISO date the vendor provides service; auto-links to a matching event if no eventId given'),
   notes: z.string().max(2000).optional(),
 })
 

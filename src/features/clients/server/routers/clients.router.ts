@@ -7,7 +7,11 @@ import {
   guests, hotels, guestTransport, documents, floorPlans, floorPlanTables, floorPlanGuests,
   gifts, giftsEnhanced, guestGifts, messages, payments, weddingWebsites, activity,
   documentAuditTrail, documentSignatureFields, documentSigners, documentSignatureRequests,
-  teamClientAssignments
+  teamClientAssignments,
+  // Additional client-cascade child tables (must be hard-deleted here because the
+  // client row is soft-deleted, so the DB FK onDelete:cascade never fires).
+  vendorReviews, generatedReports, emailLogs, smsLogs, whatsappLogs, creativeJobs,
+  websiteBuilderPages, qrCodes, invoices, accommodations
 } from '@/lib/db/schema';
 import { assertClientAccess } from '@/server/trpc/client-access';
 import type { SubscriptionTier, SubscriptionStatus } from '@/lib/db/schema/enums';
@@ -861,6 +865,17 @@ export const clientsRouter = router({
           weddingWebsites: 0,
           activity: 0,
           clientUsers: 0,
+          vendorReviews: 0,
+          generatedReports: 0,
+          emailLogs: 0,
+          smsLogs: 0,
+          whatsappLogs: 0,
+          creativeJobs: 0,
+          websiteBuilderPages: 0,
+          qrCodes: 0,
+          invoices: 0,
+          teamClientAssignments: 0,
+          accommodations: 0,
         };
 
         // 1. Get floor plan IDs for this client
@@ -1028,6 +1043,78 @@ export const clientsRouter = router({
           .where(eq(clientUsers.clientId, input.id))
           .returning({ id: clientUsers.id });
         deletionCounts.clientUsers = clientUsersResult.length;
+
+        // 19b. Delete remaining client-cascade child tables.
+        // These have FK onDelete:'cascade' to clients, but because the client row
+        // is SOFT-deleted (deletedAt set, row kept), that DB cascade never fires.
+        // Without these explicit deletes the rows become permanent orphans.
+        const vendorReviewsResult = await tx
+          .delete(vendorReviews)
+          .where(eq(vendorReviews.clientId, input.id))
+          .returning({ id: vendorReviews.id });
+        deletionCounts.vendorReviews = vendorReviewsResult.length;
+
+        const generatedReportsResult = await tx
+          .delete(generatedReports)
+          .where(eq(generatedReports.clientId, input.id))
+          .returning({ id: generatedReports.id });
+        deletionCounts.generatedReports = generatedReportsResult.length;
+
+        const emailLogsResult = await tx
+          .delete(emailLogs)
+          .where(eq(emailLogs.clientId, input.id))
+          .returning({ id: emailLogs.id });
+        deletionCounts.emailLogs = emailLogsResult.length;
+
+        const smsLogsResult = await tx
+          .delete(smsLogs)
+          .where(eq(smsLogs.clientId, input.id))
+          .returning({ id: smsLogs.id });
+        deletionCounts.smsLogs = smsLogsResult.length;
+
+        const whatsappLogsResult = await tx
+          .delete(whatsappLogs)
+          .where(eq(whatsappLogs.clientId, input.id))
+          .returning({ id: whatsappLogs.id });
+        deletionCounts.whatsappLogs = whatsappLogsResult.length;
+
+        const creativeJobsResult = await tx
+          .delete(creativeJobs)
+          .where(eq(creativeJobs.clientId, input.id))
+          .returning({ id: creativeJobs.id });
+        deletionCounts.creativeJobs = creativeJobsResult.length;
+
+        // websiteBuilderPages — its website_builder_content rows cascade via the
+        // page FK (onDelete:'cascade'), so deleting pages here removes content too.
+        const websiteBuilderPagesResult = await tx
+          .delete(websiteBuilderPages)
+          .where(eq(websiteBuilderPages.clientId, input.id))
+          .returning({ id: websiteBuilderPages.id });
+        deletionCounts.websiteBuilderPages = websiteBuilderPagesResult.length;
+
+        const qrCodesResult = await tx
+          .delete(qrCodes)
+          .where(eq(qrCodes.clientId, input.id))
+          .returning({ id: qrCodes.id });
+        deletionCounts.qrCodes = qrCodesResult.length;
+
+        const invoicesResult = await tx
+          .delete(invoices)
+          .where(eq(invoices.clientId, input.id))
+          .returning({ id: invoices.id });
+        deletionCounts.invoices = invoicesResult.length;
+
+        const teamClientAssignmentsResult = await tx
+          .delete(teamClientAssignments)
+          .where(eq(teamClientAssignments.clientId, input.id))
+          .returning({ id: teamClientAssignments.id });
+        deletionCounts.teamClientAssignments = teamClientAssignmentsResult.length;
+
+        const accommodationsResult = await tx
+          .delete(accommodations)
+          .where(eq(accommodations.clientId, input.id))
+          .returning({ id: accommodations.id });
+        deletionCounts.accommodations = accommodationsResult.length;
 
         // 20. Finally, soft delete the client
         // Note: ctx.companyId is verified non-null above, use ! assertion

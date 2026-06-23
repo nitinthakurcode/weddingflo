@@ -1,4 +1,4 @@
-import { openai, AI_MODELS } from './ai-client';
+import { streamChatWithFailover, AI_MODELS } from './ai-client';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -42,7 +42,10 @@ GUIDELINES:
 - Ask clarifying questions when needed
 - Suggest using AI features (seating optimizer, budget predictor, etc.) when relevant`;
 
-  const stream = await openai.chat.completions.create({
+  // streamChatWithFailover forwards chunks live and fails over to the next
+  // provider if one returns an empty or errored stream (no more empty replies
+  // when the primary provider is overloaded).
+  for await (const chunk of streamChatWithFailover({
     model: AI_MODELS.COMPLEX,
     messages: [
       { role: 'system', content: systemPrompt },
@@ -50,10 +53,7 @@ GUIDELINES:
     ],
     temperature: 0.7,
     max_tokens: 1000,
-    stream: true,
-  });
-
-  for await (const chunk of stream) {
+  })) {
     const content = chunk.choices[0]?.delta?.content;
     if (content) {
       yield content;

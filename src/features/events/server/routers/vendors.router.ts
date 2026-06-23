@@ -57,7 +57,13 @@ async function autoLinkVendorToEvent(
 export const vendorsRouter = router({
   // Changed from staffProcedure to protectedProcedure - staff should be able to view vendors
   getAll: protectedProcedure
-    .input(z.object({ clientId: z.string().uuid() }))
+    .input(z.object({
+      clientId: z.string().uuid(),
+      // Per-event segregation: filter to one event, or 'unassigned' for vendors
+      // with no event. Omit for all vendors. Server-side so large vendor lists
+      // don't over-fetch.
+      eventId: z.union([z.string().uuid(), z.literal('unassigned')]).optional(),
+    }))
     .query(async ({ ctx, input }) => {
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
@@ -126,7 +132,16 @@ export const vendorsRouter = router({
         .from(clientVendors)
         .leftJoin(vendors, eq(clientVendors.vendorId, vendors.id))
         .leftJoin(events, eq(clientVendors.eventId, events.id))
-        .where(eq(clientVendors.clientId, input.clientId))
+        .where(
+          and(
+            eq(clientVendors.clientId, input.clientId),
+            input.eventId === 'unassigned'
+              ? isNull(clientVendors.eventId)
+              : input.eventId
+                ? eq(clientVendors.eventId, input.eventId)
+                : undefined,
+          ),
+        )
         .orderBy(desc(clientVendors.createdAt))
 
       // Get vendor IDs to fetch their budget advance data
@@ -838,6 +853,76 @@ export const vendorsRouter = router({
       }
 
       return { success: true, deleted: result }
+    }),
+
+  /**
+   * Bulk-assign (or clear) the event for multiple client↔vendor links at once.
+   * Powers the vendors page "move selected to event" action. Keeps each vendor's
+   * linked budget item's event + category in sync and refreshes client stats.
+   * Pass eventId: null to unassign.
+   */
+  bulkAssignEvent: staffProcedure
+    .input(z.object({
+      clientId: z.string().uuid(),
+      clientVendorIds: z.array(z.string().uuid()).min(1),
+      eventId: z.string().uuid().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.companyId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
+      }
+      await ctx.assertClientAccess(input.clientId)
+
+      const updated = await withTransaction(async (tx) => {
+        // Only touch links that actually belong to this client (tenant-safe).
+        const links = await tx
+          .select({ id: clientVendors.id, vendorId: clientVendors.vendorId })
+          .from(clientVendors)
+          .where(and(
+            eq(clientVendors.clientId, input.clientId),
+            inArray(clientVendors.id, input.clientVendorIds),
+          ))
+
+        // Resolve the budget category from the target event title.
+        let category = 'Unassigned'
+        if (input.eventId) {
+          const [ev] = await tx
+            .select({ title: events.title })
+            .from(events)
+            .where(eq(events.id, input.eventId))
+            .limit(1)
+          category = ev?.title || 'Unassigned'
+        }
+
+        for (const link of links) {
+          await tx
+            .update(clientVendors)
+            .set({ eventId: input.eventId, updatedAt: new Date() })
+            .where(eq(clientVendors.id, link.id))
+          // Keep the linked budget item's event + category aligned.
+          await tx
+            .update(budget)
+            .set({ eventId: input.eventId, category, updatedAt: new Date() })
+            .where(and(eq(budget.clientId, input.clientId), eq(budget.vendorId, link.vendorId)))
+        }
+
+        await recalcClientStats(tx, input.clientId)
+        return links.length
+      })
+
+      if (updated > 0) {
+        await broadcastSync({
+          type: 'update',
+          module: 'vendors',
+          entityId: 'bulk-assign-event',
+          companyId: ctx.companyId,
+          clientId: input.clientId,
+          userId: ctx.userId!,
+          queryPaths: [...VENDOR_MUTATION_PATHS],
+        })
+      }
+
+      return { success: true, updated }
     }),
 
   // Approval workflow

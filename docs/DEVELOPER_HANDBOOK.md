@@ -1173,7 +1173,8 @@ shifts them via `shiftEventTimelineForDateChange()` (preserves per-item offsets)
 
 | Procedure           | Type     | Description                          |
 |----------------------|----------|--------------------------------------|
-| getAll               | query    | List all client vendors (includes event_type, event_title, event_date from events join) |
+| getAll               | query    | List client vendors (includes event_type, event_title, event_date from events join). Optional `eventId` input filters server-side to one event, or `'unassigned'` for vendors with no event (per-event segregation). |
+| bulkAssignEvent      | mutation | Assign/clear the event for many client↔vendor links at once; syncs each linked budget item's event + category, recalcs client stats |
 | getById              | query    | Get single client vendor (includes event_type, event_title, event_date) |
 | getStats             | query    | Vendor statistics                    |
 | getCategories        | query    | List vendor categories               |
@@ -1205,6 +1206,20 @@ shifts them via `shiftEventTimelineForDateChange()` (preserves per-item offsets)
 - bulkImport: `['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary']`
 - advance payments: `['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary']`
 - reviews: `['vendors.getAll', 'vendors.getStats']`
+- bulkAssignEvent: `VENDOR_MUTATION_PATHS`
+
+**Vendor ↔ budget/event automation (single source of truth):**
+`src/lib/sync/vendor-budget-sync.ts` — `syncVendorBudgetItem()` upserts the budget
+item linked to a vendor (`budget.vendorId`, category derived from the event title) and
+`cascadeVendorLinkDelete()` removes the budget + timeline rows on unlink. Used by the
+tRPC router, the Excel importer (`importVendorsExcel`), the Sheets importer
+(`importVendorsFromSheet`) and the chatbot `update_vendor` tool, so a vendor cost / event
+change reaches the budget module from **every** entry point (not just the router).
+
+**Per-event segregation:** a vendor↔client link carries `clientVendors.eventId`. The
+`Event` column round-trips through Excel and Google Sheets (export writes the event title;
+import resolves the title back to `eventId` and syncs the linked budget item). The chatbot
+`update_vendor` tool accepts `eventId`/`serviceDate` (auto-links to a same-date event).
 
 ---
 
@@ -1853,7 +1868,7 @@ Sheets are delete-ready without hand-adding the column.
 
 **Alias resolution:** `name` ← `['vendor name']`, `contact name` ← `['contact person']`, `category` ← `['service category']`, `phone` ← `['phone number']`, `email` ← `['email address']`, `notes` ← `['special notes']`, `payment status` ← `['payment']`, `is preferred` ← `['preferred']`, `venue address` ← `['service location']`, `onsite poc name` ← `['on-site contact']`, `onsite poc phone` ← `['contact phone']`, `onsite poc notes` ← `['contact notes']`, `deliverables` ← `['services provided']`, `deposit amount` ← `['deposit paid']`, `approval comments` ← `['approval notes']`
 
-**Round-trip (2026-06) — full per-client fidelity:** The Excel export emits a leading `ID` (the global `vendors.id`, not the `client_vendors` link id) and a trailing `Action` column. The importer now upserts **both** tables per row: the global `vendors` record (name, category, contact, email, phone, website, address, contract signed/date, rating, preferred, notes) **and** the `client_vendors` junction (venue address, on-site POC name/phone/notes, deliverables, contract amount, deposit amount, service date, payment status, approval status/notes). `Total Paid` and `Event` stay export-only (derived/display). Matching by `ID` prevents duplicate vendors; updates are non-destructive (present-header-only). `Action=DELETE` removes the client↔vendor link (the global vendor record is kept).
+**Round-trip (2026-06) — full per-client fidelity:** The Excel export emits a leading `ID` (the global `vendors.id`, not the `client_vendors` link id) and a trailing `Action` column. The importer now upserts **both** tables per row: the global `vendors` record (name, category, contact, email, phone, website, address, contract signed/date, rating, preferred, notes) **and** the `client_vendors` junction (venue address, on-site POC name/phone/notes, deliverables, contract amount, deposit amount, service date, payment status, approval status/notes). `Total Paid` stays export-only (derived). **`Event` now round-trips** (2026-06): export writes the event title, import resolves the title back to `clientVendors.eventId` and syncs the linked budget item's event/category (per-event segregation). The Google Sheets vendor tab also gained an `Event` column. Matching by `ID` prevents duplicate vendors; updates are non-destructive (present-header-only). `Action=DELETE` removes the client↔vendor link **and** its linked budget item + timeline entry (`cascadeVendorLinkDelete`); the global vendor record is kept. Vendor cost/event imports now upsert the linked budget item (`syncVendorBudgetItem`) and call `recalcClientStats` (Excel + Sheets).
 
 ### G.7 Gifts — Header Comparison
 
@@ -2530,7 +2545,7 @@ chatbot.router.ts — chat procedure
    - Core instructions + tool usage rules
    - Formatted context injection
   ↓
-5. LLM call (Gemini 3.5 Flash primary, OpenAI GPT-4o-mini fallback — see Section M.4)
+5. LLM call via `streamChatWithFailover` (env-driven provider chain, default Groq → Cerebras → OpenAI, with empty/errored-stream failover — see Section M.4)
    - callAIWithTracking() — records usage per company
   ↓
 6. Response routing:
@@ -2651,7 +2666,7 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 | Tool              | Type     | Description                     |
 |-------------------|----------|---------------------------------|
 | `add_vendor`      | mutation | Add vendor                      |
-| `update_vendor`   | mutation | Update vendor status/payment    |
+| `update_vendor`   | mutation | Update vendor details/cost/payment/approval, or assign to an event (eventId/serviceDate). Transactional; syncs linked budget item + timeline + recalcs client stats |
 | `delete_vendor`   | mutation | Delete vendor                   |
 
 #### Hotel Management (5 tools)
@@ -3077,7 +3092,7 @@ const result = await withTransaction(async (tx: TransactionClient) => {
 
 **File:** `src/features/clients/server/routers/clients.router.ts` (lines 1037-1265)
 
-The client deletion procedure performs a manual 23-table cascade wrapped in `withTransaction()`. The deletion order respects FK dependencies (deepest children first):
+The client deletion procedure performs a manual cascade wrapped in `withTransaction()`. The deletion order respects FK dependencies (deepest children first):
 
 ```
  1. floorPlanGuests        (deepest nested)
@@ -3103,8 +3118,18 @@ The client deletion procedure performs a manual 23-table cascade wrapped in `wit
 18. weddingWebsites
 19. activity
 20. clientUsers
+19b. vendorReviews, generatedReports, emailLogs, smsLogs, whatsappLogs,
+     creativeJobs, websiteBuilderPages (cascades website_builder_content via
+     its page FK), qrCodes, invoices, teamClientAssignments, accommodations
     ── then soft-delete client (SET deletedAt = NOW()) ──
 ```
+
+**CRITICAL — why the manual cascade must be exhaustive (CLAUDE.md rule 8):** the client
+row is **soft-deleted** (`SET deletedAt`), so the DB-level FK `onDelete: 'cascade'`
+**never fires**. Every child table that declares `references(() => clients.id, {
+onDelete: 'cascade' })` MUST be hard-deleted here or its rows become permanent orphans.
+The static guard `src/lib/sync/__tests__/client-cascade-completeness.test.ts` fails the
+build if a new client-cascade table is added to the schema without being wired in here.
 
 Each delete uses `.returning()` to count affected rows. After commit, `broadcastSync()` invalidates client lists and the response includes deletion metrics.
 
@@ -3356,22 +3381,51 @@ advanced: {
 
 ### M.4 AI / LLM
 
-Multi-provider client in `src/lib/ai/ai-client.ts`. Priority order: **Gemini 3.5 Flash
-(primary, free tier) → OpenAI GPT-4o-mini (fallback, paid)**. Failover is automatic and
-transparent inside the `openai` export; a provider with no API key is skipped, so the app
-runs on whichever provider is configured. Both are reached through the OpenAI SDK surface
-(Gemini via its OpenAI-compatible endpoint), so all call sites are provider-agnostic.
+**Env-driven multi-provider client** in `src/lib/ai/ai-client.ts`. Any OpenAI-compatible
+provider plugs in via env — no code changes to swap or reorder. Built-in providers:
+`groq`, `cerebras`, `openai`, `openrouter`, `gemini`, `deepseek`. A provider is **active only
+if its key env is set** (others are skipped), and priority is set by **`AI_PROVIDER_ORDER`**
+(csv; default `groq,cerebras,openai`).
+
+**Provider strategy — privacy-safe + free-first.** The app holds customer PII and serves EU
+users, so the default chain routes **only** through providers that do **not** train on prompts
+and offer Zero Data Retention (US/EU host): `groq` (free, primary) → `cerebras` (free,
+secondary) → `openai` (paid backstop). This replaced Gemini-as-primary, which suffered chronic
+503 "high demand" overload **and** trains on free-tier prompts. **Disqualified for PII:**
+DeepSeek-direct (China-hosted, trains by default) and all `:free` OpenRouter / free Gemini
+models (train on free-tier prompts). Enable ZDR in each provider's data-controls.
+
+**Failover is two-layered and covers the real failure mode** (an overloaded provider that
+returns HTTP 200 with an *empty* stream/completion, not just thrown errors):
+- Streaming consumers use `streamChatWithFailover` (chatbot SSE route + `lib/ai/assistant.ts`):
+  forwards chunks live, and fails over to the next provider on an **empty OR errored stream**
+  (never on a deliberate abort, never after content has already streamed). Terminal SSE
+  events (`done`/`[DONE]`) are emitted once *after* the loop.
+- Non-streaming calls (budget/email/timeline/seating + ai.router) use the `openai` proxy
+  (`createWithFailover`): fails over on a thrown error **or an empty completion**.
+- Primary **Groq** runs on LPU hardware (~500 tok/s) so the chatbot streams fast; its free
+  429 bursts and `cerebras` throttles get a few SDK retries before failover rolls to the next
+  provider, then to the paid OpenAI backstop.
 
 | Variable | Type | Required | Purpose |
 |----------|------|----------|---------|
-| `GEMINI_API_KEY` | Server | Recommended | Primary provider (Gemini, free tier). If unset, primary falls through to OpenAI. |
-| `GEMINI_MODEL` | Server | No | Primary model id (default: `gemini-3.5-flash`) |
-| `GEMINI_FAST_MODEL` | Server | No | Cheap/fast tier id (default: `gemini-3.1-flash-lite`) |
-| `OPENAI_API_KEY` | Server | Recommended | Fallback provider (OpenAI). If unset, no fallback. |
-| `OPENAI_MODEL` | Server | No | OpenAI model id (default: `gpt-4o-mini`) |
-| `AI_MAX_TOKENS` | Server | No | Token limit (default: `2000`; `OPENAI_MAX_TOKENS` also honored) |
+| `AI_PROVIDER_ORDER` | Server | No | CSV priority of providers (default `groq,cerebras,openai`). Only those with a key activate. |
+| `GROQ_API_KEY` | Server | Recommended | **Primary** — free, US/GCP + ZDR (`api.groq.com/openai/v1`). Skipped if unset. |
+| `GROQ_MODEL` / `GROQ_FAST_MODEL` | Server | No | defaults `openai/gpt-oss-120b` / `openai/gpt-oss-20b` (the llama-3.x ids were deprecated by Groq 2026-06-17) |
+| `CEREBRAS_API_KEY` | Server | Recommended | **Secondary** — free 1M tokens/day, no data retention (`api.cerebras.ai/v1`). |
+| `CEREBRAS_MODEL` | Server | No | default `qwen-3-32b` |
+| `OPENAI_API_KEY` | Server | Recommended | **Paid backstop** — fires only when both free providers fail. |
+| `OPENAI_MODEL` | Server | No | OpenAI model id (default `gpt-4.1-mini`; fast tier `gpt-4.1-nano`) |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | Server | No | Optional. Privacy-safe **only** on paid + ZDR config (default model `deepseek/deepseek-chat-v3.2`). |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Server | No | Optional **paid/Vertex key only** — the free Gemini tier trains on prompts (default `gemini-3.5-flash`). Out of the default order. |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | Server | No | Optional, **not privacy-safe** (China-hosted, trains by default — avoid for PII). |
+| `AI_MAX_TOKENS` | Server | No | Token limit (default `2000`; `OPENAI_MAX_TOKENS` also honored) |
 
-> At least one of `GEMINI_API_KEY` / `OPENAI_API_KEY` must be set or all AI features throw.
+> At least one provider key must be set or all AI features throw. The default chain
+> `groq → cerebras → openai` needs two free keys (console.groq.com, cloud.cerebras.ai; no
+> card) plus the existing paid `OPENAI_API_KEY` as backstop. Pin model ids via env and verify
+> them against each provider's `GET /v1/models` — hosted models get deprecated on short notice
+> (Groq dropped the llama-3.x ids on 2026-06-17).
 > Guardrails (domain confinement) are model-agnostic: enforced by the tool-only architecture
 > + chatbot system prompt, unchanged across providers.
 

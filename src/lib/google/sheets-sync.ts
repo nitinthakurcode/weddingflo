@@ -22,7 +22,9 @@ import {
   gifts,
   clients,
   advancePayments,
+  events,
 } from '@/lib/db/schema';
+import { syncVendorBudgetItem, cascadeVendorLinkDelete } from '@/lib/sync/vendor-budget-sync';
 import { inArray } from 'drizzle-orm';
 import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-client';
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
@@ -204,7 +206,7 @@ const TRANSPORT_HEADERS = [
 const VENDOR_HEADERS = [
   'ID', 'Vendor Name', 'Category', 'Contact Name', 'Phone',
   'Email', 'Contract Amount', 'Total Paid', 'Payment Status',
-  'Service Date', 'Location', 'Rating', 'Notes', 'Last Updated', 'Action'
+  'Service Date', 'Event', 'Location', 'Rating', 'Notes', 'Last Updated', 'Action'
 ];
 
 const GIFT_HEADERS = [
@@ -532,6 +534,13 @@ export async function syncVendorsToSheet(
     // Create a map of vendor links for additional data
     const linkMap = new Map(vendorLinks.map(l => [l.vendorId, l]));
 
+    // Event title map (for the per-event "Event" column round-trip)
+    const eventRows = await db
+      .select({ id: events.id, title: events.title })
+      .from(events)
+      .where(eq(events.clientId, clientId));
+    const eventTitleById = new Map(eventRows.map(e => [e.id, e.title || '']));
+
     // Calculate total paid per vendor from advance payments
     const totalPaidMap = new Map<string, number>();
     if (vendorIds.length > 0) {
@@ -563,6 +572,7 @@ export async function syncVendorsToSheet(
           totalPaid != null ? totalPaid.toString() : '',
           link?.paymentStatus || 'pending',
           link?.serviceDate || '',
+          (link?.eventId && eventTitleById.get(link.eventId)) || '',
           link?.venueAddress || '',
           v.rating || '',
           v.notes || '',
@@ -1062,6 +1072,16 @@ export async function importVendorsFromSheet(
 
     const linkedVendorIds = new Set(existingLinks.map(l => l.vendorId));
 
+    // Event lookup for the "Event" column round-trip: title → eventId.
+    const eventRows = await db
+      .select({ id: events.id, title: events.title })
+      .from(events)
+      .where(eq(events.clientId, clientId));
+    const eventByTitle = new Map(
+      eventRows.filter(e => !!e.title).map(e => [e.title!.toLowerCase().trim(), e.id]),
+    );
+    const hasEventCol = headers.indexOf('Event') !== -1;
+
     const dataRows = sheetData.slice(1);
     await db.transaction(async (tx) => {
       for (let i = 0; i < dataRows.length; i++) {
@@ -1082,6 +1102,16 @@ export async function importVendorsFromSheet(
                 .where(and(eq(clientVendors.vendorId, id), eq(clientVendors.clientId, clientId)))
                 .returning({ id: clientVendors.id });
               stats.deleted = (stats.deleted || 0) + removed.length;
+              if (removed.length > 0) {
+                // Cascade: remove linked budget item + timeline entry (parity with
+                // vendors.router.delete and the Excel importer).
+                await cascadeVendorLinkDelete(tx, {
+                  clientId,
+                  vendorId: id,
+                  clientVendorId: removed[0].id,
+                });
+                linkedVendorIds.delete(id);
+              }
             }
             continue;
           }
@@ -1130,6 +1160,25 @@ export async function importVendorsFromSheet(
           const paymentStatus = getValue('Payment Status') || 'pending';
           const venueAddress = getValue('Location');
 
+          // Resolve the "Event" column → eventId for per-event re-linking.
+          //   undefined = column absent          → leave existing link untouched
+          //   null      = column present + blank  → unassign
+          //   <id>      = column present + match  → link to that event
+          let resolvedEventId: string | null | undefined = undefined;
+          if (hasEventCol) {
+            const eventName = String(getValue('Event') ?? '').trim();
+            if (!eventName) {
+              resolvedEventId = null;
+            } else {
+              const match = eventByTitle.get(eventName.toLowerCase());
+              if (match) {
+                resolvedEventId = match;
+              } else {
+                stats.errors.push(`Vendor Row ${i + 2}: event "${eventName}" not found — vendor's event left unchanged`);
+              }
+            }
+          }
+
           if (!linkedVendorIds.has(id)) {
             await tx.insert(clientVendors).values({
               id: randomUUID(),
@@ -1140,6 +1189,7 @@ export async function importVendorsFromSheet(
               serviceDate: serviceDate || null,
               paymentStatus: paymentStatus as any,
               venueAddress: venueAddress || null,
+              ...(resolvedEventId !== undefined ? { eventId: resolvedEventId } : {}),
             });
             linkedVendorIds.add(id);
           } else {
@@ -1148,11 +1198,24 @@ export async function importVendorsFromSheet(
               serviceDate: serviceDate || null,
               paymentStatus: paymentStatus as any,
               venueAddress: venueAddress || null,
+              ...(resolvedEventId !== undefined ? { eventId: resolvedEventId } : {}),
               updatedAt: new Date(),
             }).where(
               and(eq(clientVendors.clientId, clientId), eq(clientVendors.vendorId, id))
             );
           }
+
+          // Vendor → budget automation (parity with vendors.router + Excel import):
+          // keep the linked budget item's cost / payment / event in sync.
+          await syncVendorBudgetItem(tx, {
+            clientId,
+            companyId,
+            vendorId: id,
+            vendorName: vendorData.name,
+            cost: contractAmount || null,
+            paymentStatus: paymentStatus as string,
+            ...(resolvedEventId !== undefined ? { eventId: resolvedEventId } : {}),
+          });
 
           stats.imported++;
         } catch (rowError: any) {
@@ -1694,6 +1757,16 @@ export async function importAllFromSheets(
   totalImported += vendorStats.imported;
   byModule.vendors = vendorStats.imported;
   allErrors.push(...vendorStats.errors);
+
+  // Vendor cost/event imports update linked budget items → refresh cached client
+  // stats (parity with the Excel import + hotels/transport blocks below).
+  if (vendorStats.imported > 0) {
+    try {
+      await recalcClientStats(db, clientId);
+    } catch (err) {
+      console.error('[Sheets Sync] Vendor stats recalc failed:', err);
+    }
+  }
 
   const hotelStats = await importHotelsFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += hotelStats.imported;

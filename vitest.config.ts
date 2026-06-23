@@ -28,6 +28,10 @@ export default defineConfig({
       'tests/security/*.spec.ts',
       // Documentation example tests (not real tests)
       'docs/**',
+      // Real-DB chatbot integration tests — run separately via
+      // `npx vitest run -c vitest.integration.config.ts` (needs .env.local + local Postgres,
+      // node environment, real db). Excluded here so the default unit run stays fast + mocked.
+      '**/__tests__/integration/**',
     ],
   },
 })

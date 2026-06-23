@@ -165,7 +165,7 @@ vendors.getStats       websites.list           workflows.list
 
 ```bash
 npx tsc --noEmit          # 0 errors
-npx vitest run            # 311 passed, 8 skipped, 0 failed
+npx vitest run            # 379 passed, 8 skipped, 0 failed (vitest is the runner; jest.config.js is legacy)
 npm run build             # All routes compile
 npx drizzle-kit check     # "Everything's fine"
 ```

@@ -51,6 +51,7 @@ import { getDefaultTemplate, type TimelineTemplateItem } from '@/lib/templates/t
 import { cascadeGuestSideEffects } from '@/features/guests/server/utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
+import { syncVendorBudgetItem } from '@/lib/sync/vendor-budget-sync'
 import { createEventWithTimeline } from '@/lib/sync/event-timeline-sync'
 import { withTransaction, withCascadeTransaction } from './transaction-wrapper'
 import {
@@ -1049,7 +1050,9 @@ async function executeGetClientSummary(
 
     db.select({
       total: sql<number>`count(*)::int`,
-      upcoming: sql<number>`count(*) filter (where ${events.eventDate} >= current_date)::int`,
+      // eventDate is stored as ISO text ('YYYY-MM-DD'); compare text-to-text (ISO sorts
+      // chronologically) — `text >= current_date` (date) has no operator and throws.
+      upcoming: sql<number>`count(*) filter (where ${events.eventDate} >= current_date::text)::int`,
     }).from(events).where(and(eq(events.clientId, clientId), isNull(events.deletedAt))),
 
     db.select({
@@ -1735,7 +1738,7 @@ async function executeBulkUpdateGuests(
       .where(
         and(
           eq(guests.clientId, clientId),
-          sql`${guests.id} = any(${guestIds})`
+          inArray(guests.id, guestIds)
         )
       )
   } else if (groupName) {
@@ -1767,7 +1770,7 @@ async function executeBulkUpdateGuests(
       .where(
         and(
           eq(guests.clientId, clientId),
-          sql`${guests.id} = any(${targetGuests.map(g => g.id)})`
+          inArray(guests.id, targetGuests.map((g) => g.id))
         )
       )
 
@@ -2501,44 +2504,144 @@ async function executeUpdateVendor(
     })
   }
 
-  // Build update object for vendors table
-  const vendorUpdateValues: Record<string, unknown> = { updatedAt: new Date() }
+  // Per-client fields the caller may be changing (cost/event/payment live on the
+  // client↔vendor link + the linked budget item, NOT the global vendor row).
+  const estimatedCost = args.estimatedCost as number | undefined
+  const depositAmount = args.depositAmount as number | undefined
+  const paymentStatus = args.paymentStatus as string | undefined
+  const approvalStatus = args.approvalStatus as string | undefined
+  const serviceDate = args.serviceDate as string | undefined
+  const explicitEventId = args.eventId as string | undefined
+  const wantsClientScoped =
+    estimatedCost !== undefined || depositAmount !== undefined || paymentStatus !== undefined ||
+    approvalStatus !== undefined || serviceDate !== undefined || explicitEventId !== undefined
 
+  // Resolve the client context for the per-client fields. When omitted, derive it
+  // from the vendor's single client link; refuse (rather than silently no-op) if
+  // ambiguous so cost/event changes never get dropped.
+  let resolvedClientId = clientId
+  if (!resolvedClientId && wantsClientScoped) {
+    const links = await db
+      .select({ clientId: clientVendors.clientId })
+      .from(clientVendors)
+      .where(eq(clientVendors.vendorId, targetVendorId))
+    const uniqueClients = Array.from(new Set(links.map((l) => l.clientId)))
+    if (uniqueClients.length === 1) resolvedClientId = uniqueClients[0]
+    else {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Specify which wedding this vendor change applies to — the vendor is linked to multiple weddings (or none).',
+      })
+    }
+  }
+
+  // Global vendor-table fields (shared across clients).
+  const vendorUpdateValues: Record<string, unknown> = { updatedAt: new Date() }
   if (args.contactName !== undefined) vendorUpdateValues.contactName = args.contactName
   if (args.email !== undefined) vendorUpdateValues.email = args.email
   if (args.phone !== undefined) vendorUpdateValues.phone = args.phone
   if (args.notes !== undefined) vendorUpdateValues.notes = args.notes
 
-  // Update vendor
-  const [updatedVendor] = await db
-    .update(vendors)
-    .set(vendorUpdateValues)
-    .where(eq(vendors.id, targetVendorId))
-    .returning()
+  const result = await withTransaction(async (tx) => {
+    // 1. Global vendor fields
+    if (Object.keys(vendorUpdateValues).length > 1) {
+      await tx.update(vendors).set(vendorUpdateValues).where(eq(vendors.id, targetVendorId))
+    }
 
-  // Update client_vendor if payment/approval status provided
-  if (clientId && (args.paymentStatus !== undefined || args.approvalStatus !== undefined)) {
-    const cvUpdateValues: Record<string, unknown> = {}
-
-    if (args.paymentStatus !== undefined) cvUpdateValues.paymentStatus = args.paymentStatus
-    if (args.approvalStatus !== undefined) cvUpdateValues.approvalStatus = args.approvalStatus
-
-    await db
-      .update(clientVendors)
-      .set(cvUpdateValues)
-      .where(
-        and(
-          eq(clientVendors.vendorId, targetVendorId),
-          eq(clientVendors.clientId, clientId)
+    if (resolvedClientId) {
+      // 2. Per-client link fields
+      const cv: Record<string, unknown> = {}
+      if (estimatedCost !== undefined) cv.contractAmount = String(estimatedCost)
+      if (depositAmount !== undefined) cv.depositAmount = String(depositAmount)
+      if (paymentStatus !== undefined) cv.paymentStatus = paymentStatus
+      if (approvalStatus !== undefined) cv.approvalStatus = approvalStatus
+      if (serviceDate !== undefined) cv.serviceDate = serviceDate
+      if (explicitEventId !== undefined) cv.eventId = explicitEventId
+      if (Object.keys(cv).length > 0) {
+        cv.updatedAt = new Date()
+        await tx.update(clientVendors).set(cv).where(
+          and(eq(clientVendors.vendorId, targetVendorId), eq(clientVendors.clientId, resolvedClientId)),
         )
-      )
-  }
+      }
+
+      // 3. Auto-link to a same-date event when a serviceDate is set without an event
+      let effectiveEventId: string | null | undefined = explicitEventId
+      if (serviceDate && explicitEventId === undefined) {
+        const dateStr = serviceDate.split('T')[0]
+        const [matchEvent] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.clientId, resolvedClientId), eq(events.eventDate, dateStr)))
+          .limit(1)
+        if (matchEvent) {
+          effectiveEventId = matchEvent.id
+          await tx.update(clientVendors).set({ eventId: matchEvent.id, updatedAt: new Date() }).where(
+            and(eq(clientVendors.vendorId, targetVendorId), eq(clientVendors.clientId, resolvedClientId)),
+          )
+        }
+      }
+
+      // 4. Sync the linked budget item (cost/deposit/payment/event) — the
+      //    cross-module automation the bare-db version was silently skipping.
+      await syncVendorBudgetItem(tx, {
+        clientId: resolvedClientId,
+        companyId: ctx.companyId!,
+        vendorId: targetVendorId,
+        vendorName: existingVendor.name,
+        ...(estimatedCost !== undefined ? { cost: estimatedCost } : {}),
+        ...(depositAmount !== undefined ? { depositAmount } : {}),
+        ...(paymentStatus !== undefined ? { paymentStatus } : {}),
+        ...(effectiveEventId !== undefined ? { eventId: effectiveEventId } : {}),
+      })
+
+      // 5. Keep the vendor's timeline entry in step with a changed service date
+      if (serviceDate !== undefined) {
+        const [link] = await tx
+          .select({ id: clientVendors.id })
+          .from(clientVendors)
+          .where(and(eq(clientVendors.vendorId, targetVendorId), eq(clientVendors.clientId, resolvedClientId)))
+          .limit(1)
+        if (link?.id) {
+          if (serviceDate) {
+            const startTime = new Date(serviceDate)
+            const updated = await tx
+              .update(timeline)
+              .set({ startTime, updatedAt: new Date() })
+              .where(and(eq(timeline.sourceModule, 'vendors'), eq(timeline.sourceId, link.id)))
+              .returning({ id: timeline.id })
+            if (updated.length === 0) {
+              await tx.insert(timeline).values({
+                id: crypto.randomUUID(),
+                clientId: resolvedClientId,
+                title: `${existingVendor.name} - Vendor Service`,
+                description: `Vendor service: ${existingVendor.name}`,
+                startTime,
+                sourceModule: 'vendors',
+                sourceId: link.id,
+                metadata: JSON.stringify({ vendorId: targetVendorId }),
+              })
+            }
+          } else {
+            await tx
+              .delete(timeline)
+              .where(and(eq(timeline.sourceModule, 'vendors'), eq(timeline.sourceId, link.id)))
+          }
+        }
+      }
+
+      // 6. Refresh cached client stats (budget total) after the budget write
+      await recalcClientStats(tx, resolvedClientId)
+    }
+
+    const [updated] = await tx.select().from(vendors).where(eq(vendors.id, targetVendorId)).limit(1)
+    return updated
+  })
 
   return {
     success: true,
     toolName: 'update_vendor',
-    data: updatedVendor,
-    message: `Updated vendor: ${updatedVendor.name}`,
+    data: result,
+    message: `Updated vendor: ${result?.name ?? existingVendor.name}`,
   }
 }
 
