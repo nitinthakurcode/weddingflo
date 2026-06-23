@@ -1,5 +1,5 @@
 // AI Client and Infrastructure
-export { openai, AI_MODELS, AI_DEFAULTS } from './openai-client';
+export { openai, AI_MODELS, AI_DEFAULTS } from './ai-client';
 export { checkRateLimit, RateLimitError } from './rate-limiter';
 export { handleAIError, type AIError } from './error-handler';
 

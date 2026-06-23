@@ -1,8 +1,8 @@
 import { db, eq, sql } from '@/lib/db'
 import { companies } from '@/lib/db/schema'
-import { openai, calculateAICost, AI_CONFIG } from './openai-client'
+import { openai, calculateAICost, AI_CONFIG } from './ai-client'
 import { TRPCError } from '@trpc/server'
-import type { AIFeatureType } from './openai-client'
+import type { AIFeatureType } from './ai-client'
 
 interface AIUsageParams {
   companyId: string

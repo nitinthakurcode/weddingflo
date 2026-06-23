@@ -9,6 +9,7 @@ import { db, eq, and } from '@/lib/db';
 import { budget, hotels, guestTransport, vendors, clientVendors } from '@/lib/db/schema';
 import {
   validateExcelFile,
+  buildPresentUpdate,
   parseExcelBoolean,
   parseExcelCurrency,
   parseExcelDate,
@@ -157,6 +158,13 @@ export async function importBudgetExcel(
         continue;
       }
 
+      // Skip the export's "TOTAL" summary row (no ID, no category) so re-import
+      // doesn't materialize a phantom budget item.
+      if (item.toLowerCase() === 'total' && !id && !category) {
+        results.skipped++;
+        continue;
+      }
+
       const budgetData = {
         item,
         category: category || 'other',
@@ -172,10 +180,23 @@ export async function importBudgetExcel(
         updatedAt: new Date(),
       };
 
-      // Upsert: if ID matches existing record for this clientId → UPDATE
+      // Upsert: if ID matches existing record for this clientId → UPDATE.
+      // Only overwrite columns present in the uploaded file (non-destructive).
       if (id && existingIds.has(id)) {
         await db.update(budget)
-          .set(budgetData)
+          .set(buildPresentUpdate(headerMap, budgetData, {
+            item: 'item',
+            category: 'category',
+            segment: 'segment',
+            description: 'description',
+            estimatedCost: 'estimated cost',
+            actualCost: 'actual cost',
+            paidAmount: 'paid amount',
+            paymentStatus: 'payment status',
+            transactionDate: 'transaction date',
+            perGuestCost: 'per guest cost',
+            notes: 'notes',
+          }))
           .where(and(eq(budget.id, id), eq(budget.clientId, clientId)));
         results.updated++;
       } else {
@@ -307,7 +328,22 @@ export async function importHotelsExcel(
 
       if (id && existingIds.has(id)) {
         await db.update(hotels)
-          .set(hotelData)
+          .set(buildPresentUpdate(headerMap, hotelData, {
+            guestName: 'guest name',
+            hotelName: 'hotel name',
+            roomNumber: 'room number',
+            roomType: 'room type',
+            checkInDate: 'check in date',
+            checkOutDate: 'check out date',
+            accommodationNeeded: 'accommodation needed',
+            bookingConfirmed: 'booking confirmed',
+            checkedIn: 'checked in',
+            cost: 'cost',
+            currency: 'currency',
+            paymentStatus: 'payment status',
+            partySize: 'party size',
+            notes: 'notes',
+          }))
           .where(and(eq(hotels.id, id), eq(hotels.clientId, clientId)));
         results.updated++;
       } else {
@@ -442,7 +478,20 @@ export async function importTransportExcel(
 
       if (id && existingIds.has(id)) {
         await db.update(guestTransport)
-          .set(transportData)
+          .set(buildPresentUpdate(headerMap, transportData, {
+            guestName: 'guest name',
+            pickupDate: 'pickup date',
+            pickupTime: 'pickup time',
+            pickupFrom: 'pickup from',
+            dropTo: 'drop to',
+            transportStatus: 'transport status',
+            vehicleInfo: 'vehicle info',
+            vehicleType: 'vehicle type',
+            driverPhone: 'driver phone',
+            legType: 'leg type',
+            legSequence: 'leg sequence',
+            notes: 'notes',
+          }))
           .where(and(eq(guestTransport.id, id), eq(guestTransport.clientId, clientId)));
         results.updated++;
       } else {
@@ -582,30 +631,88 @@ export async function importVendorsExcel(
         updatedAt: new Date(),
       };
 
-      if (id && existingIds.has(id)) {
+      const isExistingVendor = !!(id && existingIds.has(id));
+      const vendorId = isExistingVendor ? id : (id || crypto.randomUUID());
+
+      // ── Global vendor record (vendors table) ──
+      if (isExistingVendor) {
+        // Non-destructive: only overwrite columns present in the uploaded file.
         await db.update(vendors)
-          .set(vendorData)
-          .where(and(eq(vendors.id, id), eq(vendors.companyId, companyId)));
+          .set(buildPresentUpdate(headerMap, vendorData, {
+            name: 'name',
+            category: 'category',
+            contactName: 'contact name',
+            email: 'email',
+            phone: 'phone',
+            website: 'website',
+            address: 'address',
+            contractSigned: 'contract signed',
+            contractDate: 'contract date',
+            rating: 'rating',
+            isPreferred: 'is preferred',
+            notes: 'notes',
+          }))
+          .where(and(eq(vendors.id, vendorId), eq(vendors.companyId, companyId)));
         results.updated++;
       } else {
-        const newVendorId = id || crypto.randomUUID();
         await db.insert(vendors).values({
-          id: newVendorId,
+          id: vendorId,
           companyId,
           ...vendorData,
         });
-
-        if (!linkedVendorIds.has(newVendorId)) {
-          await db.insert(clientVendors).values({
-            id: crypto.randomUUID(),
-            clientId,
-            vendorId: newVendorId,
-            companyId,
-          }).onConflictDoNothing();
-          linkedVendorIds.add(newVendorId);
-        }
-
         results.inserted++;
+      }
+
+      // ── Per-client relationship (client_vendors junction) — full fidelity ──
+      // Payment/approval/service-date/on-site fields live here, not on `vendors`.
+      const clientVendorData = {
+        venueAddress: getCell(row, 'venue address') || null,
+        onsitePocName: getCell(row, 'onsite poc name') || null,
+        onsitePocPhone: getCell(row, 'onsite poc phone') || null,
+        onsitePocNotes: getCell(row, 'onsite poc notes') || null,
+        deliverables: getCell(row, 'deliverables') || null,
+        contractAmount: parseExcelCurrency(getRawCell(row, 'contract amount')),
+        depositAmount: parseExcelCurrency(getRawCell(row, 'deposit amount')),
+        serviceDate: getCell(row, 'service date') || null,
+        paymentStatus: getCell(row, 'payment status') || null,
+        approvalStatus: getCell(row, 'approval status') || null,
+        approvalComments: getCell(row, 'approval comments') || null,
+        updatedAt: new Date(),
+      };
+      const cvPresent = buildPresentUpdate(headerMap, clientVendorData, {
+        venueAddress: 'venue address',
+        onsitePocName: 'onsite poc name',
+        onsitePocPhone: 'onsite poc phone',
+        onsitePocNotes: 'onsite poc notes',
+        deliverables: 'deliverables',
+        contractAmount: 'contract amount',
+        depositAmount: 'deposit amount',
+        serviceDate: 'service date',
+        paymentStatus: 'payment status',
+        approvalStatus: 'approval status',
+        approvalComments: 'approval comments',
+      });
+
+      if (linkedVendorIds.has(vendorId)) {
+        // Only touch the link when the file actually carries per-client columns.
+        if (Object.keys(cvPresent).length > 1) {
+          await db.update(clientVendors)
+            .set(cvPresent)
+            .where(and(
+              eq(clientVendors.clientId, clientId),
+              eq(clientVendors.vendorId, vendorId),
+              eq(clientVendors.companyId, companyId),
+            ));
+        }
+      } else {
+        await db.insert(clientVendors).values({
+          id: crypto.randomUUID(),
+          clientId,
+          vendorId,
+          companyId,
+          ...cvPresent,
+        }).onConflictDoNothing();
+        linkedVendorIds.add(vendorId);
       }
     } catch (error: unknown) {
       results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);

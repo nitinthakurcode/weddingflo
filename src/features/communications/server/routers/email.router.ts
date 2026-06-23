@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 import { render } from '@react-email/render';
 import { resend, getEmailSubject, type EmailType, type Locale } from '@/lib/email/resend';
 import { ClientInviteEmail } from '@/lib/email/templates/client-invite-email';
@@ -73,6 +74,17 @@ async function logEmail({
       }),
       status,
     }).returning();
+
+    // Refresh the email log/stats views live across the company's tabs.
+    await broadcastSync({
+      type: 'insert',
+      module: 'communications',
+      entityId: log?.id ?? 'email-log',
+      companyId,
+      clientId: clientId || undefined,
+      userId: 'system',
+      queryPaths: ['email.getEmailLogs', 'email.getEmailStats'],
+    });
 
     return log;
   } catch (error) {

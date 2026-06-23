@@ -15,12 +15,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from '@/lib/auth/server'
-import { getAIClient, AI_CONFIG, fallbackAI } from '@/lib/ai/openai-client'
+import { openai, AI_CONFIG } from '@/lib/ai/ai-client'
 import { checkRateLimit } from '@/lib/ai/rate-limiter'
 import { CHATBOT_TOOLS, isQueryTool } from '@/features/chatbot/tools/definitions'
 import { buildChatbotContext, extractClientIdFromPath } from '@/features/chatbot/server/services/context-builder'
 import { buildChatbotSystemPrompt } from '@/lib/ai/prompts/chatbot-system'
-import { assertClientAccess } from '@/server/trpc/client-access'
+import { assertChatbotEntry, authorizeClientForChatbot } from '@/features/chatbot/server/services/chatbot-authz'
 import { setPendingCall } from '@/features/chatbot/server/services/pending-calls'
 import { db } from '@/lib/db'
 import type { Roles } from '@/types/globals'
@@ -45,6 +45,14 @@ export async function POST(request: NextRequest) {
     }
 
     const companyId = user.companyId
+    const authCtx = { db, role: (user.role ?? 'staff') as Roles, userId, companyId }
+
+    // SECURITY: role allowlist — only planner accounts may use the assistant.
+    try {
+      assertChatbotEntry(authCtx)
+    } catch {
+      return new NextResponse('Forbidden', { status: 403 })
+    }
 
     // Rate limit check
     try {
@@ -76,17 +84,14 @@ export async function POST(request: NextRequest) {
     // member can't read or mutate an unassigned client's data via the chatbot.
     if (clientId) {
       try {
-        await assertClientAccess(
-          { db, role: (user.role ?? 'staff') as Roles, userId, companyId },
-          clientId
-        )
+        await authorizeClientForChatbot(authCtx, clientId)
       } catch {
         return new NextResponse('Forbidden', { status: 403 })
       }
     }
 
     // Build context
-    const context = await buildChatbotContext(clientId, companyId)
+    const context = await buildChatbotContext(clientId, companyId, userId, user.firstName)
     const systemPrompt = buildChatbotSystemPrompt(context)
 
     // Prepare messages for API
@@ -108,12 +113,10 @@ export async function POST(request: NextRequest) {
         const timeout = setTimeout(() => abortController.abort(), 30000)
 
         try {
-          const client = getAIClient()
-
-          // Try streaming with primary AI
+          // Provider failover (Gemini → OpenAI) is handled inside `openai`.
           let streamResponse
           try {
-            streamResponse = await client.chat.completions.create({
+            streamResponse = await openai.chat.completions.create({
               model: AI_CONFIG.model,
               messages: apiMessages,
               tools: CHATBOT_TOOLS,
@@ -122,30 +125,15 @@ export async function POST(request: NextRequest) {
               temperature: 0.7,
               stream: true,
             }, { signal: abortController.signal })
-          } catch (primaryError) {
-            console.warn('[Chatbot Stream] Primary AI failed, falling back to GPT-4o:', primaryError)
-
-            // FIX S5-M12: Wrap fallback in its own try-catch
-            try {
-              streamResponse = await fallbackAI.chat.completions.create({
-                model: AI_CONFIG.fallbackModel,
-                messages: apiMessages,
-                tools: CHATBOT_TOOLS,
-                tool_choice: 'auto' as ChatCompletionToolChoiceOption,
-                max_tokens: AI_CONFIG.maxTokens,
-                temperature: 0.7,
-                stream: true,
-              }, { signal: abortController.signal })
-            } catch (fallbackError) {
-              console.error('[Chatbot Stream] Fallback AI also failed:', fallbackError)
-              const sseData = JSON.stringify({
-                type: 'error',
-                error: 'An error occurred while generating the response. Please try again.',
-              })
-              controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
-              controller.close()
-              return
-            }
+          } catch (aiError) {
+            console.error('[Chatbot Stream] All AI providers failed:', aiError)
+            const sseData = JSON.stringify({
+              type: 'error',
+              error: 'An error occurred while generating the response. Please try again.',
+            })
+            controller.enqueue(encoder.encode(`data: ${sseData}\n\n`))
+            controller.close()
+            return
           }
 
           // Track tool calls

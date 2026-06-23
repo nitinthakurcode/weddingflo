@@ -2470,5 +2470,9 @@
     "exportSuccess": "エクスポート成功",
     "masterExportComplete": "マスター計画シートが正常にエクスポートされました",
     "exportFailed": "エクスポートに失敗しました。もう一度お試しください。"
+  },
+  "chatbot": {
+    "title": "WeddingFlo アシスタント",
+    "assistantName": "{name}さんのアシスタント"
   }
 }

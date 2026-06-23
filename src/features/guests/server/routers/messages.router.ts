@@ -3,6 +3,12 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, or, lt, desc, asc, isNull, inArray, sql } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+
+// Direct-message views that must refresh live across the recipient's tabs/devices.
+const DM_SYNC_PATHS = ['messages.getMessages', 'messages.getConversation', 'messages.getUnreadCount'];
+// Team-channel views.
+const TEAM_MSG_SYNC_PATHS = ['messages.getTeamMessages', 'messages.getTeamChannels'];
 
 /**
  * Messages Router - Drizzle ORM
@@ -144,6 +150,16 @@ export const messagesRouter = router({
         })
         .returning();
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'communications',
+        entityId: newMessage.id,
+        companyId,
+        clientId: input.clientId,
+        userId,
+        queryPaths: DM_SYNC_PATHS,
+      });
+
       return newMessage;
     }),
 
@@ -179,6 +195,17 @@ export const messagesRouter = router({
             eq(schema.messages.receiverId, userId)
           )
         );
+
+      if (ctx.companyId) {
+        await broadcastSync({
+          type: 'update',
+          module: 'communications',
+          entityId: input.messageIds[0] ?? 'mark-read',
+          companyId: ctx.companyId,
+          userId,
+          queryPaths: DM_SYNC_PATHS,
+        });
+      }
 
       return { success: true };
     }),
@@ -557,6 +584,16 @@ export const messagesRouter = router({
           },
         })
         .returning();
+
+      await broadcastSync({
+        type: 'insert',
+        module: 'communications',
+        entityId: newMessage.id,
+        companyId,
+        clientId: input.clientId,
+        userId,
+        queryPaths: TEAM_MSG_SYNC_PATHS,
+      });
 
       return newMessage;
     }),

@@ -13,12 +13,13 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { router, protectedProcedure } from '@/server/trpc/trpc'
-import { getAIClient, AI_CONFIG, fallbackAI } from '@/lib/ai/openai-client'
+import { openai, AI_CONFIG } from '@/lib/ai/ai-client'
 import { clients } from '@/lib/db/schema'
 import { eq, and, isNull } from 'drizzle-orm'
 import { callAIWithTracking, getAIUsage } from '@/lib/ai/ai-helpers'
 import { checkRateLimit } from '@/lib/ai/rate-limiter'
 import { CHATBOT_TOOLS, isQueryTool, getCascadeEffects, getToolMetadata } from '../../tools/definitions'
+import { assertChatbotEntry, authorizeClientForChatbot, enforceChatbotAccess } from '../services/chatbot-authz'
 import {
   buildChatbotContext,
   extractClientIdFromPath,
@@ -173,29 +174,20 @@ export const chatbotRouter = router({
         throw error
       }
 
+      // SECURITY: role allowlist — only planner accounts may use the assistant.
+      assertChatbotEntry(ctx)
+
       // Extract clientId from URL or use provided
       const clientId = input.clientId || (input.pathname ? extractClientIdFromPath(input.pathname) : null)
 
-      // SECURITY: Validate client ownership if clientId provided
+      // SECURITY: per-client access — staff are restricted to assigned clients
+      // (mirrors the SSE route + executeTool chokepoint; Rule 26).
       if (clientId) {
-        const [client] = await ctx.db.select({ id: clients.id }).from(clients)
-          .where(and(
-            eq(clients.id, clientId),
-            eq(clients.companyId, companyId),
-            isNull(clients.deletedAt)
-          ))
-          .limit(1)
-
-        if (!client) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Client not found or access denied',
-          })
-        }
+        await authorizeClientForChatbot(ctx, clientId)
       }
 
       // Build context with user preferences and conversation memory (2026 Best Practices)
-      const context = await buildChatbotContext(clientId, companyId, userId)
+      const context = await buildChatbotContext(clientId, companyId, userId, ctx.user?.firstName)
 
       // Phase 5: Active Pronoun Resolution
       // Resolve pronouns like "them", "it", "that" to recently discussed entities
@@ -231,47 +223,23 @@ Use this information to correctly interpret the user's request.`
           userId,
           'general_assistant',
           async () => {
-            const client = getAIClient()
+            // Provider failover (Gemini → OpenAI) is handled inside `openai`.
+            const completion = await openai.chat.completions.create({
+              model: AI_CONFIG.model,
+              messages: apiMessages,
+              tools: CHATBOT_TOOLS,
+              tool_choice: 'auto' as ChatCompletionToolChoiceOption,
+              max_tokens: AI_CONFIG.maxTokens,
+              temperature: 0.7,
+            })
 
-            try {
-              const completion = await client.chat.completions.create({
-                model: AI_CONFIG.model,
-                messages: apiMessages,
-                tools: CHATBOT_TOOLS,
-                tool_choice: 'auto' as ChatCompletionToolChoiceOption,
-                max_tokens: AI_CONFIG.maxTokens,
-                temperature: 0.7,
-              })
-
-              return {
-                response: completion,
-                usage: {
-                  prompt_tokens: completion.usage?.prompt_tokens || 0,
-                  completion_tokens: completion.usage?.completion_tokens || 0,
-                  total_tokens: completion.usage?.total_tokens || 0,
-                },
-              }
-            } catch (primaryError) {
-              // Fallback to GPT-4o if primary fails
-              console.warn('[Chatbot] Primary AI failed, falling back to GPT-4o:', primaryError)
-
-              const fallbackCompletion = await fallbackAI.chat.completions.create({
-                model: AI_CONFIG.fallbackModel,
-                messages: apiMessages,
-                tools: CHATBOT_TOOLS,
-                tool_choice: 'auto' as ChatCompletionToolChoiceOption,
-                max_tokens: AI_CONFIG.maxTokens,
-                temperature: 0.7,
-              })
-
-              return {
-                response: fallbackCompletion,
-                usage: {
-                  prompt_tokens: fallbackCompletion.usage?.prompt_tokens || 0,
-                  completion_tokens: fallbackCompletion.usage?.completion_tokens || 0,
-                  total_tokens: fallbackCompletion.usage?.total_tokens || 0,
-                },
-              }
+            return {
+              response: completion,
+              usage: {
+                prompt_tokens: completion.usage?.prompt_tokens || 0,
+                completion_tokens: completion.usage?.completion_tokens || 0,
+                total_tokens: completion.usage?.total_tokens || 0,
+              },
             }
           },
           {
@@ -342,7 +310,7 @@ Use this information to correctly interpret the user's request.`
                 } as ChatCompletionMessageParam,
               ]
 
-              const followUp = await getAIClient().chat.completions.create({
+              const followUp = await openai.chat.completions.create({
                 model: AI_CONFIG.model,
                 messages: followUpMessages,
                 max_tokens: AI_CONFIG.maxTokens,
@@ -365,11 +333,16 @@ Use this information to correctly interpret the user's request.`
             }
           }
 
-          // SECURITY: Only admins can execute mutations via chatbot
-          if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
+          // SECURITY: mutation policy (admins → company; staff → assigned clients only;
+          // team/pipeline/analytics → admin-only). Same chokepoint enforced again at execution.
+          try {
+            await enforceChatbotAccess(toolName, args, ctx, 'mutation')
+          } catch (authzError) {
             return {
               type: 'error' as const,
-              content: 'You don\'t have permission to make changes via chatbot. Contact your admin for write access.',
+              content: authzError instanceof TRPCError
+                ? authzError.message
+                : 'You don\'t have permission to make this change via the assistant.',
               error: 'FORBIDDEN',
             }
           }
@@ -442,31 +415,10 @@ Use this information to correctly interpret the user's request.`
         })
       }
 
-      // SECURITY: Only admins can confirm/execute mutations via chatbot
-      if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'Insufficient permissions to execute mutations. Admin role required.',
-        })
-      }
-
-      // SECURITY: Validate client ownership if clientId provided
-      if (input.clientId) {
-        const [client] = await ctx.db.select({ id: clients.id }).from(clients)
-          .where(and(
-            eq(clients.id, input.clientId),
-            eq(clients.companyId, companyId),
-            isNull(clients.deletedAt)
-          ))
-          .limit(1)
-
-        if (!client) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Client not found or access denied',
-          })
-        }
-      }
+      // SECURITY: role allowlist. Full mutation/per-client policy is re-checked
+      // below against the PENDING call's real args (assignment may have changed
+      // since it was stored), and again inside the executeTool chokepoint.
+      assertChatbotEntry(ctx)
 
       // Get pending call from PostgreSQL
       const pending = await getPendingCall(input.pendingCallId)
@@ -502,6 +454,9 @@ Use this information to correctly interpret the user's request.`
           message: 'This confirmation has expired. Please try your request again.',
         })
       }
+
+      // SECURITY: re-authorize against the pending call's actual tool + args.
+      await enforceChatbotAccess(pending.toolName, pending.args, ctx, 'mutation')
 
       try {
         // Execute the tool with real-time sync broadcasting
@@ -609,7 +564,7 @@ Use this information to correctly interpret the user's request.`
       const clientId = input.clientId || (input.pathname ? extractClientIdFromPath(input.pathname) : null)
 
       // Include user preferences and conversation memory (2026 Best Practices)
-      return await buildChatbotContext(clientId, companyId, userId)
+      return await buildChatbotContext(clientId, companyId, userId, ctx.user?.firstName)
     }),
 
   // ============================================

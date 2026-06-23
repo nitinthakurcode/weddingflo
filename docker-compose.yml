@@ -133,7 +133,9 @@ services:
     networks:
       - weddingflo-network
 
-  # Redis for caching (optional)
+  # Redis — realtime sync pub/sub + rate limiting (self-hosted, replaces Upstash)
+  # Self-hosting removes the free-tier inactivity auto-deletion that previously
+  # killed production realtime. Durable via AOF (appendonly).
   redis:
     image: redis:7-alpine
     container_name: weddingflo-redis
@@ -141,10 +143,42 @@ services:
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
+    # No host port mapping in production — reached only over the internal network
+    # by the `srh` bridge below. Uncomment for local debugging with redis-cli.
+    # ports:
+    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weddingflo-network
+
+  # SRH (Serverless Redis HTTP) — HTTP/REST front for Redis.
+  # The app talks to Redis through the `@upstash/redis` REST client, which speaks
+  # HTTP, not the Redis TCP protocol. SRH bridges the two so the existing code in
+  # src/lib/realtime/redis-pubsub.ts and src/lib/redis/rate-limiter.ts works
+  # unchanged — just point UPSTASH_REDIS_REST_URL at this service.
+  srh:
+    image: hiett/serverless-redis-http:latest
+    container_name: weddingflo-srh
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      # Must equal UPSTASH_REDIS_REST_TOKEN in the app env. Generate a strong
+      # random value, e.g.  openssl rand -hex 32
+      SRH_TOKEN: ${SRH_TOKEN:?SRH_TOKEN is required}
+      SRH_CONNECTION_STRING: "redis://redis:6379"
+    # Internal endpoint for the app:  http://srh:80
+    # Expose a host port only if you need to verify from outside the network.
+    ports:
+      - "8079:80"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header=\"Authorization: Bearer $${SRH_TOKEN}\" http://localhost:80/get/srh-health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

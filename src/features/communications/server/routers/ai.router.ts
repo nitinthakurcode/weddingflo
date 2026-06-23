@@ -1,7 +1,7 @@
 import { router, protectedProcedure, staffProcedure } from '@/server/trpc/trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { openai, AI_CONFIG } from '@/lib/ai/openai-client';
+import { openai, AI_CONFIG } from '@/lib/ai/ai-client';
 import { callAIWithTracking, getAIUsage } from '@/lib/ai/ai-helpers';
 import { eq, and, asc, inArray } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';

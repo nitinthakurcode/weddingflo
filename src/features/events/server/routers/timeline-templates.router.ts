@@ -22,6 +22,12 @@ import {
  * - Edit template items (rename, change descriptions, timing)
  * - Add/remove template items
  * - Reset to defaults
+ *
+ * NOTE (real-time sync): these mutations intentionally do NOT call broadcastSync.
+ * They edit company-level template *definitions* (consumed only when a NEW event
+ * is later created), never a live client's timeline rows — so there is no shared
+ * client-scoped data to invalidate. The admin settings views that read these are
+ * not part of the realtime invalidation set.
  */
 export const timelineTemplatesRouter = router({
   /**

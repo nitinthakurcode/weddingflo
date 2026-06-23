@@ -9,6 +9,7 @@ import { cascadeGuestSideEffects } from '../utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
+import { GUEST_MUTATION_PATHS } from '@/lib/sync/cascade-query-paths'
 
 /**
  * Guests tRPC Router - Drizzle ORM Version
@@ -266,7 +267,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...GUEST_MUTATION_PATHS],
       })
 
       return {
@@ -720,7 +721,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingGuest.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...GUEST_MUTATION_PATHS],
       })
 
       return {
@@ -871,7 +872,7 @@ export const guestsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingGuest.guest.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...GUEST_MUTATION_PATHS],
       })
 
       return { success: true, deleted: result }
@@ -1034,7 +1035,7 @@ export const guestsRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+          queryPaths: [...GUEST_MUTATION_PATHS],
         })
       }
 

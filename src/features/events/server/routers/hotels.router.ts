@@ -6,6 +6,7 @@ import { hotels, clients, guests, timeline, accommodations } from '@/lib/db/sche
 import { randomUUID } from 'crypto'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { HOTEL_MUTATION_PATHS } from '@/lib/sync/cascade-query-paths'
 
 /**
  * Hotels tRPC Router - Drizzle ORM Version
@@ -273,7 +274,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll', 'timeline.getAll'],
+        queryPaths: [...HOTEL_MUTATION_PATHS],
       })
 
       return {
@@ -512,7 +513,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll', 'timeline.getAll'],
+        queryPaths: [...HOTEL_MUTATION_PATHS],
       })
 
       return {
@@ -590,7 +591,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll', 'timeline.getAll'],
+        queryPaths: [...HOTEL_MUTATION_PATHS],
       })
 
       return { success: true, cascadeActions: result.cascadeActions }
@@ -643,7 +644,7 @@ export const hotelsRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['hotels.getAll'],
+        queryPaths: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll', 'clients.list', 'clients.getAll'],
       })
 
       return hotel
@@ -790,7 +791,7 @@ export const hotelsRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['hotels.getAll', 'timeline.getAll'],
+          queryPaths: [...HOTEL_MUTATION_PATHS],
         })
       }
 

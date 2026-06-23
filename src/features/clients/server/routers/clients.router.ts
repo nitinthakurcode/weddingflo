@@ -10,142 +10,22 @@ import {
   teamClientAssignments
 } from '@/lib/db/schema';
 import { assertClientAccess } from '@/server/trpc/client-access';
-import type { SubscriptionTier, SubscriptionStatus, WeddingType } from '@/lib/db/schema/enums';
+import type { SubscriptionTier, SubscriptionStatus } from '@/lib/db/schema/enums';
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 import { recalcClientStats } from '@/lib/sync/client-stats-sync';
+import { createEventWithTimeline, shiftEventTimelineForDateChange } from '@/lib/sync/event-timeline-sync';
+import {
+  CLIENT_CREATE_BASE_PATHS,
+  CLIENT_CREATE_EVENT_PATHS,
+  CLIENT_CREATE_VENDOR_PATHS,
+  CLIENT_UPDATE_PATHS,
+} from '@/lib/sync/cascade-query-paths';
 
-
-/**
- * Timeline item type for template generation
- */
-interface TimelineTemplateItem {
-  title: string;
-  description?: string;
-  startTime: Date;
-  durationMinutes: number;
-  location?: string;
-}
-
-/**
- * Default timeline templates based on wedding type
- * Generates a day-of timeline for the wedding
- */
-function generateDefaultTimeline(weddingDate: string, weddingType: WeddingType, venue?: string | null): Array<{
-  title: string;
-  description?: string;
-  startTime: Date;
-  endTime?: Date;
-  durationMinutes: number;
-  location?: string;
-}> {
-  const baseDate = new Date(weddingDate);
-
-  // Helper to create time on wedding day
-  const createTime = (hours: number, minutes: number = 0) => {
-    const date = new Date(baseDate);
-    date.setHours(hours, minutes, 0, 0);
-    return date;
-  };
-
-  const templates: Record<WeddingType, TimelineTemplateItem[]> = {
-    traditional: [
-      { title: 'Bride Getting Ready', description: 'Hair, makeup, and dress', startTime: createTime(9, 0), durationMinutes: 180, location: 'Bridal Suite' },
-      { title: 'Groom Getting Ready', description: 'Suit and preparation', startTime: createTime(11, 0), durationMinutes: 120, location: 'Groom Suite' },
-      { title: 'First Look (Optional)', description: 'Private moment before ceremony', startTime: createTime(13, 0), durationMinutes: 30, location: venue || undefined },
-      { title: 'Wedding Party Photos', description: 'Bridesmaids, groomsmen, family', startTime: createTime(13, 30), durationMinutes: 90, location: venue || undefined },
-      { title: 'Ceremony', description: 'Exchange of vows', startTime: createTime(16, 0), durationMinutes: 45, location: venue || undefined },
-      { title: 'Cocktail Hour', description: 'Drinks and appetizers', startTime: createTime(17, 0), durationMinutes: 60, location: venue || undefined },
-      { title: 'Reception Entrance', description: 'Grand entrance announcement', startTime: createTime(18, 0), durationMinutes: 15, location: venue || undefined },
-      { title: 'First Dance', description: 'Couple\'s first dance', startTime: createTime(18, 15), durationMinutes: 5, location: venue || undefined },
-      { title: 'Dinner Service', description: 'Main meal', startTime: createTime(18, 30), durationMinutes: 90, location: venue || undefined },
-      { title: 'Speeches & Toasts', description: 'Best man, maid of honor, parents', startTime: createTime(20, 0), durationMinutes: 30, location: venue || undefined },
-      { title: 'Cake Cutting', description: 'Traditional cake cutting', startTime: createTime(20, 30), durationMinutes: 15, location: venue || undefined },
-      { title: 'Dancing & Party', description: 'Open dance floor', startTime: createTime(20, 45), durationMinutes: 135, location: venue || undefined },
-      { title: 'Last Dance & Send Off', description: 'Final dance and farewell', startTime: createTime(23, 0), durationMinutes: 30, location: venue || undefined },
-    ],
-    destination: [
-      { title: 'Welcome Breakfast', description: 'Meet & greet with guests', startTime: createTime(9, 0), durationMinutes: 120, location: 'Hotel Restaurant' },
-      { title: 'Bride Getting Ready', description: 'Hair, makeup, and dress', startTime: createTime(12, 0), durationMinutes: 180, location: 'Bridal Suite' },
-      { title: 'Groom Getting Ready', description: 'Suit and preparation', startTime: createTime(14, 0), durationMinutes: 120, location: 'Groom Suite' },
-      { title: 'Ceremony', description: 'Beach/destination ceremony', startTime: createTime(17, 0), durationMinutes: 45, location: venue || undefined },
-      { title: 'Sunset Photos', description: 'Couple photos during golden hour', startTime: createTime(17, 45), durationMinutes: 45, location: venue || undefined },
-      { title: 'Reception Dinner', description: 'Outdoor reception', startTime: createTime(19, 0), durationMinutes: 180, location: venue || undefined },
-      { title: 'Dancing Under Stars', description: 'Evening celebration', startTime: createTime(22, 0), durationMinutes: 120, location: venue || undefined },
-    ],
-    intimate: [
-      { title: 'Getting Ready Together', description: 'Couple preparation', startTime: createTime(11, 0), durationMinutes: 180 },
-      { title: 'Ceremony', description: 'Intimate vow exchange', startTime: createTime(15, 0), durationMinutes: 30, location: venue || undefined },
-      { title: 'Photos', description: 'Couple and small group photos', startTime: createTime(15, 30), durationMinutes: 60, location: venue || undefined },
-      { title: 'Intimate Dinner', description: 'Private dinner celebration', startTime: createTime(17, 0), durationMinutes: 180, location: venue || undefined },
-    ],
-    elopement: [
-      { title: 'Getting Ready', description: 'Couple preparation', startTime: createTime(8, 0), durationMinutes: 120 },
-      { title: 'Travel to Location', description: 'Journey to ceremony spot', startTime: createTime(10, 0), durationMinutes: 60 },
-      { title: 'Private Ceremony', description: 'Just the two of you', startTime: createTime(11, 0), durationMinutes: 30, location: venue || undefined },
-      { title: 'Adventure Photos', description: 'Exploration and photos', startTime: createTime(11, 30), durationMinutes: 180, location: venue || undefined },
-      { title: 'Celebration Dinner', description: 'Private dinner', startTime: createTime(18, 0), durationMinutes: 120 },
-    ],
-    multi_day: [
-      { title: 'Day 1: Welcome Event', description: 'Guest arrival and welcome party', startTime: createTime(18, 0), durationMinutes: 180, location: 'Welcome Venue' },
-      { title: 'Day 2: Pre-Wedding Ceremonies', description: 'Traditional ceremonies', startTime: createTime(10, 0), durationMinutes: 480 },
-      { title: 'Day 3: Main Wedding', description: 'Main ceremony and reception', startTime: createTime(16, 0), durationMinutes: 420, location: venue || undefined },
-      { title: 'Day 4: Farewell Brunch', description: 'Guest farewell', startTime: createTime(10, 0), durationMinutes: 180 },
-    ],
-    cultural: [
-      { title: 'Religious/Cultural Ceremony', description: 'Traditional ceremony', startTime: createTime(10, 0), durationMinutes: 120, location: venue || undefined },
-      { title: 'Traditional Lunch', description: 'Cultural meal with family', startTime: createTime(12, 30), durationMinutes: 150 },
-      { title: 'Bride Getting Ready', description: 'Traditional attire preparation', startTime: createTime(15, 0), durationMinutes: 180, location: 'Bridal Suite' },
-      { title: 'Groom Getting Ready', description: 'Traditional attire preparation', startTime: createTime(16, 0), durationMinutes: 120, location: 'Groom Suite' },
-      { title: 'Reception Ceremony', description: 'Evening celebration ceremony', startTime: createTime(18, 30), durationMinutes: 60, location: venue || undefined },
-      { title: 'Reception & Dinner', description: 'Celebration dinner', startTime: createTime(19, 30), durationMinutes: 180, location: venue || undefined },
-      { title: 'Cultural Performances', description: 'Traditional music and dance', startTime: createTime(22, 30), durationMinutes: 90, location: venue || undefined },
-    ],
-    modern: [
-      { title: 'Getting Ready', description: 'Hair, makeup, and styling', startTime: createTime(10, 0), durationMinutes: 180, location: 'Bridal Suite' },
-      { title: 'First Look & Photos', description: 'Modern photo session', startTime: createTime(14, 0), durationMinutes: 90, location: venue || undefined },
-      { title: 'Ceremony', description: 'Contemporary ceremony', startTime: createTime(16, 0), durationMinutes: 30, location: venue || undefined },
-      { title: 'Cocktail Hour', description: 'Specialty cocktails', startTime: createTime(16, 30), durationMinutes: 90, location: venue || undefined },
-      { title: 'Reception', description: 'Dinner and celebration', startTime: createTime(18, 0), durationMinutes: 240, location: venue || undefined },
-    ],
-    rustic: [
-      { title: 'Morning Preparation', description: 'Getting ready in rustic setting', startTime: createTime(10, 0), durationMinutes: 180, location: 'Farmhouse' },
-      { title: 'Outdoor Photos', description: 'Natural setting photography', startTime: createTime(14, 0), durationMinutes: 90, location: venue || undefined },
-      { title: 'Ceremony', description: 'Outdoor barn ceremony', startTime: createTime(16, 0), durationMinutes: 45, location: venue || undefined },
-      { title: 'Cocktails & Lawn Games', description: 'Outdoor reception start', startTime: createTime(17, 0), durationMinutes: 90, location: venue || undefined },
-      { title: 'Barn Reception', description: 'Dinner and dancing', startTime: createTime(18, 30), durationMinutes: 270, location: venue || undefined },
-    ],
-    bohemian: [
-      { title: 'Relaxed Morning', description: 'Boho-style preparation', startTime: createTime(10, 0), durationMinutes: 180 },
-      { title: 'Creative Photo Session', description: 'Artistic photography', startTime: createTime(14, 0), durationMinutes: 120, location: venue || undefined },
-      { title: 'Free-Spirit Ceremony', description: 'Outdoor ceremony with nature', startTime: createTime(16, 30), durationMinutes: 30, location: venue || undefined },
-      { title: 'Bohemian Reception', description: 'Dinner and celebration', startTime: createTime(17, 30), durationMinutes: 300, location: venue || undefined },
-    ],
-    religious: [
-      { title: 'Pre-Ceremony Preparation', description: 'Spiritual preparation', startTime: createTime(9, 0), durationMinutes: 120 },
-      { title: 'Religious Ceremony', description: 'Church/Temple ceremony', startTime: createTime(11, 0), durationMinutes: 90, location: 'Place of Worship' },
-      { title: 'Family Photos', description: 'Post-ceremony photos', startTime: createTime(12, 30), durationMinutes: 60 },
-      { title: 'Reception Lunch', description: 'Celebratory meal', startTime: createTime(14, 0), durationMinutes: 180, location: venue || undefined },
-      { title: 'Evening Blessing', description: 'Optional evening ceremony', startTime: createTime(18, 0), durationMinutes: 60 },
-      { title: 'Dinner Reception', description: 'Formal dinner', startTime: createTime(19, 0), durationMinutes: 240, location: venue || undefined },
-    ],
-    luxury: [
-      { title: 'VIP Preparation', description: 'Full glam squad service', startTime: createTime(9, 0), durationMinutes: 240, location: 'Luxury Suite' },
-      { title: 'First Look & Portraits', description: 'High-end photography', startTime: createTime(14, 0), durationMinutes: 120, location: venue || undefined },
-      { title: 'Ceremony', description: 'Elegant ceremony', startTime: createTime(17, 0), durationMinutes: 45, location: venue || undefined },
-      { title: 'Champagne Hour', description: 'Premium cocktails', startTime: createTime(18, 0), durationMinutes: 60, location: venue || undefined },
-      { title: 'Grand Entrance', description: 'Spectacular reception entrance', startTime: createTime(19, 0), durationMinutes: 15, location: venue || undefined },
-      { title: 'Gourmet Dinner', description: 'Multi-course dining', startTime: createTime(19, 15), durationMinutes: 150, location: venue || undefined },
-      { title: 'Entertainment & Dancing', description: 'Live band performance', startTime: createTime(21, 45), durationMinutes: 180, location: venue || undefined },
-    ],
-  };
-
-  const result = templates[weddingType] || templates.traditional;
-  return result.map((item: TimelineTemplateItem) => ({
-    ...item,
-    endTime: new Date(item.startTime.getTime() + item.durationMinutes * 60000),
-  }));
-}
+// NOTE: The legacy `generateDefaultTimeline` helper and its TimelineTemplateItem
+// interface were removed. Timeline generation now lives in the canonical
+// `createEventWithTimeline` helper (@/lib/sync/event-timeline-sync), which every
+// event-creation path (events router, this router, chatbot) shares.
 
 /**
  * Clients tRPC Router - Drizzle ORM Version
@@ -489,26 +369,22 @@ export const clientsRouter = router({
             `${input.partner1_first_name}${input.partner2_first_name ? ` & ${input.partner2_first_name}` : ''}'s Wedding`;
 
           try {
-            const [createdEvent] = await tx
-              .insert(events)
-              .values({
-                id: crypto.randomUUID(),
-                clientId: client.id,
-                title: eventTitle,
-                eventType: 'Wedding',
-                eventDate: input.wedding_date,
-                venueName: input.venue || null,
-                guestCount: input.guest_count || null,
-                status: 'planned',
-                notes: input.notes || null,
-                description: `Main wedding ceremony for ${eventTitle}`,
-              })
-              .returning({ id: events.id });
-
-            if (createdEvent) {
-              mainEventId = createdEvent.id;
-            }
-            console.log('[Clients Router] Auto-created Main Wedding event for client:', client.id, 'eventId:', mainEventId);
+            // Canonical create: event + template-generated timeline items, with
+            // companyId set (fixes prior NULL-tenant + empty-timeline bugs).
+            const { eventId } = await createEventWithTimeline(tx, {
+              clientId: client.id,
+              companyId: effectiveCompanyId,
+              title: eventTitle,
+              eventType: 'Wedding',
+              eventDate: input.wedding_date,
+              venueName: input.venue || null,
+              guestCount: input.guest_count || null,
+              status: 'planned',
+              notes: input.notes || null,
+              description: `Main wedding ceremony for ${eventTitle}`,
+            });
+            mainEventId = eventId;
+            console.log('[Clients Router] Auto-created Main Wedding event + timeline for client:', client.id, 'eventId:', mainEventId);
           } catch (eventError) {
             // Log but don't fail - client creation succeeded
             console.error('[Clients Router] Failed to auto-create wedding event:', eventError);
@@ -516,7 +392,7 @@ export const clientsRouter = router({
         }
 
 
-      // NOTE: Timeline items are no longer auto-generated at client creation.
+      // NOTE: Timeline items are generated by createEventWithTimeline above (per-event templates).
       // They are now generated per-event when events are created via the events router.
       // This allows for date-specific and event-type-specific timelines.
 
@@ -671,17 +547,17 @@ export const clientsRouter = router({
         return client;
       });
 
-      // Broadcast real-time sync after successful transaction
-      // Include cascade paths for auto-created events, vendors, and budget items
-      const queryPaths: string[] = ['clients.list', 'clients.getAll'];
+      // Broadcast real-time sync after successful transaction.
+      // Cascade paths sourced from the shared cascade-query-paths constants so
+      // the chatbot's create_client invalidation set can never drift from this.
+      const queryPaths = new Set<string>(CLIENT_CREATE_BASE_PATHS);
       if (!input.skipAutoCreation && input.wedding_date) {
-        // Auto-created wedding event
-        queryPaths.push('events.getAll', 'timeline.getAll');
+        // Auto-created wedding event + its timeline
+        CLIENT_CREATE_EVENT_PATHS.forEach((p) => queryPaths.add(p));
       }
       if (!input.skipAutoCreation && input.vendors?.trim()) {
-        // Auto-created vendors and budget items (per handbook D.5 cascade: budget + timeline)
-        queryPaths.push('vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary');
-        if (!queryPaths.includes('timeline.getAll')) queryPaths.push('timeline.getAll');
+        // Auto-created vendors + budget items (+ timeline)
+        CLIENT_CREATE_VENDOR_PATHS.forEach((p) => queryPaths.add(p));
       }
 
       await broadcastSync({
@@ -691,7 +567,7 @@ export const clientsRouter = router({
         companyId: effectiveCompanyId,
         clientId: data.id,
         userId: ctx.userId,
-        queryPaths,
+        queryPaths: Array.from(queryPaths),
       });
 
       return data;
@@ -828,9 +704,10 @@ export const clientsRouter = router({
           input.wedding_name !== undefined;
 
         if (weddingFieldsUpdated) {
-          // Find the main wedding event (event_type = 'Wedding') for this client
+          // Find the main wedding event (event_type = 'Wedding') for this client.
+          // Capture old date/time so we can shift linked timeline items on a date change.
           const [mainEvent] = await tx
-            .select({ id: events.id })
+            .select({ id: events.id, eventDate: events.eventDate, startTime: events.startTime })
             .from(events)
             .where(
               and(
@@ -858,31 +735,41 @@ export const clientsRouter = router({
                 .set(eventUpdate)
                 .where(eq(events.id, mainEvent.id));
 
-              console.log('[Clients Router] Synced wedding details to main event:', mainEvent.id);
+              // Shift the linked timeline items when the wedding date changes so the
+              // auto-generated wedding timeline moves with the wedding (preserves offsets).
+              if (input.wedding_date !== undefined) {
+                const shifted = await shiftEventTimelineForDateChange(tx, mainEvent.id, {
+                  oldEventDate: mainEvent.eventDate,
+                  oldStartTime: mainEvent.startTime,
+                  newEventDate: input.wedding_date,
+                });
+                console.log('[Clients Router] Synced wedding details to main event:', mainEvent.id, '— timeline items shifted:', shifted);
+              } else {
+                console.log('[Clients Router] Synced wedding details to main event:', mainEvent.id);
+              }
             } catch (eventUpdateError) {
               console.error('[Clients Router] Failed to sync wedding details to event:', eventUpdateError);
             }
           } else if (input.wedding_date) {
             // No main event exists but wedding_date was provided - create one
+            // (+ its timeline) via the canonical helper, with companyId set.
             const eventTitle = input.wedding_name || result.weddingName ||
               `${result.partner1FirstName}${result.partner2FirstName ? ` & ${result.partner2FirstName}` : ''}'s Wedding`;
 
             try {
-              await tx
-                .insert(events)
-                .values({
-                  id: crypto.randomUUID(),
-                  clientId: input.id,
-                  title: eventTitle,
-                  eventType: 'Wedding',
-                  eventDate: input.wedding_date,
-                  venueName: input.venue || result.venue || undefined,
-                  guestCount: input.guest_count || result.guestCount || undefined,
-                  status: 'planned',
-                  description: `Main wedding ceremony for ${eventTitle}`,
-                });
+              await createEventWithTimeline(tx, {
+                clientId: input.id,
+                companyId: ctx.companyId!,
+                title: eventTitle,
+                eventType: 'Wedding',
+                eventDate: input.wedding_date,
+                venueName: input.venue || result.venue || null,
+                guestCount: input.guest_count ?? result.guestCount ?? null,
+                status: 'planned',
+                description: `Main wedding ceremony for ${eventTitle}`,
+              });
 
-              console.log('[Clients Router] Created main wedding event during client update');
+              console.log('[Clients Router] Created main wedding event + timeline during client update');
             } catch (eventCreateError) {
               console.error('[Clients Router] Failed to create wedding event during update:', eventCreateError);
             }
@@ -900,7 +787,7 @@ export const clientsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.id,
         userId: ctx.userId!,
-        queryPaths: ['clients.list', 'clients.getAll', 'clients.getById'],
+        queryPaths: [...CLIENT_UPDATE_PATHS],
       });
 
       return data;

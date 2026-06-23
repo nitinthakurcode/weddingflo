@@ -18,6 +18,10 @@ import { TRPCError } from '@trpc/server';
 import { protectedProcedure, router } from '@/server/trpc/trpc';
 import { eq, and, desc, gte, count } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+
+// Subscribed-devices view — refresh across the user's tabs/devices.
+const PUSH_SYNC_PATHS = ['push.getSubscriptions'];
 
 /**
  * Input validation schemas
@@ -138,6 +142,17 @@ export const pushRouter = router({
           });
         }
 
+        if (ctx.companyId) {
+          await broadcastSync({
+            type: 'insert',
+            module: 'communications',
+            entityId: subscription?.id ?? 'push-sub',
+            companyId: ctx.companyId,
+            userId,
+            queryPaths: PUSH_SYNC_PATHS,
+          });
+        }
+
         return {
           success: true,
           subscription,
@@ -191,6 +206,17 @@ export const pushRouter = router({
               updatedAt: new Date(),
             })
             .where(eq(schema.pushSubscriptions.id, existing.id));
+        }
+
+        if (ctx.companyId) {
+          await broadcastSync({
+            type: 'update',
+            module: 'communications',
+            entityId: input.endpoint,
+            companyId: ctx.companyId,
+            userId,
+            queryPaths: PUSH_SYNC_PATHS,
+          });
         }
 
         return {
@@ -451,6 +477,17 @@ export const pushRouter = router({
               eq(schema.pushSubscriptions.userId, userId) // Ensure user can only delete their own subscriptions
             )
           );
+
+        if (ctx.companyId) {
+          await broadcastSync({
+            type: 'delete',
+            module: 'communications',
+            entityId: input.subscriptionId,
+            companyId: ctx.companyId,
+            userId,
+            queryPaths: PUSH_SYNC_PATHS,
+          });
+        }
 
         return {
           success: true,

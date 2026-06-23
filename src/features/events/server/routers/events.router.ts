@@ -2,12 +2,10 @@ import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, gte, lte, inArray, sql } from 'drizzle-orm'
-import { events, clients, timeline, timelineTemplates, guests } from '@/lib/db/schema'
-import {
-  getDefaultTemplate,
-  type TimelineTemplateItem,
-} from '@/lib/templates/timeline-defaults'
+import { events, clients, timeline, guests } from '@/lib/db/schema'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { EVENT_MUTATION_PATHS, EVENT_DELETE_PATHS } from '@/lib/sync/cascade-query-paths'
+import { createEventWithTimeline } from '@/lib/sync/event-timeline-sync'
 
 /**
  * Events tRPC Router - Drizzle ORM Version
@@ -120,129 +118,26 @@ export const eventsRouter = router({
       // Default status is 'planned' unless explicitly provided (synced with pipeline)
       const eventStatus = input.status || 'planned'
 
-      // Generate UUID for new event (needed before transaction for timeline item generation)
-      const { v4: uuidv4 } = await import('uuid')
-      const eventId = uuidv4()
-
-      // TIMELINE TEMPLATE LOOKUP: Prepare timeline items before transaction (read-only)
-      // If template preparation fails, event still creates without timeline items
-      let preparedTimelineItems: Array<typeof timeline.$inferInsert> = []
-      try {
-        // Parse event date and time for timeline
-        let eventStartDateTime = new Date(input.eventDate)
-        if (input.startTime) {
-          const [hours, minutes] = input.startTime.split(':').map(Number)
-          eventStartDateTime.setHours(hours || 0, minutes || 0, 0, 0)
-        } else {
-          // Default to noon if no start time provided
-          eventStartDateTime.setHours(12, 0, 0, 0)
-        }
-
-        // Normalize event type for template lookup
-        const normalizedEventType = input.eventType?.toLowerCase().replace(/[^a-z_]/g, '_') || 'wedding'
-
-        // Check for company-customized templates first
-        let templateItems: TimelineTemplateItem[] = []
-        if (ctx.companyId) {
-          const customTemplates = await ctx.db
-            .select()
-            .from(timelineTemplates)
-            .where(
-              and(
-                eq(timelineTemplates.companyId, ctx.companyId),
-                eq(timelineTemplates.eventType, normalizedEventType),
-                eq(timelineTemplates.isActive, true)
-              )
-            )
-            .orderBy(asc(timelineTemplates.sortOrder))
-
-          if (customTemplates.length > 0) {
-            templateItems = customTemplates.map((t) => ({
-              title: t.title,
-              description: t.description || '',
-              offsetMinutes: t.offsetMinutes,
-              durationMinutes: t.durationMinutes,
-              location: t.location || undefined,
-              phase: (t.phase || 'showtime') as 'setup' | 'showtime' | 'wrapup',
-            }))
-            console.log(`[Timeline] Using ${customTemplates.length} custom template items for ${normalizedEventType}`)
-          }
-        }
-
-        // Fall back to default templates if no custom ones
-        if (templateItems.length === 0) {
-          templateItems = getDefaultTemplate(input.eventType)
-          console.log(`[Timeline] Using default template for ${normalizedEventType}`)
-        }
-
-        const eventLocation = input.location || input.venueName || null
-
-        // Generate timeline items from template
-        preparedTimelineItems = templateItems.map((item, index) => {
-          const itemStartTime = new Date(eventStartDateTime.getTime() + item.offsetMinutes * 60 * 1000)
-          const itemEndTime = new Date(itemStartTime.getTime() + item.durationMinutes * 60 * 1000)
-
-          return {
-            id: uuidv4(),
-            clientId: input.clientId,
-            companyId: ctx.companyId!,
-            eventId: eventId,
-            title: item.title,
-            description: item.description,
-            phase: item.phase,
-            startTime: itemStartTime,
-            endTime: itemEndTime,
-            durationMinutes: item.durationMinutes,
-            location: item.location || eventLocation,
-            sortOrder: index,
-            sourceModule: 'events',
-            sourceId: eventId,
-            metadata: JSON.stringify({ eventType: input.eventType || 'Wedding Event', eventTitle: input.title }),
-          }
+      // ATOMIC CREATE: Event + template-generated timeline items in a single
+      // transaction. Shared with clients.router + chatbot via the canonical helper.
+      const { event } = await ctx.db.transaction(async (tx) =>
+        createEventWithTimeline(tx, {
+          clientId: input.clientId,
+          companyId: ctx.companyId!,
+          title: input.title,
+          description: input.description,
+          eventType: input.eventType,
+          eventDate: input.eventDate,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          location: input.location,
+          venueName: input.venueName,
+          address: input.address,
+          guestCount: input.guestCount,
+          notes: input.notes,
+          status: eventStatus,
         })
-      } catch (timelineError) {
-        // Template preparation failed - event will still be created without timeline items
-        console.warn('[Timeline] Failed to prepare timeline entries for event:', timelineError)
-      }
-
-      // ATOMIC CREATE: Event + timeline items in a single transaction
-      const event = await ctx.db.transaction(async (tx) => {
-        const [newEvent] = await tx
-          .insert(events)
-          .values({
-            id: eventId,
-            clientId: input.clientId,
-            companyId: ctx.companyId!,
-            title: input.title,
-            description: input.description || null,
-            eventType: input.eventType || null,
-            eventDate: input.eventDate,
-            startTime: input.startTime || null,
-            endTime: input.endTime || null,
-            location: input.location || null,
-            venueName: input.venueName || null,
-            address: input.address || null,
-            guestCount: input.guestCount || null,
-            notes: input.notes || null,
-            status: eventStatus,
-          })
-          .returning()
-
-        if (!newEvent) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Failed to create event'
-          })
-        }
-
-        // Insert timeline items if template preparation succeeded
-        if (preparedTimelineItems.length > 0) {
-          await tx.insert(timeline).values(preparedTimelineItems)
-          console.log(`[Timeline] Auto-created ${preparedTimelineItems.length} items for event: ${input.title} (${input.eventType})`)
-        }
-
-        return newEvent
-      })
+      )
 
       // Broadcast real-time sync
       await broadcastSync({
@@ -252,7 +147,7 @@ export const eventsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['events.getAll', 'timeline.getAll'],
+        queryPaths: [...EVENT_MUTATION_PATHS],
       })
 
       return event
@@ -392,7 +287,7 @@ export const eventsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingEvent.event.clientId,
         userId: ctx.userId!,
-        queryPaths: ['events.getAll', 'timeline.getAll'],
+        queryPaths: [...EVENT_MUTATION_PATHS],
       })
 
       return event
@@ -465,7 +360,7 @@ export const eventsRouter = router({
         companyId: ctx.companyId!,
         clientId: existingEvent.event.clientId,
         userId: ctx.userId!,
-        queryPaths: ['events.getAll', 'timeline.getAll', 'guests.getAll'],
+        queryPaths: [...EVENT_DELETE_PATHS],
       })
 
       return { success: true }

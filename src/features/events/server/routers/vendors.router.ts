@@ -7,6 +7,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
+import { VENDOR_MUTATION_PATHS } from '@/lib/sync/cascade-query-paths'
 
 /**
  * Auto-link vendor to event by matching service date with event date.
@@ -116,6 +117,7 @@ export const vendorsRouter = router({
           contractDate: vendors.contractDate,
           vendorNotes: vendors.notes,
           isPreferred: vendors.isPreferred,
+          rating: vendors.rating,
           // Event fields
           eventTitle: events.title,
           eventType: events.eventType,
@@ -196,6 +198,7 @@ export const vendorsRouter = router({
           payment_status: cv.paymentStatus,
           vendor_notes: cv.vendorNotes,
           is_preferred: cv.isPreferred,
+          rating: cv.rating,
           // From client_vendors table
           contract_amount: cv.contractAmount,
           deposit_amount: cv.depositAmount,
@@ -507,7 +510,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
+        queryPaths: [...VENDOR_MUTATION_PATHS],
       })
 
       return {
@@ -746,7 +749,7 @@ export const vendorsRouter = router({
         companyId: ctx.companyId!,
         clientId: clientVendorRecord.clientId,
         userId: ctx.userId!,
-        queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
+        queryPaths: [...VENDOR_MUTATION_PATHS],
       })
 
       return { success: true }
@@ -830,7 +833,7 @@ export const vendorsRouter = router({
           companyId: ctx.companyId!,
           clientId: result.clientId,
           userId: ctx.userId!,
-          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
+          queryPaths: [...VENDOR_MUTATION_PATHS],
         })
       }
 
@@ -1387,7 +1390,7 @@ export const vendorsRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll', 'clients.list', 'clients.getAll'],
+          queryPaths: [...VENDOR_MUTATION_PATHS],
         })
       }
 

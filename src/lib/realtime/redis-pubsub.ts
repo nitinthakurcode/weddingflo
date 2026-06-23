@@ -55,6 +55,8 @@ export interface SyncAction {
     | 'questionnaires'
     | 'creatives'
     | 'websites'
+    | 'accommodations'
+    | 'communications'
   /** ID of the entity that was affected */
   entityId: string
   /** Additional data about the mutation */

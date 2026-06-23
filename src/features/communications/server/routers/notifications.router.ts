@@ -12,6 +12,10 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
 import { notifications } from '@/lib/db/schema';
 import { and, eq, desc, count } from 'drizzle-orm';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+
+// Bell dropdown + badge — refresh across the user's other tabs/devices.
+const NOTIFICATION_SYNC_PATHS = ['notifications.list', 'notifications.unreadCount'];
 
 export const notificationsRouter = router({
   /** List the current user's notifications (most recent first). */
@@ -63,6 +67,17 @@ export const notificationsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Notification not found' });
       }
 
+      if (ctx.companyId) {
+        await broadcastSync({
+          type: 'update',
+          module: 'communications',
+          entityId: input.id,
+          companyId: ctx.companyId,
+          userId: ctx.userId,
+          queryPaths: NOTIFICATION_SYNC_PATHS,
+        });
+      }
+
       return { success: true };
     }),
 
@@ -74,6 +89,17 @@ export const notificationsRouter = router({
       .where(and(eq(notifications.userId, ctx.userId), eq(notifications.isRead, false)))
       .returning({ id: notifications.id });
 
+    if (ctx.companyId) {
+      await broadcastSync({
+        type: 'update',
+        module: 'communications',
+        entityId: 'mark-all-read',
+        companyId: ctx.companyId,
+        userId: ctx.userId,
+        queryPaths: NOTIFICATION_SYNC_PATHS,
+      });
+    }
+
     return { success: true, count: updated.length };
   }),
 
@@ -84,6 +110,17 @@ export const notificationsRouter = router({
       await ctx.db
         .delete(notifications)
         .where(and(eq(notifications.id, input.id), eq(notifications.userId, ctx.userId)));
+
+      if (ctx.companyId) {
+        await broadcastSync({
+          type: 'delete',
+          module: 'communications',
+          entityId: input.id,
+          companyId: ctx.companyId,
+          userId: ctx.userId,
+          queryPaths: NOTIFICATION_SYNC_PATHS,
+        });
+      }
 
       return { success: true };
     }),

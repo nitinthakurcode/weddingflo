@@ -3172,13 +3172,14 @@
     "noTransportsDescription": "Click \"Sync from Guests\" to import guests who need transport, or add manually."
   },
   "chatbot": {
-    "title": "AI Assistant",
+    "title": "WeddingFlo Assistant",
+    "assistantName": "{name}’s Assistant",
     "noClientSelected": "No wedding selected",
     "welcomeTitle": "How can I help?",
     "welcomeDescription": "Ask me to add guests, update budgets, create events, or anything else.",
     "inputPlaceholder": "Type a command...",
-    "toggleLabel": "Toggle AI Assistant",
-    "open": "AI Assistant",
+    "toggleLabel": "Toggle WeddingFlo Assistant",
+    "open": "WeddingFlo Assistant",
     "close": "Close",
     "confirmAction": "Confirm Action",
     "cancel": "Cancel",

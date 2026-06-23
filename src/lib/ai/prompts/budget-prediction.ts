@@ -1,4 +1,4 @@
-import type { AIFeatureType } from '../openai-client'
+import type { AIFeatureType } from '../ai-client'
 
 export interface BudgetPredictionInput {
   guestCount: number

@@ -478,6 +478,7 @@ export async function exportGuestListExcel(
     { header: 'Gift Received', key: 'gift', width: 25, hint: 'Gift description' },
     { header: 'Notes', key: 'notes', width: 35, hint: 'Special notes' },
     { header: 'Checked In', key: 'checkedIn', width: 12, hint: 'TRUE/FALSE' },
+    { header: 'Action', key: 'action', width: 12, hint: 'DELETE to remove on re-import' },
   ];
 
   // Set columns
@@ -653,6 +654,7 @@ export async function exportGuestListExcel(
  */
 export async function exportBudgetExcel(
   budgetItems: Array<{
+    id?: string;
     item?: string;
     expense_details?: string;
     category: string;
@@ -675,6 +677,7 @@ export async function exportBudgetExcel(
   options: ExcelOptions = {}
 ): Promise<void> {
   const columns: ExcelColumn[] = [
+    { header: 'ID', key: 'id', width: 38, hint: 'Do not modify - used for updates' },
     { header: 'Expense Name', key: 'expenseName', width: 30, hint: 'Required - Expense name' },
     { header: 'Expense Details', key: 'details', width: 35, hint: 'Description of expense' },
     { header: 'Category', key: 'category', width: 20, hint: 'venue/catering/decor/etc.', validation: { type: 'list', options: ['venue', 'catering', 'photography', 'videography', 'decor', 'entertainment', 'attire', 'beauty', 'transportation', 'stationery', 'gifts', 'other'] } },
@@ -687,6 +690,7 @@ export async function exportBudgetExcel(
     { header: 'Payment History', key: 'advanceDetails', width: 45, hint: 'Payment details' },
     { header: 'Payment Status', key: 'status', width: 18, hint: 'pending/partial/paid/overdue', validation: { type: 'list', options: ['pending', 'partial', 'paid', 'overdue'] } },
     { header: 'Special Notes', key: 'notes', width: 40, hint: 'Additional notes' },
+    { header: 'Action', key: 'action', width: 12, hint: 'DELETE to remove on re-import' },
   ];
 
   const data = budgetItems.map((item) => {
@@ -695,6 +699,7 @@ export async function exportBudgetExcel(
     ).join('; ') || '';
 
     return {
+      id: item.id || '',
       expenseName: item.item || item.expense_details || '',
       details: item.expense_details || '',
       category: item.category,
@@ -707,6 +712,7 @@ export async function exportBudgetExcel(
       advanceDetails,
       status: item.payment_status || 'pending',
       notes: item.notes || '',
+      action: '',
     };
   });
 
@@ -716,6 +722,7 @@ export async function exportBudgetExcel(
   const totalBalance = totalBudget - totalAdvances;
 
   data.push({
+    id: '',
     expenseName: 'TOTAL',
     details: '',
     category: '',
@@ -728,6 +735,7 @@ export async function exportBudgetExcel(
     advanceDetails: '',
     status: '',
     notes: '',
+    action: '',
   });
 
   const workbook = generateExcelWithHints(columns, data, {
@@ -818,6 +826,7 @@ export async function exportHotelListExcel(
     { header: 'Room Cost (numbers only)', key: 'cost', width: 22 },
     { header: 'Payment (pending/paid/overdue)', key: 'paymentStatus', width: 28 },
     { header: 'Special Notes', key: 'notes', width: 40 },
+    { header: 'Action', key: 'action', width: 12 },
   ];
 
   const data = hotels.map((hotel) => {
@@ -992,11 +1001,19 @@ export async function exportHotelListExcel(
  */
 export async function exportVendorListExcel(
   vendors: Array<{
+    vendor_id?: string;
     name: string;
     category: string;
     contact_name?: string;
     phone?: string;
     email?: string;
+    website?: string;
+    vendor_address?: string;
+    contract_signed?: boolean;
+    contract_date?: string;
+    rating?: number | null;
+    is_preferred?: boolean;
+    vendor_notes?: string;
     payment_status?: string;
     contract_amount?: number;
     deposit_amount?: number;
@@ -1013,13 +1030,20 @@ export async function exportVendorListExcel(
   options: ExcelOptions = {}
 ): Promise<void> {
   const columns: ExcelColumn[] = [
+    { header: 'ID', key: 'id', width: 38, hint: 'Do not modify - used for updates' },
     { header: 'Vendor Name', key: 'name', width: 30, hint: 'Required - Vendor/company name' },
     { header: 'Service Category', key: 'category', width: 20, hint: 'catering/photo/video/etc.', validation: { type: 'list', options: ['venue', 'catering', 'photography', 'videography', 'florist', 'dj', 'band', 'makeup', 'mehendi', 'decor', 'lighting', 'transportation', 'cake', 'invitations', 'other'] } },
     { header: 'Contact Person', key: 'contact', width: 25, hint: 'Primary contact name' },
     { header: 'Phone Number', key: 'phone', width: 18, hint: '+1234567890' },
     { header: 'Email Address', key: 'email', width: 28, hint: 'email@example.com' },
-    { header: 'Event', key: 'event', width: 20, hint: 'Associated event' },
-    { header: 'Service Location', key: 'venueAddress', width: 35, hint: 'Full address' },
+    { header: 'Website', key: 'website', width: 28, hint: 'https://...' },
+    { header: 'Address', key: 'address', width: 35, hint: 'Vendor business address' },
+    { header: 'Contract Signed', key: 'contractSigned', width: 16, hint: 'Yes/No' },
+    { header: 'Contract Date', key: 'contractDate', width: 15, hint: 'YYYY-MM-DD' },
+    { header: 'Rating', key: 'rating', width: 10, hint: '0-5' },
+    { header: 'Preferred', key: 'isPreferred', width: 12, hint: 'Yes/No' },
+    { header: 'Event', key: 'event', width: 20, hint: 'Associated event (display only)' },
+    { header: 'Service Location', key: 'venueAddress', width: 35, hint: 'Day-of service address' },
     { header: 'On-Site Contact', key: 'onsitePoc', width: 25, hint: 'Day-of contact person' },
     { header: 'Contact Phone', key: 'pocPhone', width: 18, hint: 'Day-of phone' },
     { header: 'Contact Notes', key: 'pocNotes', width: 30, hint: 'Special instructions' },
@@ -1030,14 +1054,23 @@ export async function exportVendorListExcel(
     { header: 'Payment Status', key: 'paymentStatus', width: 18, hint: 'pending/partial/paid', validation: { type: 'list', options: ['pending', 'partial', 'paid', 'overdue'] } },
     { header: 'Approval Status', key: 'approvalStatus', width: 18, hint: 'pending/approved/rejected', validation: { type: 'list', options: ['pending', 'approved', 'rejected'] } },
     { header: 'Approval Notes', key: 'approvalComments', width: 35, hint: 'Comments on approval' },
+    { header: 'Notes', key: 'notes', width: 35, hint: 'General vendor notes' },
+    { header: 'Action', key: 'action', width: 12, hint: 'DELETE to remove on re-import' },
   ];
 
   const data = vendors.map((vendor) => ({
+    id: vendor.vendor_id || '',
     name: vendor.name,
     category: vendor.category,
     contact: vendor.contact_name || '',
     phone: vendor.phone || '',
     email: vendor.email || '',
+    website: vendor.website || '',
+    address: vendor.vendor_address || '',
+    contractSigned: vendor.contract_signed ? 'Yes' : 'No',
+    contractDate: vendor.contract_date || '',
+    rating: vendor.rating ?? '',
+    isPreferred: vendor.is_preferred ? 'Yes' : 'No',
     event: vendor.event_title || '',
     venueAddress: vendor.venue_address || '',
     onsitePoc: vendor.onsite_poc_name || '',
@@ -1050,6 +1083,8 @@ export async function exportVendorListExcel(
     paymentStatus: vendor.payment_status || 'pending',
     approvalStatus: vendor.approval_status || 'pending',
     approvalComments: vendor.approval_comments || '',
+    notes: vendor.vendor_notes || '',
+    action: '',
   }));
 
   const workbook = generateExcelWithHints(columns, data, {
@@ -1189,6 +1224,7 @@ export async function exportGuestGiftListExcel(
   options: ExcelOptions = {}
 ): Promise<void> {
   const columns: ExcelColumn[] = [
+    { header: 'ID', key: 'id', width: 38 },
     { header: 'Guest Name', key: 'guestName', width: 25 },
     { header: 'Guest Group', key: 'group', width: 18 },
     { header: 'Email Address', key: 'email', width: 28 },
@@ -1202,6 +1238,7 @@ export async function exportGuestGiftListExcel(
     { header: 'Delivery Status', key: 'deliveryStatus', width: 18 },
     { header: 'Delivered By', key: 'deliveredBy', width: 20 },
     { header: 'Special Notes', key: 'notes', width: 40 },
+    { header: 'Action', key: 'action', width: 12 },
   ];
 
   // Helper to format time to 12-hour format
@@ -1256,6 +1293,7 @@ export async function exportGuestGiftListExcel(
     const giftDisplayName = gift.giftName || gift.giftItem?.name || '-';
 
     return {
+      id: gift.id || '',
       guestName,
       group: gift.guest?.groupName || '',
       email: gift.guest?.email || '',
@@ -1274,12 +1312,14 @@ export async function exportGuestGiftListExcel(
 
   const workbook = generateExcelWithHints(columns.map(c => ({
     ...c,
-    hint: c.key === 'guestName' ? 'Required - Guest name' :
+    hint: c.key === 'id' ? 'Do not modify - used for updates' :
+          c.key === 'guestName' ? 'Required - Guest name' :
           c.key === 'giftName' ? 'Gift item name' :
           c.key === 'deliveryStatus' ? 'pending/delivered/failed' :
           c.key === 'deliveryDate' ? 'YYYY-MM-DD' :
           c.key === 'deliveryTime' ? 'HH:MM AM/PM' :
-          c.key === 'quantity' ? 'Number (1, 2...)' : '',
+          c.key === 'quantity' ? 'Number (1, 2...)' :
+          c.key === 'action' ? 'DELETE to remove on re-import' : '',
     validation: c.key === 'deliveryStatus' ? { type: 'list', options: ['pending', 'in_transit', 'delivered', 'failed'] } : undefined,
   })), data, {
     sheetName: 'Gifts Given',
@@ -1644,6 +1684,8 @@ export async function exportGuestTransportExcel(
     dropTo?: string | null;
     transportStatus?: string;
     vehicleInfo?: string | null;
+    vehicleType?: string | null;
+    driverPhone?: string | null;
     notes?: string | null;
     completedAt?: Date | string | null;
     guest?: {
@@ -1657,6 +1699,7 @@ export async function exportGuestTransportExcel(
   options: ExcelOptions = {}
 ): Promise<void> {
   const columns: ExcelColumn[] = [
+    { header: 'ID', key: 'id', width: 38, hint: 'Do not modify - used for updates' },
     { header: 'Guest Name', key: 'guestName', width: 25 },
     { header: 'Guest Group', key: 'group', width: 15 },
     { header: 'Email Address', key: 'email', width: 28 },
@@ -1669,8 +1712,11 @@ export async function exportGuestTransportExcel(
     { header: 'Drop-off Location', key: 'dropTo', width: 28 },
     { header: 'Status', key: 'transportStatus', width: 15 },
     { header: 'Vehicle/Shuttle', key: 'vehicleInfo', width: 25 },
+    { header: 'Vehicle Type', key: 'vehicleType', width: 18 },
+    { header: 'Driver Phone', key: 'driverPhone', width: 18 },
     { header: 'Completed On', key: 'completedAt', width: 18 },
     { header: 'Special Notes', key: 'notes', width: 40 },
+    { header: 'Action', key: 'action', width: 12, hint: 'DELETE to remove on re-import' },
   ];
 
   // Helper to format time to 12-hour format
@@ -1698,6 +1744,7 @@ export async function exportGuestTransportExcel(
       (transport.guest ? [transport.guest.firstName, transport.guest.lastName].filter(Boolean).join(' ') : '-');
 
     return {
+      id: transport.id || '',
       guestName,
       group: transport.guest?.groupName || '',
       email: transport.guest?.email || '',
@@ -1710,19 +1757,24 @@ export async function exportGuestTransportExcel(
       dropTo: transport.dropTo || '',
       transportStatus: transport.transportStatus || 'scheduled',
       vehicleInfo: transport.vehicleInfo || '',
+      vehicleType: transport.vehicleType || '',
+      driverPhone: transport.driverPhone || '',
       completedAt: formatDate(transport.completedAt),
       notes: transport.notes || '',
+      action: '',
     };
   });
 
   const workbook = generateExcelWithHints(columns.map(c => ({
     ...c,
-    hint: c.key === 'guestName' ? 'Required - Guest name' :
+    hint: c.key === 'id' ? 'Do not modify - used for updates' :
+          c.key === 'guestName' ? 'Required - Guest name' :
           c.key === 'legType' ? 'airport_pickup/hotel_drop/etc.' :
           c.key === 'pickupDate' ? 'YYYY-MM-DD' :
           c.key === 'pickupTime' ? 'HH:MM AM/PM' :
           c.key === 'transportStatus' ? 'scheduled/completed' :
-          c.key === 'legSequence' ? 'Trip number (1, 2...)' : '',
+          c.key === 'legSequence' ? 'Trip number (1, 2...)' :
+          c.key === 'action' ? 'DELETE to remove on re-import' : '',
     validation: c.key === 'transportStatus' ? { type: 'list', options: ['scheduled', 'in_progress', 'completed', 'cancelled', 'no_show'] } :
                 c.key === 'legType' ? { type: 'list', options: ['airport_pickup', 'airport_drop', 'hotel_pickup', 'hotel_drop', 'venue_transfer', 'custom'] } : undefined,
   })), data, {
@@ -2285,6 +2337,7 @@ export async function exportTimelineExcel(
     { header: 'Sort Order', key: 'sortOrder', width: 12, hint: 'Numbers (0, 1, 2...)' },
     { header: 'Notes', key: 'notes', width: 40, hint: 'Additional notes' },
     { header: 'Source', key: 'sourceModule', width: 15, hint: 'Read-only - Auto-generated items' },
+    { header: 'Action', key: 'action', width: 12, hint: 'DELETE to remove on re-import' },
   ];
 
   // Format data for export
@@ -2319,6 +2372,7 @@ export async function exportTimelineExcel(
       sortOrder: item.sortOrder ?? 0,
       notes: item.notes || '',
       sourceModule: item.sourceModule || '',
+      action: '',
     };
   });
 

@@ -14,6 +14,7 @@ import { guestTransport, guests, clients, timeline, vehicles } from '@/lib/db/sc
 import { nanoid } from 'nanoid'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+import { TRANSPORT_MUTATION_PATHS } from '@/lib/sync/cascade-query-paths'
 
 // Vehicle types available for selection
 const VEHICLE_TYPES = ['sedan', 'suv', 'bus', 'van', 'tempo', 'minibus', 'luxury', 'other'] as const
@@ -251,7 +252,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
+        queryPaths: [...TRANSPORT_MUTATION_PATHS],
       })
 
       return {
@@ -532,7 +533,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: result.transport.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
+        queryPaths: [...TRANSPORT_MUTATION_PATHS],
       })
 
       return {
@@ -611,7 +612,7 @@ export const guestTransportRouter = router({
         companyId: ctx.companyId!,
         clientId: existingTransport?.clientId,
         userId: ctx.userId!,
-        queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
+        queryPaths: [...TRANSPORT_MUTATION_PATHS],
       })
 
       return { success: true, cascadeActions: result.cascadeActions }
@@ -766,7 +767,7 @@ export const guestTransportRouter = router({
           companyId: ctx.companyId!,
           clientId: input.clientId,
           userId: ctx.userId!,
-          queryPaths: ['guestTransport.getAll', 'timeline.getAll'],
+          queryPaths: [...TRANSPORT_MUTATION_PATHS],
         })
       }
 

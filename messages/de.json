@@ -2536,5 +2536,9 @@
     "inProgress": "Unterwegs",
     "completed": "Abgeschlossen",
     "cancelled": "Storniert"
+  },
+  "chatbot": {
+    "title": "WeddingFlo Assistent",
+    "assistantName": "{name}s Assistent"
   }
 }

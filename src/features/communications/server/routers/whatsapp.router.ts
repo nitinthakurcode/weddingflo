@@ -4,6 +4,10 @@ import { protectedProcedure, router } from '@/server/trpc/trpc';
 import { eq, and, desc, gte, count } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import { sendWhatsAppMessage, formatWhatsAppNumber, isValidWhatsAppNumber } from '@/lib/whatsapp/whatsapp-client';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+
+// WhatsApp log/stats/template views — refresh live across the company's tabs.
+const WHATSAPP_SYNC_PATHS = ['whatsapp.getLogs', 'whatsapp.getStats', 'whatsapp.getTemplates'];
 
 // Send WhatsApp message schema
 const sendWhatsAppMessageSchema = z.object({
@@ -98,6 +102,16 @@ export const whatsappRouter = router({
         } catch (insertError) {
           console.error('Error logging WhatsApp message:', insertError);
         }
+
+        await broadcastSync({
+          type: 'insert',
+          module: 'communications',
+          entityId: result.sid ?? 'whatsapp-log',
+          companyId,
+          clientId: input.clientId || undefined,
+          userId: 'system',
+          queryPaths: WHATSAPP_SYNC_PATHS,
+        });
 
         return {
           success: true,
@@ -281,6 +295,15 @@ export const whatsappRouter = router({
           })
           .returning();
 
+        await broadcastSync({
+          type: 'insert',
+          module: 'communications',
+          entityId: template.id,
+          companyId,
+          userId: 'system',
+          queryPaths: WHATSAPP_SYNC_PATHS,
+        });
+
         return {
           success: true,
           template,
@@ -354,6 +377,15 @@ export const whatsappRouter = router({
               eq(schema.whatsappTemplates.companyId, companyId)
             )
           );
+
+        await broadcastSync({
+          type: 'delete',
+          module: 'communications',
+          entityId: input.templateId,
+          companyId,
+          userId: 'system',
+          queryPaths: WHATSAPP_SYNC_PATHS,
+        });
 
         return {
           success: true,

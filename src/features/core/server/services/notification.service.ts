@@ -31,6 +31,10 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { notifications, user } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
+
+// Bell dropdown + unread badge — refresh live when a notification is created.
+const NOTIFICATION_SYNC_PATHS = ['notifications.list', 'notifications.unreadCount'];
 
 // Notification type definitions
 export type NotificationType =
@@ -98,6 +102,15 @@ export async function createNotification(
     })
     .returning({ id: notifications.id });
 
+  await broadcastSync({
+    type: 'insert',
+    module: 'communications',
+    entityId: notification.id,
+    companyId: input.companyId,
+    userId: input.userId,
+    queryPaths: NOTIFICATION_SYNC_PATHS,
+  });
+
   return notification;
 }
 
@@ -144,6 +157,16 @@ export async function notifyTeamMembers(
 
   await db.insert(notifications).values(notificationValues);
 
+  // One company-scoped broadcast; each recipient's tabs refetch their own feed.
+  await broadcastSync({
+    type: 'insert',
+    module: 'communications',
+    entityId: 'team-notify',
+    companyId: input.companyId,
+    userId: input.excludeUserIds?.[0] ?? 'system',
+    queryPaths: NOTIFICATION_SYNC_PATHS,
+  });
+
   return { count: notificationValues.length };
 }
 
@@ -179,6 +202,15 @@ export async function notifyUserByAuthId(
       metadata: input.metadata,
     })
     .returning({ id: notifications.id });
+
+  await broadcastSync({
+    type: 'insert',
+    module: 'communications',
+    entityId: notification.id,
+    companyId: input.companyId,
+    userId: dbUser.id,
+    queryPaths: NOTIFICATION_SYNC_PATHS,
+  });
 
   return { id: notification.id, dbUserId: dbUser.id };
 }

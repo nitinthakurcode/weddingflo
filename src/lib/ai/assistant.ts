@@ -1,4 +1,4 @@
-import { openai, AI_MODELS } from './openai-client';
+import { openai, AI_MODELS } from './ai-client';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';

@@ -2581,5 +2581,9 @@
     "exportSuccess": "निर्यात सफल",
     "masterExportComplete": "मास्टर प्लानिंग शीट सफलतापूर्वक निर्यात हुई",
     "exportFailed": "निर्यात विफल। कृपया पुनः प्रयास करें।"
+  },
+  "chatbot": {
+    "title": "WeddingFlo सहायक",
+    "assistantName": "{name} का सहायक"
   }
 }

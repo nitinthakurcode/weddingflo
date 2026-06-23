@@ -51,6 +51,7 @@ import { getDefaultTemplate, type TimelineTemplateItem } from '@/lib/templates/t
 import { cascadeGuestSideEffects } from '@/features/guests/server/utils/guest-cascade'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
+import { createEventWithTimeline } from '@/lib/sync/event-timeline-sync'
 import { withTransaction, withCascadeTransaction } from './transaction-wrapper'
 import {
   TOOL_METADATA,
@@ -78,6 +79,7 @@ import {
   type SyncAction,
 } from '@/lib/realtime/redis-pubsub'
 import type { Context } from '@/server/trpc/context'
+import { enforceChatbotAccess, authorizeClientForChatbot, getClientScopeCondition, getAccessibleClientFilter } from './chatbot-authz'
 
 // ============================================
 // TYPES
@@ -368,6 +370,20 @@ export async function executeTool(
       code: 'BAD_REQUEST',
       message: `Unknown tool: ${toolName}`,
     })
+  }
+
+  // CENTRAL AUTHORIZATION CHOKEPOINT — every execution flow (immediate queries +
+  // confirmed mutations, tRPC + SSE) funnels through here. Enforces role allowlist,
+  // per-client access (staff → assigned clients only), and mutation policy. Fail-closed.
+  try {
+    await enforceChatbotAccess(toolName, args, ctx, metadata.type)
+  } catch (authzError) {
+    // Audit denials (ids only, no PII) for scale-time detection of access attempts.
+    console.warn('[chatbot-authz] DENY', JSON.stringify({
+      userId, companyId, role: ctx.role, toolName,
+      clientId: typeof args.clientId === 'string' ? args.clientId : null,
+    }))
+    throw authzError
   }
 
   try {
@@ -706,30 +722,25 @@ async function executeCreateClient(
     if (args.weddingDate) {
       const eventTitle = `${(args.weddingName as string) || (partner1FirstName + (args.partner2FirstName ? ` & ${args.partner2FirstName}` : ''))}'s Wedding`
 
-      const [createdEvent] = await tx
-        .insert(events)
-        .values({
-          id: crypto.randomUUID(),
-          clientId: newClient.id,
-          companyId: ctx.companyId || undefined,
-          title: eventTitle,
-          eventType: 'Wedding',
-          eventDate: args.weddingDate as string,
-          venueName: (args.venue as string) || null,
-          guestCount: (args.guestCount as number) || null,
-          status: 'planned',
-          description: `Main wedding ceremony for ${eventTitle}`,
-        })
-        .returning({ id: events.id })
+      // Canonical create: event + template-generated timeline, companyId set.
+      const { eventId } = await createEventWithTimeline(tx, {
+        clientId: newClient.id,
+        companyId: ctx.companyId!,
+        title: eventTitle,
+        eventType: 'Wedding',
+        eventDate: args.weddingDate as string,
+        venueName: (args.venue as string) || null,
+        guestCount: (args.guestCount as number) || null,
+        status: 'planned',
+        description: `Main wedding ceremony for ${eventTitle}`,
+      })
 
-      if (createdEvent) {
-        mainEventId = createdEvent.id
-        cascadeResults.push({
-          action: `Created main wedding event: ${eventTitle}`,
-          entityType: 'event',
-          entityId: createdEvent.id,
-        })
-      }
+      mainEventId = eventId
+      cascadeResults.push({
+        action: `Created main wedding event: ${eventTitle}`,
+        entityType: 'event',
+        entityId: eventId,
+      })
     }
 
     // Auto-create vendors from comma-separated list
@@ -1306,6 +1317,8 @@ async function executeSearchEntities(
         and(
           eq(clients.companyId, ctx.companyId!),
           isNull(clients.deletedAt),
+          // Staff: restrict to assigned clients (undefined for admins).
+          getClientScopeCondition(ctx, clients.id),
           sql`(
             ${clients.partner1FirstName} ilike ${searchPattern} or
             ${clients.partner1LastName} ilike ${searchPattern} or
@@ -1339,6 +1352,8 @@ async function executeSearchEntities(
       .where(
         and(
           eq(guests.clientId, clientId),
+          // Tenant + per-user scope: company clients only, and for staff only assigned ones.
+          getAccessibleClientFilter(ctx, guests.clientId),
           sql`(
             ${guests.firstName} ilike ${searchPattern} or
             ${guests.lastName} ilike ${searchPattern}
@@ -4271,7 +4286,12 @@ async function executeQueryData(
         guestConditions.push(eq(guests.guestSide, filters.side as string))
       }
 
-      const whereClause = guestConditions.length > 0 ? and(...guestConditions) : undefined
+      // SECURITY: always constrain to the caller's accessible clients — without this,
+      // a missing clientId would query guests across ALL companies (cross-tenant leak).
+      const whereClause = and(
+        guestConditions.length > 0 ? and(...guestConditions) : undefined,
+        getAccessibleClientFilter(ctx, guests.clientId)
+      )
 
       if (operation === 'count') {
         const [countResult] = await db
@@ -4327,7 +4347,10 @@ async function executeQueryData(
         eventConditions.push(lte(events.eventDate, dateTo))
       }
 
-      const whereClause = and(...eventConditions)
+      const whereClause = and(
+        and(...eventConditions),
+        getAccessibleClientFilter(ctx, events.clientId)
+      )
 
       if (operation === 'count') {
         const [countResult] = await db
@@ -4368,7 +4391,10 @@ async function executeQueryData(
         budgetConditions.push(eq(budget.paymentStatus, filters.paymentStatus as string))
       }
 
-      const whereClause = budgetConditions.length > 0 ? and(...budgetConditions) : undefined
+      const whereClause = and(
+        budgetConditions.length > 0 ? and(...budgetConditions) : undefined,
+        getAccessibleClientFilter(ctx, budget.clientId)
+      )
 
       if (operation === 'sum' && field) {
         const sumField = field === 'estimatedCost' ? budget.estimatedCost
@@ -4411,7 +4437,10 @@ async function executeQueryData(
         ? [eq(clientVendors.clientId, clientId)]
         : []
 
-      const whereClause = vendorConditions.length > 0 ? and(...vendorConditions) : undefined
+      const whereClause = and(
+        vendorConditions.length > 0 ? and(...vendorConditions) : undefined,
+        getAccessibleClientFilter(ctx, clientVendors.clientId)
+      )
 
       if (operation === 'count') {
         const [countResult] = await db
@@ -4485,6 +4514,10 @@ async function executeQueryCrossClientEvents(
     isNull(events.deletedAt),
     isNull(clients.deletedAt),
   ]
+
+  // Staff: restrict cross-client results to assigned clients only.
+  const staffScope = getClientScopeCondition(ctx, clients.id)
+  if (staffScope) conditions.push(staffScope)
 
   if (dateFrom) {
     const parsedDateFrom = parseNaturalDate(dateFrom) || dateFrom
@@ -6520,6 +6553,10 @@ async function executeDeleteGuest(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found or access denied' })
   }
 
+  // SECURITY: staff may only delete within assigned clients (the resolved guest's
+  // client may differ from the injected args.clientId).
+  await authorizeClientForChatbot(ctx, existingGuest.clientId)
+
   const guestDisplayName = `${existingGuest.firstName}${existingGuest.lastName ? ` ${existingGuest.lastName}` : ''}`
 
   // Execute cascade deletion atomically
@@ -6649,6 +6686,9 @@ async function executeDeleteEvent(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Event not found or access denied' })
   }
 
+  // SECURITY: staff may only delete within assigned clients.
+  await authorizeClientForChatbot(ctx, existingEvent.clientId)
+
   // Atomic deletion: cleanup references + delete event
   await withTransaction(async (tx) => {
     // 1. Remove event from guest attendingEvents arrays
@@ -6747,6 +6787,9 @@ async function executeDeleteVendor(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Vendor relationship not found or access denied' })
   }
 
+  // SECURITY: staff may only delete within assigned clients.
+  await authorizeClientForChatbot(ctx, cvRecord.clientId)
+
   // Get vendor name for message
   const [vendorRecord] = await db
     .select({ name: vendors.name })
@@ -6835,6 +6878,9 @@ async function executeDeleteBudgetItem(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Budget item not found or access denied' })
   }
 
+  // SECURITY: staff may only delete within assigned clients.
+  await authorizeClientForChatbot(ctx, existing.clientId)
+
   // Delete budget item + linked timeline atomically
   await withTransaction(async (tx) => {
     // 1. Delete linked timeline payment entries
@@ -6899,6 +6945,9 @@ async function executeDeleteTimelineItem(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Timeline item not found or access denied' })
   }
 
+  // SECURITY: staff may only delete within assigned clients.
+  await authorizeClientForChatbot(ctx, existing.clientId)
+
   await db
     .delete(timeline)
     .where(eq(timeline.id, timelineItemId))
@@ -6945,6 +6994,8 @@ async function executeDeleteGift(
     .limit(1)
 
   if (enhancedGift) {
+    // SECURITY: staff may only delete within assigned clients.
+    await authorizeClientForChatbot(ctx, enhancedGift.clientId)
     await db.delete(giftsEnhanced).where(eq(giftsEnhanced.id, giftId))
     giftName = enhancedGift.name
     found = true
@@ -6966,6 +7017,8 @@ async function executeDeleteGift(
       .limit(1)
 
     if (giftRecord) {
+      // SECURITY: staff may only delete within assigned clients.
+      await authorizeClientForChatbot(ctx, giftRecord.clientId)
       await db.delete(gifts).where(eq(gifts.id, giftId))
       giftName = giftId
       found = true

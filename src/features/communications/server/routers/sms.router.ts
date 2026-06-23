@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
 import { eq, and, desc, gte, count } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
+import { broadcastSync } from '@/lib/realtime/broadcast-sync';
 import {
   sendSms,
   getSmsMessage,
@@ -15,12 +16,14 @@ import {
 // Schema has: id, clientId, to, message, status, createdAt
 async function logSms({
   db,
+  companyId,
   clientId,
   toPhone,
   content,
   status,
 }: {
   db: any;
+  companyId?: string;
   clientId?: string;
   toPhone: string;
   content: string;
@@ -34,6 +37,19 @@ async function logSms({
       message: content,
       status,
     }).returning();
+
+    // Refresh the SMS log/stats views live across the company's tabs.
+    if (companyId) {
+      await broadcastSync({
+        type: 'insert',
+        module: 'communications',
+        entityId: log?.id ?? 'sms-log',
+        companyId,
+        clientId: clientId || undefined,
+        userId: 'system',
+        queryPaths: ['sms.getSmsLogs', 'sms.getSmsStats'],
+      });
+    }
 
     return log;
   } catch (error) {
@@ -102,6 +118,7 @@ export const smsRouter = router({
           // Log failed SMS
           await logSms({
             db,
+            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
@@ -114,6 +131,7 @@ export const smsRouter = router({
         // Log successful SMS
         await logSms({
           db,
+          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
@@ -169,6 +187,7 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
+            companyId,
             clientId,
             toPhone: formatPhoneNumber(guestPhone),
             content: message,
@@ -180,6 +199,7 @@ export const smsRouter = router({
 
         await logSms({
           db,
+          companyId,
           clientId,
           toPhone: formatPhoneNumber(guestPhone),
           content: message,
@@ -253,6 +273,7 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
+            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
@@ -264,6 +285,7 @@ export const smsRouter = router({
 
         await logSms({
           db,
+          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
@@ -336,6 +358,7 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
+            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
@@ -347,6 +370,7 @@ export const smsRouter = router({
 
         await logSms({
           db,
+          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
@@ -402,6 +426,7 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
+            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
@@ -413,6 +438,7 @@ export const smsRouter = router({
 
         await logSms({
           db,
+          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
@@ -486,6 +512,7 @@ export const smsRouter = router({
         if (!result.success) {
           await logSms({
             db,
+            companyId,
             clientId,
             toPhone: formatPhoneNumber(recipientPhone),
             content: message,
@@ -497,6 +524,7 @@ export const smsRouter = router({
 
         await logSms({
           db,
+          companyId,
           clientId,
           toPhone: formatPhoneNumber(recipientPhone),
           content: message,
@@ -772,6 +800,7 @@ export const smsRouter = router({
         // Log test SMS
         await logSms({
           db,
+          companyId,
           toPhone: formatPhoneNumber(to),
           content: message,
           status: result.status === 'queued' ? 'queued' : 'sent',

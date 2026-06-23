@@ -161,50 +161,55 @@ function detectConflict(
   return null;
 }
 
-// Sheet column definitions for each module
+// Sheet column definitions for each module.
+// The trailing 'Action' column lets users mark a row DELETE/REMOVE in the Sheet;
+// the bi-directional importers honour it via applySheetRowDelete(). It is always
+// written blank on export. Column order is irrelevant — every read/write resolves
+// columns by header name (headers.indexOf(...)), and export hashes are recomputed
+// from the re-read sheet, so the blank Action column hashes identically on import.
 const GUEST_HEADERS = [
   'ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Group', 'Side',
   'RSVP Status', 'Party Size', 'Relationship', 'Arrival Date',
   'Arrival Mode', 'Departure Date', 'Departure Mode',
   'Hotel Required', 'Transport Required', 'Meal Preference',
   'Dietary Restrictions', 'Additional Guests', 'Events',
-  'Gift To Give', 'Checked In', 'Notes', 'Last Updated'
+  'Gift To Give', 'Checked In', 'Notes', 'Last Updated', 'Action'
 ];
 
 const BUDGET_HEADERS = [
   'ID', 'Item', 'Category', 'Segment', 'Estimated Cost',
   'Actual Cost', 'Paid Amount', 'Payment Status', 'Vendor',
-  'Notes', 'Last Updated'
+  'Notes', 'Last Updated', 'Action'
 ];
 
 const TIMELINE_HEADERS = [
   'ID', 'Title', 'Description', 'Start Time', 'End Time',
   'Location', 'Phase', 'Completed', 'Responsible Person',
-  'Source Module', 'Notes', 'Last Updated'
+  'Source Module', 'Notes', 'Last Updated', 'Action'
 ];
 
 const HOTEL_HEADERS = [
   'ID', 'Guest Name', 'Hotel Name', 'Room Type', 'Room Number',
   'Check-In Date', 'Check-Out Date', 'Party Size',
   'Accommodation Needed', 'Booking Confirmed', 'Checked In',
-  'Cost', 'Payment Status', 'Notes', 'Last Updated'
+  'Cost', 'Payment Status', 'Notes', 'Last Updated', 'Action'
 ];
 
 const TRANSPORT_HEADERS = [
   'ID', 'Guest Name', 'Leg Type', 'Pickup Date', 'Pickup Time',
   'Pickup From', 'Drop To', 'Vehicle Info', 'Vehicle Number',
-  'Driver Phone', 'Transport Status', 'Notes', 'Last Updated'
+  'Driver Phone', 'Transport Status', 'Notes', 'Last Updated', 'Action'
 ];
 
 const VENDOR_HEADERS = [
   'ID', 'Vendor Name', 'Category', 'Contact Name', 'Phone',
   'Email', 'Contract Amount', 'Total Paid', 'Payment Status',
-  'Service Date', 'Location', 'Rating', 'Notes', 'Last Updated'
+  'Service Date', 'Location', 'Rating', 'Notes', 'Last Updated', 'Action'
 ];
 
 const GIFT_HEADERS = [
   'ID', 'Gift Name', 'Guest ID', 'Guest Name',
-  'Value', 'Status', 'Last Updated'
+  'Value', 'Status', 'Last Updated', 'Action'
 ];
 
 /**
@@ -276,6 +281,7 @@ export async function syncGuestsToSheet(
         g.checkedIn ? 'Yes' : 'No',
         g.notes || '',
         g.updatedAt ? new Date(g.updatedAt).toISOString() : '',
+        '', // Action (blank; set DELETE in the sheet to remove on import)
       ])
     ];
 
@@ -334,6 +340,7 @@ export async function syncBudgetToSheet(
         b.vendorName || '',
         b.notes || '',
         b.updatedAt ? new Date(b.updatedAt).toISOString() : '',
+        '', // Action (blank; set DELETE in the sheet to remove on import)
       ])
     ];
 
@@ -380,6 +387,7 @@ export async function syncTimelineToSheet(
         t.sourceModule || '',
         t.notes || '',
         t.updatedAt ? new Date(t.updatedAt).toISOString() : '',
+        '', // Action (blank; set DELETE in the sheet to remove on import)
       ])
     ];
 
@@ -429,6 +437,7 @@ export async function syncHotelsToSheet(
         h.paymentStatus || 'pending',
         h.notes || '',
         h.updatedAt ? new Date(h.updatedAt).toISOString() : '',
+        '', // Action (blank; set DELETE in the sheet to remove on import)
       ])
     ];
 
@@ -476,6 +485,7 @@ export async function syncTransportToSheet(
         t.transportStatus || 'scheduled',
         t.notes || '',
         t.updatedAt ? new Date(t.updatedAt).toISOString() : '',
+        '', // Action (blank; set DELETE in the sheet to remove on import)
       ])
     ];
 
@@ -557,6 +567,7 @@ export async function syncVendorsToSheet(
           v.rating || '',
           v.notes || '',
           v.updatedAt ? new Date(v.updatedAt).toISOString() : '',
+          '', // Action (blank; set DELETE in the sheet to remove on import)
         ];
       })
     ];
@@ -611,6 +622,7 @@ export async function syncGiftsToSheet(
           g.value?.toString() || '',
           g.status || 'received',
           g.updatedAt ? new Date(g.updatedAt).toISOString() : '',
+          '', // Action (blank; set DELETE in the sheet to remove on import)
         ];
       })
     ];

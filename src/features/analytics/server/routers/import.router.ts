@@ -17,6 +17,13 @@ import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-gu
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 import {
+  GUEST_MUTATION_PATHS,
+  VENDOR_MUTATION_PATHS,
+  BUDGET_MUTATION_PATHS,
+  HOTEL_MUTATION_PATHS,
+  TRANSPORT_MUTATION_PATHS,
+} from '@/lib/sync/cascade-query-paths'
+import {
   importBudgetExcel,
   importHotelsExcel,
   importTransportExcel,
@@ -757,7 +764,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+            queryPaths: [...BUDGET_MUTATION_PATHS],
           })
         }
         return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
@@ -818,6 +825,9 @@ export const importRouter = router({
       if (input.module === 'vendors') {
         const result = await importVendorsExcel(buffer, input.clientId, companyId)
         if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
+          // Vendor cost edits feed client budget totals — recalc client stats so
+          // the dashboard cards refresh (parity with budget/guest imports).
+          await recalcClientStats(ctx.db, input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'vendors',
@@ -825,7 +835,7 @@ export const importRouter = router({
             companyId,
             clientId: input.clientId,
             userId: ctx.userId!,
-            queryPaths: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+            queryPaths: [...VENDOR_MUTATION_PATHS],
           })
         }
         return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
@@ -1093,13 +1103,17 @@ export const importRouter = router({
       // Broadcast real-time sync after successful import (outside transaction)
       if (results.created > 0 || results.updated > 0 || results.deleted > 0) {
         // Module-specific queryPaths for targeted cache invalidation
+        // Sourced from the shared per-module constants so the import path can't
+        // drift from the UI routers / chatbot. Guests add budget.getAll because a
+        // bulk guest import recalcs the per-guest budget *items* (not just the
+        // summary). timeline added for guests since hotel/transport check-ins sync.
         const queryPathsMap: Record<string, string[]> = {
-          guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'timeline.getAll', 'budget.getSummary', 'budget.getAll', 'clients.list', 'clients.getAll'],
-          vendors: ['vendors.getAll', 'vendors.getStats', 'budget.getAll', 'budget.getSummary', 'timeline.getAll'],
-          budget: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+          guests: [...GUEST_MUTATION_PATHS, 'budget.getAll'],
+          vendors: [...VENDOR_MUTATION_PATHS],
+          budget: [...BUDGET_MUTATION_PATHS],
           gifts: ['gifts.getAll', 'gifts.getStats'],
-          hotels: ['hotels.getAll', 'hotels.getStats', 'timeline.getAll'],
-          transport: ['guestTransport.getAll', 'guestTransport.getStats', 'timeline.getAll'],
+          hotels: [...HOTEL_MUTATION_PATHS],
+          transport: [...TRANSPORT_MUTATION_PATHS],
           guestGifts: ['gifts.getAll', 'gifts.getStats'],
         }
 
@@ -1126,7 +1140,7 @@ async function importGuest(
   row: any,
   results: { updated: number; created: number; skipped: number; errors: string[] }
 ) {
-  const id = row['ID (Do not modify)']
+  const id = getRowValue(row, 'ID (Do not modify)', 'ID', 'id')
 
   // Support multiple name column formats:
   // 1. Single "Name" or "Guest Name" column (from guest registration form)
@@ -2152,7 +2166,7 @@ async function importGuestGift(
   const guestId = getRowValue(row, 'Guest ID (Do not modify)', 'Guest ID', 'guest_id', 'GuestId')
   // Support all header variations
   const guestName = getRowValue(row, 'Guest Name *', 'Guest Name', 'guest_name', 'GuestName', 'Recipient', 'To')
-  const giftName = getRowValue(row, 'Gift Name *', 'Gift Name', 'gift_name', 'GiftName', 'Gift', 'Item')
+  const giftName = getRowValue(row, 'Gift Name *', 'Gift Name', 'gift_name', 'GiftName', 'Gift Item', 'Gift', 'Item')
 
   if (!guestName || !giftName) throw new Error('Guest Name and Gift Name are required')
 
@@ -2206,7 +2220,7 @@ async function importGuestGift(
   }
 
   // Get gift type name
-  const giftTypeName = getRowValue(row, 'Gift Type', 'gift_type', 'GiftType', 'Type', 'Category') || null
+  const giftTypeName = getRowValue(row, 'Gift Type', 'gift_type', 'GiftType', 'Gift Category', 'Type', 'Category') || null
 
   // Build guestGiftData matching actual schema: id, clientId, guestId, name, type, quantity
   const guestGiftData = {

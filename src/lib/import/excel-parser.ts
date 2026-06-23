@@ -38,7 +38,7 @@ const EXPECTED_TIMELINE_HEADERS = [
   'ID', 'Event ID', 'Event Name', 'Title', 'Description', 'Phase',
   'Date', 'Start Time', 'End Time', 'Duration (Min)',
   'Location', 'Participants', 'Responsible Person',
-  'Completed', 'Sort Order', 'Notes',
+  'Completed', 'Sort Order', 'Notes', 'Action',
 ];
 const REQUIRED_TIMELINE_HEADERS = ['Title'];
 
@@ -64,9 +64,11 @@ export const EXPECTED_TRANSPORT_HEADERS = [
 export const REQUIRED_TRANSPORT_HEADERS = ['Guest Name'];
 
 export const EXPECTED_VENDOR_HEADERS = [
-  'ID', 'Name', 'Category', 'Contact Name', 'Email', 'Phone',
-  'Website', 'Address', 'Contract Signed', 'Contract Date',
-  'Rating', 'Is Preferred', 'Notes',
+  'ID', 'Vendor Name', 'Service Category', 'Contact Person', 'Phone Number', 'Email Address',
+  'Website', 'Address', 'Contract Signed', 'Contract Date', 'Rating', 'Preferred', 'Event',
+  'Service Location', 'On-Site Contact', 'Contact Phone', 'Contact Notes', 'Services Provided',
+  'Contract Amount', 'Deposit Paid', 'Service Date', 'Payment Status', 'Approval Status',
+  'Approval Notes', 'Notes', 'Action',
 ];
 export const REQUIRED_VENDOR_HEADERS = ['Name'];
 
@@ -97,6 +99,15 @@ export const IMPORT_HEADER_ALIASES: Record<string, string[]> = {
   // Vendors: individual export uses display names
   'name': ['vendor name'],
   'contact name': ['contact person'],
+  'is preferred': ['preferred'],
+  // Vendors: per-client (client_vendors) fields use friendly export labels
+  'venue address': ['service location'],
+  'onsite poc name': ['on-site contact', 'onsite contact'],
+  'onsite poc phone': ['contact phone'],
+  'onsite poc notes': ['contact notes'],
+  'deliverables': ['services provided'],
+  'deposit amount': ['deposit paid'],
+  'approval comments': ['approval notes'],
   // Gifts: individual export uses "Gift Category" instead of "Gift Type"
   'gift type': ['gift category'],
   'gift item': ['gift name'],
@@ -156,6 +167,33 @@ export function resolveHeaderAliases(headerMap: Map<string, number>): void {
       }
     }
   }
+}
+
+/**
+ * Build a non-destructive UPDATE payload.
+ *
+ * Round-trip safety: a re-imported export carries every column, but a user may
+ * upload a narrower/older file. We must only overwrite DB columns whose source
+ * header is actually present in the uploaded file — otherwise an absent column
+ * would silently null out existing data. (A header that IS present but empty is
+ * still treated as an intentional clear, preserving prior behavior.)
+ *
+ * `fullData` is the fully-parsed row (also used for INSERT, where defaults apply);
+ * `fieldHeaders` maps each DB key to the canonical header that feeds it. Aliases
+ * are already resolved into `headerMap`, so checking the canonical name suffices.
+ */
+export function buildPresentUpdate<T extends Record<string, any>>(
+  headerMap: Map<string, number>,
+  fullData: T,
+  fieldHeaders: Partial<Record<keyof T, string>>,
+): Partial<T> & { updatedAt: Date } {
+  const out: Record<string, any> = { updatedAt: new Date() };
+  for (const [key, header] of Object.entries(fieldHeaders)) {
+    if (header && headerMap.has(header.toLowerCase())) {
+      out[key] = fullData[key as keyof T];
+    }
+  }
+  return out as Partial<T> & { updatedAt: Date };
 }
 
 // ── Shared parsing helpers (used by hotels, transport imports) ──
@@ -1094,8 +1132,13 @@ export async function importTimelineExcel(
     const title = getValue('title') ? String(getValue('title')).trim() : '';
     const notes = getValue('notes') ? String(getValue('notes')).trim() : undefined;
 
-    // Check for delete action
-    if (notes?.toUpperCase() === 'DELETE' && id) {
+    // Check for delete: the dedicated 'Action' column = DELETE/REMOVE (consistent
+    // with every other module's round-trip). The legacy Notes='DELETE' marker is
+    // kept as a fallback so older saved sheets still work, but Action is preferred
+    // (a real note like "delete the spare cake" must NOT delete the row).
+    const action = getValue('action') ? String(getValue('action')).trim().toUpperCase() : '';
+    const isDelete = action === 'DELETE' || action === 'REMOVE' || notes?.toUpperCase() === 'DELETE';
+    if (isDelete && id) {
       data.push({
         id,
         title: title || 'Deleted Item',

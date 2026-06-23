@@ -2470,5 +2470,9 @@
     "exportSuccess": "Exportation réussie",
     "masterExportComplete": "Feuille de planification principale exportée avec succès",
     "exportFailed": "Échec de l'exportation. Veuillez réessayer."
+  },
+  "chatbot": {
+    "title": "Assistant WeddingFlo",
+    "assistantName": "Assistant de {name}"
   }
 }

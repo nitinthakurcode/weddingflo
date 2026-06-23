@@ -1,4 +1,4 @@
-import { openai, AI_MODELS, AI_DEFAULTS } from './openai-client';
+import { openai, AI_MODELS, AI_DEFAULTS } from './ai-client';
 
 export interface Guest {
   id: string;

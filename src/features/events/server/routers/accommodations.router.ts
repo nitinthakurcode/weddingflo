@@ -3,6 +3,11 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc } from 'drizzle-orm'
 import { accommodations, clients, hotels } from '@/lib/db/schema'
+import { broadcastSync } from '@/lib/realtime/broadcast-sync'
+
+// Accommodation changes refresh the accommodation list and the hotel-assignment
+// UI (room-type/rate dropdowns); delete also clears matching hotel allotments.
+const ACCOMMODATION_SYNC_PATHS = ['accommodations.getAll', 'hotels.getAll', 'hotels.getStats']
 
 /**
  * Accommodations tRPC Router - Drizzle ORM
@@ -156,6 +161,16 @@ export const accommodationsRouter = router({
         })
       }
 
+      await broadcastSync({
+        type: 'insert',
+        module: 'accommodations',
+        entityId: accommodation.id,
+        companyId: ctx.companyId,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ACCOMMODATION_SYNC_PATHS,
+      })
+
       return accommodation
     }),
 
@@ -241,6 +256,16 @@ export const accommodationsRouter = router({
         })
       }
 
+      await broadcastSync({
+        type: 'update',
+        module: 'accommodations',
+        entityId: accommodation.id,
+        companyId: ctx.companyId,
+        clientId: existing.clientId,
+        userId: ctx.userId!,
+        queryPaths: ACCOMMODATION_SYNC_PATHS,
+      })
+
       return accommodation
     }),
 
@@ -287,6 +312,16 @@ export const accommodationsRouter = router({
           )
         )
 
+      await broadcastSync({
+        type: 'delete',
+        module: 'accommodations',
+        entityId: input.id,
+        companyId: ctx.companyId,
+        clientId: accommodation.clientId,
+        userId: ctx.userId!,
+        queryPaths: ACCOMMODATION_SYNC_PATHS,
+      })
+
       return { success: true }
     }),
 
@@ -313,6 +348,16 @@ export const accommodationsRouter = router({
         .set({ isDefault: true, updatedAt: new Date() })
         .where(eq(accommodations.id, input.id))
         .returning()
+
+      await broadcastSync({
+        type: 'update',
+        module: 'accommodations',
+        entityId: input.id,
+        companyId: ctx.companyId,
+        clientId: input.clientId,
+        userId: ctx.userId!,
+        queryPaths: ACCOMMODATION_SYNC_PATHS,
+      })
 
       return accommodation
     }),

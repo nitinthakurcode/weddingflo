@@ -10,45 +10,62 @@
  * Query path names must match the broadcastSync queryPaths used by UI routers.
  */
 
+import {
+  CLIENT_CREATE_ALL_PATHS,
+  CLIENT_UPDATE_PATHS,
+  GUEST_MUTATION_PATHS,
+  VENDOR_MUTATION_PATHS,
+  BUDGET_MUTATION_PATHS,
+  EVENT_MUTATION_PATHS,
+  EVENT_DELETE_PATHS,
+  HOTEL_MUTATION_PATHS,
+  TRANSPORT_MUTATION_PATHS,
+} from '@/lib/sync/cascade-query-paths'
+
 /**
  * Tool to Query mapping (31 mutation tools)
  * When a tool is executed, the listed queries should be invalidated.
  * queryPath names sourced from each module's router broadcastSync calls.
  */
 export const TOOL_QUERY_MAP: Record<string, string[]> = {
-  // Client tools — matches clients.router.ts procedure names
-  create_client: ['clients.list', 'clients.getAll'],
-  update_client: ['clients.list', 'clients.getAll', 'clients.getById'],
+  // Client tools — paths sourced from the shared cascade-query-paths constants so
+  // they can never drift from clients.router.ts. create_client auto-creates a
+  // wedding event (+timeline) and vendors (+budget), so it uses the full union.
+  create_client: [...CLIENT_CREATE_ALL_PATHS],
+  update_client: [...CLIENT_UPDATE_PATHS],
 
-  // Guest tools — matches guests.router.ts procedure names
-  add_guest: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
-  update_guest_rsvp: ['guests.getAll', 'guests.getStats', 'budget.getSummary'],
-  bulk_update_guests: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
+  // Guest tools — full guest cascade (rooms, transport, per-guest budget,
+  // timeline, client stats). Sourced from the shared GUEST_MUTATION_PATHS so the
+  // chatbot can never drift from guests.router.ts again.
+  add_guest: [...GUEST_MUTATION_PATHS],
+  update_guest_rsvp: [...GUEST_MUTATION_PATHS],
+  bulk_update_guests: [...GUEST_MUTATION_PATHS],
+  // check-in only flips a flag — intentionally lighter than the full cascade.
   check_in_guest: ['guests.getAll', 'guests.getStats'],
   assign_guests_to_events: ['guests.getAll', 'guests.getStats', 'events.getAll'],
   update_table_dietary: ['guests.getAll', 'guests.getStats'],
 
-  // Event tools — matches events.router.ts procedure names
-  create_event: ['events.getAll', 'timeline.getAll'],
-  update_event: ['events.getAll', 'timeline.getAll'],
+  // Event tools — matches events.router.ts (syncs linked timeline; no client row)
+  create_event: [...EVENT_MUTATION_PATHS],
+  update_event: [...EVENT_MUTATION_PATHS],
 
   // Timeline tools — matches timeline.router.ts procedure names
   add_timeline_item: ['timeline.getAll'],
   shift_timeline: ['timeline.getAll'],
 
-  // Vendor tools — matches vendors.router.ts procedure names (includes cascade targets)
-  add_vendor: ['vendors.getAll', 'budget.getAll', 'timeline.getAll'],
-  update_vendor: ['vendors.getAll', 'budget.getAll'],
+  // Vendor tools — full vendor cascade (linked budget, timeline, client stats)
+  add_vendor: [...VENDOR_MUTATION_PATHS],
+  update_vendor: [...VENDOR_MUTATION_PATHS],
 
-  // Hotel tools — matches hotels.router.ts procedure names
-  add_hotel_booking: ['hotels.getAll'],
-  bulk_add_hotel_bookings: ['hotels.getAll'],
+  // Hotel tools — matches hotels.router.ts (list + stats + linked timeline)
+  add_hotel_booking: [...HOTEL_MUTATION_PATHS],
+  bulk_add_hotel_bookings: [...HOTEL_MUTATION_PATHS],
 
-  // Transport tools — matches guest-transport.router.ts procedure names
-  assign_transport: ['guestTransport.getAll'],
+  // Transport tools — matches guest-transport.router.ts (list + stats + timeline)
+  assign_transport: [...TRANSPORT_MUTATION_PATHS],
 
-  // Budget tools — matches budget.router.ts procedure names
-  update_budget_item: ['budget.getAll', 'budget.getSummary'],
+  // Budget tools — feeds client stats
+  update_budget_item: [...BUDGET_MUTATION_PATHS],
 
   // Gift tools — matches gifts.router.ts procedure names
   add_gift: ['gifts.getAll'],
@@ -79,11 +96,11 @@ export const TOOL_QUERY_MAP: Record<string, string[]> = {
   // Workflow tools (no broadcastSync in router)
   create_workflow: ['workflows.list'],
 
-  // Delete tools — matches UI router broadcastSync queryPaths
-  delete_guest: ['guests.getAll', 'guests.getStats', 'hotels.getAll', 'guestTransport.getAll', 'budget.getSummary'],
-  delete_event: ['events.getAll', 'timeline.getAll', 'guests.getAll'],
-  delete_vendor: ['vendors.getAll', 'budget.getAll', 'timeline.getAll'],
-  delete_budget_item: ['budget.getAll', 'budget.getSummary', 'timeline.getAll'],
+  // Delete tools — sourced from the same shared constants as the UI routers
+  delete_guest: [...GUEST_MUTATION_PATHS],
+  delete_event: [...EVENT_DELETE_PATHS],
+  delete_vendor: [...VENDOR_MUTATION_PATHS],
+  delete_budget_item: [...BUDGET_MUTATION_PATHS, 'timeline.getAll'],
   delete_timeline_item: ['timeline.getAll'],
   delete_gift: ['gifts.getAll'],
 

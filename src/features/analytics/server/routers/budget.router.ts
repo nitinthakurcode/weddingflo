@@ -6,6 +6,7 @@ import { budget, advancePayments, clients, events, clientUsers, user, clientVend
 import { nanoid } from 'nanoid'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
+import { BUDGET_MUTATION_PATHS } from '@/lib/sync/cascade-query-paths'
 
 /**
  * Budget tRPC Router - Drizzle ORM Version
@@ -279,7 +280,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: input.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...BUDGET_MUTATION_PATHS],
       })
 
       return budgetItem
@@ -477,7 +478,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: budgetItem.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...BUDGET_MUTATION_PATHS],
       })
 
       return budgetItem
@@ -542,7 +543,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: existing.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...BUDGET_MUTATION_PATHS],
       })
 
       return { success: true }
@@ -652,7 +653,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: budgetItem.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...BUDGET_MUTATION_PATHS],
       })
 
       return advance
@@ -769,7 +770,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: result.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...BUDGET_MUTATION_PATHS],
       })
 
       return result.advance
@@ -859,7 +860,7 @@ export const budgetRouter = router({
         companyId: ctx.companyId!,
         clientId: deleteResult.clientId,
         userId: ctx.userId!,
-        queryPaths: ['budget.getAll', 'budget.getSummary', 'clients.list', 'clients.getAll'],
+        queryPaths: [...BUDGET_MUTATION_PATHS],
       })
 
       return { success: true }

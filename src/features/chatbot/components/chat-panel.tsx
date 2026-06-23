@@ -18,6 +18,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { trpc } from '@/lib/trpc/client'
+import { useAuth } from '@/lib/auth-client'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -125,6 +126,12 @@ type PanelView = 'chat' | 'history' | 'day-of' | 'templates'
 
 export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanelProps) {
   const t = useTranslations('chatbot')
+  const { user } = useAuth()
+  // Per-user identity: "{FirstName}'s Assistant" (localized), fallback "WeddingFlo Assistant".
+  const firstName = user?.firstName?.trim()
+  const assistantName = firstName
+    ? t('assistantName', { name: firstName })
+    : (t('title') || 'WeddingFlo Assistant')
   const pathname = usePathname()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -453,7 +460,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
                   </div>
                   <div>
                     <SheetTitle className="text-sm font-semibold">
-                      {t('title') || 'AI Assistant'}
+                      {assistantName}
                     </SheetTitle>
                     <SheetDescription className="text-xs">
                       {context?.hasClient

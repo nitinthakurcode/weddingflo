@@ -242,6 +242,8 @@ export interface ChatbotContext {
   vendors: VendorStats
   timeline: TimelineStats
   timestamp: Date
+  /** First name of the logged-in planner — powers the per-user assistant identity. */
+  userName?: string | null
   // 2026 Best Practices
   userPreferences?: UserPreferences
   conversationMemory?: ConversationMemory
@@ -672,7 +674,8 @@ export function resolvePronouns(
 export async function buildChatbotContext(
   clientId: string | null,
   companyId: string,
-  userId?: string
+  userId?: string,
+  userName?: string | null
 ): Promise<ChatbotContext> {
   // If no client context, return empty
   if (!clientId) {
@@ -685,6 +688,7 @@ export async function buildChatbotContext(
       vendors: { total: 0, confirmed: 0, pending: 0, byCategory: {} },
       timeline: { totalItems: 0, upcomingToday: 0, nextItem: null },
       timestamp: new Date(),
+      userName: userName ?? null,
     }
   }
 
@@ -701,6 +705,7 @@ export async function buildChatbotContext(
       vendors: { total: 0, confirmed: 0, pending: 0, byCategory: {} },
       timeline: { totalItems: 0, upcomingToday: 0, nextItem: null },
       timestamp: new Date(),
+      userName: userName ?? null,
     }
   }
 
@@ -726,6 +731,7 @@ export async function buildChatbotContext(
     vendors: vendorStats,
     timeline: timelineStats,
     timestamp: new Date(),
+    userName: userName ?? null,
     userPreferences,
     conversationMemory,
   }
