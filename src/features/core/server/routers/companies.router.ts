@@ -105,7 +105,7 @@ export const companiesRouter = router({
 
       try {
         // Map snake_case input to camelCase for Drizzle schema
-        const updateData: Record<string, any> = {}
+        const updateData: Partial<typeof companies.$inferInsert> = {}
         if (input.name !== undefined) updateData.name = input.name
         if (input.logo_url !== undefined) updateData.logoUrl = input.logo_url
         if (input.subdomain !== undefined) updateData.subdomain = input.subdomain

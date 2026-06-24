@@ -583,7 +583,7 @@ export const teamRouter = router({
         });
       }
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      const updateData: Partial<typeof userTable.$inferInsert> = { updatedAt: new Date() };
       if (input.firstName !== undefined) updateData.firstName = input.firstName;
       if (input.lastName !== undefined) updateData.lastName = input.lastName;
       if (input.avatarUrl !== undefined) updateData.avatarUrl = input.avatarUrl;

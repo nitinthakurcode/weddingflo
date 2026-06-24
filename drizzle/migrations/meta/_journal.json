@@ -239,6 +239,13 @@
       "when": 1782153710426,
       "tag": "0033_team_assignment_index",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782304888459,
+      "tag": "0034_add_gift_required_and_payment_receipt",
+      "breakpoints": true
     }
   ]
 }

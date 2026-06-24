@@ -586,7 +586,7 @@ export const vendorsRouter = router({
       const emptyToNull = (val: string | undefined | null) => val === '' ? null : val
 
       // Update vendor table fields
-      const vendorUpdateData: Record<string, any> = { updatedAt: new Date() }
+      const vendorUpdateData: Partial<typeof vendors.$inferInsert> = { updatedAt: new Date() }
       if (input.data.vendorName !== undefined) vendorUpdateData.name = input.data.vendorName
       if (input.data.category !== undefined) vendorUpdateData.category = input.data.category
       if (input.data.contactName !== undefined) vendorUpdateData.contactName = emptyToNull(input.data.contactName)
@@ -598,7 +598,7 @@ export const vendorsRouter = router({
       if (input.data.isPreferred !== undefined) vendorUpdateData.isPreferred = input.data.isPreferred
 
       // Build client_vendors update data
-      const cvUpdateData: Record<string, any> = { updatedAt: new Date() }
+      const cvUpdateData: Partial<typeof clientVendors.$inferInsert> = { updatedAt: new Date() }
       if (input.data.cost !== undefined && input.data.cost !== null) cvUpdateData.contractAmount = String(input.data.cost)
       if (input.data.depositAmount !== undefined && input.data.depositAmount !== null) cvUpdateData.depositAmount = String(input.data.depositAmount)
       if (input.data.depositPaid !== undefined) cvUpdateData.depositPaid = input.data.depositPaid
@@ -633,7 +633,7 @@ export const vendorsRouter = router({
 
         // 3. Sync budget entry with vendor updates
         try {
-          const budgetUpdateData: Record<string, any> = { updatedAt: new Date() }
+          const budgetUpdateData: Partial<typeof budget.$inferInsert> = { updatedAt: new Date() }
           if (input.data.vendorName !== undefined) budgetUpdateData.item = input.data.vendorName
           if (input.data.cost !== undefined) budgetUpdateData.estimatedCost = input.data.cost ? String(input.data.cost) : '0'
           if (input.data.depositAmount !== undefined) budgetUpdateData.paidAmount = input.data.depositAmount ? String(input.data.depositAmount) : '0'
@@ -952,7 +952,7 @@ export const vendorsRouter = router({
       // Staff: authorize against client assignment (derived clientId)
       await ctx.assertClientAccess(existingClientVendor.clientId)
 
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof clientVendors.$inferInsert> = {
         approvalStatus: input.status as any,
         updatedAt: new Date(),
       }
@@ -1141,7 +1141,7 @@ export const vendorsRouter = router({
       // Staff: authorize against client assignment (derived clientId)
       await ctx.assertClientAccess(existingClientVendor.clientId)
 
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof clientVendors.$inferInsert> = {
         paymentStatus: input.paymentStatus as any,
         updatedAt: new Date(),
       }
@@ -1583,6 +1583,8 @@ export const vendorsRouter = router({
           paymentMode: input.paymentMode || null,
           paidBy: input.paidBy,
           notes: input.notes || null,
+          receiptUrl: input.receiptUrl || null,
+          receiptFileName: input.receiptFileName || null,
         })
         .returning()
 
@@ -1658,7 +1660,7 @@ export const vendorsRouter = router({
       // Staff: authorize against client assignment (derived clientId)
       await ctx.assertClientAccess(existingAdvance.clientId)
 
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof advancePayments.$inferInsert> = {
         updatedAt: new Date(),
       }
 

@@ -30,11 +30,13 @@ describe('event + timeline tools', () => {
     expect(tl.length).toBeGreaterThan(0) // template-generated timeline items
   })
 
-  it('update_event: updates the event title', async () => {
-    const res = await run('update_event', { eventId: createdEventId, title: 'Sangeet Gala' })
+  it('update_event: updates title AND persists venueAddress to the address column', async () => {
+    // Regression: venueAddress must map to events.address (events has no venueAddress column).
+    const res = await run('update_event', { eventId: createdEventId, title: 'Sangeet Gala', venueAddress: '12 Palace Road' })
     expect(res.success).toBe(true)
     const [ev] = await db.select().from(events).where(eq(events.id, createdEventId))
     expect(ev.title).toBe('Sangeet Gala')
+    expect(ev.address).toBe('12 Palace Road')
   })
 
   it('add_timeline_item: inserts a timeline row', async () => {

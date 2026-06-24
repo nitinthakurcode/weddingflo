@@ -131,7 +131,7 @@ export const usersRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof userTable.$inferInsert> = {
         updatedAt: new Date(),
       };
 
@@ -185,7 +185,7 @@ export const usersRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' });
       }
 
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof userTable.$inferInsert> = {
         updatedAt: new Date(),
       };
 

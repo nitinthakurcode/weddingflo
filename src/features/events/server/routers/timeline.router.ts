@@ -210,7 +210,7 @@ export const timelineRouter = router({
       await ctx.assertClientAccess(existing.clientId)
 
       // Build update object
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof timeline.$inferInsert> = {
         updatedAt: new Date(),
       }
 

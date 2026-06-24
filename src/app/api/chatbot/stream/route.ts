@@ -179,10 +179,13 @@ export async function POST(request: NextRequest) {
               if (requiresConfirmation) {
                 try {
                   const parsedArgs = JSON.parse(currentToolCall.arguments || '{}') as Record<string, unknown>
-                  // Inject the active clientId if the model didn't supply it — the
-                  // executor (e.g. add_guest) requires args.clientId (mirrors the
-                  // tRPC path in chatbot.router.ts).
-                  if (!parsedArgs.clientId && clientId) {
+                  // SECURITY + correctness: for a mutation the active client context
+                  // (page URL / session) is authoritative. ALWAYS override any
+                  // model-supplied clientId — the LLM frequently emits a title/slug
+                  // (e.g. "sharma-verma_wedding") instead of the real UUID, which
+                  // would otherwise fail authz or hit the wrong client. Mirrors the
+                  // tRPC path in chatbot.router.ts (Rule 26).
+                  if (clientId) {
                     parsedArgs.clientId = clientId
                   }
                   await setPendingCall(currentToolCall.id, {

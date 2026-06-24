@@ -333,6 +333,15 @@ Use this information to correctly interpret the user's request.`
             }
           }
 
+          // SECURITY + correctness: for a mutation the active client context is
+          // authoritative — ALWAYS override any model-supplied clientId (the LLM
+          // frequently emits a title/slug instead of the real UUID). The earlier
+          // inject-if-absent (above) intentionally stays for cross-client queries.
+          // Mirrors the SSE route (Rule 26).
+          if (clientId) {
+            args.clientId = clientId
+          }
+
           // SECURITY: mutation policy (admins → company; staff → assigned clients only;
           // team/pipeline/analytics → admin-only). Same chokepoint enforced again at execution.
           try {

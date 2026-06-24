@@ -350,7 +350,7 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     name: 'update_gift',
     category: 'gifts',
     type: 'mutation',
-    description: 'Update gift status (received, thank you sent)',
+    description: 'Mark a gift\'s thank-you note as sent',
     cascadeEffects: [
       'May trigger thank you reminder',
     ],
@@ -2174,14 +2174,6 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'number',
             description: 'Estimated value',
           },
-          quantity: {
-            type: 'number',
-            description: 'Quantity (default 1)',
-          },
-          notes: {
-            type: 'string',
-            description: 'Additional notes',
-          },
         },
       },
     },
@@ -2190,7 +2182,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_gift',
-      description: 'Update gift status. Use for "Mark gift from Sharma family as received" or "Send thank you for Johnson gift".',
+      description: 'Mark a gift\'s thank-you note as sent. Use for "Send thank you for Johnson gift".',
       strict: false,
       parameters: {
         type: 'object',
@@ -2213,18 +2205,9 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             description: 'Gift name to find',
           },
-          status: {
-            type: 'string',
-            enum: ['pending', 'received', 'acknowledged', 'returned'],
-            description: 'Gift status',
-          },
           thankYouSent: {
             type: 'boolean',
             description: 'Mark thank you as sent',
-          },
-          notes: {
-            type: 'string',
-            description: 'Update notes',
           },
         },
       },

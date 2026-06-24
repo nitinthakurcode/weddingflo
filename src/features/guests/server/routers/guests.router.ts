@@ -220,6 +220,7 @@ export const guestsRouter = router({
             transportNotes: input.transportNotes || null,
             // Planner fields - Gift info
             giftToGive: input.giftToGive || null,
+            giftRequired: input.giftRequired ?? false,
           })
           .returning()
 
@@ -354,7 +355,7 @@ export const guestsRouter = router({
       await ctx.assertClientAccess(existingGuest.guest.clientId)
 
       // Build update object
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof guests.$inferInsert> = {
         updatedAt: new Date(),
       }
 

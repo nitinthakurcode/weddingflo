@@ -181,12 +181,7 @@ export const proposalsRouter = router({
             .where(eq(proposalTemplates.companyId, ctx.companyId));
         }
 
-        const updateData: Record<string, unknown> = { updatedAt: new Date() };
-        Object.entries(updateFields).forEach(([key, value]) => {
-          if (value !== undefined) {
-            updateData[key] = value;
-          }
-        });
+        const updateData: Partial<typeof proposalTemplates.$inferInsert> = { ...updateFields, updatedAt: new Date() };
 
         const [template] = await ctx.db
           .update(proposalTemplates)
@@ -571,18 +566,15 @@ export const proposalsRouter = router({
 
       const { id, ...updateFields } = input;
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      Object.entries(updateFields).forEach(([key, value]) => {
-        if (value !== undefined) {
-          if (['subtotal', 'discount', 'tax', 'total'].includes(key)) {
-            updateData[key] = value?.toString();
-          } else if (key === 'validUntil') {
-            updateData[key] = value ? new Date(value as string) : null;
-          } else {
-            updateData[key] = value;
-          }
-        }
-      });
+      // Typed: coerced fields are destructured out and assigned explicitly; the rest spread
+      // (Drizzle omits undefined). Compiler now checks every column name + type.
+      const { subtotal, discount, tax, total, validUntil, ...restFields } = updateFields;
+      const updateData: Partial<typeof proposals.$inferInsert> = { ...restFields, updatedAt: new Date() };
+      if (subtotal !== undefined) updateData.subtotal = subtotal?.toString();
+      if (discount !== undefined) updateData.discount = discount?.toString();
+      if (tax !== undefined) updateData.tax = tax?.toString();
+      if (total !== undefined) updateData.total = total?.toString();
+      if (validUntil !== undefined) updateData.validUntil = validUntil ? new Date(validUntil as string) : null;
 
       const [proposal] = await ctx.db
         .update(proposals)

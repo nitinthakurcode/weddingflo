@@ -180,12 +180,7 @@ export const contractsRouter = router({
             .where(eq(contractTemplates.companyId, ctx.companyId));
         }
 
-        const updateData: Record<string, unknown> = { updatedAt: new Date() };
-        Object.entries(updateFields).forEach(([key, value]) => {
-          if (value !== undefined) {
-            updateData[key] = value;
-          }
-        });
+        const updateData: Partial<typeof contractTemplates.$inferInsert> = { ...updateFields, updatedAt: new Date() };
 
         const [template] = await ctx.db
           .update(contractTemplates)
@@ -626,18 +621,14 @@ export const contractsRouter = router({
 
       const { id, ...updateFields } = input;
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      Object.entries(updateFields).forEach(([key, value]) => {
-        if (value !== undefined) {
-          if (['totalAmount', 'depositAmount'].includes(key)) {
-            updateData[key] = value?.toString();
-          } else if (['depositDueDate', 'finalPaymentDueDate', 'validUntil'].includes(key)) {
-            updateData[key] = value ? new Date(value as string) : null;
-          } else {
-            updateData[key] = value;
-          }
-        }
-      });
+      // Typed: coerced fields destructured out + assigned explicitly; rest spread (Drizzle omits undefined).
+      const { totalAmount, depositAmount, depositDueDate, finalPaymentDueDate, validUntil, ...restFields } = updateFields;
+      const updateData: Partial<typeof contracts.$inferInsert> = { ...restFields, updatedAt: new Date() };
+      if (totalAmount !== undefined) updateData.totalAmount = totalAmount?.toString();
+      if (depositAmount !== undefined) updateData.depositAmount = depositAmount?.toString();
+      if (depositDueDate !== undefined) updateData.depositDueDate = depositDueDate ? new Date(depositDueDate as string) : null;
+      if (finalPaymentDueDate !== undefined) updateData.finalPaymentDueDate = finalPaymentDueDate ? new Date(finalPaymentDueDate as string) : null;
+      if (validUntil !== undefined) updateData.validUntil = validUntil ? new Date(validUntil as string) : null;
 
       const [contract] = await ctx.db
         .update(contracts)

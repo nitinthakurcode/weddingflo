@@ -1545,7 +1545,7 @@ export async function importTimelineFromSheet(
 
           if (existingMap.has(id)) {
             // Update existing - can handle partial updates
-            const updateData: Record<string, any> = {
+            const updateData: Partial<typeof timeline.$inferInsert> = {
               title,
               description: getValue('Description') || null,
               location: getValue('Location') || null,

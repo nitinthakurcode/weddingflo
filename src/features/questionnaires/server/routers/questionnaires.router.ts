@@ -232,7 +232,7 @@ const templatesRouter = router({
 
       const { id, ...updates } = input;
 
-      const updateData: Record<string, unknown> = {
+      const updateData: Partial<typeof questionnaireTemplates.$inferInsert> = {
         updatedAt: new Date(),
       };
       if (updates.name !== undefined) updateData.name = updates.name;
@@ -695,7 +695,7 @@ export const questionnairesRouter = router({
 
       const { id, ...updates } = input;
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      const updateData: Partial<typeof questionnaires.$inferInsert> = { updatedAt: new Date() };
       if (updates.name !== undefined) updateData.name = updates.name;
       if (updates.description !== undefined) updateData.description = updates.description;
       if (updates.questions !== undefined) updateData.questions = updates.questions as QuestionDefinition[];

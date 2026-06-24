@@ -338,7 +338,7 @@ export const hotelsRouter = router({
       await ctx.assertClientAccess(existing.clientId)
 
       // Build update object
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof hotels.$inferInsert> = {
         updatedAt: new Date(),
       }
 

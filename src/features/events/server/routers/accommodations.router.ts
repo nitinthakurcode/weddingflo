@@ -225,7 +225,7 @@ export const accommodationsRouter = router({
       }
 
       // Build update object
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof accommodations.$inferInsert> = {
         updatedAt: new Date(),
       }
 

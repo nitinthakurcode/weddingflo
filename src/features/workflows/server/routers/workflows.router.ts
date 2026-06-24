@@ -344,12 +344,9 @@ export const workflowsRouter = router({
 
       const { id, ...updateFields } = input;
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      Object.entries(updateFields).forEach(([key, value]) => {
-        if (value !== undefined) {
-          updateData[key] = value;
-        }
-      });
+      // Typed spread: Drizzle omits `undefined` keys, so this preserves the prior
+      // filter-undefined behavior while letting the compiler check every column name.
+      const updateData: Partial<typeof workflows.$inferInsert> = { ...updateFields, updatedAt: new Date() };
 
       const [workflow] = await ctx.db
         .update(workflows)
@@ -527,12 +524,7 @@ export const workflowsRouter = router({
           });
         }
 
-        const updateData: Record<string, unknown> = { updatedAt: new Date() };
-        Object.entries(updateFields).forEach(([key, value]) => {
-          if (value !== undefined) {
-            updateData[key] = value;
-          }
-        });
+        const updateData: Partial<typeof workflowSteps.$inferInsert> = { ...updateFields, updatedAt: new Date() };
 
         const [updated] = await ctx.db
           .update(workflowSteps)

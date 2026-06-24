@@ -180,6 +180,7 @@ export const guests = pgTable('guests', {
   relationshipToFamily: text('relationship_to_family'),
   attendingEvents: text('attending_events').array(),
   giftToGive: text('gift_to_give'),
+  giftRequired: boolean('gift_required').default(false),
   checkedIn: boolean('checked_in').default(false),
   checkedInAt: timestamp('checked_in_at', { withTimezone: true }),
   notes: text('notes'),
@@ -485,6 +486,8 @@ export const advancePayments = pgTable('advance_payments', {
   paymentMode: text('payment_mode'), // Cash, Bank Transfer, UPI, Check, Credit Card, Other
   paidBy: text('paid_by'),
   notes: text('notes'),
+  receiptUrl: text('receipt_url'),
+  receiptFileName: text('receipt_file_name'),
   date: timestamp('date'), // Legacy field
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),

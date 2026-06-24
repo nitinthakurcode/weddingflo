@@ -210,7 +210,7 @@ export const documentsRouter = router({
       await ctx.assertClientAccess(existing.clientId)
 
       // Build update object (matching simplified schema: id, clientId, name, url, type, size)
-      const updateData: Record<string, unknown> = {
+      const updateData: Partial<typeof documents.$inferInsert> = {
         updatedAt: new Date(),
       }
 

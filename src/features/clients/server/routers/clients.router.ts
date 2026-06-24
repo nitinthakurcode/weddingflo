@@ -654,7 +654,7 @@ export const clientsRouter = router({
       }
 
       // Build update object with only provided fields
-      const updateData: Record<string, any> = {};
+      const updateData: Partial<typeof clients.$inferInsert> = {};
       if (input.partner1_first_name !== undefined) updateData.partner1FirstName = input.partner1_first_name;
       if (input.partner1_last_name !== undefined) updateData.partner1LastName = input.partner1_last_name;
       if (input.partner1_email !== undefined) updateData.partner1Email = input.partner1_email;
@@ -724,7 +724,7 @@ export const clientsRouter = router({
 
           if (mainEvent) {
             // Update existing main event with new wedding details
-            const eventUpdate: Record<string, any> = {};
+            const eventUpdate: Partial<typeof events.$inferInsert> = {};
             if (input.wedding_date !== undefined) eventUpdate.eventDate = input.wedding_date;
             if (input.venue !== undefined) eventUpdate.venueName = input.venue;
             if (input.guest_count !== undefined) eventUpdate.guestCount = input.guest_count;

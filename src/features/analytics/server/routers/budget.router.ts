@@ -338,7 +338,7 @@ export const budgetRouter = router({
       await ctx.assertClientAccess(existing.clientId)
 
       // Build update object
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof budget.$inferInsert> = {
         updatedAt: new Date(),
       }
 
@@ -377,7 +377,7 @@ export const budgetRouter = router({
 
         // BIDIRECTIONAL SYNC: If this budget item is linked to a vendor, sync changes back
         if (updated.vendorId) {
-          const syncData: Record<string, any> = {
+          const syncData: Partial<typeof clientVendors.$inferInsert> = {
             updatedAt: new Date(),
           }
 
@@ -696,7 +696,7 @@ export const budgetRouter = router({
 
       await ctx.assertClientAccess(existingAdvance.clientId)
 
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof advancePayments.$inferInsert> = {
         updatedAt: new Date(),
       }
 

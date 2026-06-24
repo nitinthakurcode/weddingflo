@@ -383,7 +383,7 @@ weddingflo/
 - **PK:** `id` (text, defaultFn crypto.randomUUID)
 - **File:** `schema-features.ts:146`
 - **FKs:** `clientId -> clients.id CASCADE`
-- 33 columns: name, email, phone, group, table, dietary, RSVP, plus-one, party size, travel, hotel, transport, gift, check-in, side
+- 34 columns: name, email, phone, group, table, dietary, RSVP, plus-one, party size, travel, hotel, transport, gift (`giftToGive` + `giftRequired` boolean), check-in, side
 - **Indexes:** `guests_client_id_idx(clientId)`, `guests_rsvp_status_idx(rsvpStatus)`
 
 #### `hotels`
@@ -452,7 +452,7 @@ weddingflo/
 #### `advancePayments`
 - **PK:** `id` (text) | **File:** `schema-features.ts:477`
 - **FKs:** `budgetItemId -> budget.id CASCADE`, `vendorId -> vendors.id SET NULL`
-- 9 columns: amount, paymentDate, paymentMode, paidBy, notes
+- 11 columns: amount, paymentDate, paymentMode, paidBy, notes, receiptUrl, receiptFileName
 - **Indexes:** `advance_payments_budget_item_id_idx(budgetItemId)`
 
 #### `documents`

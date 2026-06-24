@@ -440,7 +440,7 @@ export const analyticsExportRouter = router({
         ...(input.emailRecipients && { recipients: input.emailRecipients }),
       };
 
-      const updateData: Record<string, unknown> = {
+      const updateData: Partial<typeof scheduledReports.$inferInsert> = {
         schedule: JSON.stringify(newScheduleData),
         updatedAt: new Date(),
       };

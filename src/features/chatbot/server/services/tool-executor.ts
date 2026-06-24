@@ -886,21 +886,21 @@ async function executeUpdateClient(
     })
   }
 
-  // Build update object with only provided fields
-  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  // Build update object with only provided fields (typed against the Drizzle table so a wrong column name fails at compile time)
+  const updateData: Partial<typeof clients.$inferInsert> = { updatedAt: new Date() }
 
-  if (args.partner1FirstName !== undefined) updateData.partner1FirstName = args.partner1FirstName
-  if (args.partner1LastName !== undefined) updateData.partner1LastName = args.partner1LastName
-  if (args.partner1Email !== undefined) updateData.partner1Email = args.partner1Email
-  if (args.partner2FirstName !== undefined) updateData.partner2FirstName = args.partner2FirstName
-  if (args.partner2LastName !== undefined) updateData.partner2LastName = args.partner2LastName
+  if (args.partner1FirstName !== undefined) updateData.partner1FirstName = args.partner1FirstName as string
+  if (args.partner1LastName !== undefined) updateData.partner1LastName = args.partner1LastName as string
+  if (args.partner1Email !== undefined) updateData.partner1Email = args.partner1Email as string
+  if (args.partner2FirstName !== undefined) updateData.partner2FirstName = args.partner2FirstName as string
+  if (args.partner2LastName !== undefined) updateData.partner2LastName = args.partner2LastName as string
   if (args.weddingDate !== undefined) {
-    updateData.weddingDate = parseNaturalDate(args.weddingDate as string) || args.weddingDate
+    updateData.weddingDate = parseNaturalDate(args.weddingDate as string) || (args.weddingDate as string)
   }
-  if (args.venue !== undefined) updateData.venue = args.venue
+  if (args.venue !== undefined) updateData.venue = args.venue as string
   if (args.budget !== undefined) updateData.budget = (args.budget as number).toString()
-  if (args.guestCount !== undefined) updateData.guestCount = args.guestCount
-  if (args.status !== undefined) updateData.status = args.status
+  if (args.guestCount !== undefined) updateData.guestCount = args.guestCount as number
+  if (args.status !== undefined) updateData.status = args.status as string
 
   const [updatedClient] = await db
     .update(clients)
@@ -939,12 +939,12 @@ async function executeUpdateClient(
       .limit(1)
 
     if (mainEvent) {
-      const eventUpdate: Record<string, unknown> = { updatedAt: new Date() }
+      const eventUpdate: Partial<typeof events.$inferInsert> = { updatedAt: new Date() }
       if (args.weddingDate !== undefined) {
-        eventUpdate.eventDate = parseNaturalDate(args.weddingDate as string) || args.weddingDate
+        eventUpdate.eventDate = parseNaturalDate(args.weddingDate as string) || (args.weddingDate as string)
       }
-      if (args.venue !== undefined) eventUpdate.venueName = args.venue
-      if (args.guestCount !== undefined) eventUpdate.guestCount = args.guestCount
+      if (args.venue !== undefined) eventUpdate.venueName = args.venue as string
+      if (args.guestCount !== undefined) eventUpdate.guestCount = args.guestCount as number
 
       try {
         await db.update(events).set(eventUpdate).where(eq(events.id, mainEvent.id))
@@ -1676,7 +1676,12 @@ async function executeBulkUpdateGuests(
   const clientId = args.clientId as string
   const guestIds = args.guestIds as string[] | undefined
   const groupName = args.groupName as string | undefined
-  const updates = args.updates as Record<string, unknown>
+  const updates = (args.updates ?? {}) as {
+    rsvpStatus?: string
+    tableNumber?: number
+    needsHotel?: boolean
+    needsTransport?: boolean
+  }
 
   if (!clientId) {
     throw new TRPCError({
@@ -1712,20 +1717,20 @@ async function executeBulkUpdateGuests(
     })
   }
 
-  // Build update object
-  const updateValues: Record<string, unknown> = { updatedAt: new Date() }
+  // Build update object (typed against the Drizzle table so a wrong column name fails at compile time)
+  const updateValues: Partial<typeof guests.$inferInsert> = { updatedAt: new Date() }
 
   if (updates.rsvpStatus !== undefined) {
-    updateValues.rsvpStatus = normalizeRsvpStatus(updates.rsvpStatus as string)
+    updateValues.rsvpStatus = normalizeRsvpStatus(updates.rsvpStatus)
   }
   if (updates.tableNumber !== undefined) {
     updateValues.tableNumber = updates.tableNumber
   }
-  if (updates.hotelRequired !== undefined) {
-    updateValues.hotelRequired = updates.hotelRequired
+  if (updates.needsHotel !== undefined) {
+    updateValues.hotelRequired = updates.needsHotel
   }
   if (updates.needsTransport !== undefined) {
-    updateValues.needsTransport = updates.needsTransport
+    updateValues.transportRequired = updates.needsTransport
   }
 
   // Get target guests
@@ -1999,25 +2004,26 @@ async function executeUpdateEvent(
   }
 
   // Build update object
-  const updateValues: Record<string, unknown> = { updatedAt: new Date() }
+  // Typed against the Drizzle table so a wrong column name (e.g. venueAddress) fails at compile time
+  const updateValues: Partial<typeof events.$inferInsert> = { updatedAt: new Date() }
 
-  if (args.title !== undefined) updateValues.title = args.title
+  if (args.title !== undefined) updateValues.title = args.title as string
   if (args.eventDate !== undefined) {
-    updateValues.eventDate = parseNaturalDate(args.eventDate as string) || args.eventDate
+    updateValues.eventDate = parseNaturalDate(args.eventDate as string) || (args.eventDate as string)
   }
-  if (args.startTime !== undefined) updateValues.startTime = args.startTime
-  if (args.endTime !== undefined) updateValues.endTime = args.endTime
-  if (args.venueName !== undefined) updateValues.venueName = args.venueName
-  if (args.venueAddress !== undefined) updateValues.venueAddress = args.venueAddress
-  if (args.description !== undefined) updateValues.description = args.description
-  if (args.status !== undefined) updateValues.status = args.status
+  if (args.startTime !== undefined) updateValues.startTime = args.startTime as string
+  if (args.endTime !== undefined) updateValues.endTime = args.endTime as string
+  if (args.venueName !== undefined) updateValues.venueName = args.venueName as string
+  if (args.venueAddress !== undefined) updateValues.address = args.venueAddress as string
+  if (args.description !== undefined) updateValues.description = args.description as string
+  if (args.status !== undefined) updateValues.status = args.status as string
 
   // Prepare timeline update data (before transaction, no DB access needed)
-  const timelineUpdate: Record<string, unknown> = { updatedAt: new Date() }
-  if (args.title !== undefined) timelineUpdate.title = args.title
-  if (args.description !== undefined) timelineUpdate.description = args.description
-  if (args.venueName !== undefined) timelineUpdate.location = args.venueName
-  if (args.notes !== undefined) timelineUpdate.notes = args.notes
+  const timelineUpdate: Partial<typeof timeline.$inferInsert> = { updatedAt: new Date() }
+  if (args.title !== undefined) timelineUpdate.title = args.title as string
+  if (args.description !== undefined) timelineUpdate.description = args.description as string
+  if (args.venueName !== undefined) timelineUpdate.location = args.venueName as string
+  if (args.notes !== undefined) timelineUpdate.notes = args.notes as string
 
   // ATOMIC UPDATE: Event + timeline sync in a single transaction
   const updatedEvent = await withTransaction(async (tx) => {
@@ -2536,11 +2542,11 @@ async function executeUpdateVendor(
   }
 
   // Global vendor-table fields (shared across clients).
-  const vendorUpdateValues: Record<string, unknown> = { updatedAt: new Date() }
-  if (args.contactName !== undefined) vendorUpdateValues.contactName = args.contactName
-  if (args.email !== undefined) vendorUpdateValues.email = args.email
-  if (args.phone !== undefined) vendorUpdateValues.phone = args.phone
-  if (args.notes !== undefined) vendorUpdateValues.notes = args.notes
+  const vendorUpdateValues: Partial<typeof vendors.$inferInsert> = { updatedAt: new Date() }
+  if (args.contactName !== undefined) vendorUpdateValues.contactName = args.contactName as string
+  if (args.email !== undefined) vendorUpdateValues.email = args.email as string
+  if (args.phone !== undefined) vendorUpdateValues.phone = args.phone as string
+  if (args.notes !== undefined) vendorUpdateValues.notes = args.notes as string
 
   const result = await withTransaction(async (tx) => {
     // 1. Global vendor fields
@@ -2550,7 +2556,7 @@ async function executeUpdateVendor(
 
     if (resolvedClientId) {
       // 2. Per-client link fields
-      const cv: Record<string, unknown> = {}
+      const cv: Partial<typeof clientVendors.$inferInsert> = {}
       if (estimatedCost !== undefined) cv.contractAmount = String(estimatedCost)
       if (depositAmount !== undefined) cv.depositAmount = String(depositAmount)
       if (paymentStatus !== undefined) cv.paymentStatus = paymentStatus
@@ -2932,8 +2938,8 @@ async function executeUpdateBudgetItem(
     })
   }
 
-  // Build update object
-  const updateValues: Record<string, unknown> = { updatedAt: new Date() }
+  // Build update object (typed against the Drizzle table so a wrong column name fails at compile time)
+  const updateValues: Partial<typeof budget.$inferInsert> = { updatedAt: new Date() }
 
   if (args.estimatedCost !== undefined) {
     updateValues.estimatedCost = (args.estimatedCost as number).toString()
@@ -2945,13 +2951,13 @@ async function executeUpdateBudgetItem(
     updateValues.paidAmount = (args.paidAmount as number).toString()
   }
   if (args.paymentStatus !== undefined) {
-    updateValues.paymentStatus = args.paymentStatus
+    updateValues.paymentStatus = args.paymentStatus as string
   }
   if (args.notes !== undefined) {
-    updateValues.notes = args.notes
+    updateValues.notes = args.notes as string
   }
   if (args.segment !== undefined) {
-    updateValues.segment = args.segment
+    updateValues.segment = args.segment as string
   }
 
   // Update budget + vendor sync + timeline atomically
@@ -2971,7 +2977,7 @@ async function executeUpdateBudgetItem(
 
     // BIDIRECTIONAL SYNC: If this budget item is linked to a vendor, sync changes back
     if (updated.vendorId) {
-      const syncData: Record<string, unknown> = {
+      const syncData: Partial<typeof clientVendors.$inferInsert> = {
         updatedAt: new Date(),
       }
 
@@ -2979,7 +2985,7 @@ async function executeUpdateBudgetItem(
         syncData.contractAmount = (args.estimatedCost as number).toString()
       }
       if (args.paymentStatus !== undefined) {
-        syncData.paymentStatus = args.paymentStatus
+        syncData.paymentStatus = args.paymentStatus as string
         if (args.paymentStatus === 'paid') {
           syncData.depositPaid = true
         }
@@ -3379,8 +3385,8 @@ async function executeUpdatePipeline(
     }
   }
 
-  // Build update object
-  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  // Build update object (typed against the Drizzle table so a wrong column name fails at compile time)
+  const updateData: Partial<typeof pipelineLeads.$inferInsert> = { updatedAt: new Date() }
   const changes: string[] = []
 
   if (targetStageId && targetStageId !== existingLead.stageId) {
@@ -3399,7 +3405,7 @@ async function executeUpdatePipeline(
   }
 
   if (status !== undefined && status !== existingLead.status) {
-    updateData.status = status
+    updateData.status = status as (typeof pipelineLeads.$inferInsert)['status']
     changes.push(`status changed to ${status}`)
   }
 
@@ -5087,8 +5093,8 @@ async function executeUpdateTableDietary(
     }
   }
 
-  // Update all guests at the table
-  const updateData: Record<string, unknown> = {
+  // Update all guests at the table (typed against the Drizzle table)
+  const updateData: Partial<typeof guests.$inferInsert> = {
     mealPreference,
     updatedAt: new Date(),
   }
@@ -5298,9 +5304,7 @@ async function executeUpdateGift(
   const clientId = args.clientId as string | undefined
   const guestName = args.guestName as string | undefined
   const giftName = args.giftName as string | undefined
-  const status = args.status as string | undefined
   const thankYouSent = args.thankYouSent as boolean | undefined
-  const notes = args.notes as string | undefined
 
   let targetGiftId = giftId
 
@@ -5337,8 +5341,8 @@ async function executeUpdateGift(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found. Please provide giftId, or clientId with guestName or giftName.' })
   }
 
-  // Update gift
-  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  // Update gift (typed against the Drizzle table; giftsEnhanced only stores thankYouSent here)
+  const updateData: Partial<typeof giftsEnhanced.$inferInsert> = { updatedAt: new Date() }
   if (thankYouSent !== undefined) updateData.thankYouSent = thankYouSent
 
   const [updatedGift] = await db
@@ -5409,7 +5413,7 @@ async function executeUpdateCreative(
   }
 
   const currentData = (current.data as Record<string, unknown>) || {}
-  const updateData: Record<string, unknown> = {
+  const updateData: Partial<typeof creativeJobs.$inferInsert> = {
     updatedAt: new Date(),
   }
 
@@ -5873,7 +5877,7 @@ async function executeUpdateWebsite(
   const currentContent = (website.content as Record<string, unknown>) || {}
   const currentSettings = (website.settings as Record<string, unknown>) || {}
 
-  const updateData: Record<string, unknown> = { updatedAt: new Date() }
+  const updateData: Partial<typeof weddingWebsites.$inferInsert> = { updatedAt: new Date() }
 
   // Update specific section content
   if (section && content) {

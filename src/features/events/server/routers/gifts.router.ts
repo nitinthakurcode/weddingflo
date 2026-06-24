@@ -195,7 +195,7 @@ export const giftsRouter = router({
       // Staff: authorize against client assignment (derived clientId)
       await ctx.assertClientAccess(existing.clientId)
 
-      const updates: Record<string, unknown> = { updatedAt: new Date() }
+      const updates: Partial<typeof gifts.$inferInsert> = { updatedAt: new Date() }
       if (input.name !== undefined) updates.name = input.name
       if (input.guestId !== undefined) updates.guestId = input.guestId
       if (input.value !== undefined) updates.value = input.value

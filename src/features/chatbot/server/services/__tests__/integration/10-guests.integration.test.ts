@@ -70,14 +70,20 @@ describe('guest tools', () => {
     expect(confirmedParty).toBeGreaterThanOrEqual(1)
   })
 
-  it('bulk_update_guests: updates a group of guests by groupName', async () => {
+  it('bulk_update_guests: updates rsvp AND persists needsHotel/needsTransport flags', async () => {
     await run('add_guest', { firstName: 'Dora', groupName: 'BulkGroup', rsvpStatus: 'pending' })
     await run('add_guest', { firstName: 'Evan', groupName: 'BulkGroup', rsvpStatus: 'pending' })
-    const res = await run('bulk_update_guests', { groupName: 'BulkGroup', updates: { rsvpStatus: 'confirmed' } })
+    // Regression: needsHotel/needsTransport must map to hotelRequired/transportRequired columns.
+    const res = await run('bulk_update_guests', {
+      groupName: 'BulkGroup',
+      updates: { rsvpStatus: 'confirmed', needsHotel: true, needsTransport: true },
+    })
     expect(res.success).toBe(true)
     const grp = await db.select().from(guests).where(and(eq(guests.clientId, t.clientId), eq(guests.groupName, 'BulkGroup')))
     expect(grp.length).toBe(2)
     expect(grp.every((g) => g.rsvpStatus === 'confirmed')).toBe(true)
+    expect(grp.every((g) => g.hotelRequired === true)).toBe(true)
+    expect(grp.every((g) => g.transportRequired === true)).toBe(true)
   })
 
   it('check_in_guest: flags a guest checked-in', async () => {

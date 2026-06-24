@@ -199,7 +199,7 @@ export const eventsRouter = router({
       await ctx.assertClientAccess(existingEvent.event.clientId)
 
       // Build update object
-      const updateData: Record<string, any> = {
+      const updateData: Partial<typeof events.$inferInsert> = {
         updatedAt: new Date(),
       }
 
@@ -217,7 +217,7 @@ export const eventsRouter = router({
       if (input.data.notes !== undefined) updateData.notes = input.data.notes
 
       // Prepare timeline update data (before transaction, no DB access needed)
-      const timelineUpdate: Record<string, any> = { updatedAt: new Date() }
+      const timelineUpdate: Partial<typeof timeline.$inferInsert> = { updatedAt: new Date() }
       if (input.data.title !== undefined) timelineUpdate.title = input.data.title
       if (input.data.description !== undefined) timelineUpdate.description = input.data.description
       if (input.data.location !== undefined || input.data.venueName !== undefined) {

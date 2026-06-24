@@ -440,8 +440,7 @@ export const addGiftSchema = z.object({
   name: z.string().min(1).max(200).describe('Gift name'),
   type: z.enum(['physical', 'cash', 'check', 'registry', 'experience', 'other']).optional().default('physical'),
   value: z.number().positive().optional(),
-  quantity: z.number().int().positive().optional().default(1),
-  notes: z.string().max(500).optional(),
+  // Note: giftsEnhanced has no quantity/notes column; these were silently dropped — removed.
 })
 
 export const updateGiftSchema = z.object({
@@ -449,9 +448,9 @@ export const updateGiftSchema = z.object({
   clientId: z.string().uuid().optional(),
   guestName: z.string().optional(),
   giftName: z.string().optional(),
-  status: z.enum(['pending', 'received', 'acknowledged', 'returned']).optional(),
+  // Note: giftsEnhanced (the table this tool writes) only stores thankYouSent here.
+  // status/notes were advertised but had no column and were silently dropped — removed.
   thankYouSent: z.boolean().optional(),
-  notes: z.string().max(500).optional(),
 })
 
 export const updateCreativeSchema = z.object({

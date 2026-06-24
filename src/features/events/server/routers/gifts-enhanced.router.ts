@@ -216,7 +216,7 @@ export const giftsEnhancedRouter = router({
         })
       }
 
-      const updates: Record<string, unknown> = { updatedAt: new Date() }
+      const updates: Partial<typeof giftsEnhanced.$inferInsert> = { updatedAt: new Date() }
       if (input.name !== undefined) updates.name = input.name
       if (input.type !== undefined) updates.type = input.type
       if (input.value !== undefined) updates.value = input.value

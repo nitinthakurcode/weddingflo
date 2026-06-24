@@ -149,7 +149,7 @@ export const pipelineRouter = router({
             .where(eq(pipelineStages.companyId, ctx.companyId));
         }
 
-        const updateData: Record<string, unknown> = { updatedAt: new Date() };
+        const updateData: Partial<typeof pipelineStages.$inferInsert> = { updatedAt: new Date() };
         if (input.name !== undefined) updateData.name = input.name;
         if (input.description !== undefined) updateData.description = input.description;
         if (input.color !== undefined) updateData.color = input.color;
@@ -630,18 +630,11 @@ export const pipelineRouter = router({
 
         const { id, ...updateFields } = input;
 
-        const updateData: Record<string, unknown> = { updatedAt: new Date() };
-        Object.entries(updateFields).forEach(([key, value]) => {
-          if (value !== undefined) {
-            if (key === 'estimatedBudget') {
-              updateData[key] = value?.toString();
-            } else if (key === 'nextFollowUpAt') {
-              updateData[key] = new Date(value as string);
-            } else {
-              updateData[key] = value;
-            }
-          }
-        });
+        // Typed: coerced fields destructured out + assigned explicitly; rest spread (Drizzle omits undefined).
+        const { estimatedBudget, nextFollowUpAt, ...restFields } = updateFields;
+        const updateData: Partial<typeof pipelineLeads.$inferInsert> = { ...restFields, updatedAt: new Date() };
+        if (estimatedBudget !== undefined) updateData.estimatedBudget = estimatedBudget?.toString();
+        if (nextFollowUpAt !== undefined) updateData.nextFollowUpAt = new Date(nextFollowUpAt as string);
 
         const [lead] = await ctx.db
           .update(pipelineLeads)
@@ -743,7 +736,7 @@ export const pipelineRouter = router({
           newStatus = 'lost';
         }
 
-        const updateData: Record<string, unknown> = {
+        const updateData: Partial<typeof pipelineLeads.$inferInsert> = {
           stageId: input.stageId,
           updatedAt: new Date(),
         };
