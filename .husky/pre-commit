@@ -68,3 +68,30 @@ if [ -n "$ENV_FILES" ]; then
 fi
 
 echo "Pre-commit security checks passed!"
+
+# Check 4: Code-quality gate (types + lint + fast test suite)
+# These enforce the invariants that prior manual audits had to catch by hand.
+# The vitest suite is fast (~2s); tsc is the slow step but worth it pre-commit.
+# Skip with `git commit --no-verify` only in genuine emergencies.
+echo "Running type check (tsc --noEmit)..."
+if ! npm run --silent type-check; then
+  echo ""
+  echo "ERROR: TypeScript type check failed. Fix type errors before committing."
+  exit 1
+fi
+
+echo "Running ESLint..."
+if ! npm run --silent lint; then
+  echo ""
+  echo "ERROR: ESLint failed. Fix lint errors before committing."
+  exit 1
+fi
+
+echo "Running unit test suite (vitest)..."
+if ! npm run --silent test:unit; then
+  echo ""
+  echo "ERROR: Unit tests failed. Fix failing tests before committing."
+  exit 1
+fi
+
+echo "All pre-commit checks passed!"
