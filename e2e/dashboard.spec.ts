@@ -10,17 +10,10 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Dashboard', () => {
+  // Authenticated via shared storageState (global-setup); just land on the page.
   test.beforeEach(async ({ page }) => {
-    // Login before each test
-    await page.goto('/en/sign-in')
-    await page.waitForSelector('input[name="identifier"]', { state: 'visible' })
-    await page.fill('input[name="identifier"]', process.env.TEST_USER_EMAIL || 'test@weddingflow.com')
-    await page.fill('input[name="password"]', process.env.TEST_USER_PASSWORD || 'TestPassword123!')
-
-    const submitButton = page.locator('button:visible').filter({ hasText: /continue|sign in/i }).first()
-    await submitButton.waitFor({ state: 'visible', timeout: 10000 })
-    await submitButton.click()
-    await page.waitForURL('/en/dashboard', { timeout: 15000 })
+    await page.goto('/en/dashboard')
+    await expect(page).toHaveURL(/\/dashboard/)
   })
 
   test('should load dashboard page', async ({ page }) => {

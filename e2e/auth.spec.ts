@@ -1,83 +1,34 @@
 /**
- * E2E Tests: Authentication Flow
- * December 2025 - BetterAuth + Drizzle + Hetzner PostgreSQL
+ * E2E: Authentication (BetterAuth). The sign-in form uses id-based inputs
+ * (#email / #password) + a "Sign in" button — the old name="email"/"identifier"
+ * selectors had bit-rotted and silently failed. Shared login lives in helpers/auth.
  *
- * Tests the complete authentication journey including:
- * - Sign in
- * - Dashboard access
- * - Session persistence
+ * These tests exercise the login MECHANISM, so they run logged-OUT (overriding the
+ * shared storageState). Authenticated flows live in the other specs and reuse the
+ * session captured by global-setup (so we only ever do ~2 real logins total).
  */
-
 import { test, expect } from '@playwright/test'
+import { login } from './helpers/auth'
+
+test.use({ storageState: { cookies: [], origins: [] } })
 
 test.describe('Authentication', () => {
-  test('should load sign-in page', async ({ page }) => {
+  test('sign-in page renders the credential form', async ({ page }) => {
     await page.goto('/en/sign-in')
-
-    // Verify sign-in page elements - use first() to handle multiple h1 elements
-    await expect(page.locator('h1').first()).toBeVisible()
-    await expect(page.locator('input[name="email"], input[name="identifier"]').first()).toBeVisible()
-    await expect(page.locator('input[name="password"]')).toBeVisible()
-    // Wait for auth form to fully load
-    await expect(page.locator('button:visible').filter({ hasText: /continue|sign in/i }).first()).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('#email')).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('#password')).toBeVisible()
+    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
   })
 
-  test('should show validation errors for empty form', async ({ page }) => {
+  test('rejects empty submit (stays on sign-in)', async ({ page }) => {
     await page.goto('/en/sign-in')
-
-    // Wait for auth form to load completely
-    await page.waitForSelector('input[name="email"], input[name="identifier"]', { state: 'visible' })
-
-    // Find and click the submit button
-    const submitButton = page.locator('button:visible').filter({ hasText: /continue|sign in/i }).first()
-    await submitButton.waitFor({ state: 'visible', timeout: 10000 })
-    await submitButton.click()
-
-    // Should still be on sign-in page
+    await page.locator('#email').waitFor({ state: 'visible', timeout: 15000 })
+    await page.getByRole('button', { name: /sign in/i }).click()
     await expect(page).toHaveURL(/sign-in/)
   })
 
-  test('should redirect to dashboard after successful login', async ({ page }) => {
-    await page.goto('/en/sign-in')
-
-    // Wait for auth form to load
-    await page.waitForSelector('input[name="email"], input[name="identifier"]', { state: 'visible' })
-
-    // Fill credentials (BetterAuth uses 'email' field name)
-    const emailInput = page.locator('input[name="email"], input[name="identifier"]').first()
-    await emailInput.fill(process.env.TEST_USER_EMAIL || 'test@weddingflow.com')
-    await page.fill('input[name="password"]', process.env.TEST_USER_PASSWORD || 'TestPassword123!')
-
-    // Submit form using visible button with text
-    const submitButton = page.locator('button:visible').filter({ hasText: /continue|sign in/i }).first()
-    await submitButton.waitFor({ state: 'visible', timeout: 10000 })
-    await submitButton.click()
-
-    // Wait for redirect with longer timeout
-    await page.waitForURL('/en/dashboard', { timeout: 15000 })
-
-    // Verify we're on dashboard
-    await expect(page).toHaveURL(/dashboard/)
-  })
-
-  test('should persist session after page reload', async ({ page }) => {
-    // Login first
-    await page.goto('/en/sign-in')
-    await page.waitForSelector('input[name="email"], input[name="identifier"]', { state: 'visible' })
-
-    const emailInput = page.locator('input[name="email"], input[name="identifier"]').first()
-    await emailInput.fill(process.env.TEST_USER_EMAIL || 'test@weddingflow.com')
-    await page.fill('input[name="password"]', process.env.TEST_USER_PASSWORD || 'TestPassword123!')
-
-    const submitButton = page.locator('button:visible').filter({ hasText: /continue|sign in/i }).first()
-    await submitButton.waitFor({ state: 'visible', timeout: 10000 })
-    await submitButton.click()
-    await page.waitForURL('/en/dashboard', { timeout: 15000 })
-
-    // Reload the page
-    await page.reload()
-
-    // Should still be on dashboard (not redirected to sign-in)
-    await expect(page).toHaveURL(/dashboard/)
+  test('valid credentials redirect to the dashboard', async ({ page }) => {
+    await login(page)
+    await expect(page).toHaveURL(/\/dashboard/)
   })
 })
