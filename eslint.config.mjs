@@ -31,6 +31,23 @@ const eslintConfig = [
       'react-hooks/preserve-manual-memoization': 'warn',
     },
   },
+  {
+    // Write-path hardening: these files build the objects that get written to the
+    // DB (chatbot tool executor, server-side Excel import) and the sync query-path
+    // SSOT. `any` here is exactly where the recurring "schema-key↔column / silent
+    // data loss" bug class hides. They are currently 0-`any`; this keeps them that
+    // way — a new `any` in a write path is a CI error, not a code-review maybe.
+    files: [
+      'src/features/chatbot/server/services/tool-executor.ts',
+      'src/lib/import/excel-parser-server.ts',
+      'src/lib/sync/**/*.ts',
+    ],
+    // Tests may use `any` for mocks/fixtures — the rule hardens production writes.
+    ignores: ['src/lib/sync/**/__tests__/**'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
 ]
 
 export default eslintConfig

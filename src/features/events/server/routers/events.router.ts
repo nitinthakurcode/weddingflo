@@ -415,6 +415,18 @@ export const eventsRouter = router({
         })
       }
 
+      // Real-time invalidation — a status change must refresh the events list and
+      // the linked timeline like any other event mutation (was previously missing).
+      await broadcastSync({
+        type: 'update',
+        module: 'events',
+        entityId: event.id,
+        companyId: ctx.companyId!,
+        clientId: existingEvent.event.clientId,
+        userId: ctx.userId!,
+        queryPaths: [...EVENT_MUTATION_PATHS],
+      })
+
       return event
     }),
 
