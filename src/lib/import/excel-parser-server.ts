@@ -29,6 +29,40 @@ import {
 } from './excel-parser';
 
 /**
+ * A normalized Excel cell value: the primitive forms our importers understand.
+ * ExcelJS's `.value` is a wider union (rich text, hyperlinks, formula results,
+ * error cells) — feeding those straight into `String(...)` silently produced
+ * "[object Object]" and corrupted the imported field. `normalizeCellValue`
+ * unwraps the rich shapes to their underlying primitive and fails loud on any
+ * shape we don't recognise, so a drift surfaces as a reported row error instead
+ * of silent data loss.
+ */
+export type CellPrimitive = string | number | boolean | Date | null;
+
+export function normalizeCellValue(value: ExcelJS.CellValue | undefined): CellPrimitive {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value;
+  const t = typeof value;
+  if (t === 'string' || t === 'number' || t === 'boolean') {
+    return value as CellPrimitive;
+  }
+  const obj = value as unknown as Record<string, unknown>;
+  // Hyperlink cell: { text, hyperlink }
+  if (typeof obj.text === 'string') return obj.text;
+  // Rich text cell: { richText: [{ text }, ...] }
+  if (Array.isArray(obj.richText)) {
+    return (obj.richText as Array<{ text?: string }>).map((r) => r?.text ?? '').join('');
+  }
+  // Formula cell: { formula, result } — recurse on the computed result.
+  if ('result' in obj) return normalizeCellValue(obj.result as ExcelJS.CellValue);
+  // Error cell: { error } — treat as empty rather than importing "#REF!" etc.
+  if ('error' in obj) return null;
+  throw new Error(
+    `Unsupported Excel cell value shape (refusing to import silently): ${JSON.stringify(value)}`,
+  );
+}
+
+/**
  * Import Budget from Excel
  * February 2026 - Full round-trip import with upsert support
  *
@@ -69,10 +103,10 @@ export async function importBudgetExcel(
   }
 
   // Helper to get raw cell value by header name (case-insensitive)
-  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+  const getRawCell = (row: ExcelJS.Row, header: string): CellPrimitive => {
     const colIndex = headerMap.get(header.toLowerCase());
     if (!colIndex) return null;
-    return row.getCell(colIndex).value ?? null;
+    return normalizeCellValue(row.getCell(colIndex).value);
   };
 
   // Helper to get cell as trimmed string
@@ -83,7 +117,7 @@ export async function importBudgetExcel(
   };
 
   // Helper to parse date values (handles ExcelJS Date objects, ISO strings, formatted dates)
-  const parseDate = (value: any): string | null => {
+  const parseDate = (value: CellPrimitive): string | null => {
     if (value === null || value === undefined || value === '') return null;
     if (value instanceof Date) return value.toISOString().split('T')[0];
     const strVal = String(value).trim();
@@ -94,7 +128,7 @@ export async function importBudgetExcel(
   };
 
   // Helper to parse currency/numeric values (handles both string and number cell values)
-  const parseCurrency = (value: any): string | null => {
+  const parseCurrency = (value: CellPrimitive): string | null => {
     if (value === null || value === undefined || value === '') return null;
     if (typeof value === 'number') return String(value);
     const cleaned = String(value).replace(/[^0-9.-]/g, '');
@@ -238,8 +272,8 @@ export async function importHotelsExcel(
     ({ headerMap } = await validateExcelFile(
       buffer, EXPECTED_HOTEL_HEADERS, REQUIRED_HOTEL_HEADERS, 'Hotels',
     ));
-  } catch (e: any) {
-    if (!e.message?.includes('not found')) throw e;
+  } catch (e: unknown) {
+    if (!(e instanceof Error) || !e.message.includes('not found')) throw e;
     ({ headerMap } = await validateExcelFile(
       buffer, EXPECTED_HOTEL_HEADERS, REQUIRED_HOTEL_HEADERS, 'Hotel Accommodations',
     ));
@@ -256,10 +290,10 @@ export async function importHotelsExcel(
     return results;
   }
 
-  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+  const getRawCell = (row: ExcelJS.Row, header: string): CellPrimitive => {
     const colIndex = headerMap.get(header.toLowerCase());
     if (!colIndex) return null;
-    return row.getCell(colIndex).value ?? null;
+    return normalizeCellValue(row.getCell(colIndex).value);
   };
 
   const getCell = (row: ExcelJS.Row, header: string): string => {
@@ -383,8 +417,8 @@ export async function importTransportExcel(
     ({ headerMap } = await validateExcelFile(
       buffer, EXPECTED_TRANSPORT_HEADERS, REQUIRED_TRANSPORT_HEADERS, 'Guest Transport',
     ));
-  } catch (e: any) {
-    if (!e.message?.includes('not found')) throw e;
+  } catch (e: unknown) {
+    if (!(e instanceof Error) || !e.message.includes('not found')) throw e;
     ({ headerMap } = await validateExcelFile(
       buffer, EXPECTED_TRANSPORT_HEADERS, REQUIRED_TRANSPORT_HEADERS, 'Transport',
     ));
@@ -401,10 +435,10 @@ export async function importTransportExcel(
     return results;
   }
 
-  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+  const getRawCell = (row: ExcelJS.Row, header: string): CellPrimitive => {
     const colIndex = headerMap.get(header.toLowerCase());
     if (!colIndex) return null;
-    return row.getCell(colIndex).value ?? null;
+    return normalizeCellValue(row.getCell(colIndex).value);
   };
 
   const getCell = (row: ExcelJS.Row, header: string): string => {
@@ -539,10 +573,10 @@ export async function importVendorsExcel(
     return results;
   }
 
-  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+  const getRawCell = (row: ExcelJS.Row, header: string): CellPrimitive => {
     const colIndex = headerMap.get(header.toLowerCase());
     if (!colIndex) return null;
-    return row.getCell(colIndex).value ?? null;
+    return normalizeCellValue(row.getCell(colIndex).value);
   };
 
   const getCell = (row: ExcelJS.Row, header: string): string => {
@@ -820,17 +854,17 @@ export async function importEventsExcel(
     return results;
   }
 
-  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+  const getRawCell = (row: ExcelJS.Row, header: string): CellPrimitive => {
     const colIndex = headerMap.get(header.toLowerCase());
     if (!colIndex) return null;
-    return row.getCell(colIndex).value ?? null;
+    return normalizeCellValue(row.getCell(colIndex).value);
   };
   const getCell = (row: ExcelJS.Row, header: string): string => {
     const raw = getRawCell(row, header);
     if (raw === null || raw === undefined) return '';
     return String(raw).trim();
   };
-  const parseDate = (value: any): string | null => {
+  const parseDate = (value: CellPrimitive): string | null => {
     if (value === null || value === undefined || value === '') return null;
     if (value instanceof Date) return value.toISOString().split('T')[0];
     const strVal = String(value).trim();
@@ -839,7 +873,7 @@ export async function importEventsExcel(
     const parsed = new Date(strVal);
     return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
   };
-  const parseIntOrNull = (value: any): number | null => {
+  const parseIntOrNull = (value: CellPrimitive): number | null => {
     if (value === null || value === undefined || value === '') return null;
     const num = parseInt(String(value).replace(/[^0-9-]/g, ''), 10);
     return isNaN(num) ? null : num;
