@@ -39,9 +39,8 @@
 | Cache            | @upstash/redis         | ^1.35.6   |
 | Analytics        | posthog-js             | ^1.302.2  |
 | Canvas           | konva / react-konva    | ^10.0.12  |
-| Testing (Unit)   | jest                   | ^30.2.0   |
+| Testing (Unit+Intg) | vitest              | ^4.1.5    |
 | Testing (E2E)    | @playwright/test       | ^1.57.0   |
-| Testing (Intg)   | vitest                 | ^4.0.18   |
 
 ### A.2 Next.js Configuration (next.config.ts)
 
@@ -1580,11 +1579,11 @@ timeline     → ['timeline.getAll']
 gifts        → ['gifts.getAll']
 floorPlan    → ['floorPlans.list']
 pipeline     → ['pipeline.list']
-communications → ['communications.list']
-creatives    → ['creatives.list']
+communications → ['email.getEmailLogs']
+creatives    → ['creatives.getAll']
 team         → ['team.list']
 proposals    → ['proposals.list']
-invoices     → ['invoices.list']
+invoices     → ['payment.getInvoices']
 websites     → ['websites.list']
 workflows    → ['workflows.list']
 documents    → ['documents.getAll', 'documents.getSignatureStats', 'documents.getPendingSignatures']
@@ -3900,48 +3899,64 @@ Role-based routing:
 
 | Framework | Purpose | Config File |
 |-----------|---------|-------------|
-| Jest | Unit + integration tests | `jest.config.js` |
-| Vitest | Alternative unit testing (faster) | `vitest.config.ts` |
+| Vitest | Unit + real-DB integration tests (the runner) | `vitest.config.ts`, `vitest.integration.config.ts` |
 | Playwright | E2E + security tests | `playwright.config.ts` |
+
+> **Single runner (2026-06):** jest was removed. CI previously invoked the legacy
+> jest runner via `test:unit`/`test:integration` even though the real suite —
+> including the cascade-query-paths and excel-roundtrip contract tests — is
+> vitest, so those guardrails never actually ran in CI. All `test:*` scripts now
+> point at vitest; `jest.config.js`/`jest.setup.ts`/`jest.polyfills.ts` are
+> deleted; `jsdom` is now a direct devDependency (it was only present transitively
+> via jest). Tests still written for the jest API keep working: `vitest.setup.ts`
+> maps `globalThis.jest = vi` and aliases `@jest/globals` → a vitest shim.
 
 ### Q.2 Running Tests
 
 ```bash
-npm test                    # Jest watch mode
-npm run test:unit           # Jest single run
-npm run test:integration    # Jest integration only
-npm run test:coverage       # Jest with coverage
-npm run test:ci             # Jest CI mode (--ci --coverage --maxWorkers=2)
+npm test                    # vitest watch mode
+npm run test:unit           # vitest run (the fast mocked suite)
+npm run test:integration    # vitest run -c vitest.integration.config.ts (real local Postgres)
+npm run test:coverage       # vitest run --coverage
+npm run test:ci             # vitest run --coverage (CI unit job)
 npm run test:e2e            # Playwright all browsers
 npm run test:e2e:ui         # Playwright interactive UI
-npm run test:security       # Playwright security tests
+npm run test:security       # Playwright security specs (tests/security/*.spec.ts)
 ```
 
-### Q.3 Jest Configuration
+### Q.3 Vitest Configuration
 
-**File:** `jest.config.js`
+**File:** `vitest.config.ts` (unit) + `vitest.integration.config.ts` (real-DB)
 
-- Environment: jsdom
-- Coverage thresholds: 80% lines, 75% functions, 70% branches
-- Coverage provider: v8
-- Module alias: `^@/(.*)$` → `<rootDir>/src/$1`
-- Setup files: `jest.polyfills.ts` (MSW v2), `jest.setup.ts` (mocks)
-- **testPathIgnorePatterns:** `/tests/security/` (security tests use Vitest APIs — run via `npx vitest run`)
+- Environment: jsdom (unit) / node (integration)
+- Setup: `vitest.setup.ts` (imports `@testing-library/jest-dom/vitest`; maps `jest`→`vi`)
+- Aliases `@jest/globals` → `vitest.jest-globals-shim.ts` for legacy jest-API tests
+- Unit excludes: `e2e/**`, `tests/security/*.spec.ts`, `**/__tests__/integration/**`
+- Integration includes only `src/**/__tests__/integration/**`, runs serially against
+  one local Postgres (loads `.env.local` for `DATABASE_URL`; harness is superuser → RLS bypass)
 
-**Mocks in `jest.setup.ts`:**
-- `superjson`, `next/navigation`, `window.matchMedia`
-- `IntersectionObserver`, `ResizeObserver`
-- BetterAuth: `useAuth()`, `useSession()`, `getServerSession()`, `requireAuth()`, `hasRole()`
-- PostHog analytics (disabled in tests)
+### Q.3a Invariant Contract Tests (guardrails)
 
-### Q.4 Vitest Configuration
+These convert handbook rules from convention into CI failures (added 2026-06):
 
-**File:** `vitest.config.ts`
+| Test | Locks |
+|------|-------|
+| `src/lib/sync/__tests__/cascade-query-paths.test.ts` | chatbot map ⊇ shared `*_MUTATION_PATHS` constants |
+| `src/features/chatbot/.../__tests__/broadcast-coverage.test.ts` | every mutation tool has a `TOOL_QUERY_MAP` entry; query tools never invalidate; `isQueryOnlyTool` ↔ `TOOL_METADATA.type` |
+| `src/lib/sync/__tests__/recalc-coverage.test.ts` | every guest/budget/vendor mutation calls `recalcClientStats`/`recalcPerGuestBudgetItems` (or is in a documented exempt set) AND broadcasts |
+| `src/lib/sync/__tests__/router-broadcast-coverage.test.ts` | every mutation in the 10 shared-data routers calls `broadcastSync` |
+| `src/lib/sync/__tests__/querypath-validity.test.ts` | every queryPath resolves to a real appRouter namespace + procedure (kills phantom paths) |
+| `src/lib/import/__tests__/normalize-cell-value.test.ts` | Excel cell normalizer fails loud instead of writing `"[object Object]"` |
+| `src/features/chatbot/.../integration/60-broadcast.integration.test.ts` | `executeToolWithSync` emits a sync action with correct module + queryPaths at runtime |
 
-- Environment: jsdom
-- Setup: `vitest.setup.ts` (imports `@testing-library/jest-dom/vitest`)
-- Maps `@jest/globals` to vitest's `vi` for compatibility
-- Excludes: `e2e/**`, `tests/security/*.spec.ts`
+Also enforced: `eslint.config.mjs` sets `@typescript-eslint/no-explicit-any: error`
+on the write-path surfaces (`tool-executor.ts`, `excel-parser-server.ts`, `lib/sync/**`).
+
+### Q.4 Writing a New Router Test
+
+```typescript
+// __tests__/routers/my-feature.test.ts
+import { describe, it, expect, vi } from 'vitest'
 
 ### Q.5 Writing a New Router Test
 
