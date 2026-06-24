@@ -74,21 +74,25 @@ export const TOOL_QUERY_MAP: Record<string, string[]> = {
   // Floor plan / Seating tools — matches floor-plans.router.ts procedure names
   add_seating_constraint: ['floorPlans.list'],
 
-  // Communication tools (no broadcastSync in router)
-  send_communication: ['communications.list'],
+  // Communication tools (no broadcastSync in router) — send_communication sends
+  // emails; the comms UI reads trpc.email.getEmailLogs (there is no
+  // `communications` router — the old 'communications.list' was a phantom path).
+  send_communication: ['email.getEmailLogs'],
 
   // Pipeline tools (no broadcastSync in router)
   update_pipeline: ['pipeline.list'],
 
-  // Creative tools (no broadcastSync in router)
-  update_creative: ['creatives.list'],
+  // Creative tools (no broadcastSync in router) — UI reads trpc.creatives.getAll
+  update_creative: ['creatives.getAll'],
 
   // Team tools (no broadcastSync in router)
   assign_team_member: ['team.list'],
 
   // Proposal/Invoice tools (no broadcastSync in router)
   create_proposal: ['proposals.list'],
-  create_invoice: ['invoices.list'],
+  // Invoices live under the payment router — UI reads trpc.payment.getInvoices
+  // (there is no `invoices` router — 'invoices.list' was a phantom path).
+  create_invoice: ['payment.getInvoices'],
 
   // Website tools (no broadcastSync in router)
   update_website: ['websites.list'],
@@ -157,11 +161,11 @@ export const MODULE_PRIMARY_QUERIES: Record<string, string[]> = {
   gifts: ['gifts.getAll'],
   floorPlan: ['floorPlans.list'],
   pipeline: ['pipeline.list'],
-  communications: ['communications.list'],
-  creatives: ['creatives.list'],
+  communications: ['email.getEmailLogs'],
+  creatives: ['creatives.getAll'],
   team: ['team.list'],
   proposals: ['proposals.list'],
-  invoices: ['invoices.list'],
+  invoices: ['payment.getInvoices'],
   websites: ['websites.list'],
   workflows: ['workflows.list'],
 }
