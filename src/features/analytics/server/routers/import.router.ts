@@ -22,16 +22,19 @@ import {
   BUDGET_MUTATION_PATHS,
   HOTEL_MUTATION_PATHS,
   TRANSPORT_MUTATION_PATHS,
+  EVENT_MUTATION_PATHS,
 } from '@/lib/sync/cascade-query-paths'
 import {
   importBudgetExcel,
   importHotelsExcel,
   importTransportExcel,
   importVendorsExcel,
+  importEventsExcel,
 } from '@/lib/import/excel-parser-server'
+import { syncEventsToTimelineTx } from '@/lib/sync/event-timeline-sync'
 
 // All exportable/importable module types
-const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts'])
+const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts', 'events'])
 
 export const importRouter = router({
   // Download template with existing data
@@ -239,6 +242,15 @@ export const importRouter = router({
             .from(schema.guestGifts)
             .leftJoin(schema.guests, eq(schema.guestGifts.guestId, schema.guests.id))
             .where(eq(schema.guestGifts.clientId, input.clientId))
+          break
+        case 'events':
+          // Events for this client (exclude soft-deleted)
+          existingData = await ctx.db.query.events.findMany({
+            where: and(
+              eq(schema.events.clientId, input.clientId),
+              isNull(schema.events.deletedAt),
+            ),
+          })
           break
       }
 
@@ -532,6 +544,42 @@ export const importRouter = router({
             notes: gg.notes || '',
           }))
           break
+
+        case 'events':
+          sheetName = 'Events'
+          columns = [
+            { header: 'ID (Do not modify)', key: 'id', width: 40 },
+            { header: 'Title *', key: 'title', width: 28 },
+            { header: 'Event Type', key: 'event_type', width: 18 },
+            { header: 'Event Date (YYYY-MM-DD)', key: 'event_date', width: 22 },
+            { header: 'Start Time (HH:MM)', key: 'start_time', width: 18 },
+            { header: 'End Time (HH:MM)', key: 'end_time', width: 18 },
+            { header: 'Location', key: 'location', width: 25 },
+            { header: 'Venue Name', key: 'venue_name', width: 25 },
+            { header: 'Address', key: 'address', width: 30 },
+            { header: 'Guest Count (numbers only)', key: 'guest_count', width: 22 },
+            { header: 'Status (draft/planned/confirmed/completed/cancelled)', key: 'status', width: 30 },
+            { header: 'Description', key: 'description', width: 30 },
+            { header: 'Notes', key: 'notes', width: 30 },
+            { header: 'Action (DELETE to remove)', key: 'action', width: 24 },
+          ]
+          templateData = existingData.map((e) => ({
+            id: e.id,
+            title: e.title,
+            event_type: e.eventType || '',
+            event_date: e.eventDate || '',
+            start_time: e.startTime || '',
+            end_time: e.endTime || '',
+            location: e.location || '',
+            venue_name: e.venueName || '',
+            address: e.address || '',
+            guest_count: e.guestCount ?? '',
+            status: e.status || 'planned',
+            description: e.description || '',
+            notes: e.notes || '',
+            action: '',
+          }))
+          break
       }
 
       // Add Instructions Sheet FIRST for Hotels (so it appears as the first tab)
@@ -665,6 +713,7 @@ export const importRouter = router({
         hotels: ['guestname', 'name'],
         transport: ['guestname', 'name'],
         guestGifts: ['guestname', 'giftname'],
+        events: ['title', 'eventname', 'activity'],
       }
 
       const required = requiredColumns[input.module] || []
@@ -845,6 +894,33 @@ export const importRouter = router({
           })
         }
         return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions: [] }
+      }
+
+      if (input.module === 'events') {
+        const result = await importEventsExcel(buffer, input.clientId, companyId)
+        const cascadeActions: { module: string; action: string; count: number }[] = []
+        if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
+          // Cross-module: regenerate event-linked timeline items (date/time anchors).
+          const synced = await withTransaction(async (tx) =>
+            syncEventsToTimelineTx(tx, input.clientId),
+          )
+          if (synced > 0) {
+            cascadeActions.push({ module: 'timeline', action: 'event_items_synced', count: synced })
+          }
+          // Events have no client-stat coupling (recalcClientStats reads only
+          // budget+guests), so use the canonical EVENT_MUTATION_PATHS (events.getAll
+          // + timeline.getAll, no clients.*) and skip recalc — matches events.router.ts.
+          await broadcastSync({
+            type: 'insert',
+            module: 'events',
+            entityId: 'bulk-import',
+            companyId,
+            clientId: input.clientId,
+            userId: ctx.userId!,
+            queryPaths: [...EVENT_MUTATION_PATHS],
+          })
+        }
+        return { created: result.inserted, updated: result.updated, deleted: result.deleted, skipped: result.skipped, errors: result.errors, cascadeActions }
       }
 
       // ── Inline import for guests, gifts, guestGifts (row-by-row within transaction) ──

@@ -72,6 +72,13 @@ export const EXPECTED_VENDOR_HEADERS = [
 ];
 export const REQUIRED_VENDOR_HEADERS = ['Name'];
 
+export const EXPECTED_EVENT_HEADERS = [
+  'ID', 'Title', 'Event Type', 'Event Date', 'Start Time', 'End Time',
+  'Location', 'Venue Name', 'Address', 'Guest Count', 'Status',
+  'Description', 'Notes', 'Action',
+];
+export const REQUIRED_EVENT_HEADERS = ['Title'];
+
 // ── Header alias map for round-trip import/export compatibility ──
 // Maps canonical import header names (lowercased) → known export header variants (lowercased).
 // When an export header doesn't directly match an import lookup, aliases resolve the gap.
@@ -111,8 +118,14 @@ export const IMPORT_HEADER_ALIASES: Record<string, string[]> = {
   // Gifts: individual export uses "Gift Category" instead of "Gift Type"
   'gift type': ['gift category'],
   'gift item': ['gift name'],
-  // Timeline: master export uses "Activity" instead of "Title"
-  'title': ['activity'],
+  // Timeline: master export uses "Activity" instead of "Title".
+  // Events: friendly variants a user might type for the event title.
+  'title': ['activity', 'event name', 'event title'],
+  // Events: friendly header variants for user-authored sheets
+  'event type': ['type'],
+  'event date': ['date'],
+  'venue name': ['venue'],
+  'guest count': ['# guests', 'expected guests'],
   // Common: many exports use "Special Notes" or descriptive variants
   'notes': ['special notes'],
   'phone': ['phone number'],

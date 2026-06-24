@@ -350,9 +350,9 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     name: 'update_gift',
     category: 'gifts',
     type: 'mutation',
-    description: 'Mark a gift\'s thank-you note as sent',
+    description: 'Update a gift\'s details (name, value, guest, or status)',
     cascadeEffects: [
-      'May trigger thank you reminder',
+      'Updates gift statistics',
     ],
   },
   update_creative: {
@@ -2165,14 +2165,14 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             description: 'Gift name/description',
           },
-          type: {
-            type: 'string',
-            enum: ['physical', 'cash', 'check', 'registry', 'experience', 'other'],
-            description: 'Gift type',
-          },
           value: {
             type: 'number',
             description: 'Estimated value',
+          },
+          status: {
+            type: 'string',
+            enum: ['pending', 'received', 'returned'],
+            description: 'Gift status (defaults to received)',
           },
         },
       },
@@ -2182,7 +2182,7 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_gift',
-      description: 'Mark a gift\'s thank-you note as sent. Use for "Send thank you for Johnson gift".',
+      description: 'Update a gift\'s details. Use for "Change Johnson gift value to $500" or "Mark the Sharma gift as returned".',
       strict: false,
       parameters: {
         type: 'object',
@@ -2205,9 +2205,18 @@ export const CHATBOT_TOOLS: ChatCompletionTool[] = [
             type: 'string',
             description: 'Gift name to find',
           },
-          thankYouSent: {
-            type: 'boolean',
-            description: 'Mark thank you as sent',
+          name: {
+            type: 'string',
+            description: 'New gift name/description',
+          },
+          value: {
+            type: 'number',
+            description: 'New estimated value',
+          },
+          status: {
+            type: 'string',
+            enum: ['pending', 'received', 'returned'],
+            description: 'New gift status',
           },
         },
       },

@@ -22,7 +22,7 @@
  *     original events.router behavior).
  */
 
-import { eq, and, asc, sql } from 'drizzle-orm'
+import { eq, and, asc, sql, isNull } from 'drizzle-orm'
 import { events, timeline, timelineTemplates } from '@/lib/db/schema'
 import {
   getDefaultTemplate,
@@ -53,18 +53,25 @@ export interface CreateEventWithTimelineInput {
 }
 
 /**
- * Create an event and its template-generated timeline items inside the caller's
- * transaction. Returns the created event row + timeline item count.
+ * Prepare (but do not insert) the template-generated timeline items for an event.
+ * Read-only; returns [] on any template-prep failure so the caller's event write
+ * is never rolled back. Shared by createEventWithTimeline and syncEventsToTimelineTx
+ * so the template logic lives in exactly one place.
  */
-export async function createEventWithTimeline(
+async function prepareTimelineItemsForEvent(
   tx: TransactionClient,
-  input: CreateEventWithTimelineInput
-): Promise<{ eventId: string; timelineCount: number; event: typeof events.$inferSelect }> {
-  const eventId = input.eventId ?? crypto.randomUUID()
-  const eventStatus = input.status || 'planned'
-
-  // TIMELINE TEMPLATE PREP (read-only). On failure the event still creates.
-  let preparedTimelineItems: Array<typeof timeline.$inferInsert> = []
+  input: {
+    eventId: string
+    clientId: string
+    companyId: string
+    title: string
+    eventType?: string | null
+    eventDate: string
+    startTime?: string | null
+    location?: string | null
+    venueName?: string | null
+  }
+): Promise<Array<typeof timeline.$inferInsert>> {
   try {
     // Anchor timeline at the event start (defaults to noon if no start time).
     const eventStartDateTime = new Date(input.eventDate)
@@ -107,7 +114,7 @@ export async function createEventWithTimeline(
 
     const eventLocation = input.location || input.venueName || null
 
-    preparedTimelineItems = templateItems.map((item, index) => {
+    return templateItems.map((item, index) => {
       const itemStartTime = new Date(
         eventStartDateTime.getTime() + item.offsetMinutes * 60 * 1000
       )
@@ -119,7 +126,7 @@ export async function createEventWithTimeline(
         id: crypto.randomUUID(),
         clientId: input.clientId,
         companyId: input.companyId,
-        eventId,
+        eventId: input.eventId,
         title: item.title,
         description: item.description,
         phase: item.phase,
@@ -129,7 +136,7 @@ export async function createEventWithTimeline(
         location: item.location || eventLocation,
         sortOrder: index,
         sourceModule: 'events',
-        sourceId: eventId,
+        sourceId: input.eventId,
         metadata: JSON.stringify({
           eventType: input.eventType || 'Wedding Event',
           eventTitle: input.title,
@@ -138,7 +145,33 @@ export async function createEventWithTimeline(
     })
   } catch (timelineError) {
     console.warn('[event-timeline-sync] Failed to prepare timeline entries:', timelineError)
+    return []
   }
+}
+
+/**
+ * Create an event and its template-generated timeline items inside the caller's
+ * transaction. Returns the created event row + timeline item count.
+ */
+export async function createEventWithTimeline(
+  tx: TransactionClient,
+  input: CreateEventWithTimelineInput
+): Promise<{ eventId: string; timelineCount: number; event: typeof events.$inferSelect }> {
+  const eventId = input.eventId ?? crypto.randomUUID()
+  const eventStatus = input.status || 'planned'
+
+  // TIMELINE TEMPLATE PREP (read-only). On failure the event still creates.
+  const preparedTimelineItems = await prepareTimelineItemsForEvent(tx, {
+    eventId,
+    clientId: input.clientId,
+    companyId: input.companyId,
+    title: input.title,
+    eventType: input.eventType,
+    eventDate: input.eventDate,
+    startTime: input.startTime,
+    location: input.location,
+    venueName: input.venueName,
+  })
 
   const [event] = await tx
     .insert(events)
@@ -224,4 +257,56 @@ export async function shiftEventTimelineForDateChange(
     .returning({ id: timeline.id })
 
   return Array.isArray(result) ? result.length : 0
+}
+
+/**
+ * Ensure every (non-deleted) event for a client has its template-generated
+ * timeline items. Used after a bulk Events import (Excel/Sheets) so newly
+ * imported events get their wedding-day schedule, mirroring the UI create path.
+ *
+ * Generate-when-missing only: events that already have linked timeline items are
+ * left untouched, so a re-import of unchanged events is a no-op. Returns the
+ * number of timeline items created.
+ */
+export async function syncEventsToTimelineTx(
+  tx: TransactionClient,
+  clientId: string
+): Promise<number> {
+  const clientEvents = await tx
+    .select()
+    .from(events)
+    .where(and(eq(events.clientId, clientId), isNull(events.deletedAt)))
+
+  let created = 0
+  for (const ev of clientEvents) {
+    // Can't anchor a timeline without a date; skip tenant-less rows (Rule 3).
+    if (!ev.eventDate || !ev.companyId) continue
+
+    const existing = await tx
+      .select({ id: timeline.id })
+      .from(timeline)
+      .where(and(eq(timeline.sourceModule, 'events'), eq(timeline.sourceId, ev.id)))
+      .limit(1)
+
+    if (existing.length > 0) continue // already has timeline items
+
+    const items = await prepareTimelineItemsForEvent(tx, {
+      eventId: ev.id,
+      clientId: ev.clientId,
+      companyId: ev.companyId,
+      title: ev.title,
+      eventType: ev.eventType,
+      eventDate: ev.eventDate,
+      startTime: ev.startTime,
+      location: ev.location,
+      venueName: ev.venueName,
+    })
+
+    if (items.length > 0) {
+      await tx.insert(timeline).values(items)
+      created += items.length
+    }
+  }
+
+  return created
 }

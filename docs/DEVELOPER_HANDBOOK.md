@@ -1398,6 +1398,22 @@ chatbot's `TOOL_QUERY_MAP` so they can never drift):
 - create/update: `['events.getAll', 'timeline.getAll']`
 - delete: `['events.getAll', 'timeline.getAll', 'guests.getAll']`
 
+**Import/Export (June 2026):** Events round-trip via Excel AND Google Sheets, same
+as other modules.
+- Excel template/export + import: `import.router.ts` (`moduleTypes` includes `'events'`,
+  `downloadTemplate` case `'events'`, `importData` buffer block) → `importEventsExcel`
+  in `excel-parser-server.ts` (upsert-by-ID scoped to `clientId`, `buildPresentUpdate`
+  non-destructive, `Action`=DELETE removes the event + its `sourceModule='events'`
+  timeline items).
+- Google Sheets: `syncEventsToSheet` / `importEventsFromSheet` in `sheets-sync.ts`
+  (sheet index 7; imported BEFORE Timeline so the timeline import skips event rows).
+- After any events import, `syncEventsToTimelineTx(tx, clientId)` (in `event-timeline-sync.ts`)
+  regenerates template timeline items for events missing them. Import broadcasts
+  `EVENT_MUTATION_PATHS` and does NOT call `recalcClientStats` (events don't feed client stats).
+- Export filters `isNull(deletedAt)`. Event hard-delete relies on FK `onDelete:'set null'`
+  (`clientVendors.eventId`, `budget.eventId`, `timeline.eventId`) — linked rows are
+  unassigned, never orphaned.
+
 ---
 
 ### D.11 Documents / E-Signature Module
@@ -1919,6 +1935,27 @@ Sheets are delete-ready without hand-adding the column.
 **Alias resolution:** `title` ← `['activity']`
 
 **Note:** The master (multi-sheet) export uses simplified 4-column headers (Time, Activity, Location, Manager). The dedicated per-module export `exportTimelineExcel` emits the full column set **including `ID` and (as of 2026-06) `Action`**, so timeline round-trips: export → edit (mark `Action`=DELETE to remove) → upload, which the client parser `importTimelineExcel` feeds into `timeline.bulkImport` (create/update/delete + `broadcastSync`). Google Sheets timeline export now also carries `Action`.
+
+### G.8b Events — Header Comparison (June 2026)
+
+| # | Excel Export (`downloadTemplate`)               | Excel Import (`importEventsExcel`) | Google Sheets (`syncEventsToSheet`) |
+|---|--------------------------------------------------|------------------------------------|-------------------------------------|
+| 1 | ID (Do not modify)                               | id                                 | ID                                  |
+| 2 | Title *                                          | title                              | Title                               |
+| 3 | Event Type                                       | event type                         | Event Type                          |
+| 4 | Event Date (YYYY-MM-DD)                          | event date                         | Event Date                          |
+| 5 | Start Time (HH:MM)                               | start time                         | Start Time                          |
+| 6 | End Time (HH:MM)                                 | end time                           | End Time                            |
+| 7 | Location                                         | location                           | Location                            |
+| 8 | Venue Name                                       | venue name                         | Venue Name                          |
+| 9 | Address                                          | address                            | Address                             |
+| 10| Guest Count (numbers only)                       | guest count                        | Guest Count                         |
+| 11| Status (draft/planned/confirmed/...)             | status                             | Status                              |
+| 12| Description                                       | description                        | Description                         |
+| 13| Notes                                            | notes                              | Notes                               |
+| 14| Action (DELETE to remove)                        | action                             | Last Updated / Action               |
+
+**Round-trip:** upsert by `ID` (scoped to `clientId`), non-destructive `buildPresentUpdate`, `Action`=DELETE removes the event + its `sourceModule='events'` timeline rows. After import, `syncEventsToTimelineTx` regenerates template timeline items for events missing them. Import broadcasts `EVENT_MUTATION_PATHS` (`events.getAll`+`timeline.getAll`); no `recalcClientStats` (events don't feed client stats). `REQUIRED_EVENT_HEADERS=['Title']`.
 
 ### G.9 IMPORT_HEADER_ALIASES Reference
 
@@ -2709,9 +2746,18 @@ Each tool has: `name`, `category`, `type` (query|mutation), `description`, `para
 | `delete_seating_constraint`| mutation | Remove seating constraint      |
 | `update_table_dietary`    | mutation | Update table meal preferences   |
 | `assign_guests_to_events` | mutation | Multi-event assignment          |
-| `add_gift`                | mutation | Record gift                     |
-| `update_gift`             | mutation | Update gift status              |
-| `delete_gift`             | mutation | Delete gift                     |
+| `add_gift`                | mutation | Record gift (writes `gifts` table) |
+| `update_gift`             | mutation | Update gift name/value/guest/status |
+| `delete_gift`             | mutation | Delete gift (`gifts`, legacy `gifts_enhanced` fallback) |
+
+> **June 2026 fix:** `add_gift`/`update_gift` now write the canonical `gifts` table
+> (same table the gifts UI, Excel import/export, and Google Sheets use) — previously
+> they wrote `gifts_enhanced`, which had no UI, so chatbot gifts were invisible. The
+> `gifts` table has no `type`/`thankYouSent` columns, so those params were dropped;
+> `status` (`pending`/`received`/`returned`) is now supported. `delete_gift` keeps a
+> `gifts_enhanced` fallback to clean up any legacy rows. The `giftsEnhancedRouter` is
+> no longer registered in `_app.ts` (dead — no UI used it); the table remains for the
+> delete fallback + client cascade.
 
 #### Communication & Team (3 tools)
 | Tool                  | Type     | Description                     |

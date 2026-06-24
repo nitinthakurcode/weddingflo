@@ -1535,6 +1535,12 @@ async function executeAddGuest(
     // Recalculate client cached guest count
     await recalcClientStats(tx, clientId)
 
+    // If the guest is created already-confirmed, per-guest budget items must
+    // reflect the new confirmed head count immediately (parity with RSVP edits).
+    if (newGuest.rsvpStatus === 'confirmed') {
+      await recalcPerGuestBudgetItems(tx, clientId)
+    }
+
     return { newGuest, cascadeActions }
   })
 
@@ -4981,57 +4987,63 @@ async function executeBulkAddHotelBookings(
     }
   }
 
-  // Find or create accommodation (master hotel record)
-  let [accommodation] = await db
-    .select({ id: accommodations.id, name: accommodations.name })
-    .from(accommodations)
-    .where(and(eq(accommodations.clientId, clientId), like(accommodations.name, `%${hotelName}%`)))
-    .limit(1)
-
-  if (!accommodation) {
-    // Create accommodation record (master hotel)
-    const [newAccommodation] = await db
-      .insert(accommodations)
-      .values({
-        clientId,
-        name: hotelName,
-        notes: notes || '',
-      })
-      .returning({ id: accommodations.id, name: accommodations.name })
-    accommodation = newAccommodation
-  }
-
-  // Create hotel bookings for each guest
-  const bookings: Array<{ guestId: string; guestName: string }> = []
-
-  for (const guest of matchingGuests) {
-    // Check if booking already exists
-    const [existing] = await db
-      .select({ id: hotels.id })
-      .from(hotels)
-      .where(and(eq(hotels.guestId, guest.id), eq(hotels.accommodationId, accommodation.id)))
+  // Find/create the accommodation and create per-guest bookings atomically so a
+  // mid-loop failure can never leave partial bookings (mandatory rule 6).
+  // The read-only guest match above stays outside the transaction.
+  const { accommodation, bookings } = await withTransaction(async (tx) => {
+    let [accommodation] = await tx
+      .select({ id: accommodations.id, name: accommodations.name })
+      .from(accommodations)
+      .where(and(eq(accommodations.clientId, clientId), like(accommodations.name, `%${hotelName}%`)))
       .limit(1)
 
-    if (!existing) {
-      const guestFullName = `${guest.firstName} ${guest.lastName || ''}`.trim()
-      await db.insert(hotels).values({
-        clientId,
-        companyId: ctx.companyId || undefined,
-        guestId: guest.id,
-        guestName: guestFullName,
-        accommodationId: accommodation.id,
-        hotelName: accommodation.name,
-        roomType: roomType || 'Standard',
-        checkInDate: parseNaturalDate(checkInDate) || checkInDate,
-        checkOutDate: parseNaturalDate(checkOutDate) || checkOutDate,
-        cost: roomRate?.toString() || null,
-        bookingConfirmed: true,
-        notes: notes || '',
-      })
-
-      bookings.push({ guestId: guest.id, guestName: guestFullName })
+    if (!accommodation) {
+      // Create accommodation record (master hotel)
+      const [newAccommodation] = await tx
+        .insert(accommodations)
+        .values({
+          clientId,
+          name: hotelName,
+          notes: notes || '',
+        })
+        .returning({ id: accommodations.id, name: accommodations.name })
+      accommodation = newAccommodation
     }
-  }
+
+    // Create hotel bookings for each guest
+    const bookings: Array<{ guestId: string; guestName: string }> = []
+
+    for (const guest of matchingGuests) {
+      // Check if booking already exists
+      const [existing] = await tx
+        .select({ id: hotels.id })
+        .from(hotels)
+        .where(and(eq(hotels.guestId, guest.id), eq(hotels.accommodationId, accommodation.id)))
+        .limit(1)
+
+      if (!existing) {
+        const guestFullName = `${guest.firstName} ${guest.lastName || ''}`.trim()
+        await tx.insert(hotels).values({
+          clientId,
+          companyId: ctx.companyId || undefined,
+          guestId: guest.id,
+          guestName: guestFullName,
+          accommodationId: accommodation.id,
+          hotelName: accommodation.name,
+          roomType: roomType || 'Standard',
+          checkInDate: parseNaturalDate(checkInDate) || checkInDate,
+          checkOutDate: parseNaturalDate(checkOutDate) || checkOutDate,
+          cost: roomRate?.toString() || null,
+          bookingConfirmed: true,
+          notes: notes || '',
+        })
+
+        bookings.push({ guestId: guest.id, guestName: guestFullName })
+      }
+    }
+
+    return { accommodation, bookings }
+  })
 
   return {
     success: true,
@@ -5243,9 +5255,8 @@ async function executeAddGift(
   const guestId = args.guestId as string | undefined
   const guestName = args.guestName as string | undefined
   const name = args.name as string
-  const type = (args.type as string) || 'physical'
+  const status = (args.status as string) || 'received'
   const value = args.value as number | undefined
-  const notes = args.notes as string | undefined
 
   if (!clientId) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Client ID is required' })
@@ -5271,17 +5282,18 @@ async function executeAddGift(
     }
   }
 
-  // Create gift record
+  // Create gift record in the canonical `gifts` table (shared with the gifts UI,
+  // Excel import/export, and Google Sheets sync — so chatbot gifts are visible).
   const [newGift] = await db
-    .insert(giftsEnhanced)
+    .insert(gifts)
     .values({
       id: crypto.randomUUID(),
       clientId,
+      companyId: ctx.companyId || undefined,
       guestId: resolvedGuestId || null,
       name,
-      type,
-      value: value || null,
-      thankYouSent: false,
+      value: value ?? null,
+      status,
     })
     .returning()
 
@@ -5304,24 +5316,22 @@ async function executeUpdateGift(
   const clientId = args.clientId as string | undefined
   const guestName = args.guestName as string | undefined
   const giftName = args.giftName as string | undefined
-  const thankYouSent = args.thankYouSent as boolean | undefined
+  const name = args.name as string | undefined
+  const value = args.value as number | undefined
+  const guestId = args.guestId as string | undefined
+  const status = args.status as string | undefined
 
   let targetGiftId = giftId
 
   // Find gift by guest name or gift name if giftId not provided
   if (!targetGiftId && clientId) {
-    let giftQuery = db
-      .select({ id: giftsEnhanced.id })
-      .from(giftsEnhanced)
-      .where(eq(giftsEnhanced.clientId, clientId))
-
     if (guestName) {
       const resolution = await resolveGuest(guestName, clientId, ctx.companyId ?? undefined)
       if (!resolution.isAmbiguous && resolution.entity) {
         const [found] = await db
-          .select({ id: giftsEnhanced.id })
-          .from(giftsEnhanced)
-          .where(and(eq(giftsEnhanced.clientId, clientId), eq(giftsEnhanced.guestId, resolution.entity.id)))
+          .select({ id: gifts.id })
+          .from(gifts)
+          .where(and(eq(gifts.clientId, clientId), eq(gifts.guestId, resolution.entity.id)))
           .limit(1)
         if (found) targetGiftId = found.id
       }
@@ -5329,9 +5339,9 @@ async function executeUpdateGift(
 
     if (!targetGiftId && giftName) {
       const [found] = await db
-        .select({ id: giftsEnhanced.id })
-        .from(giftsEnhanced)
-        .where(and(eq(giftsEnhanced.clientId, clientId), like(giftsEnhanced.name, `%${giftName}%`)))
+        .select({ id: gifts.id })
+        .from(gifts)
+        .where(and(eq(gifts.clientId, clientId), like(gifts.name, `%${giftName}%`)))
         .limit(1)
       if (found) targetGiftId = found.id
     }
@@ -5341,21 +5351,24 @@ async function executeUpdateGift(
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Gift not found. Please provide giftId, or clientId with guestName or giftName.' })
   }
 
-  // Update gift (typed against the Drizzle table; giftsEnhanced only stores thankYouSent here)
-  const updateData: Partial<typeof giftsEnhanced.$inferInsert> = { updatedAt: new Date() }
-  if (thankYouSent !== undefined) updateData.thankYouSent = thankYouSent
+  // Update gift in the canonical `gifts` table (shared with UI + Excel + Sheets)
+  const updateData: Partial<typeof gifts.$inferInsert> = { updatedAt: new Date() }
+  if (name !== undefined) updateData.name = name
+  if (value !== undefined) updateData.value = value
+  if (guestId !== undefined) updateData.guestId = guestId
+  if (status !== undefined) updateData.status = status
 
   const [updatedGift] = await db
-    .update(giftsEnhanced)
+    .update(gifts)
     .set(updateData)
-    .where(eq(giftsEnhanced.id, targetGiftId))
+    .where(eq(gifts.id, targetGiftId))
     .returning()
 
   return {
     success: true,
     toolName: 'update_gift',
     data: updatedGift,
-    message: `🎁 Updated gift: ${updatedGift.name}${thankYouSent ? ' - Thank you sent!' : ''}`,
+    message: `🎁 Updated gift: ${updatedGift.name}${status ? ` - Status: ${status}` : ''}`,
   }
 }
 

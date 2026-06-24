@@ -26,6 +26,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Plus, Trash2, Edit, Calendar, CheckCircle, Clock, Users, Heart, MapPin, ArrowRight, Zap } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { ClientModuleHeader } from '@/components/dashboard/ClientModuleHeader'
+import { ImportDialog } from '@/components/import/ImportDialog'
 import { Badge } from '@/components/ui/badge'
 import { Link } from '@/lib/navigation'
 
@@ -248,6 +249,16 @@ export default function EventsPage() {
         title={t('eventManagement')}
         description={t('manageWeddingEvents')}
       >
+        <ImportDialog
+          module="events"
+          clientId={clientId}
+          onImportComplete={() => {
+            utils.events.getAll.invalidate({ clientId })
+            utils.events.getStats.invalidate({ clientId })
+            utils.timeline.getAll.invalidate({ clientId })
+            utils.vendors.getClientEvents.invalidate({ clientId })
+          }}
+        />
         <Button onClick={() => setIsAddDialogOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           {t('addEvent')}

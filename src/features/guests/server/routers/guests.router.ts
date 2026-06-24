@@ -255,6 +255,12 @@ export const guestsRouter = router({
         // Recalculate client cached guest count
         await recalcClientStats(tx, input.clientId)
 
+        // If the guest is created already-confirmed, per-guest budget items must
+        // reflect the new confirmed head count immediately (parity with RSVP edits).
+        if (guest.rsvpStatus === 'confirmed') {
+          await recalcPerGuestBudgetItems(tx, input.clientId)
+        }
+
         return { guest, cascadeActions }
       })
 

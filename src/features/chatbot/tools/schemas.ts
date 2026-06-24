@@ -438,9 +438,10 @@ export const addGiftSchema = z.object({
   guestId: z.string().uuid().optional(),
   guestName: z.string().optional(),
   name: z.string().min(1).max(200).describe('Gift name'),
-  type: z.enum(['physical', 'cash', 'check', 'registry', 'experience', 'other']).optional().default('physical'),
   value: z.number().positive().optional(),
-  // Note: giftsEnhanced has no quantity/notes column; these were silently dropped — removed.
+  status: z.enum(['pending', 'received', 'returned']).optional().default('received'),
+  // Writes to the canonical `gifts` table (shared with UI + Excel + Sheets).
+  // That table has no `type`/`thankYouSent` columns, so those params were removed.
 })
 
 export const updateGiftSchema = z.object({
@@ -448,9 +449,11 @@ export const updateGiftSchema = z.object({
   clientId: z.string().uuid().optional(),
   guestName: z.string().optional(),
   giftName: z.string().optional(),
-  // Note: giftsEnhanced (the table this tool writes) only stores thankYouSent here.
-  // status/notes were advertised but had no column and were silently dropped — removed.
-  thankYouSent: z.boolean().optional(),
+  // Editable fields on the canonical `gifts` table.
+  name: z.string().min(1).max(200).optional(),
+  value: z.number().positive().optional(),
+  guestId: z.string().uuid().optional(),
+  status: z.enum(['pending', 'received', 'returned']).optional(),
 })
 
 export const updateCreativeSchema = z.object({

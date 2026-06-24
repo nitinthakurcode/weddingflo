@@ -101,6 +101,21 @@ const TIMELINE_IMPORT_KEYS = [
   'completed', 'sort order', 'notes', 'action',
 ]
 
+// Events go through the dedicated server importer (excel-parser-server.ts
+// importEventsExcel → validateExcelFile → resolveHeaderAliases). The export
+// headers are the annotated ones import.router.ts downloadTemplate emits.
+const EVENT_EXPORT_HEADERS = [
+  'ID (Do not modify)', 'Title *', 'Event Type', 'Event Date (YYYY-MM-DD)',
+  'Start Time (HH:MM)', 'End Time (HH:MM)', 'Location', 'Venue Name', 'Address',
+  'Guest Count (numbers only)', 'Status (draft/planned/confirmed/completed/cancelled)',
+  'Description', 'Notes', 'Action (DELETE to remove)',
+]
+const EVENT_IMPORT_KEYS = [
+  'id', 'title', 'event type', 'event date', 'start time', 'end time',
+  'location', 'venue name', 'address', 'guest count', 'status',
+  'description', 'notes', 'action',
+]
+
 describe('Excel round-trip header contract', () => {
   const cases: Array<[string, string[], string[]]> = [
     ['budget', BUDGET_EXPORT_HEADERS, BUDGET_IMPORT_KEYS],
@@ -108,6 +123,7 @@ describe('Excel round-trip header contract', () => {
     ['vendors', VENDOR_EXPORT_HEADERS, VENDOR_IMPORT_KEYS],
     ['hotels', HOTEL_EXPORT_HEADERS, HOTEL_IMPORT_KEYS],
     ['timeline', TIMELINE_EXPORT_HEADERS, TIMELINE_IMPORT_KEYS],
+    ['events', EVENT_EXPORT_HEADERS, EVENT_IMPORT_KEYS],
   ]
 
   for (const [mod, exportHeaders, importKeys] of cases) {

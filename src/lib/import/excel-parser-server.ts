@@ -6,7 +6,7 @@
  */
 import ExcelJS from 'exceljs';
 import { db, eq, and } from '@/lib/db';
-import { budget, hotels, guestTransport, vendors, clientVendors, events } from '@/lib/db/schema';
+import { budget, hotels, guestTransport, vendors, clientVendors, events, timeline } from '@/lib/db/schema';
 import { syncVendorBudgetItem, cascadeVendorLinkDelete } from '@/lib/sync/vendor-budget-sync';
 import {
   validateExcelFile,
@@ -24,6 +24,8 @@ import {
   REQUIRED_TRANSPORT_HEADERS,
   EXPECTED_VENDOR_HEADERS,
   REQUIRED_VENDOR_HEADERS,
+  EXPECTED_EVENT_HEADERS,
+  REQUIRED_EVENT_HEADERS,
 } from './excel-parser';
 
 /**
@@ -777,6 +779,171 @@ export async function importVendorsExcel(
         ...(headerMap.has('payment status') ? { paymentStatus: clientVendorData.paymentStatus } : {}),
         ...(resolvedEventId !== undefined ? { eventId: resolvedEventId } : {}),
       });
+    } catch (error: unknown) {
+      results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Import Events from Excel
+ * June 2026 - Full round-trip import with upsert + delete-on-Action support.
+ *
+ * Reads event rows from the 'Events' sheet, validates headers, and upserts into
+ * the events table (update if ID matches, insert otherwise). A DELETE-marked row
+ * (matching ID) is hard-deleted; the schema's onDelete:'set null' FKs unassign
+ * any linked vendors/budget/timeline rather than orphaning them, and we also
+ * remove the event's auto-generated timeline items to match the UI delete.
+ */
+export async function importEventsExcel(
+  buffer: Buffer,
+  clientId: string,
+  companyId: string,
+): Promise<{ inserted: number; updated: number; deleted: number; skipped: number; errors: string[] }> {
+  const results = { inserted: 0, updated: 0, deleted: 0, skipped: 0, errors: [] as string[] };
+
+  // ── Upfront header validation ──
+  const { headerMap } = await validateExcelFile(
+    buffer, EXPECTED_EVENT_HEADERS, REQUIRED_EVENT_HEADERS, 'Events',
+  );
+
+  // ── Load workbook for data processing ──
+  const workbook = new ExcelJS.Workbook();
+  const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  await workbook.xlsx.load(ab as ArrayBuffer);
+  const worksheet = workbook.getWorksheet('Events') || workbook.getWorksheet(1);
+
+  if (!worksheet) {
+    results.errors.push('No worksheet found');
+    return results;
+  }
+
+  const getRawCell = (row: ExcelJS.Row, header: string): any => {
+    const colIndex = headerMap.get(header.toLowerCase());
+    if (!colIndex) return null;
+    return row.getCell(colIndex).value ?? null;
+  };
+  const getCell = (row: ExcelJS.Row, header: string): string => {
+    const raw = getRawCell(row, header);
+    if (raw === null || raw === undefined) return '';
+    return String(raw).trim();
+  };
+  const parseDate = (value: any): string | null => {
+    if (value === null || value === undefined || value === '') return null;
+    if (value instanceof Date) return value.toISOString().split('T')[0];
+    const strVal = String(value).trim();
+    if (!strVal) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(strVal)) return strVal;
+    const parsed = new Date(strVal);
+    return isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+  };
+  const parseIntOrNull = (value: any): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = parseInt(String(value).replace(/[^0-9-]/g, ''), 10);
+    return isNaN(num) ? null : num;
+  };
+
+  // ── Existing event IDs for upsert matching (events are client-owned) ──
+  const existingItems = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.clientId, clientId));
+  const existingIds = new Set(existingItems.map((e) => e.id));
+
+  const totalRows = worksheet.rowCount;
+
+  for (let rowIdx = 2; rowIdx <= totalRows; rowIdx++) {
+    const row = worksheet.getRow(rowIdx);
+    if (!row.hasValues) continue;
+
+    // Skip the hints row (row 2 in enhanced export format)
+    const firstCellStr = String(row.getCell(1).value || '').toLowerCase();
+    const secondCellStr = String(row.getCell(2).value || '').toLowerCase();
+    const hintsPatterns = [
+      'do not modify', 'required', 'yyyy-mm-dd', 'hh:mm', 'numbers only',
+      'optional', 'e.g.', 'planned/', 'format:',
+    ];
+    if (hintsPatterns.some((p) => firstCellStr.includes(p) || secondCellStr.includes(p))) {
+      continue;
+    }
+
+    try {
+      const id = getCell(row, 'id');
+
+      // Explicit delete: row marked DELETE in the Action column with a matching ID
+      if (isDeleteMarker(getCell(row, 'action'))) {
+        if (id && existingIds.has(id)) {
+          // Remove the event's auto-generated timeline items first (UI-delete parity);
+          // FK set-null handles vendor/budget/timeline.eventId unassignment.
+          await db.delete(timeline).where(
+            and(
+              eq(timeline.sourceModule, 'events'),
+              eq(timeline.sourceId, id),
+              eq(timeline.clientId, clientId),
+            ),
+          );
+          await db.delete(events).where(and(eq(events.id, id), eq(events.clientId, clientId)));
+          results.deleted++;
+        } else {
+          results.skipped++;
+        }
+        continue;
+      }
+
+      const title = getCell(row, 'title');
+
+      // Skip rows where title is empty (required field)
+      if (!title) {
+        results.skipped++;
+        continue;
+      }
+
+      const eventData = {
+        title,
+        eventType: getCell(row, 'event type') || null,
+        eventDate: parseDate(getRawCell(row, 'event date')),
+        startTime: getCell(row, 'start time') || null,
+        endTime: getCell(row, 'end time') || null,
+        location: getCell(row, 'location') || null,
+        venueName: getCell(row, 'venue name') || null,
+        address: getCell(row, 'address') || null,
+        guestCount: parseIntOrNull(getRawCell(row, 'guest count')),
+        status: getCell(row, 'status') || 'planned',
+        description: getCell(row, 'description') || null,
+        notes: getCell(row, 'notes') || null,
+        updatedAt: new Date(),
+      };
+
+      // Upsert: ID matches existing record for this clientId → non-destructive UPDATE.
+      if (id && existingIds.has(id)) {
+        await db.update(events)
+          .set(buildPresentUpdate(headerMap, eventData, {
+            title: 'title',
+            eventType: 'event type',
+            eventDate: 'event date',
+            startTime: 'start time',
+            endTime: 'end time',
+            location: 'location',
+            venueName: 'venue name',
+            address: 'address',
+            guestCount: 'guest count',
+            status: 'status',
+            description: 'description',
+            notes: 'notes',
+          }))
+          .where(and(eq(events.id, id), eq(events.clientId, clientId)));
+        results.updated++;
+      } else {
+        await db.insert(events).values({
+          id: id || crypto.randomUUID(),
+          clientId,
+          companyId,
+          ...eventData,
+        });
+        results.inserted++;
+      }
     } catch (error: unknown) {
       results.errors.push(`Row ${rowIdx}: ${error instanceof Error ? error.message : String(error)}`);
     }

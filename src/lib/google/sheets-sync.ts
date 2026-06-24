@@ -10,7 +10,7 @@
 import { randomUUID, createHash } from 'crypto';
 import { sheets_v4 } from 'googleapis';
 import { db } from '@/lib/db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import {
   guests,
   budget,
@@ -38,6 +38,7 @@ import {
   syncTransportToTimelineTx,
   type SyncResult,
 } from '@/lib/backup/auto-sync-trigger';
+import { syncEventsToTimelineTx } from '@/lib/sync/event-timeline-sync';
 
 export interface SyncStats {
   exported: number;
@@ -212,6 +213,12 @@ const VENDOR_HEADERS = [
 const GIFT_HEADERS = [
   'ID', 'Gift Name', 'Guest ID', 'Guest Name',
   'Value', 'Status', 'Last Updated', 'Action'
+];
+
+const EVENT_HEADERS = [
+  'ID', 'Title', 'Event Type', 'Event Date', 'Start Time', 'End Time',
+  'Location', 'Venue Name', 'Address', 'Guest Count', 'Status',
+  'Description', 'Notes', 'Last Updated', 'Action'
 ];
 
 /**
@@ -650,6 +657,70 @@ export async function syncGiftsToSheet(
 }
 
 /**
+ * Export events to Google Sheet (excludes soft-deleted events)
+ */
+export async function syncEventsToSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [] };
+
+  try {
+    const eventList = await db
+      .select({
+        id: events.id,
+        title: events.title,
+        eventType: events.eventType,
+        eventDate: events.eventDate,
+        startTime: events.startTime,
+        endTime: events.endTime,
+        location: events.location,
+        venueName: events.venueName,
+        address: events.address,
+        guestCount: events.guestCount,
+        status: events.status,
+        description: events.description,
+        notes: events.notes,
+        updatedAt: events.updatedAt,
+      })
+      .from(events)
+      .where(and(eq(events.clientId, clientId), isNull(events.deletedAt)));
+
+    const data = [
+      EVENT_HEADERS,
+      ...eventList.map(e => [
+        e.id,
+        e.title || '',
+        e.eventType || '',
+        e.eventDate || '',
+        e.startTime || '',
+        e.endTime || '',
+        e.location || '',
+        e.venueName || '',
+        e.address || '',
+        e.guestCount?.toString() || '',
+        e.status || 'planned',
+        e.description || '',
+        e.notes || '',
+        e.updatedAt ? new Date(e.updatedAt).toISOString() : '',
+        '', // Action (blank; set DELETE in the sheet to remove on import)
+      ])
+    ];
+
+    await writeSheetData(sheetsClient, spreadsheetId, 'Events', data);
+    await formatSheetHeaders(sheetsClient, spreadsheetId, 7);
+    stats.exported = eventList.length;
+    console.log(`[Sheets Sync] Exported ${stats.exported} events`);
+  } catch (error: any) {
+    stats.errors.push(`Events: ${error.message}`);
+    console.error('[Sheets Sync] Error exporting events:', error);
+  }
+
+  return stats;
+}
+
+/**
  * Sync all modules to Google Sheets
  */
 export async function syncAllToSheets(
@@ -694,6 +765,10 @@ export async function syncAllToSheets(
   totalExported += giftStats.exported;
   allErrors.push(...giftStats.errors);
 
+  const eventStats = await syncEventsToSheet(sheetsClient, spreadsheetId, clientId);
+  totalExported += eventStats.exported;
+  allErrors.push(...eventStats.errors);
+
   console.log(`[Sheets Sync] Complete: ${totalExported} records exported, ${allErrors.length} errors`);
 
   // Write sync metadata for conflict detection on next import
@@ -701,7 +776,7 @@ export async function syncAllToSheets(
   try {
     const metadataEntries: SyncMetadataEntry[] = [];
     const exportTimestamp = new Date().toISOString();
-    const moduleSheets = ['Guests', 'Budget', 'Timeline', 'Hotels', 'Transport', 'Vendors', 'Gifts'];
+    const moduleSheets = ['Guests', 'Budget', 'Timeline', 'Hotels', 'Transport', 'Vendors', 'Gifts', 'Events'];
 
     for (const sheetName of moduleSheets) {
       try {
@@ -1702,6 +1777,138 @@ export async function importGiftsFromSheet(
 }
 
 /**
+ * Import events from Google Sheet (bi-directional sync).
+ * Upserts events by ID; DELETE in the Action column removes the event (the
+ * caller regenerates event-linked timeline items afterward via syncEventsToTimelineTx).
+ */
+export async function importEventsFromSheet(
+  sheetsClient: sheets_v4.Sheets,
+  spreadsheetId: string,
+  clientId: string,
+  companyId?: string
+): Promise<SyncStats> {
+  const stats: SyncStats = { exported: 0, imported: 0, errors: [], conflicts: [] };
+
+  try {
+    const sheetData = await readSheetData(sheetsClient, spreadsheetId, 'Events');
+
+    if (sheetData.length <= 1) {
+      return stats;
+    }
+
+    const headers = sheetData[0];
+    const idIndex = headers.indexOf('ID');
+    const updatedAtIndex = headers.indexOf('Last Updated');
+
+    if (idIndex === -1) {
+      stats.errors.push('Missing ID column in Events sheet');
+      return stats;
+    }
+
+    const metadata = await readSyncMetadata(sheetsClient, spreadsheetId);
+
+    const existingEvents = await db
+      .select({ id: events.id, updatedAt: events.updatedAt })
+      .from(events)
+      .where(eq(events.clientId, clientId));
+
+    const existingMap = new Map(existingEvents.map(e => [e.id, e.updatedAt]));
+
+    const dataRows = sheetData.slice(1);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rawId = row[idIndex];
+        const id = rawId && rawId.trim() ? rawId.trim() : randomUUID();
+        const dbUpdatedAt = existingMap.get(id);
+
+        // Delete-on-Action: also remove the event's auto-generated timeline items.
+        const actionIndex = headers.indexOf('Action');
+        const action = actionIndex !== -1 ? String(row[actionIndex] ?? '').trim().toLowerCase() : '';
+        if ((action === 'delete' || action === 'remove') && rawId && rawId.trim()) {
+          await tx.delete(timeline).where(
+            and(
+              eq(timeline.sourceModule, 'events'),
+              eq(timeline.sourceId, id),
+              eq(timeline.clientId, clientId),
+            ),
+          );
+          const removed = await tx
+            .delete(events)
+            .where(and(eq(events.id, id), eq(events.clientId, clientId)))
+            .returning({ id: events.id });
+          stats.deleted = (stats.deleted || 0) + removed.length;
+          continue;
+        }
+
+        // Conflict detection
+        const conflict = detectConflict('events', id, row, dbUpdatedAt, metadata);
+        if (conflict) {
+          stats.conflicts!.push(conflict);
+          continue;
+        }
+
+        // Fallback: skip if DB record is newer
+        const sheetUpdatedAt = row[updatedAtIndex] ? new Date(row[updatedAtIndex]) : null;
+        if (dbUpdatedAt && sheetUpdatedAt && new Date(dbUpdatedAt) >= sheetUpdatedAt) {
+          continue;
+        }
+
+        const getValue = (header: string) => {
+          const idx = headers.indexOf(header);
+          return idx !== -1 ? row[idx] : null;
+        };
+
+        try {
+          const guestCountRaw = getValue('Guest Count');
+          const guestCount = guestCountRaw !== null && String(guestCountRaw).trim() !== ''
+            ? parseInt(String(guestCountRaw).replace(/[^0-9-]/g, ''), 10)
+            : null;
+
+          const eventData = {
+            title: getValue('Title') || '',
+            eventType: getValue('Event Type') || null,
+            eventDate: getValue('Event Date') || null,
+            startTime: getValue('Start Time') || null,
+            endTime: getValue('End Time') || null,
+            location: getValue('Location') || null,
+            venueName: getValue('Venue Name') || null,
+            address: getValue('Address') || null,
+            guestCount: Number.isNaN(guestCount as number) ? null : guestCount,
+            status: getValue('Status') || 'planned',
+            description: getValue('Description') || null,
+            notes: getValue('Notes') || null,
+            updatedAt: new Date(),
+          };
+
+          if (existingMap.has(id)) {
+            await tx.update(events).set(eventData).where(eq(events.id, id));
+            stats.imported++;
+          } else if (eventData.title) {
+            await tx.insert(events).values({
+              id,
+              clientId,
+              companyId: companyId || undefined,
+              ...eventData,
+            });
+            stats.imported++;
+          }
+        } catch (rowError: any) {
+          stats.errors.push(`Events Row ${i + 2}: ${rowError.message}`);
+        }
+      }
+    });
+
+    console.log(`[Sheets Sync] Imported ${stats.imported} events from sheet`);
+  } catch (error: any) {
+    stats.errors.push(`Events import error: ${error.message}`);
+    console.error('[Sheets Sync] Error importing events:', error);
+  }
+
+  return stats;
+}
+
+/**
  * Import all modules from Google Sheets (bi-directional sync)
  */
 export async function importAllFromSheets(
@@ -1806,6 +2013,25 @@ export async function importAllFromSheets(
     await recalcClientStats(db, clientId);
   }
 
+  // Import events BEFORE timeline so the timeline import (which skips
+  // sourceModule='events' rows) leaves the freshly synced event items alone.
+  const eventStats = await importEventsFromSheet(sheetsClient, spreadsheetId, clientId, companyId);
+  totalImported += eventStats.imported;
+  byModule.events = eventStats.imported;
+  allErrors.push(...eventStats.errors);
+  if (eventStats.conflicts) allConflicts.push(...eventStats.conflicts);
+
+  if (eventStats.imported > 0) {
+    try {
+      // Regenerate event-linked timeline items for newly imported events.
+      await db.transaction(async (tx) => {
+        await syncEventsToTimelineTx(tx, clientId);
+      });
+    } catch (err) {
+      console.error('[Sheets Sync] Event timeline sync failed:', err);
+    }
+  }
+
   const timelineStats = await importTimelineFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += timelineStats.imported;
   byModule.timeline = timelineStats.imported;
@@ -1820,7 +2046,7 @@ export async function importAllFromSheets(
 
   // Broadcast sync actions for each module that had imports (S7-M10: userId now required)
   if (totalImported > 0) {
-    const modules = ['guests', 'budget', 'vendors', 'hotels', 'transport', 'timeline', 'gifts'] as const;
+    const modules = ['guests', 'budget', 'vendors', 'hotels', 'transport', 'timeline', 'gifts', 'events'] as const;
     for (const mod of modules) {
       if (byModule[mod] && byModule[mod] > 0) {
         await broadcastSheetSync({

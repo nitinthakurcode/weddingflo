@@ -16,7 +16,7 @@ import { Upload, Download, CheckCircle, XCircle, FileSpreadsheet } from 'lucide-
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 interface ImportDialogProps {
-  module: 'guests' | 'vendors' | 'budget' | 'gifts' | 'hotels' | 'transport' | 'guestGifts'
+  module: 'guests' | 'vendors' | 'budget' | 'gifts' | 'hotels' | 'transport' | 'guestGifts' | 'events'
   clientId: string
   onImportComplete?: () => void
 }
@@ -41,6 +41,7 @@ export function ImportDialog({ module, clientId, onImportComplete }: ImportDialo
     hotels: tn('hotels'),
     transport: tn('transport'),
     guestGifts: tn('giftsGiven'),
+    events: tn('events'),
   }
 
   const handleDownloadTemplate = async () => {

@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { eq, and } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { clients, events, budget, hotels, guestTransport, giftsEnhanced } from '@/lib/db/schema'
+import { clients, events, budget, hotels, guestTransport, gifts } from '@/lib/db/schema'
 import { executeToolWithSync } from '@/features/chatbot/server/services/tool-executor'
 import { seedTenant, teardownTenant, type TestTenant } from './_harness'
 
@@ -90,16 +90,19 @@ describe('hotel + transport + gift tools', () => {
 
   it('add_gift / update_gift / delete_gift: full lifecycle', async () => {
     const guestId = await addGuest('GiftGiver')
-    const add = await run('add_gift', { guestId, name: 'Crystal Vase', type: 'physical', value: 200 })
+    // Chatbot gift tools write to the canonical `gifts` table (shared with UI + Excel + Sheets).
+    const add = await run('add_gift', { guestId, name: 'Crystal Vase', value: 200 })
     expect(add.success).toBe(true)
     const giftId = (add.data as { id: string }).id
-    expect((await db.select().from(giftsEnhanced).where(eq(giftsEnhanced.id, giftId))).length).toBe(1)
+    expect((await db.select().from(gifts).where(eq(gifts.id, giftId))).length).toBe(1)
 
-    const upd = await executeToolWithSync('update_gift', { giftId, status: 'received', thankYouSent: true }, t.ctx)
+    const upd = await executeToolWithSync('update_gift', { giftId, status: 'returned' }, t.ctx)
     expect(upd.success).toBe(true)
+    const [updated] = await db.select().from(gifts).where(eq(gifts.id, giftId))
+    expect(updated.status).toBe('returned')
 
     const del = await executeToolWithSync('delete_gift', { giftId }, t.ctx)
     expect(del.success).toBe(true)
-    expect(await db.select().from(giftsEnhanced).where(eq(giftsEnhanced.id, giftId))).toHaveLength(0)
+    expect(await db.select().from(gifts).where(eq(gifts.id, giftId))).toHaveLength(0)
   })
 })
