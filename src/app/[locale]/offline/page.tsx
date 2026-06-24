@@ -9,7 +9,7 @@ export default function OfflinePage() {
       <div className="text-center">
         <WifiOff className="mx-auto h-16 w-16 text-muted-foreground" />
         <h1 className="mt-4 text-2xl font-bold text-foreground">
-          You're Offline
+          You&apos;re Offline
         </h1>
         <p className="mt-2 text-muted-foreground">
           Please check your internet connection and try again.

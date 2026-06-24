@@ -166,7 +166,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  You'll need to own a domain and have access to its DNS settings. We recommend
+                  You&apos;ll need to own a domain and have access to its DNS settings. We recommend
                   Namecheap, GoDaddy, or Google Domains.
                 </AlertDescription>
               </Alert>
@@ -232,7 +232,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
                   <CardHeader>
                     <CardTitle className="text-base">DNS Configuration Required</CardTitle>
                     <CardDescription>
-                      Add these records to your domain's DNS settings
+                      Add these records to your domain&apos;s DNS settings
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -359,7 +359,7 @@ export function DomainManager({ website, onUpdate }: DomainManagerProps) {
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription>
-                        DNS changes can take 24-48 hours to propagate. Click "Verify Now" after
+                        DNS changes can take 24-48 hours to propagate. Click &quot;Verify Now&quot; after
                         adding these records.
                       </AlertDescription>
                     </Alert>

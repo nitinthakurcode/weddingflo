@@ -319,7 +319,7 @@ export function OnboardingChecklist({ className }: OnboardingChecklistProps) {
                 <div className="border-t border-border p-4 bg-gradient-to-r from-teal-50 to-gold-50 dark:from-teal-950/30 dark:to-gold-950/30">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">
-                      You're all set to start planning weddings!
+                      You&apos;re all set to start planning weddings!
                     </p>
                     <Button size="sm" onClick={handleDismiss}>
                       Dismiss

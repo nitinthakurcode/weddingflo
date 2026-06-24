@@ -525,7 +525,7 @@ export function ChatPanel({ isOpen, onClose, clientId: propClientId }: ChatPanel
                 >
                   <div className="flex items-center gap-2 text-xs text-gold-700 dark:text-gold-300">
                     <Clock className="h-4 w-4" />
-                    <span className="font-medium">It's the wedding day!</span>
+                    <span className="font-medium">It&apos;s the wedding day!</span>
                   </div>
                   <Button variant="ghost" size="sm" className="h-6 text-xs">
                     Day-Of Mode

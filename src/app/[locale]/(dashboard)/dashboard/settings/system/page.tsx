@@ -265,7 +265,7 @@ export default function SystemStatusPage() {
           <div className="space-y-2">
             <h4 className="font-medium">Build Cache Errors</h4>
             <p className="text-sm text-muted-foreground">
-              If you see "Cannot find module" errors during development, run:{' '}
+              If you see &quot;Cannot find module&quot; errors during development, run:{' '}
               <code className="bg-muted px-1 py-0.5 rounded">rm -rf .next && npm run dev</code>
             </p>
           </div>

@@ -874,7 +874,7 @@ export default function TimelinePage() {
                   <li>Edit the Excel file offline - add, modify, or delete rows</li>
                   <li>Keep the ID column for existing items you want to update</li>
                   <li>Leave ID empty for new items</li>
-                  <li>Add "DELETE" in the Notes column to remove items</li>
+                  <li>Add &quot;DELETE&quot; in the Notes column to remove items</li>
                 </ul>
               </div>
             </div>

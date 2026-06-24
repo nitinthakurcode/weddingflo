@@ -21,7 +21,7 @@ export default function MyTasksPage() {
           <ClipboardList className="h-12 w-12 text-muted-foreground/40 mb-4" />
           <h3 className="text-lg font-semibold mb-1">{t('noTasks')}</h3>
           <p className="text-sm text-muted-foreground max-w-sm">
-            Task management is coming soon. You'll be able to track your to-dos across all clients.
+            Task management is coming soon. You&apos;ll be able to track your to-dos across all clients.
           </p>
         </CardContent>
       </Card>

@@ -88,7 +88,7 @@ export function PasswordProtection({ websiteId, subdomain }: PasswordProtectionP
             </Button>
 
             <p className="text-xs text-center text-muted-foreground">
-              Don't have the password? Contact the couple for access.
+              Don&apos;t have the password? Contact the couple for access.
             </p>
           </form>
         </CardContent>

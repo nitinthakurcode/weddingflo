@@ -48,7 +48,7 @@ export function OfflineIndicator() {
         <Alert variant="destructive" className="mb-2">
           <WifiOff className="h-4 w-4" />
           <AlertDescription>
-            You're offline. Changes will be saved when you reconnect.
+            You&apos;re offline. Changes will be saved when you reconnect.
           </AlertDescription>
         </Alert>
       )}

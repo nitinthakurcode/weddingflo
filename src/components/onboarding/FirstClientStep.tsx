@@ -149,7 +149,7 @@ export function FirstClientStep({ onNext, onBack, initialData }: FirstClientStep
                 {...register('vendors')}
               />
               <p className="text-xs text-muted-foreground">
-                Enter vendors separated by commas. Format: "Category: Vendor Name" or just "Vendor Name"
+                Enter vendors separated by commas. Format: &quot;Category: Vendor Name&quot; or just &quot;Vendor Name&quot;
               </p>
             </div>
 

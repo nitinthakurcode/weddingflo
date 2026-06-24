@@ -211,7 +211,7 @@ export function PushNotificationHistory() {
               <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium">No notifications yet</h3>
               <p className="text-sm text-muted-foreground">
-                You'll see your notification history here once you start receiving them
+                You&apos;ll see your notification history here once you start receiving them
               </p>
             </div>
           ) : (
