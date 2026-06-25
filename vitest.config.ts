@@ -32,6 +32,10 @@ export default defineConfig({
       // `npx vitest run -c vitest.integration.config.ts` (needs .env.local + local Postgres,
       // node environment, real db). Excluded here so the default unit run stays fast + mocked.
       '**/__tests__/integration/**',
+      // Bulletproof re-audit harness — run separately via
+      // `npx vitest run -c vitest.audit.config.ts` (needs .env.test.local + the isolated
+      // Docker test stack + TEST_DB_CONFIRMED; Rail-3 guard throws otherwise).
+      '**/__tests__/audit/**',
     ],
   },
 })

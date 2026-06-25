@@ -23,15 +23,30 @@ export interface GoogleTokens {
   scope?: string;
 }
 
+/**
+ * Factory that builds an authenticated Sheets client from an OAuth2 client.
+ * Injectable so tests can substitute an in-memory FakeSheetsClient (no real
+ * googleapis/network calls). Defaults to the real `google.sheets` client, so
+ * production behavior is unchanged.
+ */
+export type SheetsClientFactory = (
+  auth: InstanceType<typeof google.auth.OAuth2>
+) => sheets_v4.Sheets;
+
+const defaultSheetsClientFactory: SheetsClientFactory = (auth) =>
+  google.sheets({ version: 'v4', auth });
+
 export class GoogleSheetsOAuth {
   private oauth2Client: InstanceType<typeof google.auth.OAuth2>;
+  private sheetsClientFactory: SheetsClientFactory;
 
-  constructor() {
+  constructor(sheetsClientFactory: SheetsClientFactory = defaultSheetsClientFactory) {
     this.oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
       `${process.env.NEXT_PUBLIC_APP_URL}/api/google-sheets/callback`
     );
+    this.sheetsClientFactory = sheetsClientFactory;
   }
 
   /**
@@ -83,7 +98,7 @@ export class GoogleSheetsOAuth {
       access_token: accessToken,
       refresh_token: refreshToken,
     });
-    return google.sheets({ version: 'v4', auth: this.oauth2Client });
+    return this.sheetsClientFactory(this.oauth2Client);
   }
 
   /**

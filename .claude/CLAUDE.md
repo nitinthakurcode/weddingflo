@@ -4,6 +4,16 @@ This project has comprehensive documentation. Read what's relevant to your curre
 
 **Always loaded:** This file (mandatory rules and canonical paths below).
 
+### Reference sources (verify SDK APIs against installed source — do not guess)
+
+When integrating any SDK/framework (exceljs, googleapis, @upstash/redis, drizzle-orm,
+@playwright/test, vitest, better-auth, stripe, resend, twilio, firebase-admin), search
+the **installed** source under `node_modules/<pkg>` for the real API before coding —
+do not invent function names. The versions on disk are the ones we ship. For audit/test
+work, the isolated test stack + harness live at: `scripts/start-test-stack.sh`,
+`vitest.audit.config.ts`, `src/test-support/**` (Rail-3 guard, deterministic seed,
+FakeSheetsClient, msw stubs, redis sync probe).
+
 **Before making changes, read the relevant section of docs/DEVELOPER_HANDBOOK.md:**
 
 - Changing any database table → Section B (Table Reference) + Section F (Change Propagation)
