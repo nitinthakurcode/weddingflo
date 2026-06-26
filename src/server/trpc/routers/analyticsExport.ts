@@ -1,7 +1,7 @@
 import { router, protectedProcedure, adminProcedure } from '../trpc';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { clients, guests, budget, generatedReports, scheduledReports } from '@/lib/db/schema';
 import crypto from 'crypto';
 
@@ -59,10 +59,11 @@ export const analyticsExportRouter = router({
         const clientIds = clientsList.map(c => c.id);
         let guestsCount = 0;
         if (clientIds.length > 0) {
+          // Scope to THIS company's clients (was an unscoped cross-tenant count).
           const guestsList = await ctx.db
             .select({ id: guests.id })
-            .from(guests);
-          // Filter in memory for simplicity (for accurate count would need OR query)
+            .from(guests)
+            .where(inArray(guests.clientId, clientIds));
           guestsCount = guestsList.length;
         }
 
@@ -71,12 +72,14 @@ export const analyticsExportRouter = router({
         let totalBudget = 0;
         let totalPaid = 0;
         if (clientIds.length > 0) {
+          // Scope to THIS company's clients (was an unscoped cross-tenant sum).
           const budgets = await ctx.db
             .select({
               estimatedCost: budget.estimatedCost,
               paidAmount: budget.paidAmount,
             })
-            .from(budget);
+            .from(budget)
+            .where(inArray(budget.clientId, clientIds));
           totalBudget = budgets.reduce((sum, b) => sum + parseFloat(b.estimatedCost || '0'), 0);
           totalPaid = budgets.reduce((sum, b) => sum + parseFloat(b.paidAmount || '0'), 0);
         }

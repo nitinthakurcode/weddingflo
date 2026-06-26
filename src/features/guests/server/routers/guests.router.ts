@@ -1294,6 +1294,19 @@ export const guestsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Tenant scope: checkIn keys on guestId only — a non-clientId id, so staffProcedure
+      // can't auto-check it. Verify the guest's client belongs to the caller's company
+      // before mutating (was unscoped — cross-tenant write IDOR).
+      const [existing] = await ctx.db
+        .select({ clientId: guests.clientId })
+        .from(guests)
+        .where(eq(guests.id, input.guestId))
+        .limit(1)
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Guest not found' })
+      }
+      await ctx.assertClientAccess(existing.clientId)
+
       // Update checkedIn status
       const [guest] = await ctx.db
         .update(guests)

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
+import { assertClientAccess } from '@/server/trpc/client-access';
 import {
   stripe,
   createConnectAccount,
@@ -224,6 +225,10 @@ export const paymentRouter = router({
         });
       }
 
+      // Tenant scope: invoice must attach to a client in the caller's company (was
+      // unverified — cross-tenant invoice creation IDOR).
+      await assertClientAccess(ctx, clientId);
+
       try {
         // Generate invoice number (simple approach - use timestamp + random)
         const timestamp = Date.now().toString(36).toUpperCase();
@@ -353,6 +358,11 @@ export const paymentRouter = router({
           message: 'Company ID not found in session claims',
         });
       }
+
+      // Tenant scope: the payment's client must belong to the caller's company. The
+      // invoice is company-verified below, but the input clientId was trusted unverified
+      // (payment + Stripe metadata could be attached to a foreign client — IDOR).
+      await assertClientAccess(ctx, clientId);
 
       try {
         // Get invoice (verify through client's companyId)

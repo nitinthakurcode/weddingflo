@@ -336,17 +336,34 @@ export const accommodationsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
 
+      // Tenant scope: write must target a client in the caller's company. Auto-checked
+      // for role==='staff'; explicit call closes the company_admin write gap (IDOR).
+      await ctx.assertClientAccess(input.clientId)
+
+      // The accommodation must belong to this client BEFORE we touch defaults —
+      // otherwise an id/clientId mismatch would clear the client's defaults and then
+      // set none (leaving no default + returning undefined).
+      const [target] = await ctx.db
+        .select({ id: accommodations.id })
+        .from(accommodations)
+        .where(and(eq(accommodations.id, input.id), eq(accommodations.clientId, input.clientId)))
+        .limit(1)
+      if (!target) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Accommodation not found for this client' })
+      }
+
       // Unset all defaults for this client
       await ctx.db
         .update(accommodations)
         .set({ isDefault: false })
         .where(eq(accommodations.clientId, input.clientId))
 
-      // Set new default
+      // Set new default — constrain to the (now-authorized) client so a foreign
+      // accommodation id can't be flipped.
       const [accommodation] = await ctx.db
         .update(accommodations)
         .set({ isDefault: true, updatedAt: new Date() })
-        .where(eq(accommodations.id, input.id))
+        .where(and(eq(accommodations.id, input.id), eq(accommodations.clientId, input.clientId)))
         .returning()
 
       await broadcastSync({

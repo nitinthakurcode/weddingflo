@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '@/server/trpc/trpc';
+import { withinCompanyClients } from '@/server/trpc/client-access';
 import { eq, and, desc, gte, count } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import { broadcastSync } from '@/lib/realtime/broadcast-sync';
@@ -565,8 +566,10 @@ export const smsRouter = router({
         });
       }
 
-      // Build where conditions (schema doesn't have companyId, filter by clientId if provided)
-      const conditions: any[] = [];
+      // Build where conditions. sms_logs has no companyId column, so scope by the
+      // caller's company clients BY CONSTRUCTION (was: returned ALL tenants' logs
+      // when no clientId filter was supplied — cross-tenant dump-all IDOR).
+      const conditions: any[] = [withinCompanyClients(ctx, schema.smsLogs.clientId)];
 
       if (status) {
         conditions.push(eq(schema.smsLogs.status, status));
@@ -620,14 +623,15 @@ export const smsRouter = router({
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      // Get counts by status (schema doesn't have companyId)
+      // Get counts by status. sms_logs has no companyId — scope to the caller's
+      // company clients (was: aggregated across ALL tenants — cross-tenant leak).
       const statsResult = await db
         .select({
           status: schema.smsLogs.status,
           count: count(),
         })
         .from(schema.smsLogs)
-        .where(gte(schema.smsLogs.createdAt, startDate))
+        .where(and(gte(schema.smsLogs.createdAt, startDate), withinCompanyClients(ctx, schema.smsLogs.clientId)))
         .groupBy(schema.smsLogs.status);
 
       // Calculate totals

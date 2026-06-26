@@ -320,12 +320,14 @@ export const timelineRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' })
       }
 
-      // Update sort_order for each item
+      // Update sort_order for each item. The client is verified above, but constrain
+      // each update to that client so foreign timeline ids (other tenants') can't be
+      // reordered via itemIds[] (was id-only — cross-tenant write IDOR).
       const updates = input.itemIds.map((id, index) =>
         ctx.db
           .update(timeline)
           .set({ sortOrder: index })
-          .where(eq(timeline.id, id))
+          .where(and(eq(timeline.id, id), eq(timeline.clientId, input.clientId)))
       )
 
       // Execute all updates

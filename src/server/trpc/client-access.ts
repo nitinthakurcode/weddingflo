@@ -12,7 +12,7 @@
  * explicitly by resolvers that derive a clientId from an entity id.
  */
 import { TRPCError } from '@trpc/server'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, inArray, sql, type SQL, type Column } from 'drizzle-orm'
 import { clients, teamClientAssignments } from '@/lib/db/schema-features'
 import type { Context } from './context'
 
@@ -72,6 +72,55 @@ export async function assertClientAccess(
 
   // client_user or any unexpected role
   throw new TRPCError({ code: 'FORBIDDEN' })
+}
+
+/**
+ * Authorize access to an entity identified by a NON-clientId id (floorPlanId,
+ * budgetItemId, guestId, …). Derives the owning clientId via `loadClientId` and
+ * funnels through the single `assertClientAccess` chokepoint above — so a resolver
+ * that reads/writes a child entity by its own id can't forget tenant scoping.
+ *
+ * Fail-closed: an absent owner (entity missing OR not linked to a client) throws
+ * NOT_FOUND, never leaking another tenant's row. Returns the verified clientId so
+ * callers can reuse it for downstream cascades/broadcasts.
+ *
+ *   await assertEntityAccess(ctx, async () =>
+ *     (await ctx.db.query.floorPlans.findFirst({ where: eq(floorPlans.id, id) }))?.clientId)
+ */
+export async function assertEntityAccess(
+  ctx: AccessContext,
+  loadClientId: () => Promise<string | null | undefined>,
+): Promise<string> {
+  const clientId = await loadClientId()
+  if (!clientId) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found in your company' })
+  }
+  await assertClientAccess(ctx, clientId)
+  return clientId
+}
+
+/**
+ * A SQL condition that restricts a client-id column to clients in the caller's
+ * company. For company-wide aggregate reads over tables that key on `clientId`
+ * but lack a denormalized `companyId` (e.g. sms_logs): scopes BY CONSTRUCTION
+ * instead of returning every tenant's rows when no clientId filter is supplied.
+ *
+ *   .where(and(eq(smsLogs.status, status), withinCompanyClients(ctx, smsLogs.clientId)))
+ *
+ * super_admin (platform-wide, consistent with assertClientAccess) gets an
+ * unrestricted condition; a caller with no company context fails closed (no rows).
+ */
+export function withinCompanyClients(ctx: AccessContext, clientIdColumn: Column): SQL {
+  if (ctx.role === 'super_admin') {
+    return sql`true`
+  }
+  if (!ctx.companyId) {
+    return sql`false`
+  }
+  return inArray(
+    clientIdColumn,
+    ctx.db.select({ id: clients.id }).from(clients).where(eq(clients.companyId, ctx.companyId)),
+  )
 }
 
 /** Extract a top-level clientId from a procedure's raw input, if present. */

@@ -9,6 +9,7 @@
  */
 
 import { router, protectedProcedure, staffProcedure } from '@/server/trpc/trpc';
+import { assertClientAccess, assertEntityAccess } from '@/server/trpc/client-access';
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { eq, and, or, desc, inArray } from 'drizzle-orm';
@@ -566,6 +567,12 @@ export const floorPlansRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
       }
 
+      // Tenant scope: the guest (and therefore its conflicts/preferences) must
+      // belong to a client in the caller's company (was unscoped — cross-tenant IDOR).
+      await assertEntityAccess(ctx, async () =>
+        (await db.query.guests.findFirst({ where: eq(schema.guests.id, input.guestId) }))?.clientId,
+      );
+
       // All conflicts involving this guest
       const conflictRows = await db.query.guestConflicts.findMany({
         where: or(
@@ -986,6 +993,10 @@ export const floorPlansRouter = router({
           return [];
         }
 
+        // Tenant scope: the floor plan must belong to a client in the caller's
+        // company before its guests are returned (was unscoped — cross-tenant IDOR).
+        await assertClientAccess(ctx, floorPlan.clientId);
+
         // Get all assigned guest IDs
         const assignments = await db.query.floorPlanGuests.findMany({
           where: eq(schema.floorPlanGuests.floorPlanId, input.floorPlanId),
@@ -1007,6 +1018,9 @@ export const floorPlansRouter = router({
 
         return unassignedGuests;
       } catch (error) {
+        // Never swallow an authorization denial into a benign empty result —
+        // cross-tenant access must throw, consistent with the sibling reads.
+        if (error instanceof TRPCError) throw error;
         console.error('Error getting unassigned guests:', error);
         return [];
       }
@@ -1458,6 +1472,12 @@ export const floorPlansRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
       }
 
+      // Tenant scope: seating_change_log has no companyId — verify the floor plan
+      // belongs to a client in the caller's company (was unscoped — cross-tenant IDOR).
+      await assertEntityAccess(ctx, async () =>
+        (await db.query.floorPlans.findFirst({ where: eq(schema.floorPlans.id, input.floorPlanId) }))?.clientId,
+      );
+
       try {
         // Schema: id, floorPlanId, userId, changeType, previousData, newData, createdAt
         const changes = await db.query.seatingChangeLog.findMany({
@@ -1554,6 +1574,9 @@ export const floorPlansRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
       }
 
+      // Tenant scope: the client must belong to the caller's company (was unscoped — IDOR).
+      await assertClientAccess(ctx, input.clientId);
+
       try {
         const conflicts = await db.query.guestConflicts.findMany({
           where: eq(schema.guestConflicts.clientId, input.clientId),
@@ -1577,6 +1600,9 @@ export const floorPlansRouter = router({
       if (!companyId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID not found' });
       }
+
+      // Tenant scope: the client must belong to the caller's company (was unscoped — IDOR).
+      await assertClientAccess(ctx, input.clientId);
 
       return db
         .select({
@@ -1607,6 +1633,11 @@ export const floorPlansRouter = router({
       if (!companyId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Company ID required' });
       }
+
+      // Tenant scope: write must target a client in the caller's company. staffProcedure
+      // auto-checks this for role==='staff' only; the explicit call also closes the
+      // company_admin cross-tenant write gap (IDOR).
+      await ctx.assertClientAccess(input.clientId);
 
       try {
         const [guestOne, guestTwo] = input.guestOneId < input.guestTwoId

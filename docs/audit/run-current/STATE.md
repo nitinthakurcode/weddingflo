@@ -10,14 +10,33 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-Prompt 2 + **Prompt 2.5 (root-cause clustering + sibling sweep) COMPLETE** on `audit/bulletproof`.
-Next is **Prompt 3 — real fixes** in the FIX ORDER below (security IDOR cluster FIRST). Deep
-analysis in `ROOTCAUSE.md` (2 deep roots: R=no import service, S=no centralized tenant scope)
-and `CONVERGENCE.md` (why 5 runs each found new bugs + the permanent fix). The sibling sweep
-turned "2 IDORs" into **19** (11 reads T1–T11 + 8 writes W1–W8) — see FINDINGS Cluster T/S.
+**Prompt 3 — Cluster S (tenant-isolation IDOR) COMPLETE** on `audit/bulletproof`. All 19
+sites (reads T1–T11 + writes W1–W8) routed through ONE centralized enforcement
+(`client-access.ts`: existing `assertClientAccess` chokepoint + new `assertEntityAccess`
+derive-then-chokepoint + `withinCompanyClients` company-scope SQL). Regression suite
+`tenant-isolation.d4.test.ts` = **25/25 green** (each cross-tenant access blocked, 6
+same-tenant flows still green, worst-write importFromSheet delete/overwrite proven blocked).
+Gates: tsc 0, eslint 0, audit 62+1, unit 429/8skip, integration 58, /code-review (2 fixes
+applied), /security-review CLEAN (0 cross-tenant vulns, no new holes).
+**Next is Prompt 4 — Cluster R (single import service)** in the FIX ORDER below. Cluster R/E/H
+UNTOUCHED this phase. Deep analysis in `ROOTCAUSE.md` / `CONVERGENCE.md`.
 Bring stack up with `bash scripts/start-test-stack.sh up` — the `up` rewrites `.env.test.local`
 and DROPS `TEST_DB_CONFIRMED=1`; re-append it before the audit suite. SRH speaks POST `["PING"]`
-(path-style REST → "Endpoint not found" is EXPECTED). NO real fixes until Prompt 3.
+(path-style REST → "Endpoint not found" is EXPECTED).
+
+### Prompt 3 OUTCOME (Cluster S — security IDOR) — DONE
+- **Convergence fix (N→1):** `src/server/trpc/client-access.ts` extended (the existing single
+  chokepoint). `assertEntityAccess(ctx, loadClientId)` derives the owning clientId for non-clientId
+  -keyed entities (floorPlanId/budgetItemId/guestId) and funnels through `assertClientAccess`;
+  `withinCompanyClients(ctx, col)` scopes company-wide aggregate reads on tables lacking companyId
+  (sms_logs). All resolvers call the chokepoint instead of trusting a caller-supplied id.
+- **RLS fail-closed backstop = DEFERRED to Prompt 6** (DB-level `app.current_company_id` + RLS on
+  the 11 child tables that lack explicit companyId). The test DB role is superuser (RLS bypassed),
+  so this phase proves the APPLICATION-level scope — exactly the prod reality for these tRPC paths.
+- **Within-tenant residuals (OUT OF SCOPE for Cluster S = cross-TENANT; noted for later):**
+  sms aggregates scope by company not by staff-assignment; createPaymentIntent allows own-clientId +
+  same-company invoice; addGuestConflict doesn't verify guestIds belong to the (own) client. None is
+  a cross-tenant breach (security-review confirmed). Candidates for an intra-tenant pass.
 
 ## ▷ PROMPT 3 FIX ORDER (security first, then severity; one regression test per cluster)
 Standing principle: prior GREEN counts only where a test RAN it; flip each "documented-defect"
@@ -112,8 +131,34 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | D1   | validateExcelFile on inline guest/gift importers | RED (defect, fix=Prompt 3) | excel-validation.d1.test.ts (it.fails) | C1a.6 | d564270 | 2026-06-26T00:46Z |
 | B1   | combined-export inline sheet-select=Cover (guests/gifts/guestGifts no-op) | RED→documented (fix=Prompt 3) | excel-roundtrip.guests.test.ts | B1 | (uncommitted) | 2026-06-26T13:46Z |
 | C1   | importGift wrong columns (EDIT no-ops, ADD crashes) | RED→documented (fix=Prompt 3) | excel-roundtrip.gifts.test.ts | C1-gift | (uncommitted) | 2026-06-26T14:21Z |
-| T1/T2 | cross-tenant IDOR (getChangeHistory, getGuestPreferences) | RED→confirmed (fix=Prompt 3) | tenant-isolation.d4.test.ts | T1T2 | (uncommitted) | 2026-06-26T14:48Z |
-| P1   | Sheets guest import skips recalcPerGuestBudgetItems | RED→confirmed (fix=Prompt 3) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (uncommitted) | 2026-06-26T14:56Z |
+| S    | **Cluster S — tenant-isolation IDOR (all 19 sites)** | **fixed** (centralized scope; RLS backstop→Prompt 6) | tenant-isolation.d4.test.ts (25/25) | see per-site below | (this commit) | 2026-06-26T19:10Z |
+| P1   | Sheets guest import skips recalcPerGuestBudgetItems | RED→confirmed (fix=Prompt 4/R) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (uncommitted) | 2026-06-26T14:56Z |
+
+### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
+Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
+entity → clientId → CHOKE); SCOPE = `withinCompanyClients`/inArray company-clients in the DB WHERE.
+
+| id  | procedure | file:line | mechanism | test case |
+|-----|-----------|-----------|-----------|-----------|
+| T1  | floorPlans.getChangeHistory | floor-plans.router.ts:1460 | DERIVE(floorPlanId→clientId) | T1 REJECTED |
+| T2  | floorPlans.getGuestPreferences | floor-plans.router.ts:1581 | CHOKE | T2 REJECTED |
+| T3  | analyticsExport.getCompanyAnalytics | analyticsExport.ts:62,79 | SCOPE(inArray clientIds) | analytics counts only own tenant |
+| T4  | sms.getSmsLogs | sms.router.ts:569 | SCOPE(withinCompanyClients) | T4 no foreign log |
+| T5  | sms.getSmsStats | sms.router.ts:631 | SCOPE(withinCompanyClients) | T5 aggregates exclude B |
+| T6  | budget.getAdvancePayments | budget.router.ts:874 | DERIVE(budgetItemId→clientId) | T6 REJECTED |
+| T7  | floorPlans.getUnassignedGuests | floor-plans.router.ts:984 | CHOKE (+catch rethrows TRPCError) | T7 REJECTED |
+| T8  | floorPlans.getGuestConflicts | floor-plans.router.ts:1556 | CHOKE | T8 REJECTED |
+| T9  | floorPlans.checkConflicts | floor-plans.router.ts:569 | DERIVE(guestId→clientId) | T9 REJECTED |
+| T10 | vendors.getClientEvents | vendors.router.ts:1311 | CHOKE | T10 REJECTED |
+| T11 | guestTransport.getStats | guest-transport.router.ts:82 | CHOKE (ctx.) | T11 REJECTED |
+| W1  | googleSheets.importFromSheet | googleSheets.router.ts:349 | CHOKE (FIRST line, pre-OAuth) | W1 REJECTED + B timeline intact |
+| W2  | payment.createInvoice | payment.router.ts:228 | CHOKE | W2 REJECTED + no B invoice |
+| W3  | payment.createPaymentIntent | payment.router.ts:358 | CHOKE | W3 REJECTED |
+| W4  | guests.checkIn | guests.router.ts:1297 | DERIVE(guestId→clientId, ctx.) | W4 REJECTED + B not checked-in |
+| W5  | accommodations.setDefault | accommodations.router.ts:339 | CHOKE + id∧clientId-scoped update | W5 REJECTED + B default unchanged |
+| W6  | floorPlans.addGuestConflict | floor-plans.router.ts:1611 | CHOKE (ctx.) | W6 REJECTED |
+| W7  | guestTransport.create | guest-transport.router.ts:122 | CHOKE (ctx.) | W7 REJECTED + no B transport |
+| W8  | timeline.reorder | timeline.router.ts:324 | client→company (pre-existing) + id∧clientId-scoped update | W8 REJECTED + B order unchanged |
 
 ## Candidate findings (UNVERIFIED — confirm with file:line + SDK source before asserting)
 | id | severity | summary | status |
@@ -158,6 +203,15 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
     `.env.test.local` written (gitignored) with INERT side-effect placeholders. Rail-3 proof printed.
   - **GATE: CLOSED (fail-closed). TEST_DB_CONFIRMED unset → no migrate/seed/write performed.**
     STOPPED — awaiting user confirmation of the proven target before any write.
+- 2026-06-26T~19:10Z — **Prompt 3 (Cluster S, security IDOR) COMPLETE.** Skills run:
+  grep-loop-review-workflow (loop), service-layer-architecture (fix design), source-code-context
+  (cited file:line + verified drizzle `inArray(col, subquery)` against node_modules). Handbook
+  H.1 confirmed all 19 procedures tenant-bound by design (no platform-global view among them).
+  Centralized enforcement built in `client-access.ts`; all 19 sites routed through it (N→1).
+  Regression suite flipped to expect-correct + expanded to all 19 + worst-write delete →
+  25/25 green. Gates all green; /code-review surfaced 2 real defects (accommodations setDefault
+  unset-then-set-none footgun; getUnassignedGuests swallowed auth throw) → both fixed.
+  /security-review CLEAN. RLS fail-closed backstop deferred to Prompt 6. Cluster R/E/H untouched.
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.

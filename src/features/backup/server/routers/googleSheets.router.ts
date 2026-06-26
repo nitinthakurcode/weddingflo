@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../../../../server/trpc/trpc';
+import { assertClientAccess } from '../../../../server/trpc/client-access';
 import { TRPCError } from '@trpc/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -346,6 +347,11 @@ export const googleSheetsRouter = router({
       module: z.enum(['guests', 'budget', 'vendors', 'hotels', 'transport', 'timeline', 'gifts', 'all']).default('guests'),
     }))
     .mutation(async ({ input, ctx }) => {
+      // Tenant scope FIRST, before any sheet/OAuth work: importFromSheet overwrites
+      // and DELETEs the target client's timeline & gifts. clientId was previously
+      // trusted unverified, allowing a cross-tenant overwrite/DELETE (worst-case IDOR).
+      await assertClientAccess(ctx, input.clientId);
+
       const settings = await db.query.googleSheetsSyncSettings.findFirst({
         where: eq(googleSheetsSyncSettings.userId, ctx.userId),
       });

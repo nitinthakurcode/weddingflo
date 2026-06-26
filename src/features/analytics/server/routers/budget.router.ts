@@ -1,4 +1,5 @@
 import { router, staffProcedure, protectedProcedure } from '@/server/trpc/trpc'
+import { assertEntityAccess } from '@/server/trpc/client-access'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, asc, inArray } from 'drizzle-orm'
@@ -872,6 +873,17 @@ export const budgetRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Company ID not found in session' })
       }
+
+      // Tenant scope: advance_payments key on budgetItemId only — verify the parent
+      // budget item belongs to a client in the caller's company (was unscoped — IDOR).
+      // (Mirrors the client→company check getSummary does just below.)
+      await assertEntityAccess(ctx, async () =>
+        (await ctx.db
+          .select({ clientId: budget.clientId })
+          .from(budget)
+          .where(eq(budget.id, input.budgetItemId))
+          .limit(1))[0]?.clientId,
+      )
 
       const advances = await ctx.db
         .select()
