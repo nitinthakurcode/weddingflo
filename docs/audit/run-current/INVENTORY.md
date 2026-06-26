@@ -23,11 +23,16 @@ harness phase. Every entry cites file:line.
   -workflows/-questionnaires/-invitations/-esignature).
 - Soft-delete (`deletedAt`): clients, hotels, events, timeline, messages, weddingWebsites,
   accommodations.
-- **Tenant-isolation observation (out-of-6-scope, security)**: 11 child tables lack an
-  explicit `companyId` column (scoped only via parent FK): vendorComments(:419),
-  floorPlanTables(:660), floorPlanGuests(:679), giftItems(:730), websiteBuilderContent(:788),
-  hotelBookings(:866), guestPreferences(:902), refunds(:988), seatingChangeLog(:999),
-  seatingVersions(:1010), teamClientAssignments(:1054). Report only; do not fix this pass.
+- **Tenant-isolation observation (out-of-6-scope, security)**: many tenant tables lack an
+  explicit `companyId` column (scoped only via parent FK). The 11 named here were just the
+  IDOR-sweep-**reachable** child subset — vendorComments(:419), floorPlanTables(:660),
+  floorPlanGuests(:679), giftItems(:730), websiteBuilderContent(:788), hotelBookings(:866),
+  guestPreferences(:902), refunds(:988), seatingChangeLog(:999), seatingVersions(:1010),
+  teamClientAssignments(:1054). **COUNT CORRECTION (6A.1):** a full schema scan shows the real
+  number is far larger — **~33+ tables in `schema-features.ts` alone (of ~98 tenant tables
+  across all schema files) have NO explicit `companyId`**. So the Prompt-6B RLS fail-closed
+  backstop must add `companyId` + RLS to the FULL set, not 11 (see KNOWN_GAPS.md §4). Report
+  only; do not fix this pass.
 
 ## Vendor–event model (concern 6)
 - `vendors` (schema-features.ts:361) = company master list, NO eventId (reused across events).

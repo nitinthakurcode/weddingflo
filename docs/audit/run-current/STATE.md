@@ -10,7 +10,36 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6A — Re-validation + convergence re-sweep COMPLETE** on `audit/bulletproof` (read-only +
+**Prompt 6A.1 — downloadTemplate SSOT-bypass fix + ledger hygiene COMPLETE** on `audit/bulletproof`.
+`import.router.ts downloadTemplate` no longer authors columns inline for its 6 clean modules
+(guests/budget/hotels/transport/guestGifts/events) — they render from `MODULE_SHAPES` via
+`buildExportSheet` (guarded by `downloadtemplate-shape-contract.test.ts`, 6/6). `MODULE_SHAPES.events`
+gained Action + verbose Status (handbook §G.8b); `MODULE_SHAPES.vendors` expanded to the §G.6 rich
+set. vendors + gifts stay inline as documented data-source exceptions (KNOWN_GAPS §5). Ledger fixed:
+21 placeholder SHAs → real hashes; Cluster-S per-site map lines re-verified; INVENTORY companyId-less
+count corrected (11 reachable-subset → ~33+/~98 real). Gates: tsc 0, eslint 0, **audit 22/78**,
+integration 58, unit 429/8skip. → **Next is still Prompt 6B** (RLS fail-closed backstop + CI gate).
+
+### Prompt 6A.1 OUTCOME (downloadTemplate single-source + ledger hygiene) — DONE
+Skills: service-layer-architecture (downloadTemplate "how" → shared `buildExportSheet`/`MODULE_SHAPES`),
+source-code-context (cited handbook §G.2/§G.6/§G.8b + file:line — export.router:62 global vendors,
+excel-parser-server.ts:760 present-blank→unassign), grep-loop-review-workflow.
+- **SSOT bypass fixed:** the 6 clean modules route through `buildExportSheet` (downloadTemplate's
+  flat rows normalized — `__guest` for hotels, `guestName` for guestGifts — so the SSOT `toCell`
+  reads them). guests now emits Side + Checked In (handbook §G.2); events emits verbose Status +
+  Action (§G.8b). New `downloadtemplate-shape-contract.test.ts` locks downloadTemplate ≡ MODULE_SHAPES.
+- **By-design exceptions (NOT routed):** vendors (per-client `clientVendors` link view vs combined
+  export's global `vendors` table — `MODULE_SHAPES.vendors` expanded to §G.6 rich, but the combined
+  export's per-link cols are blank + NOT the round-trip path; caveat per the importer's present-blank
+  →unassign) and gifts (gift-REGISTRY single sheet vs combined gift-DELIVERY `GiftsGiven`, §G.7
+  two-table split). Documented in KNOWN_GAPS §5.
+- **Ledger hygiene:** status-table SHAs S=95d83a2 / R(+C2)=f861088 / E=1c01510 / H=3b83ed8 /
+  C4+C7=9f68252; Cluster-S per-site map file:line re-verified to current proc-declaration lines;
+  INVENTORY + KNOWN_GAPS companyId-less count corrected for the 6B RLS scope.
+
+---
+
+### (prior) Prompt 6A — Re-validation + convergence re-sweep COMPLETE on `audit/bulletproof` (read-only +
 docs; NO new fixes). Full suite green + UNWEAKENED; the CONVERGENCE.md falsifiable prediction is
 **CONFIRMED (ZERO new Cluster-R + ZERO new Cluster-S instances)** — the repeat-bug loop is CLOSED
 for R and S at the application layer. `KNOWN_GAPS.md` written (honest, no false 100%).
@@ -279,56 +308,59 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 |------|---------|--------|---------------|---------|--------------|-----------|
 | C1a  | Excel round-trip (exceljs) | verified ALL MODULES (budget/hotels/transport/vendors/events/timeline + guests/gifts defects documented) | excel-roundtrip.{guests,hotels,transport,vendors,events,gifts}.test.ts, timeline-bulkimport.test.ts | C1a-allmods | 8521a43 | 2026-06-26T14:35Z |
 | C1b  | Google Sheets round-trip (googleapis) | verified budget+guests/hotels/vendors/gifts via seam | sheets-roundtrip.{c1b,modules}.test.ts | C1b-allmods | 8521a43 | 2026-06-26T14:35Z |
-| C2   | Chatbot parity (REAL: chatbot vs sheet end-state) | verified parity HOLDS for client stats; DIVERGES on per-guest budget (P1) | parity-chatbot-vs-sheet.c2.test.ts | C2-parity | (uncommitted) | 2026-06-26T14:56Z |
+| C2   | Chatbot parity (REAL: chatbot vs sheet end-state) | verified parity HOLDS for client stats; DIVERGES on per-guest budget (P1) | parity-chatbot-vs-sheet.c2.test.ts | C2-parity | f861088 | 2026-06-26T14:56Z |
 | C3   | Informative headers (per-module) | verified | headers-per-module.c3.test.ts | C3-permod | 8521a43 | 2026-06-26T14:35Z |
-| C4   | Real-time delivery (true cross-tab) | verified (real subscribeToCompany live-stream) | perf-t2-crosstab.c7.test.ts | C4-crosstab | (uncommitted) | 2026-06-26T16:36Z |
+| C4   | Real-time delivery (true cross-tab) | verified (real subscribeToCompany live-stream) | perf-t2-crosstab.c7.test.ts | C4-crosstab | 9f68252 | 2026-06-26T16:36Z |
 | C5   | Vendors per event | verified | vendors-per-event.c5.test.ts | C5 | d564270 | 2026-06-26T00:46Z |
 | C6   | Whole-app bulletproof gate | verified | full audit suite 20 files/40+1 | C6 | 8521a43 | 2026-06-26T16:36Z |
-| C7   | Performance T2 (true delivery) | verified P50 305ms/P95 307ms (<2s) | perf-t2-crosstab.c7.test.ts | C7-T2 | (uncommitted) | 2026-06-26T16:36Z |
-| D1   | validateExcelFile on inline guest/gift importers | **fixed** (inline path validates first via INLINE_IMPORT_VALIDATION) | excel-validation.d1.test.ts (guests+gifts reject) | D1 | (this commit) | 2026-06-26T21:14Z |
-| B1   | combined-export inline sheet-select=Cover (guests/gifts/guestGifts no-op) | **fixed** (selectModuleWorksheet by name) | excel-roundtrip.guests.test.ts (combined EDIT/DELETE/ADD) | B1 | (this commit) | 2026-06-26T21:14Z |
-| C1   | importGift wrong columns (EDIT no-ops, ADD crashes) | **fixed** (real columns, typed $inferInsert, non-destructive, +companyId) | excel-roundtrip.gifts.test.ts (EDIT+ADD+value) | C1-gift | (this commit) | 2026-06-26T21:14Z |
-| S    | **Cluster S — tenant-isolation IDOR (all 19 sites)** | **fixed** (centralized scope; RLS backstop→Prompt 6) | tenant-isolation.d4.test.ts (25/25) | see per-site below | (this commit) | 2026-06-26T19:10Z |
-| P1   | Sheets guest import skips recalcPerGuestBudgetItems | **fixed** (routes through runImportRecalcCascade SSOT) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (this commit) | 2026-06-26T21:14Z |
-| I1   | Sheets vendor single-module import skips recalcClientStats (+budget-sheets sibling) | **fixed** (routes through runImportRecalcCascade SSOT) | sheets-roundtrip.modules.test.ts (clients.budget==itemized sum) | I1 | (this commit) | 2026-06-26T21:14Z |
-| I2   | 4 dead inline reimplementations (importVendor/Budget/Hotel/Transport) | **fixed** (674 lines removed; grep proved no live caller) | tsc 0 + full audit suite green | I2 | (this commit) | 2026-06-26T21:14Z |
-| E1   | events absent from combined client export | **fixed** (Events sheet built from module-shape SSOT; combined round-trip) | excel-roundtrip.events.test.ts ("FIXED (E1) … combined export … round-trip") | E1 | (this commit) | 2026-06-26T22:15Z |
-| E2   | transport Guest Name blanked when guestId null → row skipped on re-import | **fixed** (export.router prefers stored gt.guestName) | excel-roundtrip.transport.test.ts ("FIXED (E2) … no guest link keeps its name") | E2 | (this commit) | 2026-06-26T22:15Z |
-| E3   | gifts/timeline view-only combined sheets (no ID/round-trip) | **fixed** (gifts→GiftsGiven delivery shape, round-trips via importData('guestGifts'); timeline view-only by design per handbook §G.8) | excel-roundtrip.gifts.test.ts ("FIXED (E3)" ×2); headers-per-module.c3.test.ts | E3 | (this commit) | 2026-06-26T22:15Z |
-| E-gift | gifts downloadTemplate EXPORT read dead g.giftName/fromName/… columns | **fixed** (reads real gifts name/value/status/guestId, matches importGift) | excel-roundtrip.gifts.test.ts (gifts single-sheet EDIT/ADD) + module-shape-contract.test.ts | E-gift | (this commit) | 2026-06-26T22:15Z |
-| E-SSOT | export/import column shape not single-sourced (drift root) | **fixed** (module-shape.ts SSOT consumed by exporter + import service) | module-shape-contract.test.ts (5 passed: derivation + value fidelity) | E-SSOT | (this commit) | 2026-06-26T22:15Z |
-| H1   | perf.c7 T2 label overstated cross-tab DELIVERY (measured publish latency) | **fixed** (relabelled to publish/enqueue latency; docstring points to perf-t2-crosstab.c7 for true delivery; <2s ceiling kept) | perf.c7.test.ts ("T2 publish/enqueue latency P95 < 2s") | H1 | (this commit) | 2026-06-26T22:42Z |
-| H2   | Rail-3 fail-closed guarded only the DB, not the Redis/SRH endpoint | **fixed** (assertTestRedis: UPSTASH host ∈ non-prod HOST_RE + TEST_DB_CONFIRMED; wired into audit setup AND clearSync DEL) | rail3-guard.ts; vitest.audit.setup.ts; redis-sync-probe.ts; audit run RAIL-3 OK log (redisHost=127.0.0.1) | H2 | (this commit) | 2026-06-26T22:42Z |
-| H3   | DBNAME_RE loose substring (`latest_prod` would authorize a wipe) | **fixed** (bounded-token `/(^|[_-])(dev|test)([_-]|$)/`; stricter, weddingflo_test still passes; 8/8 cases) | rail3-guard.ts (DBNAME_RE) | H3 | (this commit) | 2026-06-26T22:42Z |
-| H4   | D1 tripwire keyed on ANY throw (unrelated throw = false "fixed") | **fixed** (assert specific `/Missing required column/i` for guests+gifts) | excel-validation.d1.test.ts | H4 | (this commit) | 2026-06-26T22:42Z |
-| H5   | Sheets non-destructive proof only checked an in-sheet column | **fixed** (absent-column preservation: created_at + is_per_guest_item unchanged across import) | sheets-roundtrip.c1b.test.ts | H5 | (this commit) | 2026-06-26T22:42Z |
-| H6   | determinism overstated (dead faker.seed; comment claimed faker drove it) | **fixed** (removed dead faker.seed + import + FIXED_SEED export; docstring states fixed-literal determinism) | deterministic-seed.ts; full audit suite green (72) | H6 | (this commit) | 2026-06-26T22:42Z |
+| C7   | Performance T2 (true delivery) | verified P50 305ms/P95 307ms (<2s) | perf-t2-crosstab.c7.test.ts | C7-T2 | 9f68252 | 2026-06-26T16:36Z |
+| D1   | validateExcelFile on inline guest/gift importers | **fixed** (inline path validates first via INLINE_IMPORT_VALIDATION) | excel-validation.d1.test.ts (guests+gifts reject) | D1 | f861088 | 2026-06-26T21:14Z |
+| B1   | combined-export inline sheet-select=Cover (guests/gifts/guestGifts no-op) | **fixed** (selectModuleWorksheet by name) | excel-roundtrip.guests.test.ts (combined EDIT/DELETE/ADD) | B1 | f861088 | 2026-06-26T21:14Z |
+| C1   | importGift wrong columns (EDIT no-ops, ADD crashes) | **fixed** (real columns, typed $inferInsert, non-destructive, +companyId) | excel-roundtrip.gifts.test.ts (EDIT+ADD+value) | C1-gift | f861088 | 2026-06-26T21:14Z |
+| S    | **Cluster S — tenant-isolation IDOR (all 19 sites)** | **fixed** (centralized scope; RLS backstop→Prompt 6) | tenant-isolation.d4.test.ts (25/25) | see per-site below | 95d83a2 | 2026-06-26T19:10Z |
+| P1   | Sheets guest import skips recalcPerGuestBudgetItems | **fixed** (routes through runImportRecalcCascade SSOT) | parity-chatbot-vs-sheet.c2.test.ts | P1 | f861088 | 2026-06-26T21:14Z |
+| I1   | Sheets vendor single-module import skips recalcClientStats (+budget-sheets sibling) | **fixed** (routes through runImportRecalcCascade SSOT) | sheets-roundtrip.modules.test.ts (clients.budget==itemized sum) | I1 | f861088 | 2026-06-26T21:14Z |
+| I2   | 4 dead inline reimplementations (importVendor/Budget/Hotel/Transport) | **fixed** (674 lines removed; grep proved no live caller) | tsc 0 + full audit suite green | I2 | f861088 | 2026-06-26T21:14Z |
+| E1   | events absent from combined client export | **fixed** (Events sheet built from module-shape SSOT; combined round-trip) | excel-roundtrip.events.test.ts ("FIXED (E1) … combined export … round-trip") | E1 | 1c01510 | 2026-06-26T22:15Z |
+| E2   | transport Guest Name blanked when guestId null → row skipped on re-import | **fixed** (export.router prefers stored gt.guestName) | excel-roundtrip.transport.test.ts ("FIXED (E2) … no guest link keeps its name") | E2 | 1c01510 | 2026-06-26T22:15Z |
+| E3   | gifts/timeline view-only combined sheets (no ID/round-trip) | **fixed** (gifts→GiftsGiven delivery shape, round-trips via importData('guestGifts'); timeline view-only by design per handbook §G.8) | excel-roundtrip.gifts.test.ts ("FIXED (E3)" ×2); headers-per-module.c3.test.ts | E3 | 1c01510 | 2026-06-26T22:15Z |
+| E-gift | gifts downloadTemplate EXPORT read dead g.giftName/fromName/… columns | **fixed** (reads real gifts name/value/status/guestId, matches importGift) | excel-roundtrip.gifts.test.ts (gifts single-sheet EDIT/ADD) + module-shape-contract.test.ts | E-gift | 1c01510 | 2026-06-26T22:15Z |
+| E-SSOT | export/import column shape not single-sourced (drift root) | **fixed** (module-shape.ts SSOT consumed by exporter + import service) | module-shape-contract.test.ts (5 passed: derivation + value fidelity) | E-SSOT | 1c01510 | 2026-06-26T22:15Z |
+| H1   | perf.c7 T2 label overstated cross-tab DELIVERY (measured publish latency) | **fixed** (relabelled to publish/enqueue latency; docstring points to perf-t2-crosstab.c7 for true delivery; <2s ceiling kept) | perf.c7.test.ts ("T2 publish/enqueue latency P95 < 2s") | H1 | 3b83ed8 | 2026-06-26T22:42Z |
+| H2   | Rail-3 fail-closed guarded only the DB, not the Redis/SRH endpoint | **fixed** (assertTestRedis: UPSTASH host ∈ non-prod HOST_RE + TEST_DB_CONFIRMED; wired into audit setup AND clearSync DEL) | rail3-guard.ts; vitest.audit.setup.ts; redis-sync-probe.ts; audit run RAIL-3 OK log (redisHost=127.0.0.1) | H2 | 3b83ed8 | 2026-06-26T22:42Z |
+| H3   | DBNAME_RE loose substring (`latest_prod` would authorize a wipe) | **fixed** (bounded-token `/(^|[_-])(dev|test)([_-]|$)/`; stricter, weddingflo_test still passes; 8/8 cases) | rail3-guard.ts (DBNAME_RE) | H3 | 3b83ed8 | 2026-06-26T22:42Z |
+| H4   | D1 tripwire keyed on ANY throw (unrelated throw = false "fixed") | **fixed** (assert specific `/Missing required column/i` for guests+gifts) | excel-validation.d1.test.ts | H4 | 3b83ed8 | 2026-06-26T22:42Z |
+| H5   | Sheets non-destructive proof only checked an in-sheet column | **fixed** (absent-column preservation: created_at + is_per_guest_item unchanged across import) | sheets-roundtrip.c1b.test.ts | H5 | 3b83ed8 | 2026-06-26T22:42Z |
+| H6   | determinism overstated (dead faker.seed; comment claimed faker drove it) | **fixed** (removed dead faker.seed + import + FIXED_SEED export; docstring states fixed-literal determinism) | deterministic-seed.ts; full audit suite green (72) | H6 | 3b83ed8 | 2026-06-26T22:42Z |
+| 6A.1 | downloadTemplate authored columns INLINE (Cluster-E SSOT bypass; guests dropped Side+CheckedIn, events Status+Action drift) | **fixed** (6 clean modules → buildExportSheet/MODULE_SHAPES; events §G.8b Action+Status; vendors §G.6 rich; vendors+gifts inline by design) | downloadtemplate-shape-contract.test.ts (6/6) + module-shape-contract + excel-roundtrip.{events,vendors} | 6A1 | (this commit) | 2026-06-27 |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
 entity → clientId → CHOKE); SCOPE = `withinCompanyClients`/inArray company-clients in the DB WHERE.
+`file:line` = the current **procedure-declaration** line, re-verified at 6A.1 (the earlier numbers
+had drifted as the routers grew during the Cluster-S fixes).
 
 | id  | procedure | file:line | mechanism | test case |
 |-----|-----------|-----------|-----------|-----------|
-| T1  | floorPlans.getChangeHistory | floor-plans.router.ts:1460 | DERIVE(floorPlanId→clientId) | T1 REJECTED |
-| T2  | floorPlans.getGuestPreferences | floor-plans.router.ts:1581 | CHOKE | T2 REJECTED |
-| T3  | analyticsExport.getCompanyAnalytics | analyticsExport.ts:62,79 | SCOPE(inArray clientIds) | analytics counts only own tenant |
-| T4  | sms.getSmsLogs | sms.router.ts:569 | SCOPE(withinCompanyClients) | T4 no foreign log |
-| T5  | sms.getSmsStats | sms.router.ts:631 | SCOPE(withinCompanyClients) | T5 aggregates exclude B |
-| T6  | budget.getAdvancePayments | budget.router.ts:874 | DERIVE(budgetItemId→clientId) | T6 REJECTED |
-| T7  | floorPlans.getUnassignedGuests | floor-plans.router.ts:984 | CHOKE (+catch rethrows TRPCError) | T7 REJECTED |
-| T8  | floorPlans.getGuestConflicts | floor-plans.router.ts:1556 | CHOKE | T8 REJECTED |
-| T9  | floorPlans.checkConflicts | floor-plans.router.ts:569 | DERIVE(guestId→clientId) | T9 REJECTED |
-| T10 | vendors.getClientEvents | vendors.router.ts:1311 | CHOKE | T10 REJECTED |
-| T11 | guestTransport.getStats | guest-transport.router.ts:82 | CHOKE (ctx.) | T11 REJECTED |
-| W1  | googleSheets.importFromSheet | googleSheets.router.ts:349 | CHOKE (FIRST line, pre-OAuth) | W1 REJECTED + B timeline intact |
-| W2  | payment.createInvoice | payment.router.ts:228 | CHOKE | W2 REJECTED + no B invoice |
-| W3  | payment.createPaymentIntent | payment.router.ts:358 | CHOKE | W3 REJECTED |
-| W4  | guests.checkIn | guests.router.ts:1297 | DERIVE(guestId→clientId, ctx.) | W4 REJECTED + B not checked-in |
-| W5  | accommodations.setDefault | accommodations.router.ts:339 | CHOKE + id∧clientId-scoped update | W5 REJECTED + B default unchanged |
-| W6  | floorPlans.addGuestConflict | floor-plans.router.ts:1611 | CHOKE (ctx.) | W6 REJECTED |
-| W7  | guestTransport.create | guest-transport.router.ts:122 | CHOKE (ctx.) | W7 REJECTED + no B transport |
-| W8  | timeline.reorder | timeline.router.ts:324 | client→company (pre-existing) + id∧clientId-scoped update | W8 REJECTED + B order unchanged |
+| T1  | floorPlans.getChangeHistory | floor-plans.router.ts:1463 | DERIVE(floorPlanId→clientId) | T1 REJECTED |
+| T2  | floorPlans.getGuestPreferences | floor-plans.router.ts:1596 | CHOKE | T2 REJECTED |
+| T3  | analyticsExport.getCompanyAnalytics | analyticsExport.ts:31 | SCOPE(inArray clientIds) | analytics counts only own tenant |
+| T4  | sms.getSmsLogs | sms.router.ts:549 | SCOPE(withinCompanyClients) | T4 no foreign log |
+| T5  | sms.getSmsStats | sms.router.ts:606 | SCOPE(withinCompanyClients) | T5 aggregates exclude B |
+| T6  | budget.getAdvancePayments | budget.router.ts:870 | DERIVE(budgetItemId→clientId) | T6 REJECTED |
+| T7  | floorPlans.getUnassignedGuests | floor-plans.router.ts:977 | CHOKE (+catch rethrows TRPCError) | T7 REJECTED |
+| T8  | floorPlans.getGuestConflicts | floor-plans.router.ts:1568 | CHOKE | T8 REJECTED |
+| T9  | floorPlans.checkConflicts | floor-plans.router.ts:559 | DERIVE(guestId→clientId) | T9 REJECTED |
+| T10 | vendors.getClientEvents | vendors.router.ts:1305 | CHOKE | T10 REJECTED |
+| T11 | guestTransport.getStats | guest-transport.router.ts:75 | CHOKE (ctx.) | T11 REJECTED |
+| W1  | googleSheets.importFromSheet | googleSheets.router.ts:344 | CHOKE (FIRST line, pre-OAuth) | W1 REJECTED + B timeline intact |
+| W2  | payment.createInvoice | payment.router.ts:173 | CHOKE | W2 REJECTED + no B invoice |
+| W3  | payment.createPaymentIntent | payment.router.ts:343 | CHOKE | W3 REJECTED |
+| W4  | guests.checkIn | guests.router.ts:1288 | DERIVE(guestId→clientId, ctx.) | W4 REJECTED + B not checked-in |
+| W5  | accommodations.setDefault | accommodations.router.ts:329 | CHOKE + id∧clientId-scoped update | W5 REJECTED + B default unchanged |
+| W6  | floorPlans.addGuestConflict | floor-plans.router.ts:1623 | CHOKE (ctx.) | W6 REJECTED |
+| W7  | guestTransport.create | guest-transport.router.ts:100 | CHOKE (ctx.) | W7 REJECTED + no B transport |
+| W8  | timeline.reorder | timeline.router.ts:296 | client→company (pre-existing) + id∧clientId-scoped update | W8 REJECTED + B order unchanged |
 
 ## Candidate findings (UNVERIFIED — confirm with file:line + SDK source before asserting)
 | id | severity | summary | status |
@@ -411,6 +443,18 @@ entity → clientId → CHOKE); SCOPE = `withinCompanyClients`/inArray company-c
   read-only sweeps + independent grep spot-checks). 3 observations noted-not-counted (O1 vendors.addReview,
   O2 excel-exporter parallel surface, O3 harmless redundant recalc). Wrote `KNOWN_GAPS.md`. Updated
   CONVERGENCE.md (VERDICT) + FINDINGS.md (6A observations). Resume → Prompt 6B (RLS backstop + CI gate).
+- 2026-06-27 — **Prompt 6A.1 (downloadTemplate SSOT-bypass fix + ledger hygiene) COMPLETE.** Skills:
+  service-layer-architecture, source-code-context (handbook §G.2/§G.6/§G.8b cited), grep-loop-review.
+  Routed downloadTemplate's 6 clean modules through `buildExportSheet`/`MODULE_SHAPES` (killed the
+  inline column authoring; guests +Side/+CheckedIn, events +Action/+verbose-Status). Expanded
+  `MODULE_SHAPES.events` (§G.8b) + `MODULE_SHAPES.vendors` (§G.6 rich). vendors + gifts kept inline
+  as documented data-source exceptions (KNOWN_GAPS §5) — vendors because the combined export feeds
+  the global `vendors` table while the template is the per-client `clientVendors` view, and the
+  importer's present-blank→unassign (`excel-parser-server.ts:760`) makes the combined export unsafe
+  for per-link round-trip. New `downloadtemplate-shape-contract.test.ts` (6/6). Ledger: 21 placeholder
+  SHAs → real; per-site IDOR map lines re-verified; INVENTORY/KNOWN_GAPS companyId-less count fixed
+  (11 reachable-subset → ~33+ of ~98 tenant tables) for the 6B RLS scope. Gates: tsc 0, eslint 0,
+  audit 22 files/78, integration 58, unit 429/8skip. /code-review applied. Resume → Prompt 6B.
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.

@@ -36,6 +36,13 @@ import {
   runImportRecalcCascade,
   INLINE_IMPORT_VALIDATION,
 } from '@/lib/import/import-cascade'
+import { buildExportSheet, MODULE_SHAPES, type ExportModule } from '@/lib/import/module-shape'
+
+// [6A.1] downloadTemplate modules whose column SHAPE is single-sourced from MODULE_SHAPES.
+// vendors + gifts stay inline (different data source / table — see KNOWN_GAPS "vendors"/"gifts").
+const SSOT_TEMPLATE_MODULES = new Set<ExportModule>([
+  'guests', 'budget', 'hotels', 'transport', 'guestGifts', 'events',
+])
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts', 'events'])
@@ -268,62 +275,6 @@ export const importRouter = router({
       let columns: { header: string; key: string; width: number }[] = []
 
       switch (input.module) {
-        case 'guests':
-          sheetName = 'Guests'
-          columns = [
-            { header: 'ID (Do not modify)', key: 'id', width: 40 },
-            { header: 'Name *', key: 'name', width: 30 },
-            { header: 'Email', key: 'email', width: 25 },
-            { header: 'Phone', key: 'phone', width: 15 },
-            { header: 'Group', key: 'group', width: 15 },
-            { header: 'RSVP Status', key: 'rsvp_status', width: 12 },
-            { header: 'Party Size', key: 'party_size', width: 10 },
-            { header: 'Additional Guest Names', key: 'additional_guests', width: 30 },
-            { header: 'Relationship to Family', key: 'relationship', width: 20 },
-            { header: 'Attending Events', key: 'attending_events', width: 30 },
-            { header: 'Arrival Date/Time', key: 'arrival_datetime', width: 20 },
-            { header: 'Arrival Mode', key: 'arrival_mode', width: 15 },
-            { header: 'Departure Date/Time', key: 'departure_datetime', width: 20 },
-            { header: 'Departure Mode', key: 'departure_mode', width: 15 },
-            { header: 'Meal Preference', key: 'meal_preference', width: 15 },
-            { header: 'Dietary Restrictions', key: 'dietary', width: 25 },
-            { header: 'Hotel Required (TRUE/FALSE)', key: 'hotel', width: 15 },
-            { header: 'Transport Required (TRUE/FALSE)', key: 'transport', width: 18 },
-            { header: 'Gift Required (TRUE/FALSE)', key: 'gift_required', width: 15 },
-            { header: 'Gift to Give', key: 'gift', width: 20 },
-            { header: 'Notes', key: 'notes', width: 30 },
-          ]
-          templateData = existingData.map((g) => {
-            const additionalNames = g.additionalGuestNames || []
-            const attendingEvents = g.attendingEvents || []
-            // Combine firstName and lastName into single Name field
-            const fullName = [g.firstName, g.lastName].filter(Boolean).join(' ')
-            return {
-              id: g.id,
-              name: fullName || '',
-              email: g.email || '',
-              phone: g.phone || '',
-              group: g.groupName || '',
-              rsvp_status: g.rsvpStatus || 'pending',
-              party_size: g.partySize || 1,
-              additional_guests: Array.isArray(additionalNames) ? additionalNames.join(', ') : '',
-              relationship: g.relationshipToFamily || '',
-              attending_events: Array.isArray(attendingEvents) ? attendingEvents.join(', ') : '',
-              arrival_datetime: g.arrivalDatetime || '',
-              arrival_mode: g.arrivalMode || '',
-              departure_datetime: g.departureDatetime || '',
-              departure_mode: g.departureMode || '',
-              meal_preference: g.mealPreference || '',
-              dietary: g.dietaryRestrictions || '',
-              hotel: g.hotelRequired ? 'TRUE' : 'FALSE',
-              transport: g.transportRequired ? 'TRUE' : 'FALSE',
-              gift_required: g.giftRequired ? 'TRUE' : 'FALSE',
-              gift: g.giftToGive || '',
-              notes: g.notes || '',
-            }
-          })
-          break
-
         case 'vendors':
           sheetName = 'Vendors'
           columns = [
@@ -376,32 +327,6 @@ export const importRouter = router({
           }))
           break
 
-        case 'budget':
-          sheetName = 'Budget'
-          columns = [
-            { header: 'ID (Do not modify)', key: 'id', width: 40 },
-            { header: 'Item *', key: 'item', width: 25 },
-            { header: 'Category *', key: 'category', width: 15 },
-            { header: 'Segment', key: 'segment', width: 15 },
-            { header: 'Estimated Cost *', key: 'estimated_cost', width: 15 },
-            { header: 'Paid Amount', key: 'paid_amount', width: 15 },
-            { header: 'Actual Cost', key: 'actual_cost', width: 15 },
-            { header: 'Payment Status', key: 'payment_status', width: 15 },
-            { header: 'Notes', key: 'notes', width: 30 },
-          ]
-          templateData = existingData.map((b) => ({
-            id: b.id,
-            item: b.item,
-            category: b.category,
-            segment: b.segment || 'other',
-            estimated_cost: b.estimatedCost || 0,
-            paid_amount: b.paidAmount || 0,
-            actual_cost: b.actualCost || '',
-            payment_status: b.paymentStatus || 'pending',
-            notes: b.notes || '',
-          }))
-          break
-
         case 'gifts':
           // [Cluster E] The gift-REGISTRY template targets the real `gifts` table columns
           // (name / value / status / guestId) that importGift writes — was reading dead
@@ -424,168 +349,6 @@ export const importRouter = router({
           }))
           break
 
-        case 'hotels':
-          sheetName = 'Hotels'
-          columns = [
-            { header: 'ID (Do not modify)', key: 'id', width: 40 },
-            { header: 'Guest ID (Do not modify)', key: 'guest_id', width: 40 },
-            { header: 'Guest Name * (Required)', key: 'guest_name', width: 25 },
-            { header: 'Relationship (from guest list)', key: 'guest_relationship', width: 28 },
-            { header: 'Additional Guest Names (from guest list)', key: 'additional_guest_names', width: 35 },
-            { header: 'Guest Names in Room (e.g., john and mary, sue)', key: 'guest_names_in_room', width: 40 },
-            { header: '# in Room (auto or manual)', key: 'party_size', width: 22 },
-            { header: 'Email Address', key: 'guest_email', width: 28 },
-            { header: 'Phone Number', key: 'guest_phone', width: 18 },
-            { header: 'Need Hotel? (Yes/No)', key: 'accommodation_needed', width: 18 },
-            { header: 'Hotel Name', key: 'hotel_name', width: 25 },
-            { header: 'Room Number', key: 'room_number', width: 15 },
-            { header: 'Room Type (Suite/Deluxe...)', key: 'room_type', width: 23 },
-            { header: 'Check-In (YYYY-MM-DD)', key: 'check_in_date', width: 20 },
-            { header: 'Check-Out (YYYY-MM-DD)', key: 'check_out_date', width: 20 },
-            { header: 'Booking Confirmed (Yes/No)', key: 'booking_confirmed', width: 23 },
-            { header: 'Checked In (Yes/No)', key: 'checked_in', width: 18 },
-            { header: 'Room Cost (numbers only)', key: 'cost', width: 22 },
-            { header: 'Payment (pending/paid/overdue)', key: 'payment_status', width: 28 },
-            { header: 'Special Notes', key: 'notes', width: 40 },
-          ]
-          templateData = existingData.map((h) => {
-            // Format additional guest names - join array with commas
-            const additionalNames = h.additionalGuestNames
-              ? (Array.isArray(h.additionalGuestNames) ? h.additionalGuestNames.join(', ') : h.additionalGuestNames)
-              : ''
-
-            return {
-              id: h.id,
-              guest_id: h.guestId || '',
-              guest_name: h.guestName || '',
-              guest_relationship: h.guestRelationship || '',
-              additional_guest_names: additionalNames,
-              guest_names_in_room: '', // User fills this to assign rooms
-              party_size: h.partySize || 1,
-              guest_email: h.guestEmail || '',
-              guest_phone: h.guestPhone || '',
-              accommodation_needed: h.accommodationNeeded ? 'Yes' : 'No',
-              hotel_name: h.hotelName || '',
-              room_number: h.roomNumber || '',
-              room_type: h.roomType || '',
-              check_in_date: h.checkInDate || '',
-              check_out_date: h.checkOutDate || '',
-              booking_confirmed: h.bookingConfirmed ? 'Yes' : 'No',
-              checked_in: h.checkedIn ? 'Yes' : 'No',
-              cost: h.cost || '',
-              payment_status: h.paymentStatus || 'pending',
-              notes: h.notes || '',
-            }
-          })
-          break
-
-        case 'transport':
-          sheetName = 'Transport'
-          columns = [
-            { header: 'ID (Do not modify)', key: 'id', width: 40 },
-            { header: 'Guest ID (Do not modify)', key: 'guest_id', width: 40 },
-            { header: 'Guest Name *', key: 'guest_name', width: 25 },
-            { header: 'Guest Email', key: 'guest_email', width: 25 },
-            { header: 'Guest Phone', key: 'guest_phone', width: 15 },
-            { header: 'Guest Group', key: 'guest_group', width: 15 },
-            { header: 'Pickup Date', key: 'pickup_date', width: 15 },
-            { header: 'Pickup Time', key: 'pickup_time', width: 12 },
-            { header: 'Pickup From', key: 'pickup_from', width: 25 },
-            { header: 'Drop To', key: 'drop_to', width: 25 },
-            { header: 'Vehicle Info', key: 'vehicle_info', width: 20 },
-            { header: 'Transport Status', key: 'transport_status', width: 15 },
-            { header: 'Notes', key: 'notes', width: 30 },
-          ]
-          templateData = existingData.map((t) => ({
-            id: t.id,
-            guest_id: t.guestId || '',
-            guest_name: t.guestName || '',
-            guest_email: t.guestEmail || '',
-            guest_phone: t.guestPhone || '',
-            guest_group: t.guestGroup || '',
-            pickup_date: t.pickupDate || '',
-            pickup_time: t.pickupTime || '',
-            pickup_from: t.pickupFrom || '',
-            drop_to: t.dropTo || '',
-            vehicle_info: t.vehicleInfo || '',
-            transport_status: t.transportStatus || 'scheduled',
-            notes: t.notes || '',
-          }))
-          break
-
-        case 'guestGifts':
-          sheetName = 'GiftsGiven'
-          columns = [
-            { header: 'ID (Do not modify)', key: 'id', width: 40 },
-            { header: 'Guest ID (Do not modify)', key: 'guest_id', width: 40 },
-            { header: 'Guest Name *', key: 'guest_name', width: 25 },
-            { header: 'Guest Email', key: 'guest_email', width: 25 },
-            { header: 'Guest Phone', key: 'guest_phone', width: 15 },
-            { header: 'Guest Group', key: 'guest_group', width: 15 },
-            { header: 'Gift Name *', key: 'gift_name', width: 25 },
-            { header: 'Gift Type', key: 'gift_type', width: 20 },
-            { header: 'Gift Category', key: 'gift_category', width: 15 },
-            { header: 'Quantity', key: 'quantity', width: 10 },
-            { header: 'Delivery Date', key: 'delivery_date', width: 15 },
-            { header: 'Delivery Time', key: 'delivery_time', width: 12 },
-            { header: 'Delivery Status', key: 'delivery_status', width: 15 },
-            { header: 'Delivered By', key: 'delivered_by', width: 20 },
-            { header: 'Notes', key: 'notes', width: 30 },
-          ]
-          templateData = existingData.map((gg) => ({
-            id: gg.id,
-            guest_id: gg.guestId || '',
-            guest_name: [gg.guestFirstName, gg.guestLastName].filter(Boolean).join(' ') || '',
-            guest_email: gg.guestEmail || '',
-            guest_phone: gg.guestPhone || '',
-            guest_group: gg.guestGroup || '',
-            gift_name: gg.giftName || '',
-            gift_type: gg.giftTypeName || '',
-            gift_category: gg.giftTypeCategory || '',
-            quantity: gg.quantity || 1,
-            delivery_date: gg.deliveryDate || '',
-            delivery_time: gg.deliveryTime || '',
-            delivery_status: gg.deliveryStatus || 'pending',
-            delivered_by: gg.deliveredBy || '',
-            notes: gg.notes || '',
-          }))
-          break
-
-        case 'events':
-          sheetName = 'Events'
-          columns = [
-            { header: 'ID (Do not modify)', key: 'id', width: 40 },
-            { header: 'Title *', key: 'title', width: 28 },
-            { header: 'Event Type', key: 'event_type', width: 18 },
-            { header: 'Event Date (YYYY-MM-DD)', key: 'event_date', width: 22 },
-            { header: 'Start Time (HH:MM)', key: 'start_time', width: 18 },
-            { header: 'End Time (HH:MM)', key: 'end_time', width: 18 },
-            { header: 'Location', key: 'location', width: 25 },
-            { header: 'Venue Name', key: 'venue_name', width: 25 },
-            { header: 'Address', key: 'address', width: 30 },
-            { header: 'Guest Count (numbers only)', key: 'guest_count', width: 22 },
-            { header: 'Status (draft/planned/confirmed/completed/cancelled)', key: 'status', width: 30 },
-            { header: 'Description', key: 'description', width: 30 },
-            { header: 'Notes', key: 'notes', width: 30 },
-            { header: 'Action (DELETE to remove)', key: 'action', width: 24 },
-          ]
-          templateData = existingData.map((e) => ({
-            id: e.id,
-            title: e.title,
-            event_type: e.eventType || '',
-            event_date: e.eventDate || '',
-            start_time: e.startTime || '',
-            end_time: e.endTime || '',
-            location: e.location || '',
-            venue_name: e.venueName || '',
-            address: e.address || '',
-            guest_count: e.guestCount ?? '',
-            status: e.status || 'planned',
-            description: e.description || '',
-            notes: e.notes || '',
-            action: '',
-          }))
-          break
       }
 
       // Add Instructions Sheet FIRST for Hotels (so it appears as the first tab)
@@ -631,22 +394,44 @@ export const importRouter = router({
         })
       }
 
-      // Add the data worksheet (second tab for hotels, first tab for other modules)
-      const worksheet = workbook.addWorksheet(sheetName)
-      worksheet.columns = columns
+      // [6A.1] Build the data worksheet (second tab for hotels, first tab otherwise).
+      // The 6 single-sourced modules render from MODULE_SHAPES via buildExportSheet — NO inline
+      // column authoring, so downloadTemplate can no longer drift from the combined export.
+      // vendors + gifts keep their inline shape (different data source / table — see KNOWN_GAPS).
+      if (SSOT_TEMPLATE_MODULES.has(input.module as ExportModule)) {
+        const ssotModule = input.module as ExportModule
+        sheetName = MODULE_SHAPES[ssotModule].sheet
+        // Normalize downloadTemplate's flat row-data to the keys MODULE_SHAPES.toCell reads:
+        //  • hotels — the SSOT reads the guest's additional names from `__guest`
+        //  • guestGifts — the SSOT reads a single `guestName` (the join provides first/last)
+        const rows = existingData.map((r: any) => {
+          if (ssotModule === 'hotels') {
+            return { ...r, __guest: { additionalGuestNames: r.additionalGuestNames } }
+          }
+          if (ssotModule === 'guestGifts') {
+            return { ...r, guestName: [r.guestFirstName, r.guestLastName].filter(Boolean).join(' ') }
+          }
+          return r
+        })
+        buildExportSheet(workbook, ssotModule, rows)
+      } else {
+        // vendors + gifts: inline column shape (documented data-source exceptions).
+        const worksheet = workbook.addWorksheet(sheetName)
+        worksheet.columns = columns
 
-      // Style header row
-      worksheet.getRow(1).font = { bold: true }
-      worksheet.getRow(1).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' },
+        // Style header row
+        worksheet.getRow(1).font = { bold: true }
+        worksheet.getRow(1).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE0E0E0' },
+        }
+
+        // Add data rows
+        templateData.forEach((row) => {
+          worksheet.addRow(row)
+        })
       }
-
-      // Add data rows
-      templateData.forEach((row) => {
-        worksheet.addRow(row)
-      })
 
       const arrayBuffer = await workbook.xlsx.writeBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')

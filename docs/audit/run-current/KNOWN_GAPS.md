@@ -41,7 +41,31 @@ None is a cross-tenant breach (all confirmed by the convergence sweep + prior se
 T2 propagation is measured END-TO-END across the real `broadcastSync → Redis/SRH (ZADD) → subscribeToCompany live-stream` chain (client A mutates, client B — the same async generator every SSE subscriber consumes — observes), P50 306 / P95 310ms. The **full two-browser Playwright variant** (live HTTP/SSE frame + client-side React-Query invalidate/refetch/render) is **BLOCKED**: the auth secrets needed to boot an authenticated dev server against the test DB are absent from `.env.local` + `.env.test.local` (`BETTER_AUTH_SECRET`, `TOKEN_ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_APP_URL`, the SUPABASE key). The server-side delivery measurement is faithful for everything up to the browser render hop; the render hop itself is unmeasured.
 
 ### 4. RLS fail-closed DB backstop — PENDING (Prompt 6B)
-Cluster S is fixed at the **application** layer (every site routes through `assertClientAccess`/`assertEntityAccess`/`withinCompanyClients`). The **DB-level RLS fail-closed backstop** — `app.current_company_id` + RLS policies on the 11 child tables that lack an explicit `companyId` (so a future missing app-level check FAILS CLOSED instead of leaking) — is **NOT yet landed**. The test DB role is superuser (RLS bypassed), so this phase proves the app-level scope, which is the prod reality for these tRPC paths today; RLS is defense-in-depth scheduled for **Prompt 6B**. Until then, a NEW unscoped resolver would not be caught by the DB (only by the app-level convergence sweep + the contract test planned for 6B).
+Cluster S is fixed at the **application** layer (every site routes through `assertClientAccess`/`assertEntityAccess`/`withinCompanyClients`). The **DB-level RLS fail-closed backstop** — `app.current_company_id` + RLS policies on the tenant tables that lack an explicit `companyId` (so a future missing app-level check FAILS CLOSED instead of leaking) — is **NOT yet landed**. SCOPE CORRECTION: the "11 child tables" cited earlier (INVENTORY.md) was only the IDOR-sweep-**reachable** child subset; a full schema scan shows **~33+ tables in `schema-features.ts` alone (of ~98 tenant tables total) lack an explicit `companyId`** (parent-FK scoped only). So the 6B RLS backstop must cover the full set, not 11. The test DB role is superuser (RLS bypassed), so this phase proves the app-level scope, which is the prod reality for these tRPC paths today; RLS is defense-in-depth scheduled for **Prompt 6B**. Until then, a NEW unscoped resolver would not be caught by the DB (only by the app-level convergence sweep + the contract test planned for 6B).
 
-### 5. Audit-scope boundary
+### 5. downloadTemplate single-sourcing — 2 by-design exceptions (vendors, gifts)
+[6A.1] `import.router.ts downloadTemplate` now renders its 6 "clean" modules (guests, budget,
+hotels, transport, guestGifts, events) from `MODULE_SHAPES` via `buildExportSheet` — so the
+import-template headers ARE the combined-export SSOT headers (guarded by
+`downloadtemplate-shape-contract.test.ts`, 6/6). Two modules stay INLINE **by design** because
+they draw from a different data source than the combined export, so a single shared column shape
+can't represent both:
+
+- **vendors** — `downloadTemplate('vendors')` is the per-client **`clientVendors` link** view
+  (Event, Contract Amount, Total Paid, Deposit, Service Date, Approval…), whereas the combined
+  export feeds the **global `vendors` table** (`export.router.ts:62`, company-wide master list).
+  `MODULE_SHAPES.vendors` WAS expanded to the handbook §G.6 rich set (so the combined export's
+  shape is handbook-correct), but **its per-link columns are blank in the combined export**
+  (global vendors lack them). CAVEAT: because the vendor importer is non-destructive on
+  HEADER-presence (`excel-parser-server.ts:760`, "column present + blank → unassign"), the
+  **combined export is NOT the round-trip path for per-link vendor fields** — round-trip per-link
+  edits via `downloadTemplate('vendors')` (which carries the populated link data). Folding both
+  surfaces onto one per-client vendor data source (a shared enrichment helper) is a clean future
+  follow-up, deferred (would change the combined export's vendor semantics + needs its own tests).
+- **gifts** — `downloadTemplate('gifts')` is the gift-**REGISTRY** single sheet (the `gifts`
+  table: name/value/status/guestId), a different feature/table from the combined export's gift-
+  **DELIVERY** sheet (`guest_gifts` → `GiftsGiven`, which IS single-sourced as `guestGifts`).
+  Per handbook §G.7 "two-table split" these are intentionally distinct and must not be merged.
+
+### 6. Audit-scope boundary
 The audit proves the **audited surfaces** (spreadsheet import/export, realtime sync, tenant isolation across all 52 routers, chatbot↔sheet parity, headers, tiered perf). It does NOT claim every feature of the app is bug-free — untested routers/flows are out of scope, not certified. Dependency currency (12 vulns, 0 high/critical; firebase-admin/googleapis major-lag) is REPORT-ONLY, no upgrade this audit.

@@ -214,6 +214,13 @@ export const MODULE_SHAPES: Record<ExportModule, ModuleShape> = {
     ],
   },
 
+  // [6A.1] Vendors export shape reconciled to the handbook §G.6 rich set (was a 10-col summary).
+  // toCell uses pick() aliases so the SAME shape renders BOTH the combined export's global
+  // `vendors` rows AND the per-client `clientVendors`-enriched rows (event / contract / approval).
+  // NOTE: the COMBINED export feeds global-vendor rows, so the per-link columns (Event, Contract
+  // Amount, Service Date, Approval…) are blank there — the per-link round-trip path is the
+  // per-module vendor template (`downloadTemplate('vendors')`), NOT the combined export. See
+  // KNOWN_GAPS.md "vendors" for this data-source caveat.
   vendors: {
     sheet: 'Vendors',
     columns: [
@@ -223,8 +230,20 @@ export const MODULE_SHAPES: Record<ExportModule, ModuleShape> = {
       { header: 'Contact Name', key: 'contactName', width: 25, toCell: (v) => s(pick(v, 'contactName', 'contact_name')) },
       { header: 'Phone', key: 'phone', width: 18, toCell: (v) => s(v.phone) },
       { header: 'Email', key: 'email', width: 28, toCell: (v) => s(v.email) },
-      { header: 'Contract Amount', key: 'contractAmount', width: 18, toCell: (v) => s(pick(v, 'contractAmount', 'cost')) },
+      { header: 'Event', key: 'event', width: 20, toCell: (v) => s(pick(v, 'eventName', 'event_name', 'event')) },
+      { header: 'Contract Amount', key: 'contractAmount', width: 18, toCell: (v) => s(pick(v, 'contractAmount', 'contract_amount', 'cost')) },
+      { header: 'Total Paid', key: 'totalPaid', width: 15, toCell: (v) => s(pick(v, 'totalPaid', 'total_paid')) },
+      { header: 'Balance Remaining', key: 'balanceRemaining', width: 18, toCell: (v) => s(pick(v, 'balanceRemaining', 'balance_remaining')) },
+      { header: 'Deposit Amount', key: 'depositAmount', width: 15, toCell: (v) => s(pick(v, 'depositAmount', 'deposit_amount')) },
+      { header: 'Deposit Paid (Yes/No)', key: 'depositPaid', width: 18, toCell: (v) => yesNo(pick(v, 'depositPaid', 'deposit_paid')) },
       { header: 'Payment Status', key: 'paymentStatus', width: 18, toCell: (v) => s(pick(v, 'paymentStatus', 'payment_status') ?? 'pending') },
+      { header: 'Service Date', key: 'serviceDate', width: 15, toCell: (v) => s(pick(v, 'serviceDate', 'service_date')) },
+      { header: 'Service Location', key: 'serviceLocation', width: 25, toCell: (v) => s(pick(v, 'serviceLocation', 'service_location', 'venueAddress')) },
+      { header: 'On-Site Contact', key: 'onSiteContact', width: 20, toCell: (v) => s(pick(v, 'onSiteContact', 'onsite_contact', 'onsitePocName')) },
+      { header: 'On-Site Phone', key: 'onSitePhone', width: 15, toCell: (v) => s(pick(v, 'onSitePhone', 'onsite_phone', 'onsitePocPhone')) },
+      { header: 'Services Provided', key: 'servicesProvided', width: 30, toCell: (v) => s(pick(v, 'servicesProvided', 'services_provided', 'deliverables')) },
+      { header: 'Approval Status', key: 'approvalStatus', width: 15, toCell: (v) => s(pick(v, 'approvalStatus', 'approval_status') ?? 'pending') },
+      { header: 'Approval Notes', key: 'approvalNotes', width: 25, toCell: (v) => s(pick(v, 'approvalNotes', 'approval_notes', 'approvalComments')) },
       { header: 'Rating', key: 'rating', width: 10, toCell: (v) => s(v.rating) },
       { header: 'Notes', key: 'notes', width: 30, toCell: (v) => s(v.notes) },
     ],
@@ -263,9 +282,12 @@ export const MODULE_SHAPES: Record<ExportModule, ModuleShape> = {
       { header: 'Venue Name', key: 'venueName', width: 25, toCell: (e) => s(pick(e, 'venueName', 'venue_name')) },
       { header: 'Address', key: 'address', width: 30, toCell: (e) => s(e.address) },
       { header: 'Guest Count (numbers only)', key: 'guestCount', width: 22, toCell: (e) => s(pick(e, 'guestCount', 'guest_count')) },
-      { header: 'Status', key: 'status', width: 15, toCell: (e) => s(e.status ?? 'planned') },
+      // Handbook §G.8b: verbose Status header (enumerates the allowed values) + trailing Action
+      // delete marker. Both the combined export AND downloadTemplate('events') emit these.
+      { header: 'Status (draft/planned/confirmed/completed/cancelled)', key: 'status', width: 30, toCell: (e) => s(e.status ?? 'planned') },
       { header: 'Description', key: 'description', width: 30, toCell: (e) => s(e.description) },
       { header: 'Notes', key: 'notes', width: 30, toCell: (e) => s(e.notes) },
+      { header: 'Action (DELETE to remove)', key: 'action', width: 24, toCell: () => '' },
     ],
   },
 
