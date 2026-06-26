@@ -20,6 +20,7 @@
 import type { Workbook, Worksheet } from 'exceljs'
 import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
+import { MODULE_SHAPES, inlineValidationSpec } from '@/lib/import/module-shape'
 
 export type ImportModule =
   | 'guests' | 'vendors' | 'budget' | 'gifts' | 'hotels' | 'transport' | 'guestGifts' | 'events'
@@ -28,18 +29,20 @@ export type ImportModule =
 type DbOrTx = Parameters<typeof recalcClientStats>[0]
 
 /**
- * The canonical worksheet NAME each module is exported/templated under. Both the combined
- * client export (export-utils.ts) and downloadTemplate use these exact names.
+ * The canonical worksheet NAME each module is exported/templated under. Sourced from the
+ * single-source column SHAPE (module-shape.ts) so it can't drift from what the exporter
+ * actually writes. `gifts` is the gift-REGISTRY single-sheet template (the `gifts` table /
+ * Google-Sheets target) and is not part of the combined export shape, so it keeps 'Gifts'.
  */
 export const MODULE_SHEET_NAME: Record<ImportModule, string> = {
-  guests: 'Guests',
-  vendors: 'Vendors',
-  budget: 'Budget',
+  guests: MODULE_SHAPES.guests.sheet,
+  vendors: MODULE_SHAPES.vendors.sheet,
+  budget: MODULE_SHAPES.budget.sheet,
   gifts: 'Gifts',
-  hotels: 'Hotels',
-  transport: 'Transport',
-  guestGifts: 'GiftsGiven',
-  events: 'Events',
+  hotels: MODULE_SHAPES.hotels.sheet,
+  transport: MODULE_SHAPES.transport.sheet,
+  guestGifts: MODULE_SHAPES.guestGifts.sheet,
+  events: MODULE_SHAPES.events.sheet,
 }
 
 /**
@@ -79,21 +82,17 @@ export const INLINE_IMPORT_VALIDATION: Record<
   'guests' | 'gifts' | 'guestGifts',
   { sheet: string; expected: string[]; required: string[] }
 > = {
-  guests: {
-    sheet: 'Guests',
-    expected: ['ID', 'Name', 'Email', 'Phone', 'Group', 'Side', 'RSVP Status'],
-    required: ['Name'],
-  },
+  // guests + guestGifts derive their sheet/headers/required from the SSOT shape so the
+  // labels validated are exactly the ones the exporter emits (no drift).
+  guests: inlineValidationSpec('guests'),
+  // gifts = the gift-REGISTRY single-sheet template (`gifts` table: name/value/status), a
+  // different feature/table from the combined export's gift-delivery sheet — kept explicit.
   gifts: {
     sheet: 'Gifts',
     expected: ['ID', 'Gift Name', 'Value', 'Status', 'Guest Name'],
     required: ['Gift Name'],
   },
-  guestGifts: {
-    sheet: 'GiftsGiven',
-    expected: ['ID', 'Guest Name', 'Gift Name', 'Quantity'],
-    required: ['Guest Name', 'Gift Name'],
-  },
+  guestGifts: inlineValidationSpec('guestGifts'),
 }
 
 /**

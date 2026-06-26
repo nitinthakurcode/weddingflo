@@ -403,22 +403,24 @@ export const importRouter = router({
           break
 
         case 'gifts':
+          // [Cluster E] The gift-REGISTRY template targets the real `gifts` table columns
+          // (name / value / status / guestId) that importGift writes — was reading dead
+          // g.giftName / g.fromName / g.deliveryStatus / g.thankYouSent (non-existent columns
+          // → every data field exported blank).
           sheetName = 'Gifts'
           columns = [
             { header: 'ID (Do not modify)', key: 'id', width: 40 },
             { header: 'Gift Name *', key: 'gift_name', width: 25 },
-            { header: 'From Name', key: 'from_name', width: 20 },
-            { header: 'From Email', key: 'from_email', width: 30 },
-            { header: 'Delivery Status', key: 'delivery_status', width: 15 },
-            { header: 'Thank You Sent (TRUE/FALSE)', key: 'thank_you_sent', width: 15 },
+            { header: 'Value', key: 'value', width: 15 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Guest ID (Do not modify)', key: 'guest_id', width: 40 },
           ]
           templateData = existingData.map((g) => ({
             id: g.id,
-            gift_name: g.giftName,
-            from_name: g.fromName || '',
-            from_email: g.fromEmail || '',
-            delivery_status: g.deliveryStatus || '',
-            thank_you_sent: g.thankYouSent ? 'TRUE' : 'FALSE',
+            gift_name: g.name || '',
+            value: g.value ?? '',
+            status: g.status || 'received',
+            guest_id: g.guestId || '',
           }))
           break
 

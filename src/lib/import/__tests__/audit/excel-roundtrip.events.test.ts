@@ -1,7 +1,8 @@
 /**
- * C1 — Events Excel round-trip. Events are NOT part of the combined client export
- * (export-utils.ts has no Events sheet — itself a coverage gap, see FINDINGS), so the
- * real round-trip is downloadTemplate('events') → fill → importData('events').
+ * C1 / E1 — Events Excel round-trip. As of Cluster E, events ARE part of the combined client
+ * export (export-utils.ts emits an Events sheet from the SSOT shape — the first test below
+ * proves the combined round-trip). The dedicated downloadTemplate('events') path is also
+ * covered.
  *
  * Server-parser path (excel-parser-server.ts importEventsExcel, reads getWorksheet('Events')).
  * Asserts EDIT (by ID) + ADD + cascade (syncEventsToTimeline writes sourceModule='events'
@@ -14,7 +15,9 @@ import { db } from '@/lib/db';
 import { IDS, resetDeterministic, teardownTenant } from '@/test-support/seed/deterministic-seed';
 import { clearSync, readSyncPaths } from '@/test-support/redis-sync-probe';
 import { EVENT_MUTATION_PATHS } from '@/lib/sync/cascade-query-paths';
-import { caller, headerMap, addActionColumn, importWorkbook } from '@/test-support/audit/roundtrip-util';
+import {
+  caller, exportCombinedWorkbook, headerMap, addActionColumn, findRowById, importWorkbook,
+} from '@/test-support/audit/roundtrip-util';
 
 async function eventsTemplate(): Promise<ExcelJS.Workbook> {
   const res = await caller.import.downloadTemplate({ module: 'events', clientId: IDS.clientId });
@@ -32,6 +35,32 @@ describe('C1 Excel round-trip — events (via template)', () => {
   afterAll(async () => {
     await teardownTenant(IDS.companyId);
     await clearSync(IDS.companyId);
+  });
+
+  it('FIXED (E1): events are in the combined export and round-trip from it (EDIT by ID)', async () => {
+    // [E1] Events were absent from the combined client export → no combined round-trip.
+    // They are now emitted from the SSOT shape and consumed by importData('events').
+    const wb = await exportCombinedWorkbook();
+    const ws = wb.getWorksheet('Events');
+    expect(ws, 'combined export must contain an Events sheet').toBeTruthy();
+    const hm = headerMap(ws!);
+    const idCol = hm.get('id')!;
+    const titleCol = hm.get('title')!;
+    expect(idCol, `combined Events must expose ID; headers=${[...hm.keys()]}`).toBeTruthy();
+    expect(titleCol, `combined Events must expose Title; headers=${[...hm.keys()]}`).toBeTruthy();
+    addActionColumn(ws!, hm);
+
+    const editRow = findRowById(ws!, idCol, IDS.eventId);
+    expect(editRow, 'combined Events sheet should contain the seeded event by ID').toBeGreaterThan(1);
+    ws!.getRow(editRow).getCell(titleCol).value = 'Combined Event EDIT';
+
+    const result = await importWorkbook(wb, 'events');
+    expect(result.errors, JSON.stringify(result.errors)).toEqual([]);
+
+    const edited = (await db.execute(
+      sql`SELECT title FROM events WHERE id = ${IDS.eventId}`,
+    )) as unknown as Array<{ title: string }>;
+    expect(edited[0]?.title, 'EDIT via combined Events sheet should apply').toBe('Combined Event EDIT');
   });
 
   it('downloadTemplate emits an Events sheet with ID + Title columns', async () => {

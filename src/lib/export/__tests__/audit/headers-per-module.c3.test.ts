@@ -14,7 +14,9 @@ import { seedAllModuleFixtures } from '@/test-support/seed/module-fixtures';
 import { caller } from '@/test-support/audit/roundtrip-util';
 
 const looksLikeRawColumn = (h: string) => /^[a-z]+(_[a-z0-9]+)+$/.test(h.trim());
-const EDITABLE = new Set(['Guests', 'Hotels', 'Transport', 'Vendors', 'Budget']);
+// Round-trippable sheets must mark required (*) + give an example. Events + GiftsGiven are
+// editable as of Cluster E (combined export now round-trips them). Timeline stays view-only.
+const EDITABLE = new Set(['Guests', 'Hotels', 'Transport', 'Vendors', 'Budget', 'Events', 'GiftsGiven']);
 
 describe('C3 per-module informative headers', () => {
   beforeAll(async () => {
@@ -60,8 +62,10 @@ describe('C3 per-module informative headers', () => {
       }
     });
 
-    // Core sheets must all be present in the combined export.
-    for (const s of ['Guests', 'Hotels', 'Transport', 'Vendors', 'Budget', 'Gifts', 'Timeline']) {
+    // Core sheets must all be present in the combined export. [Cluster E] Events (E1) and the
+    // gift-delivery 'GiftsGiven' sheet (E3, replaces the old view-only 'Gifts' Serial-# sheet)
+    // are now part of the combined export.
+    for (const s of ['Guests', 'Hotels', 'Transport', 'Vendors', 'Budget', 'GiftsGiven', 'Events', 'Timeline']) {
       expect(sheetsSeen, `combined export must contain a ${s} sheet`).toContain(s);
     }
 

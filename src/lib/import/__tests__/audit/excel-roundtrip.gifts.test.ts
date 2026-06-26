@@ -1,12 +1,12 @@
 /**
- * C1 — Gifts + GuestGifts Excel round-trip. Both use the INLINE import path, so they
- * inherit the B1 combined-export sheet-select bug (picks 'Cover'). They also carry
- * gift-specific traps:
- *   • The combined export 'Gifts' sheet is sourced from the guest_gifts table (gifts GIVEN
- *     to guests) yet has NO ID column (only a 'Serial #' row index) — so importData('gifts')
- *     (which writes the separate `gifts` table, received FROM guests) cannot match rows.
- *   • The combined export has NO 'GiftsGiven' sheet at all for guestGifts.
- * Documents ACTUAL behavior deterministically; proves the single-sheet template paths work.
+ * C1 / E3 — Gifts + GuestGifts Excel round-trip (INLINE import path).
+ *
+ * Cluster-E fix: the combined export now emits a round-trippable gift-DELIVERY 'GiftsGiven'
+ * sheet (handbook §G.7: leading ID + required Gift Name, sourced from the single-source
+ * column SHAPE in module-shape.ts) instead of the old view-only 'Gifts' Serial-# sheet that
+ * could not match rows. The two former DEFECT tests are flipped to expect-correct below.
+ *   • gifts module (`gifts` table, received-FROM model) — single-sheet import via importGift.
+ *   • guestGifts module (`guest_gifts` table, given-TO model) — combined + single-sheet via importGuestGift.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import ExcelJS from 'exceljs';
@@ -14,7 +14,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { IDS, resetDeterministic, teardownTenant } from '@/test-support/seed/deterministic-seed';
 import { seedExtraGuest, seedGifts, seedGuestGifts, FIDS } from '@/test-support/seed/module-fixtures';
-import { exportCombinedWorkbook, headerMap, importWorkbook } from '@/test-support/audit/roundtrip-util';
+import { exportCombinedWorkbook, headerMap, findRowById, importWorkbook } from '@/test-support/audit/roundtrip-util';
 
 function singleSheet(name: string, headers: string[], rows: string[][]): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
@@ -35,30 +35,38 @@ describe('C1 Excel round-trip — gifts / guestGifts', () => {
     await teardownTenant(IDS.companyId);
   });
 
-  it('DEFECT: combined export Gifts sheet has NO ID column (Serial # only)', async () => {
+  it('FIXED (E3): combined export emits a round-trippable GiftsGiven sheet (ID + required Gift Name)', async () => {
     const wb = await exportCombinedWorkbook();
-    const ws = wb.getWorksheet('Gifts');
-    expect(ws, 'combined export must contain a Gifts sheet').toBeTruthy();
+    // [E3] The old view-only 'Gifts' (Serial #) sheet is replaced by the gift-delivery
+    // 'GiftsGiven' sheet (handbook §G.7) with a leading ID + required Gift Name, sourced from
+    // the SSOT shape consumed by both exporter and import service.
+    expect(wb.getWorksheet('Gifts'), 'old view-only Gifts sheet should be gone').toBeUndefined();
+    const ws = wb.getWorksheet('GiftsGiven');
+    expect(ws, 'combined export must contain a GiftsGiven sheet').toBeTruthy();
     const hm = headerMap(ws!);
-    expect(hm.get('id'), `BUG: Gifts sheet exposes no ID column; headers=${[...hm.keys()]}`).toBeUndefined();
-    expect(hm.get('serial #') ?? hm.get('serial'), 'Gifts sheet uses Serial # as the row key').toBeTruthy();
+    expect(hm.get('id'), `GiftsGiven must expose an ID column; headers=${[...hm.keys()]}`).toBeTruthy();
+    expect(hm.get('gift name'), `GiftsGiven must expose Gift Name; headers=${[...hm.keys()]}`).toBeTruthy();
   });
 
-  it('DEFECT: combined-export importData(gifts) cannot round-trip (throws / leaves gifts table untouched)', async () => {
+  it('FIXED (E3): combined-export GiftsGiven round-trips via importData(guestGifts) (EDIT by ID)', async () => {
     const wb = await exportCombinedWorkbook();
-    // The inline importer parses 'Cover' (B1) and the Gifts sheet has no ID column —
-    // importData('gifts') either throws BAD_REQUEST or no-ops. Either way: no mutation.
-    try {
-      await importWorkbook(wb, 'gifts');
-    } catch {
-      /* BAD_REQUEST is acceptable — the point is the gifts table is not mutated */
-    }
-    const rows = (await db.execute(
-      sql`SELECT id, name FROM gifts WHERE client_id = ${IDS.clientId} ORDER BY name`,
-    )) as unknown as Array<{ id: string; name: string }>;
-    expect(rows.map((r) => r.name), 'BUG: gifts unchanged — combined Gifts sheet cannot round-trip').toEqual(
-      ['Crystal Vase', 'Gift Card'],
-    );
+    const ws = wb.getWorksheet('GiftsGiven')!;
+    const hm = headerMap(ws);
+    const idCol = hm.get('id')!;
+    const nameCol = hm.get('gift name')!;
+
+    // EDIT the seeded guestGift1 ("Favor Box") by its real ID via the combined sheet.
+    const editRow = findRowById(ws, idCol, FIDS.guestGift1);
+    expect(editRow, 'GiftsGiven sheet should contain guestGift1 by ID').toBeGreaterThan(1);
+    ws.getRow(editRow).getCell(nameCol).value = 'Favor Box EDITED';
+
+    const result = await importWorkbook(wb, 'guestGifts');
+    expect(result.errors, `combined GiftsGiven import must not error; ${JSON.stringify(result.errors)}`).toEqual([]);
+
+    const edited = (await db.execute(
+      sql`SELECT name FROM guest_gifts WHERE id = ${FIDS.guestGift1}`,
+    )) as unknown as Array<{ name: string }>;
+    expect(edited[0]?.name, 'EDIT via combined GiftsGiven sheet should apply').toBe('Favor Box EDITED');
   });
 
   it('FIXED (C1): importGift maps the real gifts columns → EDIT applies, ADD does not crash', async () => {

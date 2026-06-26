@@ -10,20 +10,60 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 3-R — Cluster R (no single import service) COMPLETE** on `audit/bulletproof`.
-B1/C1/P1/D1/I1/I2 fixed by centralizing the spreadsheet-import "how" in ONE service
-(`src/lib/import/import-cascade.ts`: `selectModuleWorksheet` [B1], `runImportRecalcCascade`
-recalc SSOT [P1/I1], `INLINE_IMPORT_VALIDATION` [D1]) that the Excel inline path, the Excel
-buffer path, the Sheets importers, and the import preview all route through. importGift
-rewritten to the real gifts columns (typed `$inferInsert`), non-destructive, +companyId [C1].
-674 lines of dead inline importers removed [I2]. Gates: tsc 0, eslint 0, **audit 20 files/65
-passed**, unit 429/8skip, integration 58, **Cluster-S IDOR still 25/25**, /code-review (4
-fixes applied), /security-review CLEAN (tenant scope preserved, no mass-assignment).
-**Next is Prompt 5 — Cluster E (export/import shape SSOT)** then Cluster H. Cluster E/H
-UNTOUCHED this phase; Cluster S NOT re-opened (regression still green).
+**Prompt 3-E — Cluster E (export/import shape not single-sourced) COMPLETE** on `audit/bulletproof`.
+E1/E2/E3 + the deferred gifts export shape fixed by a per-module column-SHAPE SSOT
+(`src/lib/import/module-shape.ts`: ordered header/key/width/required/formatter per module)
+consumed by BOTH the combined exporter (`export-utils.ts` → `buildExportSheet`) AND the import
+service (`import-cascade.ts` derives `MODULE_SHEET_NAME` + `INLINE_IMPORT_VALIDATION` from it).
+**E1** Events now in the combined export (round-trips via importData('events')). **E2**
+`export.router` preserves the stored transport `guestName` (no-guest-link rows no longer blank →
+no longer skipped on re-import). **E3 / gifts shape** combined gift sheet reshaped to the
+handbook §G.7 gift-DELIVERY shape (`guest_gifts`, sheet `GiftsGiven`, leading ID + required Gift
+Name) → round-trips via importData('guestGifts'); the old view-only `Serial #` 'Gifts' sheet is
+gone. Timeline combined stays VIEW-ONLY (handbook §G.8 — by design; round-trip path is the
+dedicated `exportTimelineExcel`). `downloadTemplate('gifts')` dead-column bug fixed (reads real
+`gifts` name/value/status/guestId). Gates: tsc 0, eslint 0, **audit 21 files/71 passed**, unit
+429/8skip, integration 58, **Cluster-S IDOR still 25/25**, Cluster-R import tests green,
+/code-review (2 fidelity fixes applied: Date cells + raw text-cost, regression-locked),
+/security-review CLEAN.
+**Next is Cluster H — harness hardening** (H2 Rail-3 Redis-endpoint guard, H3–H6; meta, not app fix).
+Cluster S/R NOT re-opened (regressions still green); Cluster H UNTOUCHED this phase.
 Bring stack up with `bash scripts/start-test-stack.sh up` — the `up` rewrites `.env.test.local`
 and DROPS `TEST_DB_CONFIRMED=1`; re-append it before the audit suite. SRH speaks POST `["PING"]`
 (path-style REST → "Endpoint not found" is EXPECTED).
+
+### Prompt 3-E OUTCOME (Cluster E — export/import shape SSOT) — DONE
+- **Convergence fix (N→1):** new `src/lib/import/module-shape.ts` (pure, no DB) owns each
+  combined-export module's column SHAPE — header label, exceljs key, width, required flag, and the
+  export formatter (`toCell`). `buildExportSheet(wb, module, rows)` is the single place a module
+  sheet is materialized. `export-utils.ts` lost ~350 lines of duplicated inline sheet-building;
+  `import-cascade.ts` now DERIVES `MODULE_SHEET_NAME` + `INLINE_IMPORT_VALIDATION` (guests,
+  guestGifts) from the SSOT via `inlineValidationSpec`, so the sheet/required headers it validates
+  are provably the labels the exporter writes (no drift). New `module-shape-contract.test.ts`
+  asserts both sides consume the SSOT + value-fidelity (Date cells, raw text-cost).
+- **Per-finding (test_ids):**
+  - **E1** events absent from combined export → added Events sheet from the SSOT (handbook §G.8b).
+    `excel-roundtrip.events.test.ts` "FIXED (E1): events are in the combined export and round-trip
+    from it (EDIT by ID)".
+  - **E2** transport Guest Name derived-then-blanked when guestId null → `export.router` prefers the
+    stored `gt.guestName`. `excel-roundtrip.transport.test.ts` "FIXED (E2): a transport row with NO
+    guest link keeps its name on export → survives re-import".
+  - **E3 / gifts export shape** combined gift sheet reshaped to gift-DELIVERY `GiftsGiven` (ID +
+    required Gift Name) round-trippable via importData('guestGifts'); old 'Gifts' Serial-# sheet
+    removed. `excel-roundtrip.gifts.test.ts` "FIXED (E3): combined export emits a round-trippable
+    GiftsGiven sheet…" + "FIXED (E3): combined-export GiftsGiven round-trips via
+    importData(guestGifts) (EDIT by ID)". `downloadTemplate('gifts')` dead `g.giftName` columns →
+    real `gifts` columns. C3 per-module test now requires Guests/Hotels/Transport/Vendors/Budget/
+    **GiftsGiven**/**Events**/Timeline; Events + GiftsGiven added to the EDITABLE (must mark required
+    + example) set.
+- **/code-review fixes applied:** the SSOT `pick()`/`s()`/`Number()` formatters changed cell types
+  vs the deleted inline code — (1) guest arrival/departure timestamp cells stringified to verbose
+  locale text; (2) budget text-cost coerced to Number (type-flip + NaN on non-numeric). Reverted to
+  raw passthrough (`raw()` helper) + `|| default` semantics; locked by a contract unit assertion.
+- **Deferred (NOT this phase):** Cluster H (harness hardening). Handbook-sync rule deferred per
+  Rail-2 (NEVER edit the handbook during the audit). The `gifts`-REGISTRY single-sheet Excel path
+  (`importGift`/`downloadTemplate('gifts')` → `gifts` table) is kept distinct from the gift-delivery
+  combined sheet per handbook §G.7 "two-table split"; not merged.
 
 ### Prompt 3-R OUTCOME (Cluster R — single import service) — DONE
 - **Convergence fix (N→1):** new `src/lib/import/import-cascade.ts` owns the parts that drifted:
@@ -172,6 +212,11 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | P1   | Sheets guest import skips recalcPerGuestBudgetItems | **fixed** (routes through runImportRecalcCascade SSOT) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (this commit) | 2026-06-26T21:14Z |
 | I1   | Sheets vendor single-module import skips recalcClientStats (+budget-sheets sibling) | **fixed** (routes through runImportRecalcCascade SSOT) | sheets-roundtrip.modules.test.ts (clients.budget==itemized sum) | I1 | (this commit) | 2026-06-26T21:14Z |
 | I2   | 4 dead inline reimplementations (importVendor/Budget/Hotel/Transport) | **fixed** (674 lines removed; grep proved no live caller) | tsc 0 + full audit suite green | I2 | (this commit) | 2026-06-26T21:14Z |
+| E1   | events absent from combined client export | **fixed** (Events sheet built from module-shape SSOT; combined round-trip) | excel-roundtrip.events.test.ts ("FIXED (E1) … combined export … round-trip") | E1 | (this commit) | 2026-06-26T22:15Z |
+| E2   | transport Guest Name blanked when guestId null → row skipped on re-import | **fixed** (export.router prefers stored gt.guestName) | excel-roundtrip.transport.test.ts ("FIXED (E2) … no guest link keeps its name") | E2 | (this commit) | 2026-06-26T22:15Z |
+| E3   | gifts/timeline view-only combined sheets (no ID/round-trip) | **fixed** (gifts→GiftsGiven delivery shape, round-trips via importData('guestGifts'); timeline view-only by design per handbook §G.8) | excel-roundtrip.gifts.test.ts ("FIXED (E3)" ×2); headers-per-module.c3.test.ts | E3 | (this commit) | 2026-06-26T22:15Z |
+| E-gift | gifts downloadTemplate EXPORT read dead g.giftName/fromName/… columns | **fixed** (reads real gifts name/value/status/guestId, matches importGift) | excel-roundtrip.gifts.test.ts (gifts single-sheet EDIT/ADD) + module-shape-contract.test.ts | E-gift | (this commit) | 2026-06-26T22:15Z |
+| E-SSOT | export/import column shape not single-sourced (drift root) | **fixed** (module-shape.ts SSOT consumed by exporter + import service) | module-shape-contract.test.ts (5 passed: derivation + value fidelity) | E-SSOT | (this commit) | 2026-06-26T22:15Z |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
