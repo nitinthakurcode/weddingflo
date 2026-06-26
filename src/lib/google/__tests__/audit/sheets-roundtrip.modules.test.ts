@@ -103,6 +103,18 @@ describe('C1b Sheets round-trip — guests / hotels / vendors / gifts', () => {
     expect(Number(edited[0]?.contract_amount)).toBe(3300);
     const delLink = (await db.execute(sql`SELECT id FROM client_vendors WHERE vendor_id = ${FIDS.vendor2} AND client_id = ${IDS.clientId}`)) as unknown as unknown[];
     expect(delLink).toHaveLength(0);
+
+    // [I1] The single-module vendor sheet import now routes through the centralized recalc
+    // cascade (was skipping recalcClientStats), so clients.budget reflects the synced vendor
+    // budget items — equal to the itemized SUM. (Stale before the fix.)
+    const budgetSum = (await db.execute(
+      sql`SELECT COALESCE(SUM(CAST(estimated_cost AS NUMERIC)), 0)::TEXT AS s FROM budget WHERE client_id = ${IDS.clientId}`,
+    )) as unknown as Array<{ s: string }>;
+    const clientRow = (await db.execute(
+      sql`SELECT budget FROM clients WHERE id = ${IDS.clientId}`,
+    )) as unknown as Array<{ budget: string }>;
+    expect(Number(budgetSum[0]?.s), 'vendor import created a budget item (sum > 0)').toBeGreaterThan(0);
+    expect(Number(clientRow[0]?.budget), 'I1: clients.budget recalced to the itemized sum').toBe(Number(budgetSum[0]?.s));
   });
 
   it('gifts: EDIT (Gift Name) + DELETE round-trip (Sheets path uses CORRECT columns)', async () => {

@@ -50,13 +50,10 @@ describe('C1 Excel round-trip — guests (inline path)', () => {
     expect(findRowById(ws!, hm.get('id')!, FIDS.guest2)).toBeGreaterThan(1);
   });
 
-  // DEFECT (documented deterministically — not it.fails, so H4 fragility can't apply).
-  // The intended round-trip would EDIT Carol, DELETE Dave, ADD Eve. The inline importer
-  // selects 'Cover' (first non-INSTRUCTIONS sheet, import.router.ts:936), so the Guests
-  // sheet edits never reach the DB. We assert that BROKEN OUTCOME: Dave survives, Eve is
-  // absent. If this test ever FAILS, the combined-export guests round-trip has been FIXED
-  // (sheet selection now finds 'Guests') — update FINDINGS at that point.
-  it('DEFECT: combined-export guests import silently no-ops (picks Cover, not Guests)', async () => {
+  // FIXED (B1): the inline importer now selects the 'Guests' worksheet by NAME
+  // (selectModuleWorksheet), so the combined-export round-trip reaches the guest rows.
+  // EDIT Carol's row is implicit (re-import unchanged), DELETE Dave, ADD Eve all apply.
+  it('combined-export guests import applies EDIT/DELETE/ADD (B1 fixed: selects Guests, not Cover)', async () => {
     const wb = await exportCombinedWorkbook();
     const ws = wb.getWorksheet('Guests')!;
     const hm = headerMap(ws);
@@ -69,17 +66,27 @@ describe('C1 Excel round-trip — guests (inline path)', () => {
     const newRow = ws.addRow([]);
     newRow.getCell(nameCol).value = 'Eve New';
 
-    await importWorkbook(wb, 'guests'); // parses 'Cover', not 'Guests'
+    const result = await importWorkbook(wb, 'guests'); // now parses 'Guests'
+    expect(result.errors, JSON.stringify(result.errors)).toEqual([]);
 
     const dave = (await db.execute(
       sql`SELECT id FROM guests WHERE id = ${FIDS.guest2}`,
     )) as unknown as Array<{ id: string }>;
-    expect(dave, 'BUG: Dave NOT deleted — Guests-sheet Action ignored').toHaveLength(1);
+    expect(dave, 'Dave should be DELETED via the Guests-sheet Action column').toHaveLength(0);
 
     const eve = (await db.execute(
       sql`SELECT id FROM guests WHERE client_id = ${IDS.clientId} AND first_name = 'Eve'`,
     )) as unknown as Array<{ id: string }>;
-    expect(eve, 'BUG: Eve NOT added — Guests-sheet ADD ignored').toHaveLength(0);
+    expect(eve.length, 'Eve should be ADDED from the Guests sheet').toBeGreaterThanOrEqual(1);
+  });
+
+  // CROSS-CLUSTER SAFETY: the Cluster-R import refactor must NOT weaken Cluster-S tenant
+  // scoping. importData verifies the clientId belongs to the caller's company before any
+  // parse/cascade, so an import targeting a foreign/non-company client is rejected.
+  it('cross-tenant import is REJECTED (Cluster S preserved through the import path)', async () => {
+    const wb = await exportCombinedWorkbook();
+    const FOREIGN_CLIENT = '00000000-0000-4000-8000-0000000000ee'; // not in company A
+    await expect(importWorkbook(wb, 'guests', FOREIGN_CLIENT)).rejects.toThrow();
   });
 
   // Broadcast IS expected to fire for guests (GUEST_MUTATION_PATHS) on a successful import,

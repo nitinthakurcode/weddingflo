@@ -10,19 +10,56 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 3 — Cluster S (tenant-isolation IDOR) COMPLETE** on `audit/bulletproof`. All 19
-sites (reads T1–T11 + writes W1–W8) routed through ONE centralized enforcement
-(`client-access.ts`: existing `assertClientAccess` chokepoint + new `assertEntityAccess`
-derive-then-chokepoint + `withinCompanyClients` company-scope SQL). Regression suite
-`tenant-isolation.d4.test.ts` = **25/25 green** (each cross-tenant access blocked, 6
-same-tenant flows still green, worst-write importFromSheet delete/overwrite proven blocked).
-Gates: tsc 0, eslint 0, audit 62+1, unit 429/8skip, integration 58, /code-review (2 fixes
-applied), /security-review CLEAN (0 cross-tenant vulns, no new holes).
-**Next is Prompt 4 — Cluster R (single import service)** in the FIX ORDER below. Cluster R/E/H
-UNTOUCHED this phase. Deep analysis in `ROOTCAUSE.md` / `CONVERGENCE.md`.
+**Prompt 3-R — Cluster R (no single import service) COMPLETE** on `audit/bulletproof`.
+B1/C1/P1/D1/I1/I2 fixed by centralizing the spreadsheet-import "how" in ONE service
+(`src/lib/import/import-cascade.ts`: `selectModuleWorksheet` [B1], `runImportRecalcCascade`
+recalc SSOT [P1/I1], `INLINE_IMPORT_VALIDATION` [D1]) that the Excel inline path, the Excel
+buffer path, the Sheets importers, and the import preview all route through. importGift
+rewritten to the real gifts columns (typed `$inferInsert`), non-destructive, +companyId [C1].
+674 lines of dead inline importers removed [I2]. Gates: tsc 0, eslint 0, **audit 20 files/65
+passed**, unit 429/8skip, integration 58, **Cluster-S IDOR still 25/25**, /code-review (4
+fixes applied), /security-review CLEAN (tenant scope preserved, no mass-assignment).
+**Next is Prompt 5 — Cluster E (export/import shape SSOT)** then Cluster H. Cluster E/H
+UNTOUCHED this phase; Cluster S NOT re-opened (regression still green).
 Bring stack up with `bash scripts/start-test-stack.sh up` — the `up` rewrites `.env.test.local`
 and DROPS `TEST_DB_CONFIRMED=1`; re-append it before the audit suite. SRH speaks POST `["PING"]`
 (path-style REST → "Endpoint not found" is EXPECTED).
+
+### Prompt 3-R OUTCOME (Cluster R — single import service) — DONE
+- **Convergence fix (N→1):** new `src/lib/import/import-cascade.ts` owns the parts that drifted:
+  `selectModuleWorksheet(wb, module)` picks the module sheet by canonical NAME (kills B1's
+  generic find that matched the export 'Cover'); `runImportRecalcCascade(db, module, clientId)`
+  is the per-module recalc SSOT (guests/budget→clientStats+perGuestBudget, vendors→clientStats)
+  that Excel importData AND the Sheets importers call — so neither can omit a recalc (P1/I1);
+  `INLINE_IMPORT_VALIDATION` is the per-module sheet+required-header spec the inline Excel path
+  validates via `validateExcelFile` up front (D1, CLAUDE rule 28).
+- **Per-finding:**
+  - **D1** inline guests/gifts/guestGifts now call `validateExcelFile` first (rejects malformed /
+    wrong-sheet / missing name column). test `excel-validation.d1.test.ts` (guests + gifts).
+  - **B1** inline path selects the module sheet by name → combined-export guests round-trip
+    applies EDIT/DELETE/ADD. test `excel-roundtrip.guests.test.ts`. (gifts/guestGifts combined
+    sheets are Cluster-E-shaped (no ID, 'Gift Item') → cleanly REJECTED by validation, not garbage.)
+  - **C1** `importGift` rewritten to real columns (name/value/status/guestId), typed via
+    `$inferInsert` (wrong column = compile error), name-match on `g.name` (no crash), non-destructive
+    update, +companyId. test `excel-roundtrip.gifts.test.ts`.
+  - **P1** Sheets `importGuestsFromSheet` now runs the full recalc cascade (per-guest budget no
+    longer stale). test `parity-chatbot-vs-sheet.c2.test.ts` (sheet recalcs to 100×partySize=200).
+  - **I1** Sheets `importVendorsFromSheet` now recalcs client stats. test
+    `sheets-roundtrip.modules.test.ts` (clients.budget == itemized sum). Also fixed the latent
+    **budget-sheets sibling** (`importBudgetFromSheet` skipped per-guest recalc) the same way.
+  - **I2** removed dead inline `importVendor/importBudget/importHotel/importTransport` (674 lines)
+    + their unreachable switch cases (buffer block returns first; grep proved no live caller).
+- **Cross-cluster safety:** import paths still verify client→company BEFORE parsing; new test
+  `excel-roundtrip.guests.test.ts` "cross-tenant import is REJECTED". Cluster-S 25/25 unchanged.
+- **/code-review fixes applied:** importGift non-destructive update + companyId (was nulling
+  value/guestId on partial uploads); removed double-recalc in `importAllFromSheets` (per-module
+  importers self-recalc now); routed the `validateImport` preview through `selectModuleWorksheet`.
+- **Deferred (NOT this phase):** Cluster-E gifts combined-export shape (no ID col, guestGift-sourced
+  'Gift Item' — the gifts downloadTemplate EXPORT still reads dead g.giftName) = Cluster E. Inline
+  importers remaining in import.router.ts vs CLAUDE rule 29 (excel-parser-server.ts) = large refactor,
+  pre-existing. Handbook-sync rule deferred per Rail-2 (NEVER edit the handbook during the audit).
+  Pre-existing gifts `guestId`→foreign-guest name leak (also via gifts.create/update; gifts.router
+  read-join unscoped) = intra-tenant IDOR candidate for a Cluster-S follow-up (not introduced here).
 
 ### Prompt 3 OUTCOME (Cluster S — security IDOR) — DONE
 - **Convergence fix (N→1):** `src/server/trpc/client-access.ts` extended (the existing single
@@ -128,11 +165,13 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | C5   | Vendors per event | verified | vendors-per-event.c5.test.ts | C5 | d564270 | 2026-06-26T00:46Z |
 | C6   | Whole-app bulletproof gate | verified | full audit suite 20 files/40+1 | C6 | 8521a43 | 2026-06-26T16:36Z |
 | C7   | Performance T2 (true delivery) | verified P50 305ms/P95 307ms (<2s) | perf-t2-crosstab.c7.test.ts | C7-T2 | (uncommitted) | 2026-06-26T16:36Z |
-| D1   | validateExcelFile on inline guest/gift importers | RED (defect, fix=Prompt 3) | excel-validation.d1.test.ts (it.fails) | C1a.6 | d564270 | 2026-06-26T00:46Z |
-| B1   | combined-export inline sheet-select=Cover (guests/gifts/guestGifts no-op) | RED→documented (fix=Prompt 3) | excel-roundtrip.guests.test.ts | B1 | (uncommitted) | 2026-06-26T13:46Z |
-| C1   | importGift wrong columns (EDIT no-ops, ADD crashes) | RED→documented (fix=Prompt 3) | excel-roundtrip.gifts.test.ts | C1-gift | (uncommitted) | 2026-06-26T14:21Z |
+| D1   | validateExcelFile on inline guest/gift importers | **fixed** (inline path validates first via INLINE_IMPORT_VALIDATION) | excel-validation.d1.test.ts (guests+gifts reject) | D1 | (this commit) | 2026-06-26T21:14Z |
+| B1   | combined-export inline sheet-select=Cover (guests/gifts/guestGifts no-op) | **fixed** (selectModuleWorksheet by name) | excel-roundtrip.guests.test.ts (combined EDIT/DELETE/ADD) | B1 | (this commit) | 2026-06-26T21:14Z |
+| C1   | importGift wrong columns (EDIT no-ops, ADD crashes) | **fixed** (real columns, typed $inferInsert, non-destructive, +companyId) | excel-roundtrip.gifts.test.ts (EDIT+ADD+value) | C1-gift | (this commit) | 2026-06-26T21:14Z |
 | S    | **Cluster S — tenant-isolation IDOR (all 19 sites)** | **fixed** (centralized scope; RLS backstop→Prompt 6) | tenant-isolation.d4.test.ts (25/25) | see per-site below | (this commit) | 2026-06-26T19:10Z |
-| P1   | Sheets guest import skips recalcPerGuestBudgetItems | RED→confirmed (fix=Prompt 4/R) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (uncommitted) | 2026-06-26T14:56Z |
+| P1   | Sheets guest import skips recalcPerGuestBudgetItems | **fixed** (routes through runImportRecalcCascade SSOT) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (this commit) | 2026-06-26T21:14Z |
+| I1   | Sheets vendor single-module import skips recalcClientStats (+budget-sheets sibling) | **fixed** (routes through runImportRecalcCascade SSOT) | sheets-roundtrip.modules.test.ts (clients.budget==itemized sum) | I1 | (this commit) | 2026-06-26T21:14Z |
+| I2   | 4 dead inline reimplementations (importVendor/Budget/Hotel/Transport) | **fixed** (674 lines removed; grep proved no live caller) | tsc 0 + full audit suite green | I2 | (this commit) | 2026-06-26T21:14Z |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
@@ -212,6 +251,16 @@ entity → clientId → CHOKE); SCOPE = `withinCompanyClients`/inArray company-c
   25/25 green. Gates all green; /code-review surfaced 2 real defects (accommodations setDefault
   unset-then-set-none footgun; getUnassignedGuests swallowed auth throw) → both fixed.
   /security-review CLEAN. RLS fail-closed backstop deferred to Prompt 6. Cluster R/E/H untouched.
+- 2026-06-26T~21:14Z — **Prompt 3-R (Cluster R, single import service) COMPLETE.** Skills run:
+  grep-loop-review-workflow (loop), service-layer-architecture (design), source-code-context
+  (cited file:line — gifts schema, GIFT_HEADERS ref, validateExcelFile sig, resolveHeaderAliases,
+  downloadTemplate headers). Built `import-cascade.ts` SSOT; routed Excel inline + buffer +
+  Sheets importers + import preview through it. B1/C1/P1/D1/I1/I2 fixed; +budget-sheets P1 sibling;
+  674 dead lines removed. Tests flipped to expect-correct + cross-tenant-import + I1 recalc coverage.
+  Gates all green; Cluster-S 25/25 preserved. /code-review surfaced 4 real items (importGift
+  destructive update → non-destructive; missing companyId → added; importAllFromSheets double-recalc
+  → removed; validateImport preview B1 drift → routed through selectModuleWorksheet) — all fixed.
+  /security-review CLEAN. Cluster E/H untouched; Cluster S not re-opened.
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.

@@ -28,8 +28,8 @@ import { syncVendorBudgetItem, cascadeVendorLinkDelete } from '@/lib/sync/vendor
 import { inArray } from 'drizzle-orm';
 import { writeSheetData, readSheetData, formatSheetHeaders } from './sheets-client';
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums';
-import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc';
 import { recalcClientStats } from '@/lib/sync/client-stats-sync';
+import { runImportRecalcCascade } from '@/lib/import/import-cascade';
 import { storeSyncAction, type SyncAction } from '@/lib/realtime/redis-pubsub';
 import { getQueryPathsForModule } from '@/lib/realtime/query-paths';
 import {
@@ -978,9 +978,11 @@ export async function importGuestsFromSheet(
       }
     });
 
-    // Recalculate client cached guest count after import
+    // [P1] Centralized recalc cascade (SSOT) — guests → client stats AND per-guest budget
+    // items. Previously only recalcClientStats ran here, so a Sheets guest confirm left
+    // per-guest (e.g. per-plate) budget items stale vs the Excel/chatbot/UI paths.
     if (stats.imported > 0) {
-      await recalcClientStats(db, clientId);
+      await runImportRecalcCascade(db, 'guests', clientId);
     }
 
     console.log(`[Sheets Sync] Imported ${stats.imported} guests from sheet`);
@@ -1089,9 +1091,10 @@ export async function importBudgetFromSheet(
       }
     });
 
-    // Recalculate client cached budget total after import
+    // Centralized recalc cascade (SSOT) — budget → client stats AND per-guest budget items.
+    // (Sibling of P1: a budget-sheet import previously skipped recalcPerGuestBudgetItems.)
     if (stats.imported > 0) {
-      await recalcClientStats(db, clientId);
+      await runImportRecalcCascade(db, 'budget', clientId);
     }
 
     console.log(`[Sheets Sync] Imported ${stats.imported} budget items from sheet`);
@@ -1298,6 +1301,13 @@ export async function importVendorsFromSheet(
         }
       }
     });
+
+    // [I1] Centralized recalc cascade (SSOT) — vendors → client stats. The single-module
+    // vendor-sheet sync previously skipped recalcClientStats entirely, leaving client budget
+    // totals stale (the 'all' path recalced; this one didn't).
+    if (stats.imported > 0) {
+      await runImportRecalcCascade(db, 'vendors', clientId);
+    }
 
     console.log(`[Sheets Sync] Imported ${stats.imported} vendors from sheet`);
   } catch (error: any) {
@@ -1936,13 +1946,9 @@ export async function importAllFromSheets(
   allErrors.push(...guestStats.errors);
   if (guestStats.conflicts) allConflicts.push(...guestStats.conflicts);
 
-  // Recalculate per-guest budget items and cascade sync after guest import
+  // Cascade sync after guest import. importGuestsFromSheet already ran the centralized recalc
+  // cascade (client stats + per-guest budget), so we don't recalc again here.
   if (guestStats.imported > 0) {
-    try {
-      await recalcPerGuestBudgetItems(db, clientId);
-    } catch (err) {
-      console.error('[Sheets Sync] Budget recalc failed:', err);
-    }
     try {
       const cascadeResult: SyncResult = { success: true, synced: 0, created: { hotels: 0, transport: 0, timeline: 0, budget: 0 }, errors: [] };
       // S7-M09: use transaction client instead of bare db
@@ -1965,15 +1971,7 @@ export async function importAllFromSheets(
   byModule.vendors = vendorStats.imported;
   allErrors.push(...vendorStats.errors);
 
-  // Vendor cost/event imports update linked budget items → refresh cached client
-  // stats (parity with the Excel import + hotels/transport blocks below).
-  if (vendorStats.imported > 0) {
-    try {
-      await recalcClientStats(db, clientId);
-    } catch (err) {
-      console.error('[Sheets Sync] Vendor stats recalc failed:', err);
-    }
-  }
+  // (Vendor client-stat recalc now lives inside importVendorsFromSheet's centralized cascade.)
 
   const hotelStats = await importHotelsFromSheet(sheetsClient, spreadsheetId, clientId);
   totalImported += hotelStats.imported;

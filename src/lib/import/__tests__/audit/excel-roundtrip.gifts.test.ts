@@ -61,30 +61,32 @@ describe('C1 Excel round-trip — gifts / guestGifts', () => {
     );
   });
 
-  it('DEFECT: importGift writes/reads wrong columns (giftName vs name) → EDIT no-ops, ADD crashes', async () => {
+  it('FIXED (C1): importGift maps the real gifts columns → EDIT applies, ADD does not crash', async () => {
     const wb = singleSheet(
       'Gifts',
-      ['ID (Do not modify)', 'Gift Name *', 'From Name', 'Delivery Status', 'Action'],
+      ['ID (Do not modify)', 'Gift Name *', 'Value', 'Status', 'Action'],
       [
-        [FIDS.gift1, 'Crystal Vase EDITED', 'Aunt May', 'received', ''],
-        ['', 'Toaster', 'Cousin Lee', 'received', ''], // ADD row triggers the toLowerCase crash
+        [FIDS.gift1, 'Crystal Vase EDITED', '120', 'received', ''],
+        ['', 'Toaster', '40', 'received', ''], // ADD row — used to crash on g.giftName.toLowerCase()
       ],
     );
     const result = await importWorkbook(wb, 'gifts');
 
-    // ADD path crashes: importGift name-match does g.giftName.toLowerCase(), but the gifts
-    // column is `name` → undefined.toLowerCase() (import.router.ts:1913).
-    expect(
-      result.errors.some((e) => /toLowerCase/.test(e)),
-      `BUG: ADD row should crash on undefined column; errors=${JSON.stringify(result.errors)}`,
-    ).toBe(true);
+    // No crash: the name-match now reads the real `name` column (was g.giftName → undefined).
+    expect(result.errors, `ADD must not crash; errors=${JSON.stringify(result.errors)}`).toEqual([]);
 
-    // EDIT silently no-ops: giftData keys (giftName/fromName/...) are not gifts columns, so
-    // .set() maps nothing but updatedAt — the name is unchanged.
+    // EDIT applies: giftData now maps to the real `name` column.
     const edited = (await db.execute(
-      sql`SELECT name FROM gifts WHERE id = ${FIDS.gift1}`,
-    )) as unknown as Array<{ name: string }>;
-    expect(edited[0]?.name, 'BUG: EDIT did not apply (wrong column mapping)').toBe('Crystal Vase');
+      sql`SELECT name, value FROM gifts WHERE id = ${FIDS.gift1}`,
+    )) as unknown as Array<{ name: string; value: number | null }>;
+    expect(edited[0]?.name, 'EDIT should apply via correct column mapping').toBe('Crystal Vase EDITED');
+    expect(Number(edited[0]?.value), 'Value column should round-trip').toBe(120);
+
+    // ADD inserts a new gifts row.
+    const added = (await db.execute(
+      sql`SELECT id FROM gifts WHERE client_id = ${IDS.clientId} AND name = 'Toaster'`,
+    )) as unknown as Array<{ id: string }>;
+    expect(added.length, 'ADD should insert a new gift').toBeGreaterThanOrEqual(1);
   });
 
   it('single-sheet GiftsGiven template round-trips into the guest_gifts table', async () => {

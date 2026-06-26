@@ -13,9 +13,7 @@ import {
 } from '@/lib/backup/auto-sync-trigger'
 import { withTransaction } from '@/features/chatbot/server/services/transaction-wrapper'
 import { normalizeRsvpStatus, normalizeGuestSide } from '@/lib/constants/enums'
-import { recalcPerGuestBudgetItems } from '@/features/budget/server/utils/per-guest-recalc'
 import { broadcastSync } from '@/lib/realtime/broadcast-sync'
-import { recalcClientStats } from '@/lib/sync/client-stats-sync'
 import {
   GUEST_MUTATION_PATHS,
   VENDOR_MUTATION_PATHS,
@@ -32,6 +30,12 @@ import {
   importEventsExcel,
 } from '@/lib/import/excel-parser-server'
 import { syncEventsToTimelineTx } from '@/lib/sync/event-timeline-sync'
+import { validateExcelFile } from '@/lib/import/excel-parser'
+import {
+  selectModuleWorksheet,
+  runImportRecalcCascade,
+  INLINE_IMPORT_VALIDATION,
+} from '@/lib/import/import-cascade'
 
 // All exportable/importable module types
 const moduleTypes = z.enum(['guests', 'vendors', 'budget', 'gifts', 'hotels', 'transport', 'guestGifts', 'events'])
@@ -680,10 +684,9 @@ export const importRouter = router({
       const workbook = new ExcelJS.Workbook()
       await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength))
 
-      // Find the data worksheet (skip instructions sheet)
-      const worksheet = workbook.worksheets.find(ws =>
-        !ws.name.includes('INSTRUCTIONS') && !ws.name.includes('READ FIRST')
-      ) || workbook.worksheets.find(ws => ws.rowCount > 1) || workbook.worksheets[0]
+      // [B1] Select the module's worksheet by name (same helper the import uses) so the
+      // PREVIEW reflects what will actually be imported — not the combined export's Cover sheet.
+      const worksheet = selectModuleWorksheet(workbook, input.module)
 
       if (!worksheet) {
         return {
@@ -804,8 +807,8 @@ export const importRouter = router({
       if (input.module === 'budget') {
         const result = await importBudgetExcel(buffer, input.clientId, companyId)
         if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
-          await recalcClientStats(ctx.db, input.clientId)
-          await recalcPerGuestBudgetItems(ctx.db, input.clientId)
+          // Centralized recalc cascade (SSOT) — budget → client stats + per-guest budget.
+          await runImportRecalcCascade(ctx.db, 'budget', input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'budget',
@@ -882,7 +885,8 @@ export const importRouter = router({
         if (result.inserted > 0 || result.updated > 0 || result.deleted > 0) {
           // Vendor cost edits feed client budget totals — recalc client stats so
           // the dashboard cards refresh (parity with budget/guest imports).
-          await recalcClientStats(ctx.db, input.clientId)
+          // Centralized recalc cascade (SSOT) — vendors → client stats.
+          await runImportRecalcCascade(ctx.db, 'vendors', input.clientId)
           await broadcastSync({
             type: 'insert',
             module: 'vendors',
@@ -924,28 +928,29 @@ export const importRouter = router({
       }
 
       // ── Inline import for guests, gifts, guestGifts (row-by-row within transaction) ──
+      // [D1] Validate up front (CLAUDE rule 28), mirroring the canonical buffer parsers:
+      // rejects a non-xlsx/malformed upload, a wrong/missing module sheet, or a sheet missing
+      // the module's required name column — BEFORE any parsing. Wrap as BAD_REQUEST.
+      const validation = INLINE_IMPORT_VALIDATION[input.module as 'guests' | 'gifts' | 'guestGifts']
+      try {
+        await validateExcelFile(buffer, validation.expected, validation.required, validation.sheet)
+      } catch (e) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: e instanceof Error ? e.message : 'Invalid import file',
+        })
+      }
+
       const workbook = new ExcelJS.Workbook()
       await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength))
 
-      // Debug: Log all worksheet names
-      const worksheetNames = workbook.worksheets.map(ws => ws.name)
-      console.log('[Import] Available worksheets:', worksheetNames)
-
-      // Find the data worksheet (skip instructions sheet)
-      // The instructions sheet is named "📖 INSTRUCTIONS - READ FIRST"
-      let worksheet = workbook.worksheets.find(ws =>
-        !ws.name.includes('INSTRUCTIONS') && !ws.name.includes('READ FIRST')
-      )
-
-      // Fallback to first non-empty worksheet if no match
-      if (!worksheet) {
-        worksheet = workbook.worksheets.find(ws => ws.rowCount > 1) || workbook.worksheets[0]
-      }
+      // [B1] Select the module's worksheet by its canonical NAME (was: first non-INSTRUCTIONS
+      // sheet, which matched the combined export's 'Cover' → silent no-op).
+      const worksheet = selectModuleWorksheet(workbook, input.module)
 
       if (!worksheet) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'No worksheet found' })
       }
-
       console.log('[Import] Selected worksheet:', worksheet.name, 'with', worksheet.rowCount, 'rows')
 
       // Debug: Log first row (headers)
@@ -1087,24 +1092,14 @@ export const importRouter = router({
               continue
             }
 
+            // Only guests / gifts / guestGifts reach the inline path — budget, hotels,
+            // transport, vendors, events all return early via the buffer-parser block above.
             switch (input.module) {
               case 'guests':
                 await importGuest(tx, companyId, input.clientId, row, results)
                 break
-              case 'vendors':
-                await importVendor(tx, companyId, input.clientId, row, results)
-                break
-              case 'budget':
-                await importBudget(tx, companyId, input.clientId, row, results)
-                break
               case 'gifts':
                 await importGift(tx, companyId, input.clientId, row, results)
-                break
-              case 'hotels':
-                await importHotel(tx, companyId, input.clientId, row, results)
-                break
-              case 'transport':
-                await importTransport(tx, companyId, input.clientId, row, results)
                 break
               case 'guestGifts':
                 await importGuestGift(tx, companyId, input.clientId, row, results)
@@ -1162,21 +1157,16 @@ export const importRouter = router({
             }
           }
 
-          // Recalculate per-guest budget items once after all guest changes
-          if (input.module === 'guests') {
-            const { updatedItems } = await recalcPerGuestBudgetItems(tx, input.clientId)
-            if (updatedItems > 0) {
-              results.cascadeActions.push({ module: 'budget', action: 'recalculated', count: updatedItems })
-              syncResult.created.budget = updatedItems
-            }
-          }
-
           console.log(`[Import] Cascade sync completed: hotels=${syncResult.created.hotels}, transport=${syncResult.created.transport}, timeline=${syncResult.created.timeline}, budget=${syncResult.created.budget}`)
         }
 
-        // Recalculate client cached stats for guest/budget imports
-        if (input.module === 'guests' || input.module === 'budget') {
-          await recalcClientStats(tx, input.clientId)
+        // Centralized per-module recalc cascade (SSOT). For the inline path this is guests
+        // (client stats + per-guest budget); gifts/guestGifts are no-ops. Routing through the
+        // shared helper keeps the Excel and Sheets import cascades from drifting (P1/I1 class).
+        const { perGuestBudgetUpdated } = await runImportRecalcCascade(tx, input.module, input.clientId)
+        if (perGuestBudgetUpdated > 0) {
+          results.cascadeActions.push({ module: 'budget', action: 'recalculated', count: perGuestBudgetUpdated })
+          syncResult.created.budget = perGuestBudgetUpdated
         }
 
         console.log(`[Import] Transaction complete: ${results.created} created, ${results.updated} updated, ${results.skipped} skipped, ${results.cascadeActions.length} cascade actions`)
@@ -1487,378 +1477,6 @@ function getRowValue(row: any, ...possibleHeaders: string[]): any {
   return undefined
 }
 
-// Helper: Import Vendor with client-vendor relationship data
-async function importVendor(
-  db: any,
-  companyId: string,
-  clientId: string,
-  row: any,
-  results: { updated: number; created: number; errors: string[] }
-) {
-  const id = getRowValue(row, 'ID (Do not modify)', 'ID', 'id')
-  const vendorName = getRowValue(row, 'Vendor Name *', 'Vendor Name', 'vendor_name', 'Name', 'name')
-  const category = getRowValue(row, 'Category *', 'Category', 'category', 'Service Category', 'service_category')
-
-  if (!vendorName || !category) throw new Error('Vendor Name and Category are required')
-
-  // Parse boolean values
-  const parseBoolean = (val: any): boolean => {
-    if (typeof val === 'boolean') return val
-    if (typeof val === 'string') {
-      const normalized = val.trim().toLowerCase()
-      return normalized === 'true' || normalized === 'yes' || normalized === '1'
-    }
-    return false
-  }
-
-  // Parse date values
-  const parseDate = (val: any): string | null => {
-    if (!val) return null
-    if (val instanceof Date && !isNaN(val.getTime())) {
-      return val.toISOString().split('T')[0]
-    }
-    if (typeof val === 'string') {
-      const trimmed = val.trim()
-      if (!trimmed) return null
-      const parsed = new Date(trimmed)
-      return isNaN(parsed.getTime()) ? trimmed : parsed.toISOString().split('T')[0]
-    }
-    if (typeof val === 'number') {
-      const excelEpoch = new Date(1899, 11, 30)
-      const date = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000)
-      return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0]
-    }
-    return null
-  }
-
-  // Parse currency values
-  const parseCurrency = (val: any): string | null => {
-    if (!val) return null
-    const cleaned = String(val).replace(/[^0-9.-]/g, '')
-    const num = parseFloat(cleaned)
-    return isNaN(num) ? null : String(num)
-  }
-
-  // Get event name first - needed for matching
-  const eventName = getRowValue(row, 'Event', 'event_name', 'Event Name')
-
-  // Find event by name if provided
-  let eventId: string | null = null
-  if (eventName) {
-    const event = await db.query.events.findFirst({
-      where: and(
-        eq(schema.events.clientId, clientId),
-        eq(schema.events.title, eventName)
-      ),
-    })
-    eventId = event?.id || null
-    console.log('[Import Vendor] Event lookup:', eventName, '→', eventId || 'NOT FOUND')
-  }
-
-  // Vendor base data - with comprehensive header matching
-  const vendorData = {
-    name: vendorName,
-    category,
-    contactName: getRowValue(row, 'Contact Name', 'contact_name', 'Contact', 'Contact Person', 'contact_person', 'ContactName') || null,
-    phone: getRowValue(row, 'Phone', 'phone', 'Phone Number', 'phone_number', 'PhoneNumber', 'Mobile', 'Tel') || null,
-    email: getRowValue(row, 'Email', 'email', 'Email Address', 'email_address', 'EmailAddress', 'E-mail') || null,
-    rating: getRowValue(row, 'Rating', 'rating') ? String(getRowValue(row, 'Rating', 'rating')) : null,
-    notes: getRowValue(row, 'Notes', 'notes', 'Contact Notes', 'contact_notes', 'ContactNotes', 'Vendor Notes') || null,
-    updatedAt: new Date(),
-  }
-
-  // Parse deposit - check both "Deposit Paid" (which may contain amount) and "Deposit Amount"
-  // Some Excel files use "Deposit Paid" for the amount, others use it for Yes/No
-  const depositPaidRaw = getRowValue(row, 'Deposit Paid', 'deposit_paid', 'DepositPaid')
-  const depositAmountRaw = getRowValue(row, 'Deposit Amount', 'deposit_amount', 'DepositAmount', 'Deposit')
-
-  // Parse deposit amount and paid status
-  const parseDepositInfo = (): { depositAmount: string | null; depositPaid: boolean } => {
-    if (depositAmountRaw) {
-      // If there's a separate "Deposit Amount" column, use it
-      const amount = parseCurrency(depositAmountRaw)
-      const paid = parseBoolean(depositPaidRaw) || (amount !== null && parseFloat(amount) > 0)
-      return { depositAmount: amount, depositPaid: paid }
-    } else if (depositPaidRaw) {
-      // "Deposit Paid" might contain the amount (common in user Excel files)
-      const parsed = parseCurrency(depositPaidRaw)
-      if (parsed && parseFloat(parsed) > 0) {
-        // It's a number - treat as amount
-        return { depositAmount: parsed, depositPaid: true }
-      } else {
-        // It's a boolean value
-        return { depositAmount: null, depositPaid: parseBoolean(depositPaidRaw) }
-      }
-    }
-    return { depositAmount: null, depositPaid: false }
-  }
-  const { depositAmount, depositPaid } = parseDepositInfo()
-
-  // Client-vendor relationship data - with comprehensive header matching
-  // Property names must match the schema: venueAddress, onsitePocName, onsitePocPhone, deliverables, approvalComments
-  const clientVendorData = {
-    contractAmount: parseCurrency(getRowValue(row, 'Contract Amount', 'contract_amount', 'ContractAmount', 'Contract', 'Total Cost', 'TotalCost', 'Cost')),
-    depositAmount: depositAmount,
-    depositPaid: depositPaid,
-    paymentStatus: getRowValue(row, 'Payment Status', 'payment_status', 'PaymentStatus', 'Status', 'Payment') || 'pending',
-    serviceDate: parseDate(getRowValue(row, 'Service Date', 'service_date', 'ServiceDate', 'Date', 'Event Date')),
-    venueAddress: getRowValue(row, 'Service Location', 'service_location', 'ServiceLocation', 'Location', 'Venue', 'Venue Address') || null,
-    onsitePocName: getRowValue(row, 'On-Site Contact', 'onsite_contact', 'OnSiteContact', 'On Site Contact', 'POC', 'Point of Contact') || null,
-    onsitePocPhone: getRowValue(row, 'On-Site Phone', 'onsite_phone', 'OnSitePhone', 'On Site Phone', 'Contact Phone', 'ContactPhone', 'POC Phone') || null,
-    deliverables: getRowValue(row, 'Services Provided', 'services_provided', 'ServicesProvided', 'Services', 'Deliverables', 'Scope') || null,
-    approvalStatus: getRowValue(row, 'Approval Status', 'approval_status', 'ApprovalStatus', 'Approval') || 'pending',
-    approvalComments: getRowValue(row, 'Approval Notes', 'approval_notes', 'ApprovalNotes', 'Approval Comments') || null,
-    updatedAt: new Date(),
-  }
-
-  console.log('[Import Vendor] Processing:', {
-    vendorName,
-    category,
-    eventName: eventName || 'NO EVENT',
-    id: id || 'no ID',
-    contractAmount: clientVendorData.contractAmount,
-    depositAmount: clientVendorData.depositAmount,
-    approvalStatus: clientVendorData.approvalStatus,
-  })
-
-  let existingVendor = null
-
-  if (id) {
-    // Try to find by ID first
-    existingVendor = await db.query.vendors.findFirst({
-      where: and(
-        eq(schema.vendors.id, id),
-        eq(schema.vendors.companyId, companyId)
-      ),
-    })
-    console.log('[Import Vendor] Found by ID:', existingVendor ? existingVendor.name : 'NOT FOUND')
-  }
-
-  // If no ID or ID not found, try to match by vendor name (case-insensitive)
-  if (!existingVendor && vendorName) {
-    const allVendors = await db.query.vendors.findMany({
-      where: eq(schema.vendors.companyId, companyId),
-    })
-    existingVendor = allVendors.find(
-      (v: any) => v.name.toLowerCase().trim() === vendorName.toLowerCase().trim()
-    )
-    console.log('[Import Vendor] Match by name:', existingVendor ? `FOUND: ${existingVendor.name}` : 'NOT FOUND')
-  }
-
-  let vendorId: string
-
-  if (existingVendor) {
-    // Update existing vendor base data
-    console.log('[Import Vendor] UPDATING vendor:', existingVendor.id)
-    await db
-      .update(schema.vendors)
-      .set(vendorData)
-      .where(eq(schema.vendors.id, existingVendor.id))
-    vendorId = existingVendor.id
-  } else {
-    // Create new vendor
-    console.log('[Import Vendor] CREATING new vendor:', vendorName)
-    const [newVendor] = await db.insert(schema.vendors).values({
-      ...vendorData,
-      companyId,
-    }).returning()
-    vendorId = newVendor.id
-  }
-
-  // Check if client_vendor relationship exists
-  // NOTE: There's a unique constraint on (clientId, vendorId) - so we must look up by these only
-  // Each vendor can only have ONE relationship per client (eventId is just metadata, not part of unique key)
-  const existingClientVendor = await db.query.clientVendors.findFirst({
-    where: and(
-      eq(schema.clientVendors.clientId, clientId),
-      eq(schema.clientVendors.vendorId, vendorId)
-    ),
-  })
-  console.log('[Import Vendor] Lookup by client+vendor:', existingClientVendor ? 'FOUND' : 'NOT FOUND')
-
-  if (existingClientVendor) {
-    // Update existing client_vendor relationship
-    console.log('[Import Vendor] UPDATING client_vendor:', existingClientVendor.id)
-    await db
-      .update(schema.clientVendors)
-      .set({
-        ...clientVendorData,
-        eventId: eventId || existingClientVendor.eventId,
-      })
-      .where(eq(schema.clientVendors.id, existingClientVendor.id))
-    results.updated++
-  } else {
-    // Create new client_vendor relationship
-    console.log('[Import Vendor] CREATING client_vendor for vendor:', vendorId, 'event:', eventId)
-    await db.insert(schema.clientVendors).values({
-      clientId,
-      vendorId,
-      eventId,
-      ...clientVendorData,
-    })
-    results.created++
-  }
-
-  // ===== CROSS-MODULE SYNC: Vendor → Budget =====
-  // If contract amount is provided, sync to budget
-  const syncContractAmount = clientVendorData.contractAmount
-  const syncDepositAmount = clientVendorData.depositAmount
-
-  if (syncContractAmount) {
-    console.log('[Import Vendor] Syncing to budget - contract:', syncContractAmount)
-
-    // Check if budget entry exists for this vendor
-    const existingBudgetEntry = await db.query.budget.findFirst({
-      where: and(
-        eq(schema.budget.clientId, clientId),
-        eq(schema.budget.vendorId, vendorId)
-      ),
-    })
-
-    const budgetData = {
-      category: category,
-      segment: 'vendors' as const,
-      item: vendorName,
-      estimatedCost: syncContractAmount,
-      paidAmount: syncDepositAmount || '0',
-      paymentStatus: clientVendorData.paymentStatus || 'pending',
-      eventId: eventId,
-      clientVisible: true,
-      notes: `Auto-synced from vendor: ${vendorName}`,
-      updatedAt: new Date(),
-    }
-
-    if (existingBudgetEntry) {
-      // Update existing budget entry
-      console.log('[Import Vendor] UPDATING linked budget entry:', existingBudgetEntry.id)
-      await db
-        .update(schema.budget)
-        .set(budgetData)
-        .where(eq(schema.budget.id, existingBudgetEntry.id))
-    } else {
-      // Create new budget entry linked to vendor
-      console.log('[Import Vendor] CREATING linked budget entry for vendor:', vendorId)
-      await db.insert(schema.budget).values({
-        ...budgetData,
-        clientId,
-        vendorId,
-      })
-    }
-  }
-}
-
-// Helper: Import Budget
-async function importBudget(
-  db: any,
-  companyId: string,
-  clientId: string,
-  row: any,
-  results: { updated: number; created: number; errors: string[] }
-) {
-  const id = getRowValue(row, 'ID (Do not modify)', 'ID', 'id')
-  const item = getRowValue(row, 'Item *', 'Item', 'item', 'Budget Item', 'budget_item')
-  const category = getRowValue(row, 'Category *', 'Category', 'category')
-  const estimatedCost = getRowValue(row, 'Estimated Cost *', 'Estimated Cost', 'estimated_cost', 'Cost', 'Amount')
-  const segment = getRowValue(row, 'Segment', 'segment') || 'other'
-
-  if (!item || !category || !estimatedCost) throw new Error('Item, Category, and Estimated Cost are required')
-
-  // Parse currency values - remove non-numeric chars except decimal
-  const parseCurrency = (val: any): string => {
-    if (!val) return '0'
-    const cleaned = String(val).replace(/[^0-9.-]/g, '')
-    const num = parseFloat(cleaned)
-    return isNaN(num) ? '0' : String(num)
-  }
-
-  const budgetData = {
-    item,
-    category,
-    segment,
-    estimatedCost: parseCurrency(estimatedCost),
-    paidAmount: parseCurrency(getRowValue(row, 'Paid Amount', 'paid_amount', 'Paid')),
-    actualCost: getRowValue(row, 'Actual Cost', 'actual_cost') ? parseCurrency(getRowValue(row, 'Actual Cost', 'actual_cost')) : null,
-    paymentStatus: getRowValue(row, 'Payment Status', 'payment_status', 'Status') || 'pending',
-    notes: getRowValue(row, 'Notes', 'notes') || null,
-    updatedAt: new Date(),
-  }
-
-  let existingBudget = null
-
-  if (id) {
-    // Try to find by ID first
-    existingBudget = await db.query.budget.findFirst({
-      where: and(
-        eq(schema.budget.id, id),
-        eq(schema.budget.clientId, clientId)
-      ),
-    })
-  }
-
-  // If no ID or ID not found, try to match by item name (case-insensitive)
-  if (!existingBudget && item) {
-    const allBudgets = await db.query.budget.findMany({
-      where: eq(schema.budget.clientId, clientId),
-    })
-    existingBudget = allBudgets.find(
-      (b: any) => b.item.toLowerCase().trim() === item.toLowerCase().trim()
-    )
-  }
-
-  let budgetId: string
-  let vendorId: string | null = null
-
-  if (existingBudget) {
-    // Update existing budget item
-    await db
-      .update(schema.budget)
-      .set(budgetData)
-      .where(eq(schema.budget.id, existingBudget.id))
-
-    budgetId = existingBudget.id
-    vendorId = existingBudget.vendorId
-    results.updated++
-  } else {
-    // Create new budget item
-    const [newBudget] = await db.insert(schema.budget).values({
-      ...budgetData,
-      clientId,
-    }).returning()
-
-    budgetId = newBudget.id
-    results.created++
-  }
-
-  // ===== CROSS-MODULE SYNC: Budget → Vendor =====
-  // If this budget item is linked to a vendor, sync contract amount back
-  if (vendorId) {
-    console.log('[Import Budget] Syncing to vendor - vendorId:', vendorId, 'estimatedCost:', budgetData.estimatedCost)
-
-    // Find the client_vendor relationship
-    const clientVendor = await db.query.clientVendors.findFirst({
-      where: and(
-        eq(schema.clientVendors.clientId, clientId),
-        eq(schema.clientVendors.vendorId, vendorId)
-      ),
-    })
-
-    if (clientVendor) {
-      // Update client_vendor with new contract amount and payment status
-      await db
-        .update(schema.clientVendors)
-        .set({
-          contractAmount: budgetData.estimatedCost,
-          depositAmount: budgetData.paidAmount || '0',
-          paymentStatus: budgetData.paymentStatus || 'pending',
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.clientVendors.id, clientVendor.id))
-
-      console.log('[Import Budget] UPDATED linked client_vendor:', clientVendor.id)
-    }
-  }
-}
-
 // Helper: Import Gift
 async function importGift(
   db: any,
@@ -1868,28 +1486,36 @@ async function importGift(
   results: { updated: number; created: number; errors: string[] }
 ) {
   const id = getRowValue(row, 'ID (Do not modify)', 'ID', 'id')
-  const giftName = getRowValue(row, 'Gift Name *', 'Gift Name', 'gift_name', 'Gift', 'Name')
-  const fromName = getRowValue(row, 'From Name', 'from_name', 'From', 'Sender', 'Giver') || null
+  const giftName = getRowValue(row, 'Gift Name *', 'Gift Name', 'gift_name', 'Gift Item', 'Gift', 'Name')
 
   if (!giftName) throw new Error('Gift Name is required')
 
-  // Parse boolean values
-  const parseBoolean = (val: any): boolean => {
-    if (typeof val === 'boolean') return val
-    if (typeof val === 'string') {
-      const normalized = val.trim().toLowerCase()
-      return normalized === 'true' || normalized === 'yes' || normalized === '1'
-    }
-    return false
-  }
+  // [C1] Map to the ACTUAL `gifts` table columns (name / value / status / guestId), NOT the
+  // non-existent giftName/fromName/deliveryStatus/thankYouSent the old code wrote. Typed via
+  // $inferInsert so a wrong column name is a COMPILE error. Mirrors the correct Sheets path
+  // (importGiftsFromSheet, GIFT_HEADERS Gift Name/Value/Status).
+  //
+  // Non-destructive: only overwrite columns actually PRESENT in the uploaded sheet — the
+  // official gifts template carries no 'Value'/'Guest ID' columns, so an unconditional .set()
+  // would null out stored gift values and guest links on every re-import.
+  const normHeader = (s: string) => s.toLowerCase().replace(/[*\s]/g, '')
+  const rowCols = new Set(Object.keys(row).map(normHeader))
+  const hasCol = (...headers: string[]) => headers.some((h) => rowCols.has(normHeader(h)))
 
-  const giftData = {
-    giftName,
-    fromName,
-    fromEmail: getRowValue(row, 'From Email', 'from_email', 'Email', 'Sender Email') || null,
-    deliveryStatus: getRowValue(row, 'Delivery Status', 'delivery_status', 'Status') || 'pending',
-    thankYouSent: parseBoolean(getRowValue(row, 'Thank You Sent (TRUE/FALSE)', 'Thank You Sent', 'thank_you_sent', 'Thank You')),
+  const giftData: Partial<typeof schema.gifts.$inferInsert> = {
+    name: giftName,
     updatedAt: new Date(),
+  }
+  if (hasCol('Value', 'Gift Value', 'Amount')) {
+    const raw = getRowValue(row, 'Value', 'value', 'Gift Value', 'Amount')
+    const n = raw === undefined ? NaN : Number.parseFloat(String(raw))
+    giftData.value = Number.isFinite(n) ? n : null
+  }
+  if (hasCol('Status', 'Delivery Status')) {
+    giftData.status = getRowValue(row, 'Status', 'status', 'Delivery Status') || 'received'
+  }
+  if (hasCol('Guest ID (Do not modify)', 'Guest ID', 'guest_id')) {
+    giftData.guestId = getRowValue(row, 'Guest ID (Do not modify)', 'Guest ID', 'guest_id') || null
   }
 
   let existingGift = null
@@ -1904,19 +1530,19 @@ async function importGift(
     })
   }
 
-  // If no ID or ID not found, try to match by gift name + from name (case-insensitive)
+  // [C1] If no ID match, match by the real `name` column (was g.giftName → a non-existent
+  // column → undefined.toLowerCase() crash on ADD whenever a gift already existed).
   if (!existingGift && giftName) {
     const allGifts = await db.query.gifts.findMany({
       where: eq(schema.gifts.clientId, clientId),
     })
     existingGift = allGifts.find(
-      (g: any) => g.giftName.toLowerCase().trim() === giftName.toLowerCase().trim() &&
-        (g.fromName || '').toLowerCase().trim() === (fromName || '').toLowerCase().trim()
+      (g: any) => (g.name || '').toLowerCase().trim() === giftName.toLowerCase().trim()
     )
   }
 
   if (existingGift) {
-    // Update existing gift
+    // Update existing gift (non-destructive — only the columns present above)
     await db
       .update(schema.gifts)
       .set(giftData)
@@ -1924,312 +1550,15 @@ async function importGift(
 
     results.updated++
   } else {
-    // Create new gift
+    // Create new gift — include companyId (tenant-scoped table, CLAUDE rule 1).
+    const { nanoid } = await import('nanoid')
     await db.insert(schema.gifts).values({
+      id: nanoid(),
       ...giftData,
+      name: giftName,
+      status: giftData.status ?? 'received',
       clientId,
-    })
-
-    results.created++
-  }
-}
-
-// Helper: Import Hotel
-async function importHotel(
-  db: any,
-  companyId: string,
-  clientId: string,
-  row: any,
-  results: { updated: number; created: number; errors: string[] }
-) {
-  const id = getRowValue(row, 'ID (Do not modify)', 'ID', 'id')
-  const guestId = getRowValue(row, 'Guest ID (Do not modify)', 'Guest ID', 'guest_id', 'GuestId')
-  // Support all header variations
-  const guestName = getRowValue(row, 'Guest Name * (Required)', 'Guest Name *', 'Guest Name', 'guest_name', 'GuestName', 'Name')
-
-  if (!guestName) throw new Error('Guest Name is required')
-
-  // Parse date values
-  const parseDate = (val: any): string | null => {
-    if (!val) return null
-    if (val instanceof Date && !isNaN(val.getTime())) {
-      return val.toISOString().split('T')[0]
-    }
-    if (typeof val === 'string') {
-      const trimmed = val.trim()
-      if (!trimmed) return null
-      // Try to parse and return as YYYY-MM-DD
-      const parsed = new Date(trimmed)
-      return isNaN(parsed.getTime()) ? trimmed : parsed.toISOString().split('T')[0]
-    }
-    if (typeof val === 'number') {
-      // Excel serial date
-      const excelEpoch = new Date(1899, 11, 30)
-      const date = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000)
-      return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0]
-    }
-    return null
-  }
-
-  // Parse party size
-  const parsePartySize = (val: any): number => {
-    if (!val) return 1
-    const num = parseInt(String(val), 10)
-    return isNaN(num) || num < 1 ? 1 : num
-  }
-
-  // Parse cost
-  const parseCost = (val: any): string | null => {
-    if (!val) return null
-    const cleaned = String(val).replace(/[^0-9.-]/g, '')
-    return cleaned ? String(parseFloat(cleaned)) : null
-  }
-
-  // Parse boolean values - support TRUE, Yes, yes, true, 1
-  const parseBoolean = (val: any): boolean => {
-    if (typeof val === 'boolean') return val
-    if (typeof val === 'number') return val === 1
-    if (typeof val === 'string') {
-      const normalized = val.trim().toLowerCase()
-      return normalized === 'true' || normalized === 'yes' || normalized === '1'
-    }
-    return false
-  }
-
-  // Parse intelligent room assignment with guest names
-  const guestNamesInRoom = getRowValue(row, 'Guest Names in Room (e.g., john and mary, sue)', 'Guest Names in Room', 'GuestNamesInRoom', 'Room Guests', 'Guests in Room') || null
-  const roomNumberInput = getRowValue(row, 'Room Number', 'room_number', 'RoomNumber', 'Room #', 'Room') || null
-
-  // Container for room assignments
-  interface RoomAssignment {
-    guestNameForRoom: string
-    roomNumber: string
-    partySizeForRoom: number
-  }
-  const roomAssignments: RoomAssignment[] = []
-
-  if (guestNamesInRoom && String(guestNamesInRoom).trim()) {
-    // SMART MODE: Parse "first and ape, monk" with "22, 23"
-    const guestNameGroups = String(guestNamesInRoom).split(',').map(g => g.trim()).filter(Boolean)
-    const roomNumbers = roomNumberInput
-      ? String(roomNumberInput).split(',').map(r => r.trim()).filter(Boolean)
-      : []
-
-    // Match guest name groups with room numbers
-    guestNameGroups.forEach((nameGroup, index) => {
-      // Auto-calculate party size by counting names
-      // Split by "and" to count individual names
-      const namesInThisRoom = nameGroup.split(/\s+and\s+/i).map(n => n.trim()).filter(Boolean)
-      const autoPartySize = namesInThisRoom.length
-
-      roomAssignments.push({
-        guestNameForRoom: nameGroup,
-        roomNumber: roomNumbers[index] || '', // Match room by index, or empty if not enough rooms
-        partySizeForRoom: autoPartySize,
-      })
-    })
-  } else {
-    // SIMPLE MODE: Original comma-separated room numbers only
-    const roomNumbers: string[] = []
-    if (roomNumberInput) {
-      if (String(roomNumberInput).includes(',')) {
-        roomNumbers.push(...String(roomNumberInput).split(',').map(r => r.trim()).filter(Boolean))
-      } else {
-        roomNumbers.push(String(roomNumberInput).trim())
-      }
-    } else {
-      roomNumbers.push('')
-    }
-
-    // Use original guest name and manual/default party size
-    const manualPartySize = parsePartySize(getRowValue(row, '# in Room (auto or manual)', '# in Room (1, 2, 3...)', '# of Guests', 'Party Size', 'party_size', 'PartySize', 'Guests'))
-    roomNumbers.forEach(roomNum => {
-      roomAssignments.push({
-        guestNameForRoom: guestName,
-        roomNumber: roomNum,
-        partySizeForRoom: manualPartySize,
-      })
-    })
-  }
-
-  const baseHotelData = {
-    guestId: guestId || null,
-    hotelName: getRowValue(row, 'Hotel Name', 'hotel_name', 'HotelName', 'Hotel') || null,
-    roomType: getRowValue(row, 'Room Type (Suite/Deluxe...)', 'Room Type', 'room_type', 'RoomType', 'Type') || null,
-    checkInDate: parseDate(getRowValue(row, 'Check-In (YYYY-MM-DD)', 'Check-In', 'Check-in Date', 'CheckIn', 'check_in', 'Check In')),
-    checkOutDate: parseDate(getRowValue(row, 'Check-Out (YYYY-MM-DD)', 'Check-Out', 'Check-out Date', 'CheckOut', 'check_out', 'Check Out')),
-    accommodationNeeded: parseBoolean(getRowValue(row, 'Need Hotel? (Yes/No)', 'Hotel Needed', 'Accommodation Status', 'Needs Hotel', 'hotel_needed')),
-    bookingConfirmed: parseBoolean(getRowValue(row, 'Booking Confirmed (Yes/No)', 'Booking Confirmed', 'booking_confirmed', 'BookingConfirmed', 'Confirmed')),
-    checkedIn: parseBoolean(getRowValue(row, 'Checked In (Yes/No)', 'Checked In', 'checked_in', 'CheckedIn')),
-    cost: parseCost(getRowValue(row, 'Room Cost (numbers only)', 'Room Cost', 'Cost', 'room_cost', 'RoomCost', 'Price')),
-    paymentStatus: getRowValue(row, 'Payment (pending/paid/overdue)', 'Payment Status', 'payment_status', 'PaymentStatus', 'Payment') || 'pending',
-    notes: getRowValue(row, 'Special Notes', 'Notes', 'notes', 'Comments') || null,
-    updatedAt: new Date(),
-  }
-
-  let existingHotel = null
-
-  if (id) {
-    // Try to find by ID first
-    existingHotel = await db.query.hotels.findFirst({
-      where: and(
-        eq(schema.hotels.id, id),
-        eq(schema.hotels.clientId, clientId)
-      ),
-    })
-  }
-
-  // If no ID or ID not found, try to match by guest name (case-insensitive)
-  if (!existingHotel && guestName) {
-    const allHotels = await db.query.hotels.findMany({
-      where: eq(schema.hotels.clientId, clientId),
-    })
-    existingHotel = allHotels.find(
-      (h: any) => h.guestName.toLowerCase().trim() === guestName.toLowerCase().trim()
-    )
-  }
-
-  if (existingHotel) {
-    // Update existing - single assignment only
-    if (roomAssignments.length > 1) {
-      throw new Error('Cannot update with multiple room assignments. Please update each room separately.')
-    }
-
-    const assignment = roomAssignments[0]
-    await db
-      .update(schema.hotels)
-      .set({
-        ...baseHotelData,
-        guestName: assignment.guestNameForRoom,
-        roomNumber: assignment.roomNumber || null,
-        partySize: assignment.partySizeForRoom,
-      })
-      .where(eq(schema.hotels.id, existingHotel.id))
-
-    results.updated++
-  } else {
-    // Create new - support multiple room assignments
-    for (const assignment of roomAssignments) {
-      await db.insert(schema.hotels).values({
-        ...baseHotelData,
-        guestName: assignment.guestNameForRoom,
-        roomNumber: assignment.roomNumber || null,
-        partySize: assignment.partySizeForRoom,
-        clientId,
-      })
-      results.created++
-    }
-  }
-}
-
-// Helper: Import Transport
-async function importTransport(
-  db: any,
-  companyId: string,
-  clientId: string,
-  row: any,
-  results: { updated: number; created: number; errors: string[] }
-) {
-  const id = getRowValue(row, 'ID (Do not modify)', 'ID', 'id')
-  const guestId = getRowValue(row, 'Guest ID (Do not modify)', 'Guest ID', 'guest_id', 'GuestId')
-  // Support all header variations
-  const guestName = getRowValue(row, 'Guest Name *', 'Guest Name', 'guest_name', 'GuestName', 'Name', 'Passenger Name', 'Passenger')
-
-  if (!guestName) throw new Error('Guest Name is required')
-
-  // Parse date values
-  const parseDate = (val: any): string | null => {
-    if (!val) return null
-    if (val instanceof Date && !isNaN(val.getTime())) {
-      return val.toISOString().split('T')[0]
-    }
-    if (typeof val === 'string') {
-      const trimmed = val.trim()
-      if (!trimmed) return null
-      const parsed = new Date(trimmed)
-      return isNaN(parsed.getTime()) ? trimmed : parsed.toISOString().split('T')[0]
-    }
-    if (typeof val === 'number') {
-      const excelEpoch = new Date(1899, 11, 30)
-      const date = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000)
-      return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0]
-    }
-    return null
-  }
-
-  // Parse time value (HH:MM format)
-  const parseTime = (val: any): string | null => {
-    if (!val) return null
-    if (typeof val === 'string') {
-      const trimmed = val.trim()
-      if (!trimmed) return null
-      // If it's already in HH:MM format, return it
-      if (/^\d{1,2}:\d{2}$/.test(trimmed)) return trimmed
-      // Try to extract time from datetime string
-      const timeMatch = trimmed.match(/(\d{1,2}:\d{2})/)
-      return timeMatch ? timeMatch[1] : trimmed
-    }
-    if (val instanceof Date && !isNaN(val.getTime())) {
-      return val.toTimeString().slice(0, 5)
-    }
-    if (typeof val === 'number' && val < 1) {
-      // Excel time fraction (0.5 = 12:00)
-      const totalMinutes = Math.round(val * 24 * 60)
-      const hours = Math.floor(totalMinutes / 60)
-      const minutes = totalMinutes % 60
-      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-    }
-    return null
-  }
-
-  const transportData = {
-    guestId: guestId || null,
-    guestName,
-    pickupDate: parseDate(getRowValue(row, 'Pickup Date', 'pickup_date', 'PickupDate', 'Date', 'Travel Date')),
-    pickupTime: parseTime(getRowValue(row, 'Pickup Time', 'pickup_time', 'PickupTime', 'Time', 'Departure Time')),
-    pickupFrom: getRowValue(row, 'Pickup From', 'Pickup Location', 'pickup_from', 'PickupFrom', 'From', 'Origin', 'Start Location') || null,
-    dropTo: getRowValue(row, 'Drop To', 'Drop-off Location', 'drop_to', 'DropTo', 'To', 'Destination', 'End Location') || null,
-    vehicleInfo: getRowValue(row, 'Vehicle Info', 'Vehicle/Shuttle', 'vehicle_info', 'VehicleInfo', 'Vehicle', 'Transport Type', 'Mode') || null,
-    transportStatus: getRowValue(row, 'Transport Status', 'Status', 'transport_status', 'TransportStatus') || 'scheduled',
-    notes: getRowValue(row, 'Notes', 'Special Notes', 'notes', 'Comments', 'Remarks') || null,
-    updatedAt: new Date(),
-  }
-
-  let existingTransport = null
-
-  if (id) {
-    // Try to find by ID first
-    existingTransport = await db.query.guestTransport.findFirst({
-      where: and(
-        eq(schema.guestTransport.id, id),
-        eq(schema.guestTransport.clientId, clientId)
-      ),
-    })
-  }
-
-  // If no ID or ID not found, try to match by guest name (case-insensitive)
-  if (!existingTransport && guestName) {
-    const allTransport = await db.query.guestTransport.findMany({
-      where: eq(schema.guestTransport.clientId, clientId),
-    })
-    existingTransport = allTransport.find(
-      (t: any) => t.guestName.toLowerCase().trim() === guestName.toLowerCase().trim()
-    )
-  }
-
-  if (existingTransport) {
-    // Update existing transport
-    await db
-      .update(schema.guestTransport)
-      .set(transportData)
-      .where(eq(schema.guestTransport.id, existingTransport.id))
-
-    results.updated++
-  } else {
-    // Create new transport
-    await db.insert(schema.guestTransport).values({
-      ...transportData,
-      clientId,
+      companyId,
     })
 
     results.created++
