@@ -10,11 +10,27 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-Prompt 2 (verification) IN PROGRESS on `audit/bulletproof`. Bring stack up with
-`bash scripts/start-test-stack.sh up` — NOTE: the `up` rewrites `.env.test.local` and DROPS
-the `TEST_DB_CONFIRMED=1` line; re-append it (user-granted) before running the audit suite.
-Verify SRH via POST `["PING"]` (path-style REST is unsupported by hiett/SRH → "Endpoint not
-found" is EXPECTED, not a failure). NO real fixes (incl. D1) until Prompt 3.
+Prompt 2 (verification) COMPLETE on `audit/bulletproof` (all 5 items). Next is **Prompt 3 —
+real fixes** for the confirmed defects (B1, C1, P1, T1/T2, D1, E-cluster) — see FINDINGS.md
+clustered by root cause. Bring stack up with `bash scripts/start-test-stack.sh up` — NOTE: the
+`up` rewrites `.env.test.local` and DROPS the `TEST_DB_CONFIRMED=1` line; re-append it
+(user-granted) before running the audit suite. Verify SRH via POST `["PING"]` (path-style REST
+is unsupported by hiett/SRH → "Endpoint not found" is EXPECTED). NO real fixes until Prompt 3.
+
+### Prompt 2 OUTCOME (verification complete — 20 audit files / 40 passed + 1 expected-fail)
+All five items done; 6 confirmed defect clusters logged in FINDINGS (feeds Prompt 3):
+- **B1** (high) combined-export inline importer selects `Cover` → guests/gifts/guestGifts
+  combined round-trip silently no-ops.
+- **C1** (high) `importGift` reads/writes non-existent columns → Excel gift EDIT no-ops, ADD
+  crashes (Sheets gift path is correct).
+- **T1/T2** (high) cross-tenant IDOR: `floorPlans.getChangeHistory` + `getGuestPreferences`
+  leak another tenant's rows (no company ownership check).
+- **P1** (med) Sheets guest import skips `recalcPerGuestBudgetItems` → per-guest budget stale
+  (chatbot/Excel recalc; Sheets doesn't).
+- **E1/E2/E3** (low–med) export fidelity (events absent from combined export; transport name
+  blanked w/o guestId; Gifts/Timeline view-only sheets).
+- **D1** (med) re-confirmed: inline guests/gifts importers skip `validateExcelFile`.
+Plus harness-quality H1 RESOLVED (true T2 measured) and H2/H3/H4/H5/H6 noted.
 
 ## ▷ Prompt 2 — verification phase (close Prompt-1 gaps)
 Gate re-opened + proven clean (DB 127.0.0.1:5433/weddingflo_test, 35 migrations, 0 residual
@@ -26,10 +42,10 @@ workflow, source-code-context. FINDINGS.md created.
   false-greens found (probes read real DB/Redis). Harness-quality findings logged FINDINGS
   Cluster H (H1 perf.c7 T2 = publish-not-delivery → superseded by P2.3; H2 Rail-3 omits Redis
   endpoint guard; H4 D1 it.fails fragile → tighten in P2.2 guests).
-- P2.2 C1 all modules (xlsx + Sheets) + C3 headers — per-module matrix below.
-- P2.3 true cross-tab T2/C4 — pending.
-- P2.4 C2 chatbot↔sheet parity — pending.
-- P2.5 D4 tenant isolation read-only — pending.
+- **P2.2 DONE** — C1 all modules (xlsx + Sheets) + C3 headers — per-module matrix below. Found B1, C1, E1–E3; D1 re-confirmed.
+- **P2.3 DONE** — true cross-tab T2 via real `subscribeToCompany` live-stream: P50 305ms / P95 307ms (<2s budget); resolves H1 (was 9ms publish-only). Full two-browser BLOCKED: auth secrets (BETTER_AUTH_SECRET/TOKEN_ENCRYPTION_KEY/GOOGLE_CLIENT_ID/NEXT_PUBLIC_APP_URL/SUPABASE key) absent from .env.local + .env.test.local — cannot boot an authenticated dev server vs the test DB without them. `perf-t2-crosstab.c7.test.ts`.
+- **P2.4 DONE** — C2 chatbot↔sheet parity: client-stat recalc parity HOLDS; per-guest budget recalc DIVERGES (P1, Sheets skips it). `parity-chatbot-vs-sheet.c2.test.ts`.
+- **P2.5 DONE** — D4 tenant isolation: 2 cross-tenant IDOR leaks confirmed (T1 getChangeHistory, T2 getGuestPreferences); getById properly scoped; giftItems unscoped-but-unused. `tenant-isolation.d4.test.ts`.
 
 ### Per-module C1 verification matrix (Prompt 2 item 2)
 Schema: module | xlsx round-trip | Sheets round-trip | C3 headers | notes
@@ -47,7 +63,7 @@ Schema: module | xlsx round-trip | Sheets round-trip | C3 headers | notes
 | timeline | GREEN | n/a | GREEN(view) | via timeline.bulkImport create/update/delete + timeline.getAll/getStats broadcast |
 | events | GREEN | (engine proven via budget) | GREEN | via downloadTemplate (E1: not in combined export); EDIT+ADD+syncEventsToTimeline+EVENT_MUTATION_PATHS |
 
-P2.2 result: 17 audit files / 34 passed + 1 expected-fail; residual rows = 0; tsc clean on new files.
+Full P2 result: 20 audit files / 40 passed + 1 expected-fail; residual rows = 0; tsc clean on new files.
 Defect clusters found: **B1** (combined-export inline sheet-select=Cover → guests/gifts/guestGifts),
 **C1** (importGift wrong columns: EDIT no-ops, ADD crashes; Sheets path OK), **E1/E2/E3** (export
 fidelity), plus **D1** re-confirmed (inline guests/gifts skip validateExcelFile). Sheets per-module
@@ -59,15 +75,19 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 
 | id   | concern | status | evidence_path | test_id | last_run_sha | timestamp |
 |------|---------|--------|---------------|---------|--------------|-----------|
-| C1a  | Excel round-trip (exceljs) | verified (budget proven; 1a.6 D1 red) | excel-roundtrip.budget.test.ts | C1a-budget | d564270 | 2026-06-26T00:46Z |
-| C1b  | Google Sheets round-trip (googleapis) | verified (via seam) | sheets-roundtrip.c1b.test.ts | C1b-budget | d564270 | 2026-06-26T00:46Z |
-| C2   | Chatbot parity | verified | __tests__/integration (8 files/58) | C2 | d564270 | 2026-06-26T00:46Z |
-| C3   | Informative headers | verified | headers.c3.test.ts | C3 | d564270 | 2026-06-26T00:46Z |
-| C4   | Real-time new+existing | verified (node real-chain) | realtime.c4.test.ts | C4 | d564270 | 2026-06-26T00:46Z |
+| C1a  | Excel round-trip (exceljs) | verified ALL MODULES (budget/hotels/transport/vendors/events/timeline + guests/gifts defects documented) | excel-roundtrip.{guests,hotels,transport,vendors,events,gifts}.test.ts, timeline-bulkimport.test.ts | C1a-allmods | 8521a43 | 2026-06-26T14:35Z |
+| C1b  | Google Sheets round-trip (googleapis) | verified budget+guests/hotels/vendors/gifts via seam | sheets-roundtrip.{c1b,modules}.test.ts | C1b-allmods | 8521a43 | 2026-06-26T14:35Z |
+| C2   | Chatbot parity (REAL: chatbot vs sheet end-state) | verified parity HOLDS for client stats; DIVERGES on per-guest budget (P1) | parity-chatbot-vs-sheet.c2.test.ts | C2-parity | (uncommitted) | 2026-06-26T14:56Z |
+| C3   | Informative headers (per-module) | verified | headers-per-module.c3.test.ts | C3-permod | 8521a43 | 2026-06-26T14:35Z |
+| C4   | Real-time delivery (true cross-tab) | verified (real subscribeToCompany live-stream) | perf-t2-crosstab.c7.test.ts | C4-crosstab | (uncommitted) | 2026-06-26T16:36Z |
 | C5   | Vendors per event | verified | vendors-per-event.c5.test.ts | C5 | d564270 | 2026-06-26T00:46Z |
-| C6   | Whole-app bulletproof gate | verified | full audit suite + gates (build exit 0) | C6 | d564270 | 2026-06-26T00:46Z |
-| C7   | Performance (tiered SLO) | verified | perf.c7.test.ts | C7 | d564270 | 2026-06-26T00:46Z |
-| D1   | validateExcelFile on inline guest importers | RED (defect, fix=Prompt 3) | excel-validation.d1.test.ts (it.fails) | C1a.6 | d564270 | 2026-06-26T00:46Z |
+| C6   | Whole-app bulletproof gate | verified | full audit suite 20 files/40+1 | C6 | 8521a43 | 2026-06-26T16:36Z |
+| C7   | Performance T2 (true delivery) | verified P50 305ms/P95 307ms (<2s) | perf-t2-crosstab.c7.test.ts | C7-T2 | (uncommitted) | 2026-06-26T16:36Z |
+| D1   | validateExcelFile on inline guest/gift importers | RED (defect, fix=Prompt 3) | excel-validation.d1.test.ts (it.fails) | C1a.6 | d564270 | 2026-06-26T00:46Z |
+| B1   | combined-export inline sheet-select=Cover (guests/gifts/guestGifts no-op) | RED→documented (fix=Prompt 3) | excel-roundtrip.guests.test.ts | B1 | (uncommitted) | 2026-06-26T13:46Z |
+| C1   | importGift wrong columns (EDIT no-ops, ADD crashes) | RED→documented (fix=Prompt 3) | excel-roundtrip.gifts.test.ts | C1-gift | (uncommitted) | 2026-06-26T14:21Z |
+| T1/T2 | cross-tenant IDOR (getChangeHistory, getGuestPreferences) | RED→confirmed (fix=Prompt 3) | tenant-isolation.d4.test.ts | T1T2 | (uncommitted) | 2026-06-26T14:48Z |
+| P1   | Sheets guest import skips recalcPerGuestBudgetItems | RED→confirmed (fix=Prompt 3) | parity-chatbot-vs-sheet.c2.test.ts | P1 | (uncommitted) | 2026-06-26T14:56Z |
 
 ## Candidate findings (UNVERIFIED — confirm with file:line + SDK source before asserting)
 | id | severity | summary | status |

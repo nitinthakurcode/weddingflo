@@ -30,7 +30,7 @@ only), else flagged for a later harness-hardening pass.
 
 | id | sev | area | file:line | issue | disposition |
 |----|-----|------|-----------|-------|-------------|
-| H1 | medium | perf/SLO | `perf.c7.test.ts:60-79` | T2 "propagation P95<2s" measures a LOCAL synchronous Redis read — `broadcastSync` is awaited INSIDE the mutation, so the value is already in Redis before polling starts; assertion essentially cannot fail. It is a PUBLISH latency, not cross-tab DELIVERY. | Superseded by Prompt 2 item 3 (true two-browser cross-tab T2). |
+| H1 | medium | perf/SLO | `perf.c7.test.ts:60-79` | T2 "propagation P95<2s" measures a LOCAL synchronous Redis read — `broadcastSync` is awaited INSIDE the mutation, so the value is already in Redis before polling starts; assertion essentially cannot fail. It is a PUBLISH latency, not cross-tab DELIVERY. | RESOLVED by P2.3 `perf-t2-crosstab.c7.test.ts`: TRUE delivery via the real `subscribeToCompany` live-stream (client A mutates, client B observes) = **P50 305ms / P95 307ms** (min 58, max 307), vs the 9ms publish baseline. Dominated by the 300ms adaptive poll floor; well under the 2s T2 budget. Full browser-render hop BLOCKED (auth secrets absent — see note). |
 | H2 | medium | safety/Rail-3 | `rail3-guard.ts`, `redis-sync-probe.ts` | Rail-3 fail-closed proof inspects only `DATABASE_URL`. `clearSync` (`DEL`) + broadcast (`ZADD`) hit whatever `UPSTASH_REDIS_REST_URL` resolves to; if `.env.test.local` were absent/stale and ambient env pointed at prod Upstash, the DB guard would still pass while tests mutate a prod Redis key. | Currently safe (`.env.test.local` present, points at local SRH @127.0.0.1:8079, verified PING/SET/GET/DEL). Flagged for harness-hardening: extend guard to assert Redis host too. |
 | H3 | low→med | safety/Rail-3 | `rail3-guard.ts` `DBNAME_RE=/(dev|test)/` | substring + localhost host regex would also authorize wiping a local `*_dev` DB if `TEST_DB_CONFIRMED=1` lingered in the shell. By user directive (STATE "Rail-3 amendment"), but a data-loss footgun outside the `.env.test.local` flow. | Accepted by directive; noted. |
 | H4 | low | D1 tripwire | `excel-validation.d1.test.ts:47` | guests `it.fails()` keys on ANY throw; an unrelated throw (e.g. NOT-NULL insert error on the junk row) would also satisfy `rejects.toThrow()`, falsely signaling "D1 fixed". | Tightened in Prompt 2 C1 guests test to assert the SPECIFIC validation-rejection vs an unguarded-parse symptom. |
@@ -82,12 +82,49 @@ parsers have shape mismatches that reduce round-trip fidelity but are not crashe
 | E2 | low→med | transport export | `export.router.ts:87-94` | Transport "Guest Name" is DERIVED from the linked guest and BLANKED when `guestId` is null; on re-import the row is SKIPPED (Guest Name required, `excel-parser-server.ts:490`). A manually-entered transport entry with no guest link silently drops on round-trip. Found via DIAG (transport1 skipped until `guestId` linked). |
 | E3 | low | headers (C3) | `export-utils.ts` Gifts (`:188`), Timeline (`:375`) | Gifts + Timeline export sheets are view-oriented: no `*` required markers / no ID column (Gifts uses Serial #). Acceptable for read-only views, but they cannot round-trip from the combined export. Editable modules (Guests/Hotels/Transport/Vendors/Budget) DO mark required + give examples (C3 per-module test GREEN). |
 
-## Cluster T — Tenant isolation (D4)
-(Read-only probe results recorded in Prompt 2 item 5 — see below / STATE matrix.)
+## Cluster T — Tenant isolation (D4): cross-tenant IDOR in floor-plans reads
+Root cause: two `protectedProcedure` reads filter ONLY by a caller-supplied id (floorPlanId /
+clientId) and never verify that id belongs to `ctx.companyId`. Any authenticated user of ANY
+company can read another tenant's rows by supplying the target id (broken object-level authz /
+IDOR). PROVEN by `tenant-isolation.d4.test.ts` (company-A caller reads company-B rows).
 
-_TBD: per-table cross-tenant read results._
+| id | sev | path | file:line | actual (RUN) |
+|----|-----|------|-----------|--------------|
+| T1 | **high** | `floorPlans.getChangeHistory({floorPlanId})` | `floor-plans.router.ts:1463` (`where: eq(seatingChangeLog.floorPlanId, input.floorPlanId)`, no company check) | A caller retrieved B's `seating_change_log` row (incl. `previousData`/`newData` JSON). CONFIRMED leak. |
+| T2 | **high** | `floorPlans.getGuestPreferences({clientId})` | `floor-plans.router.ts:1591` (`.where(eq(guests.clientId, input.clientId))`, no company check) | A caller retrieved B's `guest_preferences` (incl. private preference JSON). CONFIRMED leak. |
+
+Properly scoped (no leak, verified): `floorPlans.getById` (rejects cross-tenant floorPlanId).
+
+Other tables in the 11-list:
+- giftItems — `export.exportClientData:42` does an UNSCOPED `select().from(giftItems)`, BUT the
+  result (`giftItemsRaw`) is **never used** in the export output (dead fetch). Severity LOW
+  (wasteful unscoped query, not an exfiltration path). Fix: scope or remove the fetch.
+- vendorComments (`vendors.getComments`), seatingVersions (`listVersions`), floorPlanTables/
+  floorPlanGuests (`getById`) — scoped via parent-ownership checks (not re-run individually
+  this pass; getById's parent check is verified). teamClientAssignments (`team.*`) — recon
+  flagged a possible missing company check on returned clientIds; UNVERIFIED, candidate.
+- websiteBuilderContent, hotelBookings, refunds — NO reachable tRPC read path (isolated by
+  non-exposure; only touched by cascade delete).
+
+Fix candidates (Prompt 3): add a parent→company ownership guard to getChangeHistory +
+getGuestPreferences (and audit teamClientAssignments); consider giving these hot child tables
+an explicit companyId + RLS so a missing app-level check fails closed.
 
 ---
 
+## Cluster P — Chatbot↔Sheet parity gap: Sheet guest import skips per-guest budget recalc
+Root cause: the canonical guest-confirm automation is `recalcClientStats` + `recalcPerGuestBudgetItems`
+(per-guest-recalc.ts header lists guests.router, tool-executor, guest-cascade as callers). The
+Google Sheets `importGuestsFromSheet` calls `recalcClientStats` only (sheets-sync.ts:~983) and
+NOT `recalcPerGuestBudgetItems`. So confirming/adding a guest via Sheets leaves per-guest budget
+items (e.g. per-plate catering) STALE, while the same op via chatbot/Excel/UI recalculates them.
+
+| id | sev | path | file:line | actual (RUN, parity-chatbot-vs-sheet.c2.test.ts) |
+|----|-----|------|-----------|--------------------------------------------------|
+| P1 | medium | guest add/confirm via Sheets | chatbot recalc `tool-executor.ts:1541,1650`; Sheets omits in `sheets-sync.ts importGuestsFromSheet (~857-998)` | Same op both paths on fresh DB + per-guest item (perGuestCost 100, confirmed partySize 2): clients.guestCount PARITY HOLDS (both recalcClientStats); per-guest budget estimatedCost = chatbot **>0**, Sheet **0** → DIVERGENCE. |
+
+Fix candidate (Prompt 3): call `recalcPerGuestBudgetItems(db, clientId)` after the client-stat
+recalc in `importGuestsFromSheet` (and audit other Sheets importers that change guest/RSVP state).
+
 ## New defects discovered in Prompt 2 C1 per-module round-trips
-_Appended per module as the verification runs (see STATE per-module matrix)._
+See Clusters A/B/C/E above (D1 re-confirmed; B1 sheet-select; C1 importGift columns; E1–E3 export fidelity).
