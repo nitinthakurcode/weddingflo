@@ -10,10 +10,49 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-Harness phase committed on `audit/bulletproof`. Test stack may be down — bring it back with
-`bash scripts/start-test-stack.sh up` + `export TEST_DB_CONFIRMED=1` (gate is in gitignored
-.env.test.local). Next: per-module C1a/C1b round-trips beyond budget; two-browser T2; full
-`/code-review` of the harness diff. NO real fixes (incl. D1) until Prompt 3.
+Prompt 2 (verification) IN PROGRESS on `audit/bulletproof`. Bring stack up with
+`bash scripts/start-test-stack.sh up` — NOTE: the `up` rewrites `.env.test.local` and DROPS
+the `TEST_DB_CONFIRMED=1` line; re-append it (user-granted) before running the audit suite.
+Verify SRH via POST `["PING"]` (path-style REST is unsupported by hiett/SRH → "Endpoint not
+found" is EXPECTED, not a failure). NO real fixes (incl. D1) until Prompt 3.
+
+## ▷ Prompt 2 — verification phase (close Prompt-1 gaps)
+Gate re-opened + proven clean (DB 127.0.0.1:5433/weddingflo_test, 35 migrations, 0 residual
+tenant rows; SRH PING→PONG + SET/GET/DEL round-trip). Skills loaded: agentic-engineering-
+workflow, source-code-context. FINDINGS.md created.
+
+- **P2.1 /code-review harness diff — DONE. SEAM VERDICT: BEHAVIOR-PRESERVING** (not stopping).
+  `defaultSheetsClientFactory` byte-identical to original; all 4 prod call sites no-arg. No
+  false-greens found (probes read real DB/Redis). Harness-quality findings logged FINDINGS
+  Cluster H (H1 perf.c7 T2 = publish-not-delivery → superseded by P2.3; H2 Rail-3 omits Redis
+  endpoint guard; H4 D1 it.fails fragile → tighten in P2.2 guests).
+- P2.2 C1 all modules (xlsx + Sheets) + C3 headers — per-module matrix below.
+- P2.3 true cross-tab T2/C4 — pending.
+- P2.4 C2 chatbot↔sheet parity — pending.
+- P2.5 D4 tenant isolation read-only — pending.
+
+### Per-module C1 verification matrix (Prompt 2 item 2)
+Schema: module | xlsx round-trip | Sheets round-trip | C3 headers | notes
+(filled as each module test RUNS; prior GREEN counts only where a test ran the behavior.)
+
+| module | xlsx | sheets | C3 headers | notes |
+|--------|------|--------|------------|-------|
+| budget | GREEN (P1) | GREEN (P1) | GREEN (P1) | proven Prompt 1 |
+| guests | combined RED (B1) / single GREEN | GREEN | GREEN | combined no-ops (B1 sheet-select=Cover); single-sheet EDIT+ADD+DEL+GUEST_MUTATION_PATHS; Sheets EDIT+DEL |
+| hotels | GREEN | GREEN | GREEN | xlsx EDIT+ADD+DEL+non-destructive+HOTEL_MUTATION_PATHS; Sheets EDIT+DEL |
+| transport | GREEN* | (covered by guests/hotels) | GREEN | *export blanks name w/o guestId link (E2); xlsx DEL+TRANSPORT_MUTATION_PATHS |
+| vendors | GREEN | GREEN | GREEN | xlsx EDIT(join)+ADD+DEL+syncVendorBudgetItem+VENDOR_MUTATION_PATHS; Sheets EDIT+DEL |
+| gifts | RED→documented (C1) | GREEN | GREEN(view) | Excel importGift wrong columns (Cluster C: EDIT no-ops, ADD crashes); Sheets path CORRECT |
+| guestGifts | single GREEN | n/a | n/a | combined RED (B1); single-sheet GiftsGiven EDIT+ADD+DEL GREEN |
+| timeline | GREEN | n/a | GREEN(view) | via timeline.bulkImport create/update/delete + timeline.getAll/getStats broadcast |
+| events | GREEN | (engine proven via budget) | GREEN | via downloadTemplate (E1: not in combined export); EDIT+ADD+syncEventsToTimeline+EVENT_MUTATION_PATHS |
+
+P2.2 result: 17 audit files / 34 passed + 1 expected-fail; residual rows = 0; tsc clean on new files.
+Defect clusters found: **B1** (combined-export inline sheet-select=Cover → guests/gifts/guestGifts),
+**C1** (importGift wrong columns: EDIT no-ops, ADD crashes; Sheets path OK), **E1/E2/E3** (export
+fidelity), plus **D1** re-confirmed (inline guests/gifts skip validateExcelFile). Sheets per-module
+proven for budget/guests/hotels/vendors/gifts via the seam; transport/events/timeline Sheets engine
+shares the same proven seam path (budget+4 modules asserted).
 
 ## Status table
 Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path | test_id | last_run_sha | timestamp`
