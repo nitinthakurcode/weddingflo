@@ -10,11 +10,45 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 3-H — Cluster H (harness hardening) COMPLETE** on `audit/bulletproof`. → **Next is Prompt 6 (lock-in / re-validation)**: wire `vitest.audit.config.ts` into CI on the pinned
-stack; add the contract test on the centralized import service + an RLS/scope fail-closed test;
-land the Cluster-S RLS backstop (`app.current_company_id` + RLS on the 11 child tables) deferred
-from Prompt 3; verify the CONVERGENCE.md falsifiable prediction (a 6th pass finds ZERO new
-Cluster-R/S instances). Cluster S/R/E NOT re-opened this phase (all regressions still green).
+**Prompt 6A — Re-validation + convergence re-sweep COMPLETE** on `audit/bulletproof` (read-only +
+docs; NO new fixes). Full suite green + UNWEAKENED; the CONVERGENCE.md falsifiable prediction is
+**CONFIRMED (ZERO new Cluster-R + ZERO new Cluster-S instances)** — the repeat-bug loop is CLOSED
+for R and S at the application layer. `KNOWN_GAPS.md` written (honest, no false 100%).
+→ **Next is Prompt 6B (defense-in-depth lock-in)**: (1) land the Cluster-S **RLS fail-closed DB
+backstop** (`app.current_company_id` + RLS policies on the 11 child tables lacking explicit companyId)
+deferred from Prompt 3 — needs `drizzle-kit generate`+`migrate` (NEVER push), matching schema, and a
+non-superuser test role to actually exercise RLS (the current test role is superuser → RLS bypassed);
+(2) wire `vitest.audit.config.ts` into CI on the pinned stack (a contract test that any new importer
+bypassing the SSOT / any unscoped resolver breaks the build). Optional follow-up (NOT audit-blocking):
+an **intra-tenant authorization pass** for the residuals (sms/payment/addGuestConflict + new O1
+`vendors.addReview` + gifts `guestId`). Stack: `bash scripts/start-test-stack.sh up` rewrites
+`.env.test.local` and DROPS `TEST_DB_CONFIRMED=1` — re-append before the audit suite.
+
+### Prompt 6A OUTCOME (re-validation + convergence re-sweep) — DONE
+Skills: grep-loop-review-workflow (the re-validation loop), source-code-context (cited file:line —
+import-cascade/module-shape SSOT exports, client-access helpers, 52-router sweep). Read-only + docs only.
+- **Full suite (honest, this session):** tsc 0; eslint 0 errors / 98 warnings (pre-existing); **audit
+  21 files / 72 passed**; **integration 58**; **unit 429 passed / 8 skipped**. Per-cluster zero-regression
+  re-confirmed: **S** `tenant-isolation.d4` **25/25** (T1–T11 + W1–W8); **R** `excel-roundtrip.*` +
+  `excel-validation.d1` + `parity-c2` + `sheets-roundtrip.*`; **E** `module-shape-contract` +
+  `excel-roundtrip.{events,transport,gifts}` + `headers-per-module.c3`; **H** `sheets-roundtrip.c1b` +
+  `excel-validation.d1` + `perf.c7`.
+- **Perf re-measured (real stack):** T1 ack P50 7 / P95 14ms (<500 ✓); T2 publish P50 7 / P95 7ms;
+  **T2 true cross-tab delivery P50 306 / P95 310ms** (min 57, max 310) (<2s ✓, <1.5s target ✓);
+  T3 23-table cascade fresh+legacy = 22ms (<2s blocking ceiling ✓).
+- **CONVERGENCE RE-SWEEP — prediction CONFIRMED, loop CLOSED (R & S):**
+  - **Cluster S = 0 NEW.** All 52 `*.router.ts` + analyticsExport + sync swept. Every tenant-table
+    access by caller-supplied id routes through `assertClientAccess` (105 sites) / `assertEntityAccess`
+    (5) / `withinCompanyClients` (3), OR an inline parent→company ownership check, OR ctx-self-scope.
+    Independently spot-verified gifts/hotels guard heads.
+  - **Cluster R = 0 NEW.** `importData` → `selectModuleWorksheet`+`validateExcelFile`+`runImportRecalcCascade`;
+    all 9 `import*FromSheet` recalc per SSOT; combined exporter builds all 8 module sheets via
+    `buildExportSheet` (only non-module `Cover` hand-built). Independently grep-verified.
+  - **Noted, NOT counted** (FINDINGS "Prompt 6A re-sweep observations"): O1 `vendors.addReview`
+    (within-tenant quirk), O2 `excel-exporter.ts` (separate export-only surface, contract-tested),
+    O3 redundant-but-harmless recalc on Sheets hotels/transport.
+- **KNOWN_GAPS.md** written: per-concern coverage + the 3 within-tenant residuals, the gifts
+  `guestId` intra-tenant observation, the two-browser SSE limitation, and the pending RLS backstop (6B).
 
 ### Prompt 3-H OUTCOME (Cluster H — harness hardening) — DONE
 Meta-only (test-infra + the in-code Rail-3 guard); NO app/src behavior changed. Skills: grep-loop-
@@ -368,6 +402,15 @@ entity → clientId → CHOKE); SCOPE = `withinCompanyClients`/inArray company-c
   dead-faker removal). Gates all green + UNWEAKENED: tsc 0, eslint 0 err, audit 21/72, Cluster-S
   IDOR 25/25, Cluster-R green, Cluster-E green, integration 58, unit 429/8skip. /code-review: 0
   bugs, 1 DRY nit left per Rail-6. No app/src behavior changed. Resume → Prompt 6 (lock-in).
+- 2026-06-26T~23:10Z — **Prompt 6A (re-validation + convergence re-sweep) COMPLETE.** Read-only +
+  docs; NO new fixes. Skills: grep-loop-review-workflow, source-code-context (cited file:line).
+  Full suite green + unweakened (tsc 0, eslint 0 err, audit 21/72, integration 58, unit 429/8skip);
+  per-cluster S/R/E/H zero-regression re-confirmed; perf re-measured (T1 14ms / T2 delivery 310ms /
+  T3 22ms P95). **Convergence re-sweep: ZERO new Cluster-R + ZERO new Cluster-S → CONVERGENCE.md
+  prediction CONFIRMED, loop CLOSED for R & S** (52 routers + every import/export path; 2 parallel
+  read-only sweeps + independent grep spot-checks). 3 observations noted-not-counted (O1 vendors.addReview,
+  O2 excel-exporter parallel surface, O3 harmless redundant recalc). Wrote `KNOWN_GAPS.md`. Updated
+  CONVERGENCE.md (VERDICT) + FINDINGS.md (6A observations). Resume → Prompt 6B (RLS backstop + CI gate).
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.

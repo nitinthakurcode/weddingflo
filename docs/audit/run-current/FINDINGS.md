@@ -186,3 +186,17 @@ parseExcelFile + csv-parser.ts have NO DB-writing callers — dead/unused.)
 ## New defects discovered in Prompt 2 C1 per-module round-trips
 See Clusters A/B/C/E/I/T above. D1 re-confirmed; B1 sheet-select; C1 importGift columns;
 E1–E3 export fidelity; I1–I3 importer divergences; T1–T11/W1–W8 IDOR inventory.
+
+---
+
+## Prompt 6A re-sweep observations (NOT counted as new Cluster-R/S instances)
+The convergence re-sweep (all 52 routers + every import/export path) found **ZERO** new
+cross-tenant (S) and **ZERO** new bypass (R) instances — prediction CONFIRMED (CONVERGENCE.md
+VERDICT). Two items surfaced that are NOT new instances of either class; logged here for honesty
+and as candidates for a later (non-audit) pass — per the prompt, NOT fixed now:
+
+| id | class | summary | file:line | why NOT counted |
+|----|-------|---------|-----------|-----------------|
+| O1 | within-tenant (not cross-tenant) | `vendors.addReview` (`staffProcedure`) scopes the vendor to `ctx.companyId` but the `company_admin` path does not re-verify the top-level `input.clientId`. | `vendors.router.ts:1807-1842` (vendor scope `:23`, write `:35-36`) | Review attaches to an IN-COMPANY vendor; can at worst tag a foreign clientId onto an own-tenant review row → within-tenant integrity quirk, NOT a cross-tenant read/write. Staff path is auto-scoped on the top-level clientId. Belongs to the intra-tenant residual set (with sms/payment/addGuestConflict). |
+| O2 | export surface (by design) | `excel-exporter.ts` is a SECOND per-module Excel download surface (per-module buttons, master-planning, timeline) parallel to the combined-export SSOT (`module-shape.ts`). Its headers (e.g. budget `Expense Name`/`Budgeted Amount`) intentionally differ from `MODULE_SHAPES` (`Item`/`Estimated Cost`). | `src/lib/export/excel-exporter.ts` | Export-only (no recalc obligation); its round-trip contract is pinned by `src/lib/import/__tests__/excel-roundtrip-contract.test.ts` ("must mirror excel-exporter.ts"), not the combined SSOT. Two distinct, contract-tested surfaces — not drift introduced by the Cluster-E/R centralization. (Future tidy-up candidate: fold both onto one SSOT.) |
+| O3 | harmless redundancy (R-adjacent) | Sheets `all`-import + `googleSheets.router` run `recalcClientStats` after hotels/transport, which the Excel path skips per the SSOT (no client-stat coupling for those modules). | `googleSheets.router.ts:483,497`; `sheets-sync.ts importAllFromSheets:1992,2011` | An EXTRA no-op read (recalcClientStats only reads budget+guests), not a MISSING recalc or a mis-map — does not break round-trip or stats. Not a bypass; folding hotels/transport recalc decisions through `runImportRecalcCascade` would tidy it. |

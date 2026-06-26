@@ -72,3 +72,25 @@ After the Cluster R/S centralizations + CI gate land, a 6th independent audit pa
 — that's normal). If a 6th pass finds another importer or unscoped read of the SAME class, the
 centralization was incomplete (a call-site bypassed the service) — that, not a brand-new class,
 is the thing to check.
+
+---
+
+## VERDICT — Prompt 6A re-sweep (2026-06-26, HEAD `3b83ed8`) — **PREDICTION CONFIRMED**
+A 6th independent pass swept **all 52 `*.router.ts` + analyticsExport + sync** (Cluster S) and
+**every reachable spreadsheet import/export path** (Cluster R):
+- **NEW Cluster-S instances: 0.** Every tenant-table access by a caller-supplied id routes through
+  `assertClientAccess` (105 call sites) / `assertEntityAccess` (5) / `withinCompanyClients` (3),
+  OR an inline parent→company ownership check (`clients WHERE id=input.clientId AND companyId=ctx.companyId`
+  → FORBIDDEN), OR is ctx-self-scoped. Independently spot-verified (gifts/hotels guard heads).
+- **NEW Cluster-R instances: 0.** `import.router.ts importData` routes through
+  `selectModuleWorksheet` + `validateExcelFile`/`INLINE_IMPORT_VALIDATION` + `runImportRecalcCascade`;
+  all 9 `import*FromSheet` recalc per the SSOT; the combined exporter builds all 8 module sheets via
+  `buildExportSheet` (only the non-module `Cover` is hand-built). Independently grep-verified.
+
+**Both hypotheses CONFIRMED. The repeat-bug loop is CLOSED for Clusters R and S** — the dominant
+class (cross-cutting logic copied per call-site) has exactly ONE place to test per class, so it can
+no longer have untested siblings. Two within-tenant / by-design observations were surfaced and
+explicitly NOT counted (FINDINGS "Prompt 6A re-sweep observations"): `vendors.addReview` (within-tenant
+integrity quirk) and `excel-exporter.ts` (a separate export-only download surface, contract-tested).
+Remaining defense-in-depth (DB RLS fail-closed + CI gate) is scheduled for **Prompt 6B** — until it
+lands, the loop is closed by app-level centralization + this convergence sweep, not yet by the DB.
