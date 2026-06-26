@@ -10,7 +10,53 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 3-E — Cluster E (export/import shape not single-sourced) COMPLETE** on `audit/bulletproof`.
+**Prompt 3-H — Cluster H (harness hardening) COMPLETE** on `audit/bulletproof`. → **Next is Prompt 6 (lock-in / re-validation)**: wire `vitest.audit.config.ts` into CI on the pinned
+stack; add the contract test on the centralized import service + an RLS/scope fail-closed test;
+land the Cluster-S RLS backstop (`app.current_company_id` + RLS on the 11 child tables) deferred
+from Prompt 3; verify the CONVERGENCE.md falsifiable prediction (a 6th pass finds ZERO new
+Cluster-R/S instances). Cluster S/R/E NOT re-opened this phase (all regressions still green).
+
+### Prompt 3-H OUTCOME (Cluster H — harness hardening) — DONE
+Meta-only (test-infra + the in-code Rail-3 guard); NO app/src behavior changed. Skills: grep-loop-
+review-workflow (loop), source-code-context (cited file:line for every touched file), service-layer
+(considered for the H2 guard — kept the two asserts explicit; see review note). A hardened harness
+must be as STRICT as before, never weaker — every change is stricter or honesty-only:
+- **H1** (perf/SLO label overstated delivery) — `perf.c7.test.ts` T2 RELABELLED to "publish/enqueue
+  latency" + docstring now states broadcastSync is awaited inside the mutation (PUBLISH latency, not
+  cross-tab DELIVERY) and points to the authoritative `perf-t2-crosstab.c7.test.ts` for true
+  delivery. Assertion (<2s) KEPT as a cheap publish ceiling — not weakened, just honestly named.
+- **H2** (Rail-3 guarded only the DB) — `rail3-guard.ts` gains `assertTestRedis()`: asserts
+  `UPSTASH_REDIS_REST_URL` host ∈ the same non-prod HOST_RE + `TEST_DB_CONFIRMED`. Wired into
+  `vitest.audit.setup.ts` (fails the WHOLE run if the Redis endpoint is prod, same as the DB) AND
+  into `redis-sync-probe.ts clearSync` (defense-in-depth at the only destructive DEL). The whole
+  test stack (DB + Redis/SRH) is now provably non-prod. A prod `*.upstash.io` host → fail-closed.
+- **H3** (loose `/(dev|test)/` substring footgun) — `DBNAME_RE` tightened to bounded-token
+  `/(^|[_-])(dev|test)([_-]|$)/`. STRICTER (rejects `latest_prod`, `attestation`, `development`);
+  `weddingflo_test` / `*_dev` still authorized (8/8 regex cases verified). Honors the dev→dev|test
+  directive; never weaker.
+- **H4** (D1 tripwire keyed on ANY throw) — `excel-validation.d1.test.ts` guests+gifts assertions
+  tightened from `.rejects.toThrow()` to `.rejects.toThrow(/Missing required column/i)` so an
+  unrelated throw (NOT-NULL insert, FORBIDDEN, missing worksheet) can no longer masquerade as
+  "D1 fixed". Matches the propagated `validateExcelFile` message (verified green).
+- **H5** (non-destructive proof only checked an in-sheet column) — `sheets-roundtrip.c1b.test.ts`
+  adds an ABSENT-column preservation assertion: captures `created_at` + `is_per_guest_item` (neither
+  is in `BUDGET_HEADERS`) before import and asserts both survive unchanged. `created_at` is a real
+  DB-default timestamp the importer cannot recreate → meaningful, not trivially-true.
+- **H6** (overstated determinism) — `deterministic-seed.ts` removes the DEAD `faker.seed(FIXED_SEED)`
+  (faker was never invoked; all seed values are fixed literals) + the now-unused `@faker-js/faker`
+  import and `FIXED_SEED` export; docstring corrected to state determinism is structural (fixed
+  literal PKs + FIXED_NOW), not seeded. No determinism change (values were always literals).
+- **Gates (all green, unweakened):** tsc 0; eslint 0 errors (2 pre-existing unused-disable warnings,
+  unchanged — confirmed on HEAD); **audit 21 files / 72 passed** (was 71; +1 = H5's new absent-column
+  assertion runs in the existing it); **Cluster-S IDOR 25/25**; Cluster-R import tests green;
+  Cluster-E round-trips green; **integration 58**; **unit 429 / 8 skip**. /code-review on the diff:
+  0 correctness bugs, 1 low DRY nit (assertTestDb/assertTestRedis share a host-parse block —
+  intentional divergence, db also checks db-name; left per Rail-6 smallest-diff). /security-review
+  not required (test-infra only; the change STRENGTHENS the safety guard, no new app surface).
+
+---
+
+### (prior) Prompt 3-E — Cluster E (export/import shape not single-sourced) COMPLETE on `audit/bulletproof`.
 E1/E2/E3 + the deferred gifts export shape fixed by a per-module column-SHAPE SSOT
 (`src/lib/import/module-shape.ts`: ordered header/key/width/required/formatter per module)
 consumed by BOTH the combined exporter (`export-utils.ts` → `buildExportSheet`) AND the import
@@ -217,6 +263,12 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | E3   | gifts/timeline view-only combined sheets (no ID/round-trip) | **fixed** (gifts→GiftsGiven delivery shape, round-trips via importData('guestGifts'); timeline view-only by design per handbook §G.8) | excel-roundtrip.gifts.test.ts ("FIXED (E3)" ×2); headers-per-module.c3.test.ts | E3 | (this commit) | 2026-06-26T22:15Z |
 | E-gift | gifts downloadTemplate EXPORT read dead g.giftName/fromName/… columns | **fixed** (reads real gifts name/value/status/guestId, matches importGift) | excel-roundtrip.gifts.test.ts (gifts single-sheet EDIT/ADD) + module-shape-contract.test.ts | E-gift | (this commit) | 2026-06-26T22:15Z |
 | E-SSOT | export/import column shape not single-sourced (drift root) | **fixed** (module-shape.ts SSOT consumed by exporter + import service) | module-shape-contract.test.ts (5 passed: derivation + value fidelity) | E-SSOT | (this commit) | 2026-06-26T22:15Z |
+| H1   | perf.c7 T2 label overstated cross-tab DELIVERY (measured publish latency) | **fixed** (relabelled to publish/enqueue latency; docstring points to perf-t2-crosstab.c7 for true delivery; <2s ceiling kept) | perf.c7.test.ts ("T2 publish/enqueue latency P95 < 2s") | H1 | (this commit) | 2026-06-26T22:42Z |
+| H2   | Rail-3 fail-closed guarded only the DB, not the Redis/SRH endpoint | **fixed** (assertTestRedis: UPSTASH host ∈ non-prod HOST_RE + TEST_DB_CONFIRMED; wired into audit setup AND clearSync DEL) | rail3-guard.ts; vitest.audit.setup.ts; redis-sync-probe.ts; audit run RAIL-3 OK log (redisHost=127.0.0.1) | H2 | (this commit) | 2026-06-26T22:42Z |
+| H3   | DBNAME_RE loose substring (`latest_prod` would authorize a wipe) | **fixed** (bounded-token `/(^|[_-])(dev|test)([_-]|$)/`; stricter, weddingflo_test still passes; 8/8 cases) | rail3-guard.ts (DBNAME_RE) | H3 | (this commit) | 2026-06-26T22:42Z |
+| H4   | D1 tripwire keyed on ANY throw (unrelated throw = false "fixed") | **fixed** (assert specific `/Missing required column/i` for guests+gifts) | excel-validation.d1.test.ts | H4 | (this commit) | 2026-06-26T22:42Z |
+| H5   | Sheets non-destructive proof only checked an in-sheet column | **fixed** (absent-column preservation: created_at + is_per_guest_item unchanged across import) | sheets-roundtrip.c1b.test.ts | H5 | (this commit) | 2026-06-26T22:42Z |
+| H6   | determinism overstated (dead faker.seed; comment claimed faker drove it) | **fixed** (removed dead faker.seed + import + FIXED_SEED export; docstring states fixed-literal determinism) | deterministic-seed.ts; full audit suite green (72) | H6 | (this commit) | 2026-06-26T22:42Z |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
@@ -306,6 +358,16 @@ entity → clientId → CHOKE); SCOPE = `withinCompanyClients`/inArray company-c
   destructive update → non-destructive; missing companyId → added; importAllFromSheets double-recalc
   → removed; validateImport preview B1 drift → routed through selectModuleWorksheet) — all fixed.
   /security-review CLEAN. Cluster E/H untouched; Cluster S not re-opened.
+- 2026-06-26T~22:42Z — **Prompt 3-H (Cluster H, harness hardening) COMPLETE.** Skills run:
+  grep-loop-review-workflow (loop), source-code-context (cited file:line for every touched file:
+  validateExcelFile throw msg `excel-parser.ts:326`, BUDGET_HEADERS `sheets-sync.ts:182`,
+  getRedisClient `redis-pubsub.ts:205`, INLINE_IMPORT_VALIDATION `import-cascade.ts:81`). H1–H6 all
+  fixed STRICTER-or-honesty-only (never weaker): H2 extends Rail-3 fail-closed to the Redis/SRH
+  endpoint (assertTestRedis in setup + clearSync); H3 bounded-token DBNAME_RE; H4 specific
+  validation-message assertion; H5 absent-column non-destructive proof; H1/H6 honesty (relabel +
+  dead-faker removal). Gates all green + UNWEAKENED: tsc 0, eslint 0 err, audit 21/72, Cluster-S
+  IDOR 25/25, Cluster-R green, Cluster-E green, integration 58, unit 429/8skip. /code-review: 0
+  bugs, 1 DRY nit left per Rail-6. No app/src behavior changed. Resume → Prompt 6 (lock-in).
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.

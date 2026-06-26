@@ -2,10 +2,13 @@
  * C7 — Tiered performance SLO, MEASURED on the real stack (P95; record P50/P95).
  *
  *  T1 interactive mutation ack          P95 < 500 ms   (server-side, primary gate)
- *  T2 propagation (mutation→broadcast→consume) P95 < 2 s  (real broadcastSync→Redis→SRH
- *      chain; consumed via the SAME getMissedActions path the SSE client uses, polled at
- *      the app's ~300ms active cadence — the user-permitted single-subscriber receipt
- *      measurement. Browser two-context variant is the richer C4 follow-up.)
+ *  T2 PUBLISH/enqueue latency (mutation→broadcast→read-back) P95 < 2 s  (real
+ *      broadcastSync→Redis→SRH chain). NOTE [H1]: broadcastSync is awaited INSIDE the
+ *      mutation, so the action is already in Redis before the probe's first poll — this
+ *      measures PUBLISH latency, NOT cross-tab DELIVERY. True end-to-end delivery (a second
+ *      actor consuming the live subscribeToCompany stream) is measured by the authoritative
+ *      perf-t2-crosstab.c7.test.ts (P50 ~305ms / P95 ~307ms). This number is kept only as a
+ *      cheap publish-latency ceiling; do not read it as the propagation SLO.
  *  T3 23-table client cascade delete    MEASURE then classify (blocking → ceiling < 2 s)
  *      on a freshly-seeded AND a legacy back-filled client.
  *
@@ -49,13 +52,15 @@ describe('C7 tiered performance SLO', () => {
     expect(pct(xs, 95)).toBeLessThan(500);
   });
 
-  it('T2 propagation P95 < 2s (real broadcast→Redis→consume chain)', async () => {
+  // [H1] PUBLISH-latency ceiling only — broadcastSync is awaited inside create(), so the
+  // action is in Redis before the first poll. True cross-tab DELIVERY is perf-t2-crosstab.c7.
+  it('T2 publish/enqueue latency P95 < 2s (real broadcast→Redis read-back)', async () => {
     const xs: number[] = [];
     for (let i = 0; i < 6; i++) {
       await clearSync(IDS.companyId);
       const t0 = performance.now();
       await caller.guests.create({ clientId: IDS.clientId, name: `Propagate ${i}` });
-      // consume via the real client path, polled at the ~300ms active cadence
+      // read back via the real client path, polled at the ~300ms active cadence
       let delivered = -1;
       for (let waited = 0; waited <= 2500; waited += 300) {
         const actions = await readSyncActions(IDS.companyId);
@@ -68,7 +73,7 @@ describe('C7 tiered performance SLO', () => {
       expect(delivered, 'guest mutation must propagate within 2.5s window').toBeGreaterThan(0);
       xs.push(delivered);
     }
-    report('T2 propagation', xs);
+    report('T2 publish/enqueue', xs);
     expect(pct(xs, 95)).toBeLessThan(2000);
   });
 

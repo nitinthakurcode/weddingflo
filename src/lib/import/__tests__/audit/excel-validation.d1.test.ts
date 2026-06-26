@@ -46,19 +46,22 @@ describe('C1a.6 validateExcelFile coverage (D1)', () => {
 
   // FIXED (D1): the inline guests importer now calls validateExcelFile up front, so a file
   // whose 'Guests' sheet is missing the required name column is REJECTED (CLAUDE rule 28).
+  // H4: assert the SPECIFIC up-front validation rejection ("Missing required column …"),
+  // not merely "some throw" — an unrelated failure (NOT-NULL insert, FORBIDDEN, missing
+  // worksheet) must NOT be able to masquerade as "D1 fixed".
   it('guests REJECTS a file missing required header (D1 fixed)', async () => {
     const fileData = await malformedFile('Guests', ['Email']); // no name column
     await expect(
       caller.import.importData({ module: 'guests', clientId: IDS.clientId, fileData }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Missing required column/i);
   });
 
   // FIXED (D1): gifts inline importer likewise validates — a 'Gifts' sheet missing the
-  // required 'Gift Name' column is rejected before any parsing.
+  // required 'Gift Name' column is rejected before any parsing (H4: specific message).
   it('gifts REJECTS a file missing required header (D1 fixed)', async () => {
     const fileData = await malformedFile('Gifts', ['Value']); // no gift name column
     await expect(
       caller.import.importData({ module: 'gifts', clientId: IDS.clientId, fileData }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Missing required column/i);
   });
 });

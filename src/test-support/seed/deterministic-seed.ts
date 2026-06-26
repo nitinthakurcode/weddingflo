@@ -5,8 +5,9 @@
  * FIXED business dates, so a test never depends on random UUIDs or wall-clock time —
  * the determinism that kills the false-green repeat-bug loop.
  *
- *   • @faker-js/faker seeded with a FIXED seed (faker.seed(FIXED_SEED)) for any
- *     incidental strings, so reseeds are byte-identical.
+ *   • ALL seed values are FIXED LITERALS (no faker, no Math.random, no Date.now) — the
+ *     determinism is structural, not seeded. (H6: a prior `faker.seed(FIXED_SEED)` call
+ *     was dead — faker was never invoked — and overstated the mechanism; removed.)
  *   • FIXED clock (FIXED_NOW) for any timestamp we set explicitly.
  *   • resetDeterministic() sweeps the tenant (dynamic information_schema sweep, FK
  *     enforcement disabled in one transaction) then re-seeds — run before every test.
@@ -15,12 +16,10 @@
  *   • CLIENT_ID         — freshly-seeded (current timestamps)
  *   • LEGACY_CLIENT_ID  — legacy back-filled (older createdAt) for C7 T3 cascade timing.
  */
-import { faker } from '@faker-js/faker';
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { companies, clients, events, budget, guests, user as userTable } from '@/lib/db/schema';
 
-export const FIXED_SEED = 20260625;
 export const FIXED_NOW = new Date('2026-06-25T00:00:00.000Z');
 export const WEDDING_DATE = '2027-06-15';
 
@@ -90,8 +89,6 @@ export async function teardownTenant(companyId: string = IDS.companyId): Promise
 
 /** Insert the fixed deterministic tenant. Assumes the tenant was just torn down. */
 export async function seedDeterministic(): Promise<SeededTenant> {
-  faker.seed(FIXED_SEED);
-
   await db.insert(companies).values({ id: IDS.companyId, name: 'WF Audit Co' } as never);
 
   await db.insert(userTable).values({

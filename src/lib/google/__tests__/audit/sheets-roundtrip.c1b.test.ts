@@ -81,14 +81,24 @@ describe('C1b Sheets round-trip via seam', () => {
     const reordered = rows.map((row) => order.map((i) => row[i]));
     fake.setSheet('Budget', reordered);
 
+    // H5: capture a column that is NOT in BUDGET_HEADERS (never round-trips through the sheet)
+    // so we can prove the import is NON-DESTRUCTIVE on absent columns — not merely that an
+    // in-sheet value survived. `created_at` + `is_per_guest_item` are both absent from the sheet.
+    const before = (await db.execute(
+      sql`SELECT created_at, is_per_guest_item FROM budget WHERE id = ${IDS.budgetId}`,
+    )) as unknown as Array<{ created_at: string; is_per_guest_item: boolean }>;
+
     // import sheet → DB
     await importBudgetFromSheet(client, SHEET_ID, IDS.clientId, IDS.companyId);
 
     const edited = (await db.execute(
-      sql`SELECT estimated_cost, item FROM budget WHERE id = ${IDS.budgetId}`,
-    )) as unknown as Array<{ estimated_cost: string; item: string }>;
+      sql`SELECT estimated_cost, item, created_at, is_per_guest_item FROM budget WHERE id = ${IDS.budgetId}`,
+    )) as unknown as Array<{ estimated_cost: string; item: string; created_at: string; is_per_guest_item: boolean }>;
     expect(Number(edited[0].estimated_cost)).toBe(1500); // EDIT via reordered columns (name-mapped)
-    expect(edited[0].item).toBe('Venue Hire'); // non-destructive
+    expect(edited[0].item).toBe('Venue Hire'); // non-destructive (in-sheet column)
+    // absent-column preservation: the importer must not null/reset columns the sheet never carried.
+    expect(String(edited[0].created_at)).toBe(String(before[0].created_at));
+    expect(edited[0].is_per_guest_item).toBe(before[0].is_per_guest_item);
 
     const deleted = (await db.execute(
       sql`SELECT id FROM budget WHERE id = ${IDS.budgetId2}`,
