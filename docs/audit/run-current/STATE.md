@@ -10,12 +10,38 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-Prompt 2 (verification) COMPLETE on `audit/bulletproof` (all 5 items). Next is **Prompt 3 —
-real fixes** for the confirmed defects (B1, C1, P1, T1/T2, D1, E-cluster) — see FINDINGS.md
-clustered by root cause. Bring stack up with `bash scripts/start-test-stack.sh up` — NOTE: the
-`up` rewrites `.env.test.local` and DROPS the `TEST_DB_CONFIRMED=1` line; re-append it
-(user-granted) before running the audit suite. Verify SRH via POST `["PING"]` (path-style REST
-is unsupported by hiett/SRH → "Endpoint not found" is EXPECTED). NO real fixes until Prompt 3.
+Prompt 2 + **Prompt 2.5 (root-cause clustering + sibling sweep) COMPLETE** on `audit/bulletproof`.
+Next is **Prompt 3 — real fixes** in the FIX ORDER below (security IDOR cluster FIRST). Deep
+analysis in `ROOTCAUSE.md` (2 deep roots: R=no import service, S=no centralized tenant scope)
+and `CONVERGENCE.md` (why 5 runs each found new bugs + the permanent fix). The sibling sweep
+turned "2 IDORs" into **19** (11 reads T1–T11 + 8 writes W1–W8) — see FINDINGS Cluster T/S.
+Bring stack up with `bash scripts/start-test-stack.sh up` — the `up` rewrites `.env.test.local`
+and DROPS `TEST_DB_CONFIRMED=1`; re-append it before the audit suite. SRH speaks POST `["PING"]`
+(path-style REST → "Endpoint not found" is EXPECTED). NO real fixes until Prompt 3.
+
+## ▷ PROMPT 3 FIX ORDER (security first, then severity; one regression test per cluster)
+Standing principle: prior GREEN counts only where a test RAN it; flip each "documented-defect"
+assertion to assert CORRECT behavior as its fix lands.
+
+1. **Cluster S — tenant-isolation IDOR (HIGH, do FIRST: active cross-tenant exposure + writes).**
+   Staged: (1a) patch every confirmed unscoped read/write (T1–T11, W1–W8) to scope on
+   `ctx.companyId` / verify parent→company; (1b) introduce the enforced scoped seam +
+   DB RLS fail-closed (+ explicit companyId on the 11 child tables). Regression test:
+   extend `tenant-isolation.d4.test.ts` to cover ALL swept procedures (cross-tenant read ⇒
+   empty/throw; cross-tenant write ⇒ rejected). Highest blast radius = W1 googleSheets.importFromSheet
+   (cross-tenant delete), T3 analyticsExport (global totals), T4 sms.getSmsLogs (dump-all).
+2. **Cluster R — single import service (HIGH: B1, C1; MED: P1, D1, I1; cleanup: I2).**
+   Extract one per-module import service (validate → parse-by-sheet-name → typed `$inferInsert`
+   mapping → upsert → full cascade set → broadcast via `*_MUTATION_PATHS`); route inline Excel +
+   Sheets + chatbot bulk through it; delete dead reimplementations. Regression tests already
+   scaffolded: `excel-roundtrip.{guests,gifts}.test.ts` (flip B1/C1 defect-assertions to expect
+   correct), `parity-chatbot-vs-sheet.c2.test.ts` (P1 → parity holds), `excel-validation.d1.test.ts`.
+3. **Cluster E — export/import shape SSOT (LOW–MED: E1, E2, E3).** Per-module field SSOT consumed
+   by exporter + import service. Regression: `headers-per-module.c3` + events/transport round-trips.
+4. **Cluster H — harness hardening (meta, not app fix).** H2 (Rail-3 Redis-endpoint guard), H3–H6.
+5. **Prompt 6 re-validation:** wire `vitest.audit.config.ts` into CI on the pinned stack + a
+   contract test on the centralized import service + an RLS/scope fail-closed test. Falsifiable
+   prediction (CONVERGENCE.md): a 6th pass finds ZERO new Cluster-R/S instances.
 
 ### Prompt 2 OUTCOME (verification complete — 20 audit files / 40 passed + 1 expected-fail)
 All five items done; 6 confirmed defect clusters logged in FINDINGS (feeds Prompt 3):

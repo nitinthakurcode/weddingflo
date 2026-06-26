@@ -95,6 +95,49 @@ IDOR). PROVEN by `tenant-isolation.d4.test.ts` (company-A caller reads company-B
 
 Properly scoped (no leak, verified): `floorPlans.getById` (rejects cross-tenant floorPlanId).
 
+### SIBLING SWEEP (P2.5 item 2) — the 2 IDORs were NOT the only ones
+Swept all 53 routers. `protectedProcedure` only checks `userId`; `staffProcedure` auto-runs
+`assertClientAccess` ONLY when `role==='staff'` AND input has a top-level `clientId` — so a
+`company_admin` (or any read keyed on a non-`clientId` id) is unscoped unless the resolver
+filters by `ctx.companyId` itself (`trpc.ts:54,77-87,113-121,150-178`; `client-access.ts:21-75`).
+
+**Unscoped cross-tenant READS (IDOR)** — `*` = directly code-verified this pass; others swept by-inspection (verify before fix):
+
+| id | sev | procedure | builder | trusted id | table | file:line |
+|----|-----|-----------|---------|-----------|-------|-----------|
+| T1* | high | floorPlans.getChangeHistory | protected | floorPlanId | seatingChangeLog | floor-plans.router.ts:1464 |
+| T2* | high | floorPlans.getGuestPreferences | protected | clientId | guestPreferences⋈guests | floor-plans.router.ts:1591 |
+| T3 | high | analyticsExport.getCompanyAnalytics* | protected | none (no WHERE) | guests, budget (GLOBAL totals) | analyticsExport.ts:64,79 |
+| T4 | high | sms.getSmsLogs* | protected | clientId (optional, unverified) | sms_logs (bodies+phones; empty input ⇒ ALL tenants) | sms.router.ts:569-591 |
+| T5 | med | sms.getSmsStats* | protected | none | sms_logs (cross-tenant aggregates) | sms.router.ts:624-631 |
+| T6 | high | budget.getAdvancePayments* | staff | budgetItemId | advancePayments (financial) | budget.router.ts:879 |
+| T7 | high | floorPlans.getUnassignedGuests | protected | floorPlanId | guests (PII+dietary) | floor-plans.router.ts:982-1000 |
+| T8 | med | floorPlans.getGuestConflicts | protected | clientId | guestConflicts | floor-plans.router.ts:1559 |
+| T9 | med | floorPlans.checkConflicts | protected | guestId/tableId | guestConflicts,floorPlanGuests,guestPreferences | floor-plans.router.ts:571-592 |
+| T10 | med | vendors.getClientEvents | protected | clientId | events | vendors.router.ts:1319 |
+| T11 | low-med | guestTransport.getStats | staff | clientId | guest_transport | guest-transport.router.ts:85 |
+
+**Unscoped cross-tenant WRITES (more severe — write/delete by trusted id)** — swept by-inspection:
+
+| id | sev | mutation | builder | trusted id | effect | file:line |
+|----|-----|----------|---------|-----------|--------|-----------|
+| W1 | high | googleSheets.importFromSheet | protected | clientId (unverified, unlike syncNow) | overwrite/DELETE another tenant's timeline & gifts | googleSheets.router.ts:343-440 (helpers called w/o companyId :436/:439) |
+| W2 | high | payment.createInvoice | protected | clientId (unverified) | attach invoice to foreign client | payment.router.ts:239-248 |
+| W3 | high | payment.createPaymentIntent | protected | clientId (invoiceId checked, clientId not) | payment + Stripe metadata on foreign client | payment.router.ts:428-437 |
+| W4 | med-high | guests.checkIn | staff | guestId (non-clientId ⇒ auto-check skipped) | check in another tenant's guest | guests.router.ts:1305 |
+| W5 | med-high | accommodations.setDefault | staff | id (+own clientId) | flip another tenant's accommodation default | accommodations.router.ts:343-349 |
+| W6 | med | floorPlans.addGuestConflict | staff | clientId | write to foreign client | floor-plans.router.ts:1616-1625 |
+| W7 | med | guestTransport.create | staff | clientId | create rows on foreign client | guest-transport.router.ts:97-262 |
+| W8 | low | timeline.reorder | staff | itemIds[] | reorder foreign timeline (sortOrder only) | timeline.router.ts:324-329 |
+
+PII-copy-into-own-row (read-into-write): contracts.create (contracts.router.ts:434-438),
+proposals.create (proposals.router.ts:456-479). Public counter bump: websites.trackVisit:817.
+
+Verdict: cross-tenant authorization is enforced PER-RESOLVER and many resolvers omit it — a
+systemic broken-object-level-authorization class, not 2 isolated bugs. See ROOTCAUSE.md
+Cluster S. Sibling proof: `budget.getAdvancePayments` (unscoped) sits right above
+`budget.getSummary` which DOES verify client→company (budget.router.ts:888+).
+
 Other tables in the 11-list:
 - giftItems — `export.exportClientData:42` does an UNSCOPED `select().from(giftItems)`, BUT the
   result (`giftItemsRaw`) is **never used** in the export output (dead fetch). Severity LOW
@@ -126,5 +169,20 @@ items (e.g. per-plate catering) STALE, while the same op via chatbot/Excel/UI re
 Fix candidate (Prompt 3): call `recalcPerGuestBudgetItems(db, clientId)` after the client-stat
 recalc in `importGuestsFromSheet` (and audit other Sheets importers that change guest/RSVP state).
 
+## Cluster I — Importer matrix divergences (P2.5 sibling sweep, Part B)
+The 5 canonical buffer importers in `excel-parser-server.ts` route through
+`validateExcelFile` + the right cascades. Every divergence is an inline/ad-hoc
+reimplementation OR a Sheets path missing a cascade — same root as B1/C1/P1/D1.
+
+| id | sev | importer | file:line | divergence |
+|----|-----|----------|-----------|------------|
+| I1 | med | importVendorsFromSheet (single-module path) | sheets-sync.ts:1110 (recalc only at :1970 `all` path) | drops `recalcClientStats` in the single-module sync → client stats stale after a vendor-sheet sync (sibling of P1). |
+| I2 | low | dead inline reimplementations | import.router.ts importVendor :1491 / importBudget :1751 / importHotel :1938 / importTransport :2126 | unreachable (buffer block returns early :804-897) ad-hoc reimplementations of the canonical parsers — dead code that drifts; remove or route through the service. |
+| I3 | info | importEventsFromSheet reachable only via module='all' | sheets-sync.ts:1784; router enum omits `events` | events single-module sheet import not wired (UNVERIFIED if intentional; pairs with E1). |
+
+(Confirmed harmless: client parsers `excel-parser.ts` importGuestListExcel/importGiftsExcel/
+parseExcelFile + csv-parser.ts have NO DB-writing callers — dead/unused.)
+
 ## New defects discovered in Prompt 2 C1 per-module round-trips
-See Clusters A/B/C/E above (D1 re-confirmed; B1 sheet-select; C1 importGift columns; E1–E3 export fidelity).
+See Clusters A/B/C/E/I/T above. D1 re-confirmed; B1 sheet-select; C1 importGift columns;
+E1–E3 export fidelity; I1–I3 importer divergences; T1–T11/W1–W8 IDOR inventory.
