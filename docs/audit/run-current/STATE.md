@@ -30,12 +30,19 @@ only step that ENFORCES isolation). PR #2 + PR #3 still OPEN, NOT merged.
   `ctx.db.transaction` (clients create/update) → working SAVEPOINT that inherits the GUC; savepoint
   rollback isolation holds; super_admin GUC → `is_super_admin()` true; companyId-null → NULL
   (onboarding ok). **clients 23-table cascade delete uses `withTransaction` → raw `db` singleton =
-  SIBLING txn, NOT nested** (a 6B.3 §2e concern, not a break). **floor-plans uses raw `db` (rule 31)
-  → NOT wrapped** (6B.3 concern; confirmed still works).
+  SIBLING txn, NOT nested** (a 6B.3 §2e concern, not a break). **floor-plans CORRECTION: it uses
+  destructured `ctx.db` (no raw-db import), so its 3 `db.transaction` sites NEST as savepoints under
+  the middleware = scoped + works** (rule 31's "db not ctx.db" = the destructured var name, not a raw
+  import; an earlier draft mis-stated this).
 - **Test-double fix** (NOT router edits): `createCaller` runs the middleware chain → 2 mock-db unit
   tests (`clients.router.test.ts`, `r2-tenant-isolation.test.ts`) needed `db.transaction`/`.execute`
   modeled. Fixed → unit 429/8skip restored.
 - **Gates:** audit **23/81**, integration **58**, unit **429/8skip**, tsc **0**, eslint **0** (4 files).
+- **6B.3 carry-forwards:** (a) **83 files import the raw `db` singleton; ~53 invoke raw `db.*`**
+  (cascade-delete `withTransaction` + SSE/cron/webhook/recalc/broadcast/Sheets) → NOT GUC-scoped →
+  classify tenant-scoped (wrap `withTenantScope`) vs cross-tenant infra (BYPASSRLS role). (b) the
+  per-procedure txn holds a pooled connection (`max:20`) across any external I/O inside the procedure
+  → measure pool pressure before the prod cutover.
 
 ### 6B.1 — inert RLS backstop — DONE — PR #3 — HEAD on `audit/rls-backstop`
 - **PR #3:** https://github.com/nitinthakurcode/weddingflo/pull/3 — **base `audit/bulletproof`**
