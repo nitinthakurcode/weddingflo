@@ -28,6 +28,8 @@ ignore:
   - "**/__tests__/**"
   - "**/mocks/**"
   - "**/test-utils/**"
+  - "e2e/**"          # Playwright E2E specs + helpers — not unit-covered product code
+  - "next.config.ts"  # build/runtime config, not unit-testable
 
 flags:
   unit:
