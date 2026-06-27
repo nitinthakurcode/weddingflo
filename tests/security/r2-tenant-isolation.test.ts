@@ -109,7 +109,14 @@ const createTestContext = (overrides: Partial<TestContext> = {}): TestContext =>
   companyId: COMPANY_A,
   role: 'company_admin',
   subscriptionTier: 'premium',
-  db: {},
+  // Minimal Drizzle stub: the RLS tenant-scope middleware (trpc.ts, 6B.2) wraps
+  // every authenticated procedure in db.transaction() and runs
+  // tx.execute(set_config ...). The storage router itself never touches the db
+  // (R2 only), so a no-op transaction that yields a tx with .execute suffices.
+  db: {
+    transaction: (fn: (tx: { execute: () => Promise<unknown[]> }) => unknown) =>
+      fn({ execute: async () => [] }),
+  },
   ...overrides,
 });
 

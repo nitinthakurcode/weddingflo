@@ -10,9 +10,46 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6B.1 (inert RLS schema + policies) — DONE + PR OPENED (#3).** Next = **6B.2** (context-injection
-GUC middleware, still superuser) → then **6B.3** (atomic role cutover + fail-closed test = the only step
-that ENFORCES isolation). PR #2 + PR #3 both OPEN, NOT merged — user's call.
+**Prompt 6B.2 (RLS context-injection middleware, still superuser → INERT) — DONE + PR OPENED (#4).**
+Branch `audit/rls-context` (stacked on `audit/rls-backstop`, HEAD `2587fff`). **PR #4:**
+https://github.com/nitinthakurcode/weddingflo/pull/4 (base `audit/rls-backstop`) — **Audit Gate GREEN**
+(Audit Suite + Static/Unit both pass; mergeStateStatus CLEAN), NOT merged (user's call). Next = **6B.3**
+(§2e singleton/job strategy + non-superuser CI suite role + fail-closed RLS tests + prod `DATABASE_URL`
+cutover = the only step that ENFORCES isolation). PR #2 + PR #3 still OPEN, NOT merged.
+
+### 6B.2 — RLS tenant context injection — DONE — branch `audit/rls-context` (see RLS-6B2-RESULT.md)
+- **ONE tRPC `t.middleware()`** (`src/server/trpc/trpc.ts`, the SAME `.use()` seam as
+  protected/admin/staff/superAdmin — NOT Next.js middleware/proxy, CLAUDE rule 15 honored).
+  Composed into all 4 authenticated builders (`:129/:165/:224/:258`); `publicProcedure` unscoped.
+  Wraps each authed call in `ctx.db.transaction` + `applyTenantScope(tx,{companyId,role})` and rebinds
+  `ctx.db → tx` (cast `as unknown as typeof ctx.db` to keep ~600 `ctx.db.*` sites' type). **ZERO
+  router edits.** Extracted the set_config into a reused `applyTenantScope` in `with-tenant-scope.ts`
+  (behavior-preserving; `withTenantScope` delegates to it).
+- **STILL SUPERUSER → RLS inert.** DATABASE_URL untouched. Proves only that the plumbing (GUC +
+  per-proc txn + savepoint nesting) doesn't break runtime.
+- **§2c risks EXERCISED on real PG** (scratch probe under audit harness, then deleted): nested
+  `ctx.db.transaction` (clients create/update) → working SAVEPOINT that inherits the GUC; savepoint
+  rollback isolation holds; super_admin GUC → `is_super_admin()` true; companyId-null → NULL
+  (onboarding ok). **clients 23-table cascade delete uses `withTransaction` → raw `db` singleton =
+  SIBLING txn, NOT nested** (a 6B.3 §2e concern, not a break). **floor-plans CORRECTION: it uses
+  destructured `ctx.db` (no raw-db import), so its 3 `db.transaction` sites NEST as savepoints under
+  the middleware = scoped + works** (rule 31's "db not ctx.db" = the destructured var name, not a raw
+  import; an earlier draft mis-stated this).
+- **Test-double fix** (NOT router edits): `createCaller` runs the middleware chain → 2 mock-db unit
+  tests (`clients.router.test.ts`, `r2-tenant-isolation.test.ts`) needed `db.transaction`/`.execute`
+  modeled. Fixed → unit 429/8skip restored.
+- **Gates:** audit **23/81**, integration **58**, unit **429/8skip**, tsc **0**, eslint **0** (4 files).
+- **Review (PR #4):** /security-review CLEAN; /code-review → **1 fix**: skip `type==='subscription'`
+  in the middleware (`onSync` SSE generator must not be txn-wrapped — would commit at generator
+  creation; tRPC exposes `type` to middleware, verified in installed `.d.mts`). Carry-forward (b)
+  sharpened: outer txn now spans the resolver's `broadcastSync` + any post-write I/O, and
+  `withTransaction`/raw-`db` sites open a SIBLING pooled connection → measure pool pressure before
+  cutover. floor-plans = harmless savepoints; `ctx.withTenantScope` is dead code (no regression).
+- **6B.3 carry-forwards:** (a) **83 files import the raw `db` singleton; ~53 invoke raw `db.*`**
+  (cascade-delete `withTransaction` + SSE/cron/webhook/recalc/broadcast/Sheets) → NOT GUC-scoped →
+  classify tenant-scoped (wrap `withTenantScope`) vs cross-tenant infra (BYPASSRLS role). (b) the
+  per-procedure txn holds a pooled connection (`max:20`) across any external I/O inside the procedure
+  → measure pool pressure before the prod cutover.
 
 ### 6B.1 — inert RLS backstop — DONE — PR #3 — HEAD on `audit/rls-backstop`
 - **PR #3:** https://github.com/nitinthakurcode/weddingflo/pull/3 — **base `audit/bulletproof`**

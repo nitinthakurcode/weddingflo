@@ -48,7 +48,7 @@ const createDrizzleMock = (returnData: any[] = []) => {
 // Create mock db object
 const createMockDb = (returnData: any[] = []) => {
   const drizzleMock = createDrizzleMock(returnData)
-  return {
+  const mock: any = {
     select: jest.fn(() => drizzleMock),
     insert: jest.fn(() => ({
       values: jest.fn(() => ({
@@ -71,8 +71,16 @@ const createMockDb = (returnData: any[] = []) => {
         findMany: jest.fn(() => Promise.resolve(returnData)),
       },
     },
-    transaction: jest.fn((fn) => fn(createMockDb(returnData))),
+    // The RLS tenant-scope middleware (trpc.ts, 6B.2) wraps every authenticated
+    // procedure in db.transaction() and runs tx.execute(set_config ...), then
+    // rebinds ctx.db to the tx. We model .execute here, and have transaction
+    // yield the SAME mock so the scoped tx shares these spies — keeping the
+    // existing `expect(ctx.db.select).toHaveBeenCalled()` assertions valid
+    // whether or not a txn wraps the call.
+    execute: jest.fn(() => Promise.resolve([])),
   }
+  mock.transaction = jest.fn((fn: (tx: typeof mock) => unknown) => fn(mock))
+  return mock
 }
 
 type TestContext = {
