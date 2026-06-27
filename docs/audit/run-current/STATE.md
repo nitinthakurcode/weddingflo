@@ -20,8 +20,23 @@ non-destructive contract is kept by design (clearing a cell = explicit unassign)
 `excel-roundtrip.vendors-combined.test.ts` (3/3, proven RED without the export fix). KNOWN_GAPS §5
 vendors → **fixed**. Gates: tsc 0, eslint 0 err, **audit 23 files/81**, Cluster-S IDOR 25/25,
 downloadTemplate contract 6/6, integration 58, unit 429/8skip; /code-review (1 stale-comment fix
-applied) + /security-review CLEAN. SHA: `3449801`. → **Next is still Prompt 6B** (RLS
-fail-closed backstop + CI gate).
+applied) + /security-review CLEAN. SHA: `3449801`.
+
+**Prompt 6C — CI gate landed + truthfully-scoped PR OPENED.** Draft PR #2
+(`audit/bulletproof → main`): https://github.com/nitinthakurcode/weddingflo/pull/2 — body truthfully
+scoped (app-layer closures + convergence story + HONEST gaps; NO "DB-level"/"100% bulletproof").
+New ADDITIVE `.github/workflows/audit.yml` (commit `fa0cceb` + hardening `aa2bbac`): `quality`
+(eslint·tsc·vitest) + `audit-suite` (postgres:16-alpine + redis:7-alpine + SRH; db:migrate; Rail-3
+proof + SRH PING-retry; `vitest.audit.config.ts`). BOTH jobs `continue-on-error: true` (NON-BLOCKING);
+live Sheets/Playwright excluded. /security-review CLEAN (CI uses `pull_request` not `_target`, zero
+`${{ secrets.* }}`, inert tokens). /review: 0 confirmed bugs; applied alpine-image + PING-retry
+hardening; fixed PR-body RLS migration citation (`0024`+`0027/0030/0031`).
+→ **PROMOTE next session:** read the Audit Gate run on PR #2 (runs 28283378940 / 28283377724); once
+`audit-suite`+`quality` are confirmed GENUINELY green, drop `continue-on-error` + add as required checks.
+→ **NEXT PR (the real 6B):** DB-level RLS fail-closed backstop (extend `tenant_isolation` policies to
+the ~33+ companyId-less tables; set `app.current_company_id` per request / route via
+`ctx.withTenantScope`; add a **non-superuser CI role** test that actually exercises RLS) + the
+intra-tenant authz pass.
 
 ### (prior) Prompt 6A.1 — downloadTemplate SSOT-bypass fix + ledger hygiene COMPLETE on `audit/bulletproof`.
 `import.router.ts downloadTemplate` no longer authors columns inline for its 6 clean modules
