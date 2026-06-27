@@ -10,11 +10,12 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6B.2 (RLS context-injection middleware, still superuser → INERT) — DONE, awaiting review.**
-Branch `audit/rls-context` (stacked on `audit/rls-backstop` @ `9bcd1f4`); NOT pushed, no PR yet —
-user's call to push + open PR #4 (base `audit/rls-backstop`). Next = **6B.3** (§2e singleton/job
-strategy + non-superuser CI suite role + fail-closed RLS tests + prod `DATABASE_URL` cutover = the
-only step that ENFORCES isolation). PR #2 + PR #3 still OPEN, NOT merged.
+**Prompt 6B.2 (RLS context-injection middleware, still superuser → INERT) — DONE + PR OPENED (#4).**
+Branch `audit/rls-context` (stacked on `audit/rls-backstop`, HEAD `2587fff`). **PR #4:**
+https://github.com/nitinthakurcode/weddingflo/pull/4 (base `audit/rls-backstop`) — **Audit Gate GREEN**
+(Audit Suite + Static/Unit both pass; mergeStateStatus CLEAN), NOT merged (user's call). Next = **6B.3**
+(§2e singleton/job strategy + non-superuser CI suite role + fail-closed RLS tests + prod `DATABASE_URL`
+cutover = the only step that ENFORCES isolation). PR #2 + PR #3 still OPEN, NOT merged.
 
 ### 6B.2 — RLS tenant context injection — DONE — branch `audit/rls-context` (see RLS-6B2-RESULT.md)
 - **ONE tRPC `t.middleware()`** (`src/server/trpc/trpc.ts`, the SAME `.use()` seam as
