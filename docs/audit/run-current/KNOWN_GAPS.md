@@ -78,3 +78,37 @@ import-template headers ARE the combined-export SSOT headers (guarded by
 
 ### 6. Audit-scope boundary
 The audit proves the **audited surfaces** (spreadsheet import/export, realtime sync, tenant isolation across all 52 routers, chatbot↔sheet parity, headers, tiered perf). It does NOT claim every feature of the app is bug-free — untested routers/flows are out of scope, not certified. Dependency currency (12 vulns, 0 high/critical; firebase-admin/googleapis major-lag) is REPORT-ONLY, no upgrade this audit.
+
+### 7. Pre-existing CI status — PR #2 red checks are repo CI debt, NOT audit regressions
+
+PR #2 (`audit/bulletproof` → `main`) shows **3 red checks**. Independent triage proves all
+three are **pre-existing** repo CI debt that already fails on `main`; this branch introduces
+**ZERO** regressions. The audit's own gate is correctly provisioned and **green**.
+
+**Evidence — `main` was already red before this branch.** The merge-base of `audit/bulletproof`
+is `579de2b`, which **is** the current `main` tip ("docs(handbook): sync testing section…",
+2026-06-24). On that exact commit:
+- **`test.yml` (Test Suite)** — run [`28121765490`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28121765490) → conclusion **FAILURE**.
+- **`deploy.yml` (Build & Deploy)** — run [`28121765510`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28121765510) → conclusion **FAILURE**.
+- The **five most-recent `main` runs** of BOTH `test.yml` and `deploy.yml` are **all FAILURE**
+  (2026-06-23 → 2026-06-24), every one predating any `audit/bulletproof` work.
+
+**Per-check triage:**
+
+| Red check on PR #2 | Verdict | Root cause (evidence) |
+|--------------------|---------|------------------------|
+| **E2E Tests** | **PRE-EXISTING** | `test.yml`'s `e2e-tests` job (`.github/workflows/test.yml:157-204`) provisions **NO Postgres `services:` block** — unlike the `unit-tests` job, which does (`:50-66`). Playwright's `webServer` boots the real app, which on first auth request queries `rate_limit_entries` and dies with `ECONNREFUSED` (PR-run log [`28283558629`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28283558629): `[WebServer] [AuthRateLimit] PostgreSQL error … rate_limit_entries … [cause]: AggregateError: code: 'ECONNREFUSED'`). Compounding: `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`/`DATABASE_URL` come from repo secrets that are **empty/absent** in this environment. Same failure on `main`. |
+| **All Tests Passed** | **PRE-EXISTING** | Aggregate gate (`test.yml:206-223`) `needs: [unit-tests, integration-tests, type-check, build, e2e-tests]`. Job log shows unit/integration/type-check/build all `"success"`; **only** `e2e-tests` is `"failure"` (`[ "failure" != "success" ]; then exit 1`). It fails **solely** because of the un-provisioned E2E job above — no audit code is implicated. |
+| **codecov/patch** | **PRE-EXISTING** | `0.00% of diff hit (target 80%)` is a **consequence** of the broken `main` test run: coverage is uploaded from the same failing Test-Suite pipeline, so no patch coverage is recorded. The audit's behavior tests live in the separate `vitest.audit` suite (run by the green Audit Gate), which codecov's patch target is not configured to credit. Not an audit regression. |
+
+**Audit-caused failures: ZERO.** The audit's own gate — **Audit Suite (real Postgres + Redis/SRH)**
+(`.github/workflows/audit.yml`) — correctly provisions Postgres + Redis/SRH and is **GREEN** on PR #2
+(runs [`28283557763`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28283557763) /
+[`28283558618`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28283558618)), as are
+Build Check, Integration Tests, Static+Unit, all Type-Check variants, and the full Security/SAST gate.
+
+**Disposition (unchanged this pass):** PR #2 stays **draft**; the Audit Gate stays **non-blocking**
+until the user promotes it. Fixing the repo's pre-existing E2E/Deploy CI debt (add a Postgres
+`services:` block + seeded creds to `test.yml`'s `e2e-tests` job; repair `deploy.yml`) is **out of
+scope** for this audit PR — it would be app/CI-infra work, not an audit fix — and is logged here as
+known repo debt to be addressed separately.
