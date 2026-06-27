@@ -67,8 +67,10 @@ jobs:
     # REST API the realtime layer speaks to a plain Redis (reachable service-to-service as
     # `redis`).
     services:
+      # Images match scripts/start-test-stack.sh (postgres:16-alpine / redis:7-alpine).
+      # SRH floats on :latest in compose too (documented drift caveat in the script).
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -81,7 +83,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:7
+        image: redis:7-alpine
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -133,12 +135,20 @@ jobs:
         run: |
           node -e "const u=new URL(process.env.DATABASE_URL),r=new URL(process.env.UPSTASH_REDIS_REST_URL);console.log('DB   host=%s db=%s',u.hostname,u.pathname.slice(1));console.log('Redis host=%s',r.hostname);console.log('TEST_DB_CONFIRMED=%s',process.env.TEST_DB_CONFIRMED)"
 
+      # SRH has no service health-check, so tolerate a cold-start window before it binds :80
+      # and connects to redis. Retry the PING rather than fail the (otherwise green) job on a flake.
       - name: Verify SRH PING -> PONG (Upstash REST bridge is live)
         run: |
-          curl -fsS -X POST "$UPSTASH_REDIS_REST_URL" \
-            -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '["PING"]'
+          for i in $(seq 1 15); do
+            if curl -fsS -X POST "$UPSTASH_REDIS_REST_URL" \
+                 -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" \
+                 -H "Content-Type: application/json" \
+                 -d '["PING"]' | grep -q PONG; then
+              echo "SRH is live (attempt $i)"; exit 0
+            fi
+            echo "SRH not ready (attempt $i) — retrying in 2s"; sleep 2
+          done
+          echo "SRH did not answer PONG after retries"; exit 1
 
       # The audit suite SELF-SEEDS: each of the 23 files calls resetDeterministic() (fixed
       # seed / fixed PKs / fixed clock) in beforeAll, then asserts real .xlsx/Sheets round-trip
