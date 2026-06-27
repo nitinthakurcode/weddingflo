@@ -158,6 +158,57 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
 
+    # ROOT-CAUSE FIX: provision the Rail-3 proven NON-PROD Postgres the booted app needs
+    # (mirrors the integration-tests job + audit.yml). Playwright's webServer runs `npm run dev`,
+    # whose first auth request queries Postgres (rate_limit_entries) — without this service it
+    # died ECONNREFUSED and every spec failed. The db name carries the `test` token so any
+    # in-app non-prod guard stays satisfied. (Redis/SRH intentionally omitted: no e2e spec
+    # asserts realtime and the app degrades gracefully without Redis — warns, never throws.)
+    services:
+      postgres:
+        image: postgres:16-alpine # same image as the proven test stack (audit.yml)
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: weddingflo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Proven non-prod DB (host=localhost ∈ guard regex; db carries the `test` token).
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/weddingflo_test
+      # Inert-but-VALID auth keys so the dev server can sign/verify a real BetterAuth session
+      # in CI. Throwaway CI values, NOT real secrets (zero ${{ secrets.* }} in this job).
+      BETTER_AUTH_SECRET: e2e_ci_inert_better_auth_secret_min32_0123456789
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      TOKEN_ENCRYPTION_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc= # inert 32-byte base64
+      # Deterministic seeded credential (matches e2e/helpers/auth.ts defaults) — the seed step
+      # below creates this user/company in-DB, so NO absent TEST_USER_* repo secret is used.
+      TEST_USER_EMAIL: test@test.com
+      TEST_USER_PASSWORD: E2eTest!Pass123
+      # INERT side-effect sandbox — a stray email/SMS/charge/upload can't reach a real provider.
+      RESEND_API_KEY: test_inert_resend
+      TWILIO_ACCOUNT_SID: ACtest_inert
+      TWILIO_AUTH_TOKEN: test_inert_twilio
+      TWILIO_PHONE_NUMBER: '+15005550006'
+      STRIPE_SECRET_KEY: sk_test_inert
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_inert
+      FIREBASE_ADMIN_PROJECT_ID: test-inert
+      FIREBASE_ADMIN_CLIENT_EMAIL: test@inert.local
+      FIREBASE_ADMIN_PRIVATE_KEY: test_inert
+      R2_ENDPOINT: http://127.0.0.1:9/inert
+      R2_ACCESS_KEY_ID: test_inert
+      R2_SECRET_ACCESS_KEY: test_inert
+      R2_BUCKET_NAME: weddingflo-test-inert
+      NEXT_TELEMETRY_DISABLED: 1
+      SKIP_ENV_VALIDATION: 'true'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -174,26 +225,17 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Seed E2E credential (best-effort)
-        run: npx tsx scripts/seed-e2e-user.ts || echo "seed skipped (user must be provisioned)"
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      - name: Apply Drizzle migrations (schema from journaled migrations only)
+        run: npm run db:migrate
+
+      - name: Rail-3 non-prod proof (host=localhost / db=weddingflo_test)
+        run: node -e "const u=new URL(process.env.DATABASE_URL);console.log('DB host=%s db=%s',u.hostname,u.pathname.slice(1))"
+
+      - name: Seed deterministic E2E user + company (no secret dependency)
+        run: npx tsx scripts/seed-e2e-user.ts
 
       - name: Run E2E tests
         run: npm run test:e2e
-        env:
-          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
-          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          SKIP_ENV_VALIDATION: 'true'
 
       - name: Upload test results
         if: always()

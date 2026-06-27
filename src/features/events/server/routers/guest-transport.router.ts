@@ -79,6 +79,9 @@ export const guestTransportRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
+      // Tenant scope: the client must belong to the caller's company (was unscoped — IDOR).
+      await ctx.assertClientAccess(input.clientId)
+
       const transportList = await ctx.db
         .select()
         .from(guestTransport)
@@ -115,6 +118,10 @@ export const guestTransportRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
+
+      // Tenant scope: write must target a client in the caller's company. Auto-checked
+      // for role==='staff'; explicit call also closes the company_admin write gap (IDOR).
+      await ctx.assertClientAccess(input.clientId)
 
       // Execute all transport creation operations atomically within a transaction
       const result = await withTransaction(async (tx) => {

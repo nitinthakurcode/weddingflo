@@ -2,6 +2,7 @@ import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { exportToExcel, exportToPDF } from '@/lib/export/export-utils'
+import { fetchClientVendorExportRows } from '@/lib/export/vendor-export-data'
 import { eq, and } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
 
@@ -59,20 +60,30 @@ export const exportRouter = router({
           .where(eq(schema.documents.clientId, input.clientId)),
         ctx.db.select().from(schema.guestTransport)
           .where(eq(schema.guestTransport.clientId, input.clientId)),
-        ctx.db.select().from(schema.vendors)
-          .where(eq(schema.vendors.companyId, ctx.companyId)),
+        // [6A.2] Per-client `clientVendors`-enriched rows via the shared SSOT helper (was a
+        // bare global `vendors` fetch → §G.6 per-link columns blank → combined-export →
+        // re-import silently cleared them). Same helper feeds downloadTemplate('vendors').
+        fetchClientVendorExportRows(ctx.db, { clientId: input.clientId, companyId: ctx.companyId }),
       ])
 
       // Create lookup map for guests
       const guestsMap = new Map(guests.map((g) => [g.id, g]))
 
-      // Transform guestGifts to match expected export format
+      // Transform guestGifts (gift-delivery model) for the combined export's 'GiftsGiven'
+      // sheet. Carries guest id/contact so importData('guestGifts') can round-trip the
+      // guest link, and the gift name/type/quantity the importer upserts. [Cluster E]
       const gifts = guestGiftsRaw.map((gg) => {
         const guest = guestsMap.get(gg.guestId || '')
+        const guestName = guest ? `${guest.firstName || ''} ${guest.lastName || ''}`.trim() : ''
         return {
           id: gg.id,
-          guest_name: guest ? `${guest.firstName || ''} ${guest.lastName || ''}`.trim() : '',
-          guestName: guest ? `${guest.firstName || ''} ${guest.lastName || ''}`.trim() : '',
+          guestId: gg.guestId || '',
+          guest_name: guestName,
+          guestName,
+          guest_email: guest?.email || '',
+          guestEmail: guest?.email || '',
+          guest_phone: guest?.phone || '',
+          guestPhone: guest?.phone || '',
           guest_group: guest?.groupName || '',
           guestGroup: guest?.groupName || '',
           gift_item: gg.name || '',
@@ -83,13 +94,15 @@ export const exportRouter = router({
         }
       })
 
-      // Enrich guestTransport with guest data
+      // Enrich guestTransport with guest data. [E2] Prefer the row's STORED guestName so a
+      // manually-entered transport entry with no guest link keeps its name on export (the
+      // importer requires Guest Name; a blanked name made the row drop on re-import).
       const guestTransport = guestTransportRaw.map((gt) => {
         const guest = guestsMap.get(gt.guestId || '')
         return {
           ...gt,
           guest,
-          guestName: guest ? `${guest.firstName || ''} ${guest.lastName || ''}`.trim() : '',
+          guestName: gt.guestName || (guest ? `${guest.firstName || ''} ${guest.lastName || ''}`.trim() : ''),
         }
       })
 

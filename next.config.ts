@@ -131,10 +131,17 @@ const nextConfig: NextConfig = {
             key: 'X-DNS-Prefetch-Control',
             value: 'on'
           },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains; preload'
-          },
+          // HSTS is emitted only in production. On the http dev/test server it
+          // poisons the browser's HSTS cache for the host and forces an http→https
+          // upgrade that WebKit honors even on localhost (where there is no TLS
+          // listener) — Playwright navigations then fail with a TLS handshake error.
+          // Production runs behind TLS (Cloudflare), so HSTS stays fully active there.
+          ...(process.env.NODE_ENV === 'production'
+            ? [{
+                key: 'Strict-Transport-Security',
+                value: 'max-age=63072000; includeSubDomains; preload',
+              }]
+            : []),
           {
             key: 'X-Frame-Options',
             value: 'DENY'
@@ -167,7 +174,10 @@ const nextConfig: NextConfig = {
               "base-uri 'self'",
               "form-action 'self'",
               "frame-ancestors 'none'",
-              "upgrade-insecure-requests",
+              // Upgrade to https only in production (same http dev/test reason as
+              // HSTS above): on the plain-http test server this directive makes
+              // WebKit upgrade navigations to https and fail the TLS handshake.
+              ...(process.env.NODE_ENV === 'production' ? ["upgrade-insecure-requests"] : []),
             ].join('; ')
           }
         ],

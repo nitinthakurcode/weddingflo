@@ -1,4 +1,5 @@
 import { router, staffProcedure, protectedProcedure, publicProcedure } from '@/server/trpc/trpc'
+import { assertClientAccess } from '@/server/trpc/client-access'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { eq, and, isNull, desc, asc, inArray } from 'drizzle-orm'
@@ -1307,6 +1308,9 @@ export const vendorsRouter = router({
       if (!ctx.companyId) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
+
+      // Tenant scope: the client must belong to the caller's company (was unscoped — IDOR).
+      await assertClientAccess(ctx, input.clientId)
 
       const eventList = await ctx.db
         .select({

@@ -1,0 +1,154 @@
+# Bulletproof Audit Gate — runs the deterministic, behavior-asserting audit harness
+# (vitest.audit.config.ts) against a real Postgres + Redis/SRH stack on every PR, plus
+# tsc + eslint + the unit suite. This is CONVERGENCE.md move #4: any new call-site that
+# bypasses the import/tenant-scope SSOT (or any unscoped resolver) breaks this gate, so the
+# repeat-bug class cannot be reintroduced.
+#
+# ┌─────────────────────────────────────────────────────────────────────────────────────┐
+# │ PROMOTION RULE (history) — both jobs are now BLOCKING (continue-on-error removed).    │
+# │ They began NON-BLOCKING (continue-on-error: true), which reports a run GREEN even     │
+# │ when steps FAIL. Promotion happened ONLY after their run logs were opened and every   │
+# │ step was confirmed to GENUINELY PASS on a real PR run (audit suite printed "RAIL-3    │
+# │ OK" + "N passed", SRH answered PONG, migrations applied). The `continue-on-error`     │
+# │ lines are deleted and both jobs are required checks on main's branch protection.      │
+# └─────────────────────────────────────────────────────────────────────────────────────┘
+#
+# NOT here (need secrets or a browser → nightly/manual, never a PR gate): the live Google
+# Sheets smoke (real OAuth + throwaway spreadsheet) and the two-browser Playwright SSE E2E
+# (needs BETTER_AUTH_SECRET/TOKEN_ENCRYPTION_KEY/GOOGLE_CLIENT_ID/app URL — absent from CI).
+# The audit suite covers Sheets OFFLINE via the FakeSheetsClient DI seam.
+#
+# This file is ADDITIVE. It does not touch the existing deploy/security/test workflows.
+
+name: Audit Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [audit/**]
+  workflow_dispatch:
+
+concurrency:
+  group: audit-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: --max_old_space_size=4096
+
+jobs:
+  quality:
+    name: Static + Unit (tsc · eslint · vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - name: ESLint (lint gate — currently 0 errors / pre-existing warnings)
+        run: npm run lint
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+      - name: Unit tests (vitest — excludes the audit dir, that runs below)
+        run: npm run test:unit
+
+  audit-suite:
+    name: Audit Suite (real Postgres + Redis/SRH)
+    runs-on: ubuntu-latest
+
+    # Rail-3 proven NON-PROD stack, mirroring scripts/start-test-stack.sh. Service ports map
+    # to localhost on the runner, so the in-code Rail-3 guard sees host=localhost (∈ its
+    # non-prod regex) and db=weddingflo_test (has the `test` token). SRH bridges the Upstash
+    # REST API the realtime layer speaks to a plain Redis (reachable service-to-service as
+    # `redis`).
+    services:
+      # Images match scripts/start-test-stack.sh (postgres:16-alpine / redis:7-alpine).
+      # SRH floats on :latest in compose too (documented drift caveat in the script).
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: weddingflo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      srh:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: test_ci_audit_token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
+
+    env:
+      # Rail-3 proven non-prod targets (host=localhost ∈ guard regex; db carries the `test` token).
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/weddingflo_test
+      UPSTASH_REDIS_REST_URL: http://localhost:8079
+      UPSTASH_REDIS_REST_TOKEN: test_ci_audit_token
+      TEST_DB_CONFIRMED: '1' # write authorization for the PROVEN non-prod stack only
+      # INERT side-effect sandbox values (also msw-stubbed in vitest.audit.setup.ts) — a stray
+      # email/SMS/charge/upload can never reach a real provider.
+      RESEND_API_KEY: test_inert_resend
+      TWILIO_ACCOUNT_SID: ACtest_inert
+      TWILIO_AUTH_TOKEN: test_inert_twilio
+      TWILIO_PHONE_NUMBER: '+15005550006'
+      STRIPE_SECRET_KEY: sk_test_inert
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_inert
+      FIREBASE_ADMIN_PROJECT_ID: test-inert
+      FIREBASE_ADMIN_CLIENT_EMAIL: test@inert.local
+      FIREBASE_ADMIN_PRIVATE_KEY: test_inert
+      R2_ENDPOINT: http://127.0.0.1:9/inert
+      R2_ACCESS_KEY_ID: test_inert
+      R2_SECRET_ACCESS_KEY: test_inert
+      R2_BUCKET_NAME: weddingflo-test-inert
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Apply Drizzle migrations (schema reproduced from journaled migrations only)
+        run: npm run db:migrate
+
+      - name: Rail-3 non-prod proof (must show host=localhost / db=weddingflo_test / CONFIRMED=1)
+        run: |
+          node -e "const u=new URL(process.env.DATABASE_URL),r=new URL(process.env.UPSTASH_REDIS_REST_URL);console.log('DB   host=%s db=%s',u.hostname,u.pathname.slice(1));console.log('Redis host=%s',r.hostname);console.log('TEST_DB_CONFIRMED=%s',process.env.TEST_DB_CONFIRMED)"
+
+      # SRH has no service health-check, so tolerate a cold-start window before it binds :80
+      # and connects to redis. Retry the PING rather than fail the (otherwise green) job on a flake.
+      - name: Verify SRH PING -> PONG (Upstash REST bridge is live)
+        run: |
+          for i in $(seq 1 15); do
+            if curl -fsS -X POST "$UPSTASH_REDIS_REST_URL" \
+                 -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" \
+                 -H "Content-Type: application/json" \
+                 -d '["PING"]' | grep -q PONG; then
+              echo "SRH is live (attempt $i)"; exit 0
+            fi
+            echo "SRH not ready (attempt $i) — retrying in 2s"; sleep 2
+          done
+          echo "SRH did not answer PONG after retries"; exit 1
+
+      # The audit suite SELF-SEEDS: each of the 23 files calls resetDeterministic() (fixed
+      # seed / fixed PKs / fixed clock) in beforeAll, then asserts real .xlsx/Sheets round-trip
+      # + cascade + broadcast + tenant isolation + perf SLOs on the proven test DB.
+      - name: Run audit suite (vitest.audit.config.ts)
+        run: npx vitest run --config vitest.audit.config.ts
