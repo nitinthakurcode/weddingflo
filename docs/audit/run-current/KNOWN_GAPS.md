@@ -79,11 +79,21 @@ import-template headers ARE the combined-export SSOT headers (guarded by
 ### 6. Audit-scope boundary
 The audit proves the **audited surfaces** (spreadsheet import/export, realtime sync, tenant isolation across all 52 routers, chatbot↔sheet parity, headers, tiered perf). It does NOT claim every feature of the app is bug-free — untested routers/flows are out of scope, not certified. Dependency currency (12 vulns, 0 high/critical; firebase-admin/googleapis major-lag) is REPORT-ONLY, no upgrade this audit.
 
-### 7. Pre-existing CI status — PR #2 red checks are repo CI debt, NOT audit regressions
+### 7. CI status — E2E now GREEN (6D); only `codecov/patch` remains (non-blocking)
 
-PR #2 (`audit/bulletproof` → `main`) shows **3 red checks**. Independent triage proves all
-three are **pre-existing** repo CI debt that already fails on `main`; this branch introduces
-**ZERO** regressions. The audit's own gate is correctly provisioned and **green**.
+**UPDATE [6D, 2026-06-27]:** the two **E2E**-derived red checks below are now **GREEN**. The repo's
+pre-existing `e2e-tests` CI debt was fixed (commit `9d83e45` provisioned Postgres + a deterministic
+seed for that job), and the resulting browser-matrix failures were closed in Prompt 6D
+(`07f9e21` + `1336a86`; `ba62b27` flagged) → **E2E 80/80 GREEN**, **"All Tests Passed" aggregate gate
+GREEN** (verified by CI run [`28287791730`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28287791730)).
+The **only** remaining red check is `codecov/patch` (see below), which is a coverage-percentage gate,
+not a correctness failure. The history below is retained for the audit trail.
+
+---
+
+(Historical, pre-6D) PR #2 (`audit/bulletproof` → `main`) showed **3 red checks**. Independent triage
+proved all three were **pre-existing** repo CI debt that already failed on `main`; this branch
+introduced **ZERO** regressions. The audit's own gate is correctly provisioned and **green**.
 
 **Evidence — `main` was already red before this branch.** The merge-base of `audit/bulletproof`
 is `579de2b`, which **is** the current `main` tip ("docs(handbook): sync testing section…",
@@ -97,9 +107,9 @@ is `579de2b`, which **is** the current `main` tip ("docs(handbook): sync testing
 
 | Red check on PR #2 | Verdict | Root cause (evidence) |
 |--------------------|---------|------------------------|
-| **E2E Tests** | **PRE-EXISTING** | `test.yml`'s `e2e-tests` job (`.github/workflows/test.yml:157-204`) provisions **NO Postgres `services:` block** — unlike the `unit-tests` job, which does (`:50-66`). Playwright's `webServer` boots the real app, which on first auth request queries `rate_limit_entries` and dies with `ECONNREFUSED` (PR-run log [`28283558629`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28283558629): `[WebServer] [AuthRateLimit] PostgreSQL error … rate_limit_entries … [cause]: AggregateError: code: 'ECONNREFUSED'`). Compounding: `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`/`DATABASE_URL` come from repo secrets that are **empty/absent** in this environment. Same failure on `main`. |
-| **All Tests Passed** | **PRE-EXISTING** | Aggregate gate (`test.yml:206-223`) `needs: [unit-tests, integration-tests, type-check, build, e2e-tests]`. Job log shows unit/integration/type-check/build all `"success"`; **only** `e2e-tests` is `"failure"` (`[ "failure" != "success" ]; then exit 1`). It fails **solely** because of the un-provisioned E2E job above — no audit code is implicated. |
-| **codecov/patch** | **PRE-EXISTING** | `0.00% of diff hit (target 80%)` is a **consequence** of the broken `main` test run: coverage is uploaded from the same failing Test-Suite pipeline, so no patch coverage is recorded. The audit's behavior tests live in the separate `vitest.audit` suite (run by the green Audit Gate), which codecov's patch target is not configured to credit. Not an audit regression. |
+| **E2E Tests** | **NOW GREEN (6D)** — was PRE-EXISTING | `test.yml`'s `e2e-tests` job (`.github/workflows/test.yml:157-204`) provisions **NO Postgres `services:` block** — unlike the `unit-tests` job, which does (`:50-66`). Playwright's `webServer` boots the real app, which on first auth request queries `rate_limit_entries` and dies with `ECONNREFUSED` (PR-run log [`28283558629`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28283558629): `[WebServer] [AuthRateLimit] PostgreSQL error … rate_limit_entries … [cause]: AggregateError: code: 'ECONNREFUSED'`). Compounding: `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`/`DATABASE_URL` come from repo secrets that are **empty/absent** in this environment. Same failure on `main`. |
+| **All Tests Passed** | **NOW GREEN (6D)** — was PRE-EXISTING | Aggregate gate (`test.yml:206-223`) `needs: [unit-tests, integration-tests, type-check, build, e2e-tests]`. Job log shows unit/integration/type-check/build all `"success"`; **only** `e2e-tests` is `"failure"` (`[ "failure" != "success" ]; then exit 1`). It fails **solely** because of the un-provisioned E2E job above — no audit code is implicated. |
+| **codecov/patch** | **STILL RED — non-blocking, not a correctness failure** | `0.00% of diff hit (target 80%)`. The 6D diff is config (`next.config.ts`), E2E specs/helpers, and auth-flow pages/`redirectAfterAuth` — surfaces that are **E2E-tested, not unit-tested**, and `.spec.ts`/config files are not meaningfully unit-coverable. codecov's patch target measures unit/integration line coverage of changed lines, which the audit's behavior tests (E2E + the separate `vitest.audit` suite) do not feed. This is a coverage-percentage policy gate, NOT a test/correctness regression. Disposition: leave as-is, OR (user's call, out of audit scope) exclude config/spec/e2e paths from the codecov patch target or relax the threshold. |
 
 **Audit-caused failures: ZERO.** The audit's own gate — **Audit Suite (real Postgres + Redis/SRH)**
 (`.github/workflows/audit.yml`) — correctly provisions Postgres + Redis/SRH and is **GREEN** on PR #2
@@ -107,8 +117,9 @@ is `579de2b`, which **is** the current `main` tip ("docs(handbook): sync testing
 [`28283558618`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28283558618)), as are
 Build Check, Integration Tests, Static+Unit, all Type-Check variants, and the full Security/SAST gate.
 
-**Disposition (unchanged this pass):** PR #2 stays **draft**; the Audit Gate stays **non-blocking**
-until the user promotes it. Fixing the repo's pre-existing E2E/Deploy CI debt (add a Postgres
-`services:` block + seeded creds to `test.yml`'s `e2e-tests` job; repair `deploy.yml`) is **out of
-scope** for this audit PR — it would be app/CI-infra work, not an audit fix — and is logged here as
-known repo debt to be addressed separately.
+**Disposition [updated 6D]:** the E2E/aggregate CI debt is now **fixed and GREEN** (the `e2e-tests`
+job was provisioned in `9d83e45` and the browser-matrix failures closed in 6D). PR #2 remains
+**draft pending a Cursor adversarial critical-check** of the 6D diff (esp. whether `ba62b27`'s
+`redirectAfterAuth` change is necessary or should be reverted); after that passes, **promote PR #2 to
+ready** and **drop `continue-on-error` on the Audit Gate** (make it required). `deploy.yml` repair
+remains separate app/CI-infra debt, out of audit scope. `codecov/patch` stays red by policy (above).

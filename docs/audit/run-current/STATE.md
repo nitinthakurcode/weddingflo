@@ -10,7 +10,31 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6A.2 — vendors combined-export round-trip data-loss FIXED** on `audit/bulletproof`.
+**Prompt 6D — E2E matrix GREEN (80/80) on `audit/bulletproof`. PR #2 ready to promote (pending
+manual approval).** The full 5-browser Playwright matrix (chromium/firefox/webkit/Mobile Chrome/
+Mobile Safari) passes; the aggregate **"All Tests Passed" CI gate is GREEN**. Three commits, each
+verified by a real CI E2E run (NOT assumed):
+- `07f9e21` — prod-gate `Strict-Transport-Security` (next.config.ts) + CSP `upgrade-insecure-requests`
+  to `NODE_ENV==='production'`; hamburger-aware `e2e/dashboard.spec.ts` via new `e2e/helpers/nav.ts`.
+  Fixed 6 of 8 failures (WebKit/Safari TLS-handshake on example:15/dashboard:32 + 2 Mobile-Chrome
+  off-canvas-nav). 72→78.
+- `ba62b27` — `redirectAfterAuth()` helper (full-document nav) routed through all sign-in/up flows.
+  **CORRECTION:** committed on a WRONG hypothesis — it did NOT fix auth:30 (the next run was still
+  78/2 with the identical failure). RETAINED as defensive post-login hardening; **flagged in the
+  critical-check as "verify necessary or revert."**
+- `1336a86` — **the real auth:30 fix.** Error-context artifact proved the page was stuck on /sign-in
+  with the EMAIL field BLANK → login submitted empty email → BetterAuth rejected → no redirect. Cause:
+  WebKit drops Playwright's FIRST controlled-input `fill()` before React commits it. `login()` now
+  fills both fields + asserts values stuck in an `expect().toPass()` retry. 78→**80/80**.
+- Only red check left: `codecov/patch` (0% of diff hit) — a coverage-% gate on config/spec/auth-helper
+  files, the same non-blocking codecov artifact as KNOWN_GAPS §7; NOT a correctness regression.
+→ **NEXT: a Cursor critical-check** (adversarial review of the 6D diff — esp. whether `ba62b27` is
+necessary or should be reverted, and whether the fill-stability fix is the minimal correct root cause),
+THEN **promote PR #2 to ready** + drop `continue-on-error` on the Audit Gate, THEN **Prompt 6B (RLS
+fail-closed DB backstop + intra-tenant pass)**. Gates this phase: tsc 0, eslint 0, E2E 80/80, Audit
+Suite green, unit/integration green.
+
+### (prior) Prompt 6A.2 — vendors combined-export round-trip data-loss FIXED on `audit/bulletproof`.
 The combined export now feeds per-client `clientVendors`-enriched vendor rows via a shared
 `fetchClientVendorExportRows` helper (`src/lib/export/vendor-export-data.ts`), used by BOTH the
 combined export AND `downloadTemplate('vendors')` — so the §G.6 per-link columns (Contract
@@ -362,6 +386,7 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | H6   | determinism overstated (dead faker.seed; comment claimed faker drove it) | **fixed** (removed dead faker.seed + import + FIXED_SEED export; docstring states fixed-literal determinism) | deterministic-seed.ts; full audit suite green (72) | H6 | 3b83ed8 | 2026-06-26T22:42Z |
 | 6A.1 | downloadTemplate authored columns INLINE (Cluster-E SSOT bypass; guests dropped Side+CheckedIn, events Status+Action drift) | **fixed** (6 clean modules → buildExportSheet/MODULE_SHAPES; events §G.8b Action+Status; vendors §G.6 rich; vendors+gifts inline by design) | downloadtemplate-shape-contract.test.ts (6/6) + module-shape-contract + excel-roundtrip.{events,vendors} | 6A1 | e272fce | 2026-06-27 |
 | 6A.2 | combined-export vendor round-trip DATA LOSS (read bare global `vendors` → §G.6 per-link cols blank → re-import silently cleared un-edited vendors' contract/deposit/service-date/approval/POC/event) | **fixed** (shared `fetchClientVendorExportRows` feeds per-client `clientVendors`-enriched rows to BOTH combined export + downloadTemplate; importer header-presence kept by design = explicit unassign) | excel-roundtrip.vendors-combined.test.ts (3/3, RED without fix: POPULATES + un-edited KEEPS + explicit-unassign) | 6A2 | `3449801` | 2026-06-27 |
+| 6D | E2E matrix RED on PR #2 (8 fails across webkit/Mobile-Safari/Mobile-Chrome) blocked PR-ready | **fixed — E2E 80/80 GREEN** (verified by real CI run 28287791730). 3 causes: (1) HSTS+`upgrade-insecure-requests` https-upgrade broke WebKit TLS on http-localhost → prod-gated both; (2) off-canvas mobile nav → hamburger-aware specs; (3) WebKit drops first controlled-input fill → `login()` fill-then-assert-retry. `ba62b27` redirect helper RETAINED but flagged (not the auth:30 cause). | e2e/{auth,dashboard}.spec.ts + helpers/{auth,nav}.ts; CI E2E 80 passed; "All Tests Passed" gate green | 6D | `1336a86` | 2026-06-27 |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
@@ -503,6 +528,28 @@ had drifted as the routers grew during the Cluster-S fixes).
   contract 6/6, integration 58, unit 429/8skip. /code-review (2 independent finder agents: 0
   correctness bugs; 1 stale-comment fix applied) + /security-review (CLEAN — net more restrictive).
   KNOWN_GAPS §5 vendors → fixed. Cluster S/R/E/H NOT re-opened (all regressions green). Resume → 6B.
+- 2026-06-27 — **Prompt 6D (E2E matrix → 80/80 GREEN) COMPLETE.** Skills: agentic-engineering-workflow
+  (plan→small units→verify-each-CI-run), source-code-context (cited better-auth `useSecureCookies`
+  `auth.ts:234`, next-intl `localePrefix:'always'` `i18n/navigation.ts:6`, signInWithEmail wrapper
+  `auth-client.ts:28`, mobile-nav hamburger `header.tsx:59`), grep-loop-review-workflow (3 CI rounds,
+  each diagnosed from the REAL failed-job log / error-context artifact, not assumed). Was 8 fails →
+  3 commits, EACH verified by a real CI E2E run:
+  - `07f9e21`: HSTS + CSP `upgrade-insecure-requests` prod-gated (next.config.ts) — WebKit honors HSTS
+    on localhost and upgraded http→https with no TLS listener → `waitForURL: TLS handshake` on
+    webkit/Mobile-Safari example:15 + dashboard:32; also `e2e/helpers/nav.ts` + hamburger-aware
+    dashboard:27/:32 for Mobile-Chrome off-canvas nav. 72→78.
+  - `ba62b27`: `redirectAfterAuth()` (full-document nav) across all sign-in/up flows. **Wrong
+    hypothesis** — the next CI run was STILL 78/2 with the identical failure, so this did NOT fix
+    auth:30. Retained as defensive hardening; **flagged for the Cursor critical-check (verify-or-revert).**
+  - `1336a86`: **real auth:30 fix.** error-context.md artifact (run 28287207021) showed the page stuck
+    on /sign-in with the EMAIL field BLANK (password filled) → empty-email submit → BetterAuth reject →
+    no redirect. WebKit drops Playwright's FIRST controlled-input `fill()` before React commits it.
+    `login()` now fills both + asserts values stuck via `expect().toPass()` retry. 78→**80/80**.
+  - Gates: tsc 0, eslint 0, **E2E 80 passed**, Audit Suite green, integration/unit green, "All Tests
+    Passed" aggregate gate GREEN. Only red = `codecov/patch` (coverage-% on config/spec/auth-helper
+    files; non-blocking per KNOWN_GAPS §7, not a correctness regression).
+  - NOT done by me (handed to Cursor per the user's second-brain workflow): adversarial critical-check
+    of the 6D diff; promote PR #2 to ready + drop Audit-Gate `continue-on-error`. Resume → 6B (RLS).
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.
