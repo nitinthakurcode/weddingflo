@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { ShieldAlert, Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useRouter } from '@/lib/navigation';
-import { signInWithEmail } from '@/lib/auth-client';
+import { signInWithEmail, redirectAfterAuth } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +11,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 export default function SuperAdminSignInPage() {
   const params = useParams();
-  const router = useRouter();
   const locale = (params?.locale as string) || 'en';
 
   const [email, setEmail] = useState('');
@@ -32,7 +30,7 @@ export default function SuperAdminSignInPage() {
         setError(result.error.message || 'Invalid credentials');
       } else {
         // Check if user is super_admin
-        router.push('/superadmin/dashboard');
+        redirectAfterAuth(locale, '/superadmin/dashboard');
       }
     } catch {
       setError('An unexpected error occurred');
