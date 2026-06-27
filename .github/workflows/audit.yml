@@ -5,13 +5,12 @@
 # repeat-bug class cannot be reintroduced.
 #
 # ┌─────────────────────────────────────────────────────────────────────────────────────┐
-# │ PROMOTION RULE (read before trusting a green check)                                   │
-# │ Both jobs start NON-BLOCKING (continue-on-error: true). continue-on-error reports the │
-# │ overall run as GREEN even when a job's steps FAIL — so a green check here does NOT    │
-# │ yet mean the gate passed. Promote a job to a required, blocking check ONLY after you  │
-# │ have opened its run logs and confirmed every step GENUINELY PASSED (the audit suite   │
-# │ printed "RAIL-3 OK" + "N passed", SRH answered PONG, migrations applied). THEN delete  │
-# │ that job's `continue-on-error: true` line and add it to branch protection.            │
+# │ PROMOTION RULE (history) — both jobs are now BLOCKING (continue-on-error removed).    │
+# │ They began NON-BLOCKING (continue-on-error: true), which reports a run GREEN even     │
+# │ when steps FAIL. Promotion happened ONLY after their run logs were opened and every   │
+# │ step was confirmed to GENUINELY PASS on a real PR run (audit suite printed "RAIL-3    │
+# │ OK" + "N passed", SRH answered PONG, migrations applied). The `continue-on-error`     │
+# │ lines are deleted and both jobs are required checks on main's branch protection.      │
 # └─────────────────────────────────────────────────────────────────────────────────────┘
 #
 # NOT here (need secrets or a browser → nightly/manual, never a PR gate): the live Google
@@ -41,7 +40,6 @@ jobs:
   quality:
     name: Static + Unit (tsc · eslint · vitest)
     runs-on: ubuntu-latest
-    continue-on-error: true # NON-BLOCKING until validated — see PROMOTION RULE above
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -59,7 +57,6 @@ jobs:
   audit-suite:
     name: Audit Suite (real Postgres + Redis/SRH)
     runs-on: ubuntu-latest
-    continue-on-error: true # NON-BLOCKING until validated — see PROMOTION RULE above
 
     # Rail-3 proven NON-PROD stack, mirroring scripts/start-test-stack.sh. Service ports map
     # to localhost on the runner, so the in-code Rail-3 guard sees host=localhost (∈ its
