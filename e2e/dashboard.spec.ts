@@ -8,6 +8,7 @@
  */
 
 import { test, expect } from '@playwright/test'
+import { openMobileNavIfPresent } from './helpers/nav'
 
 test.describe('Dashboard', () => {
   // Authenticated via shared storageState (global-setup); just land on the page.
@@ -25,23 +26,24 @@ test.describe('Dashboard', () => {
   })
 
   test('should display navigation menu', async ({ page }) => {
-    // Check for navigation elements (adjust selectors based on actual implementation)
-    await expect(page.locator('nav, [role="navigation"]')).toBeVisible()
+    // Below `lg` the desktop sidebar is hidden; open the hamburger drawer first.
+    const mobile = await openMobileNavIfPresent(page)
+    const nav = mobile
+      ? page.getByRole('dialog').locator('nav')
+      : page.locator('nav, [role="navigation"]')
+    await expect(nav.first()).toBeVisible()
   })
 
   test('should navigate to clients page', async ({ page }) => {
-    // Look for Clients link in navigation
-    const clientsLink = page.locator('a:has-text("Clients"), a:has-text("clients")')
+    // On mobile the Clients link lives in the hamburger drawer; on desktop in
+    // the sidebar. Scope the lookup so we click the *visible* one, not the
+    // hidden desktop sidebar link that times out on mobile viewports.
+    const mobile = await openMobileNavIfPresent(page)
+    const scope = mobile ? page.getByRole('dialog') : page.locator('nav').first()
+    await scope.getByRole('link', { name: /clients/i }).first().click()
 
-    if (await clientsLink.count() > 0) {
-      await clientsLink.first().click()
-
-      // Wait for navigation
-      await page.waitForURL(/clients/, { timeout: 5000 })
-
-      // Verify we're on clients page
-      await expect(page).toHaveURL(/clients/)
-    }
+    await page.waitForURL(/clients/, { timeout: 15000 })
+    await expect(page).toHaveURL(/clients/)
   })
 
   test('should be responsive on mobile', async ({ page }) => {
