@@ -79,10 +79,13 @@ $$;
 -- Each child row is visible iff its parent row (which carries company_id) is visible.
 -- Guard: only act when the child table + fk column + parent.company_id all exist.
 -- super_admin bypasses regardless of parent existence.
--- NOTE on the join cast: most ids are TEXT, but a few parents use UUID (hotels,
--- document_signature_requests, questionnaires, workflows, workflow_executions) while
--- their child FKs are TEXT. To keep the common TEXT=TEXT joins index-friendly we cast
--- to ::text ONLY when the parent.id and child.fk types actually differ. (Index/plan
+-- NOTE on the join cast: ids are mostly TEXT. Five parents have a UUID PK (hotels,
+-- document_signature_requests, questionnaires, workflows, workflow_executions). Their
+-- children's FKs are UUID too — EXCEPT hotel_bookings.hotel_id, which is TEXT in the
+-- live DB (a pre-existing schema/DB drift: the Drizzle schema declares it uuid). To stay
+-- correct under that drift we compare the ACTUAL information_schema types and cast BOTH
+-- sides to ::text ONLY when parent.id and child.fk differ — today that is just
+-- hotel_bookings; every matching-type join stays native/index-friendly. (Index/plan
 -- tuning under live enforcement is a 6B.3 concern; RLS is bypassed under superuser now.)
 DO $$
 DECLARE _tbl TEXT; _fk TEXT; _parent TEXT; _ptype TEXT; _ctype TEXT; _join TEXT;
