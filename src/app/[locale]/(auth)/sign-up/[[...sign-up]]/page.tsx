@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Building2, Loader2, Mail, Lock, User, Eye, EyeOff, Gift, Sparkles } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Link } from '@/lib/navigation';
-import { signUpWithEmail, signInWithGoogle, redirectAfterAuth } from '@/lib/auth-client';
+import { Link, useRouter } from '@/lib/navigation';
+import { signUpWithEmail, signInWithGoogle } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,7 @@ import { trpc } from '@/lib/trpc/client';
 
 export default function SignUpPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const locale = (params?.locale as string) || 'en';
 
@@ -97,7 +98,7 @@ export default function SignUpPage() {
             console.error('Failed to convert referral signup');
           }
         }
-        redirectAfterAuth(locale, '/dashboard');
+        router.push('/dashboard');
       }
     } catch {
       setCaptchaToken('');

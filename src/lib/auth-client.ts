@@ -37,23 +37,6 @@ export async function signInWithGoogle() {
   return signIn.social({ provider: 'google' });
 }
 
-/**
- * Safari-safe post-auth redirect.
- *
- * Uses a full document navigation (window.location.assign) instead of a soft
- * client router.push so the session cookie that the sign-in fetch response just
- * set is committed before the destination's server-side session check runs.
- * On WebKit/Safari over http a soft navigation races the cookie write, so the
- * protected route's getServerSession() sees no session and bounces back to
- * /sign-in (the symptom that hung the E2E auth redirect on webkit/Mobile Safari).
- *
- * localePrefix is 'always', so the destination must carry the locale segment
- * (e.g. redirectAfterAuth('en', '/dashboard') → /en/dashboard).
- */
-export function redirectAfterAuth(locale: string, path: string): void {
-  window.location.assign(`/${locale}${path}`);
-}
-
 export async function signUpWithEmail(email: string, password: string, name: string, captchaToken?: string) {
   return signUp.email({
     email,

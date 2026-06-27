@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { Building2, Loader2, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { Link } from '@/lib/navigation';
-import { signInWithEmail, redirectAfterAuth } from '@/lib/auth-client';
+import { Link, useRouter } from '@/lib/navigation';
+import { signInWithEmail } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +14,7 @@ import { GoogleOneTap } from '@/components/auth/google-one-tap';
 
 export default function SignInPage() {
   const params = useParams();
+  const router = useRouter();
   const locale = (params?.locale as string) || 'en';
 
   const [email, setEmail] = useState('');
@@ -42,7 +43,7 @@ export default function SignInPage() {
         setCaptchaToken('');
         setError(result.error.message || 'Invalid email or password');
       } else {
-        redirectAfterAuth(locale, '/dashboard');
+        router.push('/dashboard');
       }
     } catch {
       setCaptchaToken('');
