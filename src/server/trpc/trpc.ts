@@ -3,6 +3,7 @@ import superjson from 'superjson';
 import { ZodError } from 'zod';
 import type { Context } from './context';
 import { assertClientAccess, clientIdFromInput } from './client-access';
+import { applyTenantScope } from '@/lib/db/with-tenant-scope';
 
 /**
  * Initialize tRPC with context and superjson transformer.
@@ -40,6 +41,45 @@ const t = initTRPC.context<Context>().create({
 export const router = t.router;
 
 /**
+ * Tenant-scope middleware — RLS context injection (audit phase 6B.2).
+ *
+ * Wraps the procedure call in a short-lived transaction and sets the
+ * `app.current_company_id` / `app.current_role` PostgreSQL GUCs (via the shared
+ * {@link applyTenantScope} helper from `with-tenant-scope.ts`), then rebinds
+ * `ctx.db` to that transaction. Every existing `ctx.db.*` call therefore runs
+ * inside the scoped txn transparently — ZERO router edits. Procedures that open
+ * their own `ctx.db.transaction()` simply nest (drizzle SAVEPOINTs).
+ *
+ * INERT until 6B.3: the app/CI still connect as a superuser, which BYPASSES RLS
+ * entirely, so today this only changes plumbing (GUC set + one txn per
+ * procedure), not row visibility. It is composed only into the authenticated
+ * builders below; public/unauthenticated procedures get no scope. Onboarding
+ * (companyId null) leaves `current_company_id()` NULL, so the `user` table's
+ * `OR company_id IS NULL` onboarding policy keeps working. `ctx.role` is always
+ * propagated so `is_super_admin()` resolves under future enforcement.
+ *
+ * NOTE: this is a tRPC procedure middleware (the same `t.procedure.use()` seam
+ * the auth builders below already use) — NOT Next.js middleware/proxy. CLAUDE
+ * rule 15 / CVE-2025-29927 are about `proxy.ts`, which is untouched.
+ */
+const tenantScopedMiddleware = t.middleware(async ({ ctx, next }) => {
+  // Defensive: the auth checks below run first and guarantee userId on every
+  // builder this is composed into. Unauthenticated callers get no scope.
+  if (!ctx.userId) {
+    return next();
+  }
+  return ctx.db.transaction(async (tx) => {
+    await applyTenantScope(tx, { companyId: ctx.companyId, role: ctx.role });
+    // Cast keeps ctx.db's declared type (PostgresJsDatabase) so the 600+
+    // downstream `ctx.db.*` call sites need no type changes. At runtime the
+    // transaction is a drop-in for every query method (PgTransaction extends
+    // PgDatabase); the only gap is the `$client` raw-handle prop, which no
+    // resolver touches via ctx.db — hence the through-`unknown` cast.
+    return next({ ctx: { ...ctx, db: tx as unknown as typeof ctx.db } });
+  });
+});
+
+/**
  * Public procedure - no authentication required.
  *
  * Use this for public endpoints like health checks or public data.
@@ -74,17 +114,19 @@ export const publicProcedure = t.procedure;
  * })
  * ```
  */
-export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
-  if (!ctx.userId) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-  return next({
-    ctx: {
-      ...ctx,
-      userId: ctx.userId, // userId is now guaranteed to be non-null
-    },
-  });
-});
+export const protectedProcedure = t.procedure
+  .use(async ({ ctx, next }) => {
+    if (!ctx.userId) {
+      throw new TRPCError({ code: 'UNAUTHORIZED' });
+    }
+    return next({
+      ctx: {
+        ...ctx,
+        userId: ctx.userId, // userId is now guaranteed to be non-null
+      },
+    });
+  })
+  .use(tenantScopedMiddleware);
 
 /**
  * Admin procedure - requires company_admin or super_admin role.
@@ -110,15 +152,17 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
  * })
  * ```
  */
-export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
-  if (!ctx.userId) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-  if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
-    throw new TRPCError({ code: 'FORBIDDEN' });
-  }
-  return next({ ctx });
-});
+export const adminProcedure = t.procedure
+  .use(async ({ ctx, next }) => {
+    if (!ctx.userId) {
+      throw new TRPCError({ code: 'UNAUTHORIZED' });
+    }
+    if (ctx.role !== 'company_admin' && ctx.role !== 'super_admin') {
+      throw new TRPCError({ code: 'FORBIDDEN' });
+    }
+    return next({ ctx });
+  })
+  .use(tenantScopedMiddleware);
 
 /**
  * Staff procedure - client-scoped access for company_admin, super_admin, AND staff.
@@ -147,35 +191,37 @@ export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
  *   })
  * ```
  */
-export const staffProcedure = t.procedure.use(async ({ ctx, next, getRawInput }) => {
-  if (!ctx.userId) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-  if (
-    ctx.role !== 'company_admin' &&
-    ctx.role !== 'super_admin' &&
-    ctx.role !== 'staff'
-  ) {
-    throw new TRPCError({ code: 'FORBIDDEN' });
-  }
-  if (!ctx.companyId && ctx.role !== 'super_admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'No company context' });
-  }
-
-  // Per-request asserter bound to this ctx, for derived-clientId resolvers.
-  const boundAssertClientAccess = (clientId: string | null | undefined) =>
-    assertClientAccess(ctx, clientId);
-
-  // Auto-authorize the common direct-`clientId` input case for staff.
-  if (ctx.role === 'staff') {
-    const clientId = clientIdFromInput(await getRawInput());
-    if (clientId) {
-      await boundAssertClientAccess(clientId);
+export const staffProcedure = t.procedure
+  .use(async ({ ctx, next, getRawInput }) => {
+    if (!ctx.userId) {
+      throw new TRPCError({ code: 'UNAUTHORIZED' });
     }
-  }
+    if (
+      ctx.role !== 'company_admin' &&
+      ctx.role !== 'super_admin' &&
+      ctx.role !== 'staff'
+    ) {
+      throw new TRPCError({ code: 'FORBIDDEN' });
+    }
+    if (!ctx.companyId && ctx.role !== 'super_admin') {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'No company context' });
+    }
 
-  return next({ ctx: { ...ctx, assertClientAccess: boundAssertClientAccess } });
-});
+    // Per-request asserter bound to this ctx, for derived-clientId resolvers.
+    const boundAssertClientAccess = (clientId: string | null | undefined) =>
+      assertClientAccess(ctx, clientId);
+
+    // Auto-authorize the common direct-`clientId` input case for staff.
+    if (ctx.role === 'staff') {
+      const clientId = clientIdFromInput(await getRawInput());
+      if (clientId) {
+        await boundAssertClientAccess(clientId);
+      }
+    }
+
+    return next({ ctx: { ...ctx, assertClientAccess: boundAssertClientAccess } });
+  })
+  .use(tenantScopedMiddleware);
 
 /**
  * Super admin procedure - requires super_admin role.
@@ -199,15 +245,17 @@ export const staffProcedure = t.procedure.use(async ({ ctx, next, getRawInput })
  * })
  * ```
  */
-export const superAdminProcedure = t.procedure.use(async ({ ctx, next }) => {
-  if (!ctx.userId) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-  if (ctx.role !== 'super_admin') {
-    throw new TRPCError({ code: 'FORBIDDEN' });
-  }
-  return next({ ctx });
-});
+export const superAdminProcedure = t.procedure
+  .use(async ({ ctx, next }) => {
+    if (!ctx.userId) {
+      throw new TRPCError({ code: 'UNAUTHORIZED' });
+    }
+    if (ctx.role !== 'super_admin') {
+      throw new TRPCError({ code: 'FORBIDDEN' });
+    }
+    return next({ ctx });
+  })
+  .use(tenantScopedMiddleware);
 
 /**
  * Security Note - February 2026

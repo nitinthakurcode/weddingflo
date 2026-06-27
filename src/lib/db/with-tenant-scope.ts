@@ -72,20 +72,43 @@ export async function withTenantScope<T>(
   }
 
   return db.transaction(async (tx) => {
-    // SET LOCAL scopes the variable to this transaction only.
-    // When the transaction commits or rolls back, the variable is automatically cleared.
-    if (context.companyId) {
-      await tx.execute(
-        sql`SELECT set_config('app.current_company_id', ${context.companyId}, true)`
-      );
-    }
-
-    await tx.execute(
-      sql`SELECT set_config('app.current_role', ${context.role}, true)`
-    );
-
+    await applyTenantScope(tx, context);
     return callback(tx);
   });
+}
+
+/**
+ * Apply the tenant-scoping session variables to an ALREADY-OPEN transaction.
+ *
+ * Extracted so the `set_config` statements live in exactly ONE place — shared by
+ * {@link withTenantScope} and the tRPC tenant-scope procedure middleware
+ * (`src/server/trpc/trpc.ts`, 6B.2). `SET LOCAL` semantics: the third arg `true`
+ * makes both variables transaction-local, auto-cleared on COMMIT/ROLLBACK — so
+ * there is no risk of leaking scope between concurrent requests on a pooled
+ * connection.
+ *
+ * `companyId` is only set when present; an absent companyId leaves the GUC unset
+ * so `current_company_id()` resolves to NULL (onboarding: `company_id IS NULL`
+ * rows stay visible). `role` is always set so `is_super_admin()` can resolve.
+ *
+ * @param tx - An open Drizzle transaction (its `ctx.db.*` calls will read these)
+ * @param context - companyId (nullable) + role to scope to
+ */
+export async function applyTenantScope(
+  tx: PgTransaction<any, any, any>,
+  context: { companyId: string | null; role: string },
+): Promise<void> {
+  // SET LOCAL scopes the variable to this transaction only.
+  // When the transaction commits or rolls back, the variable is automatically cleared.
+  if (context.companyId) {
+    await tx.execute(
+      sql`SELECT set_config('app.current_company_id', ${context.companyId}, true)`
+    );
+  }
+
+  await tx.execute(
+    sql`SELECT set_config('app.current_role', ${context.role}, true)`
+  );
 }
 
 /**

@@ -10,9 +10,32 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6B.1 (inert RLS schema + policies) — DONE + PR OPENED (#3).** Next = **6B.2** (context-injection
-GUC middleware, still superuser) → then **6B.3** (atomic role cutover + fail-closed test = the only step
-that ENFORCES isolation). PR #2 + PR #3 both OPEN, NOT merged — user's call.
+**Prompt 6B.2 (RLS context-injection middleware, still superuser → INERT) — DONE, awaiting review.**
+Branch `audit/rls-context` (stacked on `audit/rls-backstop` @ `9bcd1f4`); NOT pushed, no PR yet —
+user's call to push + open PR #4 (base `audit/rls-backstop`). Next = **6B.3** (§2e singleton/job
+strategy + non-superuser CI suite role + fail-closed RLS tests + prod `DATABASE_URL` cutover = the
+only step that ENFORCES isolation). PR #2 + PR #3 still OPEN, NOT merged.
+
+### 6B.2 — RLS tenant context injection — DONE — branch `audit/rls-context` (see RLS-6B2-RESULT.md)
+- **ONE tRPC `t.middleware()`** (`src/server/trpc/trpc.ts`, the SAME `.use()` seam as
+  protected/admin/staff/superAdmin — NOT Next.js middleware/proxy, CLAUDE rule 15 honored).
+  Composed into all 4 authenticated builders (`:129/:165/:224/:258`); `publicProcedure` unscoped.
+  Wraps each authed call in `ctx.db.transaction` + `applyTenantScope(tx,{companyId,role})` and rebinds
+  `ctx.db → tx` (cast `as unknown as typeof ctx.db` to keep ~600 `ctx.db.*` sites' type). **ZERO
+  router edits.** Extracted the set_config into a reused `applyTenantScope` in `with-tenant-scope.ts`
+  (behavior-preserving; `withTenantScope` delegates to it).
+- **STILL SUPERUSER → RLS inert.** DATABASE_URL untouched. Proves only that the plumbing (GUC +
+  per-proc txn + savepoint nesting) doesn't break runtime.
+- **§2c risks EXERCISED on real PG** (scratch probe under audit harness, then deleted): nested
+  `ctx.db.transaction` (clients create/update) → working SAVEPOINT that inherits the GUC; savepoint
+  rollback isolation holds; super_admin GUC → `is_super_admin()` true; companyId-null → NULL
+  (onboarding ok). **clients 23-table cascade delete uses `withTransaction` → raw `db` singleton =
+  SIBLING txn, NOT nested** (a 6B.3 §2e concern, not a break). **floor-plans uses raw `db` (rule 31)
+  → NOT wrapped** (6B.3 concern; confirmed still works).
+- **Test-double fix** (NOT router edits): `createCaller` runs the middleware chain → 2 mock-db unit
+  tests (`clients.router.test.ts`, `r2-tenant-isolation.test.ts`) needed `db.transaction`/`.execute`
+  modeled. Fixed → unit 429/8skip restored.
+- **Gates:** audit **23/81**, integration **58**, unit **429/8skip**, tsc **0**, eslint **0** (4 files).
 
 ### 6B.1 — inert RLS backstop — DONE — PR #3 — HEAD on `audit/rls-backstop`
 - **PR #3:** https://github.com/nitinthakurcode/weddingflo/pull/3 — **base `audit/bulletproof`**
