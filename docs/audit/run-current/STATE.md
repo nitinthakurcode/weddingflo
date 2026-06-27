@@ -20,7 +20,7 @@ non-destructive contract is kept by design (clearing a cell = explicit unassign)
 `excel-roundtrip.vendors-combined.test.ts` (3/3, proven RED without the export fix). KNOWN_GAPS §5
 vendors → **fixed**. Gates: tsc 0, eslint 0 err, **audit 23 files/81**, Cluster-S IDOR 25/25,
 downloadTemplate contract 6/6, integration 58, unit 429/8skip; /code-review (1 stale-comment fix
-applied) + /security-review CLEAN. SHA: `__6A2_SHA__`. → **Next is still Prompt 6B** (RLS
+applied) + /security-review CLEAN. SHA: `3449801`. → **Next is still Prompt 6B** (RLS
 fail-closed backstop + CI gate).
 
 ### (prior) Prompt 6A.1 — downloadTemplate SSOT-bypass fix + ledger hygiene COMPLETE on `audit/bulletproof`.
@@ -346,7 +346,7 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | H5   | Sheets non-destructive proof only checked an in-sheet column | **fixed** (absent-column preservation: created_at + is_per_guest_item unchanged across import) | sheets-roundtrip.c1b.test.ts | H5 | 3b83ed8 | 2026-06-26T22:42Z |
 | H6   | determinism overstated (dead faker.seed; comment claimed faker drove it) | **fixed** (removed dead faker.seed + import + FIXED_SEED export; docstring states fixed-literal determinism) | deterministic-seed.ts; full audit suite green (72) | H6 | 3b83ed8 | 2026-06-26T22:42Z |
 | 6A.1 | downloadTemplate authored columns INLINE (Cluster-E SSOT bypass; guests dropped Side+CheckedIn, events Status+Action drift) | **fixed** (6 clean modules → buildExportSheet/MODULE_SHAPES; events §G.8b Action+Status; vendors §G.6 rich; vendors+gifts inline by design) | downloadtemplate-shape-contract.test.ts (6/6) + module-shape-contract + excel-roundtrip.{events,vendors} | 6A1 | e272fce | 2026-06-27 |
-| 6A.2 | combined-export vendor round-trip DATA LOSS (read bare global `vendors` → §G.6 per-link cols blank → re-import silently cleared un-edited vendors' contract/deposit/service-date/approval/POC/event) | **fixed** (shared `fetchClientVendorExportRows` feeds per-client `clientVendors`-enriched rows to BOTH combined export + downloadTemplate; importer header-presence kept by design = explicit unassign) | excel-roundtrip.vendors-combined.test.ts (3/3, RED without fix: POPULATES + un-edited KEEPS + explicit-unassign) | 6A2 | `__6A2_SHA__` | 2026-06-27 |
+| 6A.2 | combined-export vendor round-trip DATA LOSS (read bare global `vendors` → §G.6 per-link cols blank → re-import silently cleared un-edited vendors' contract/deposit/service-date/approval/POC/event) | **fixed** (shared `fetchClientVendorExportRows` feeds per-client `clientVendors`-enriched rows to BOTH combined export + downloadTemplate; importer header-presence kept by design = explicit unassign) | excel-roundtrip.vendors-combined.test.ts (3/3, RED without fix: POPULATES + un-edited KEEPS + explicit-unassign) | 6A2 | `3449801` | 2026-06-27 |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
