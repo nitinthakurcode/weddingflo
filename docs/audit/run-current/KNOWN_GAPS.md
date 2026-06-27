@@ -83,11 +83,26 @@ The audit proves the **audited surfaces** (spreadsheet import/export, realtime s
 
 **UPDATE [6D, 2026-06-27]:** the two **E2E**-derived red checks below are now **GREEN**. The repo's
 pre-existing `e2e-tests` CI debt was fixed (commit `9d83e45` provisioned Postgres + a deterministic
-seed for that job), and the resulting browser-matrix failures were closed in Prompt 6D
-(`07f9e21` + `1336a86`; `ba62b27` flagged) → **E2E 80/80 GREEN**, **"All Tests Passed" aggregate gate
-GREEN** (verified by CI run [`28287791730`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28287791730)).
-The **only** remaining red check is `codecov/patch` (see below), which is a coverage-percentage gate,
-not a correctness failure. The history below is retained for the audit trail.
+seed for that job), and the resulting browser-matrix failures were closed in Prompt 6D by **two real
+fixes: `07f9e21`** (prod-gate HSTS/`upgrade-insecure-requests` + hamburger-aware nav) **+ `1336a86`**
+(WebKit first-`fill()`-drop blank-email; harness-only — critical-check confirmed necessary: reverting
+it alone reproduced 5/8 blank-email fails). → **E2E 80/80 GREEN**, **"All Tests Passed" aggregate gate
+GREEN** (verified by CI run [`28288550386`](https://github.com/nitinthakurcode/weddingflo/actions/runs/28288550386)).
+
+**`ba62b27` (`redirectAfterAuth` full-document nav) was REVERTED in `6be4ce8`.** Its cookie-commit-race
+justification was **empirically refuted** by the critical-check: `router.push` + the fill-fix gave
+6/6 webkit + Mobile Safari `auth:30` / 12/12 logins in a rate-limit-controlled experiment — identical
+to the `window.location.assign` arm. The race never reproduces, so the production-auth change was
+removed as unsubstantiated scope-creep (evidence over claims; smallest diff).
+
+**Honest caveat on "80/80":** the matrix is green **WITH retries** (playwright `retries:2`), not
+zero-flake. Under repeated live logins the Mobile Safari `auth:30` can trip the BetterAuth rate-limiter
+(`"Please wait Ns"`); normal CI does ~1 live login per project and `global-setup` reuses `storageState`
+to avoid hammering it, so CI is stable.
+
+The **only** remaining red check is `codecov/patch` (see below), a coverage-percentage gate, not a
+correctness failure — now addressed by scoping `codecov.yml` `ignore` to exclude `e2e/**` +
+`next.config.ts`. The history below is retained for the audit trail.
 
 ---
 

@@ -10,29 +10,48 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6D — E2E matrix GREEN (80/80) on `audit/bulletproof`. PR #2 ready to promote (pending
-manual approval).** The full 5-browser Playwright matrix (chromium/firefox/webkit/Mobile Chrome/
-Mobile Safari) passes; the aggregate **"All Tests Passed" CI gate is GREEN**. Three commits, each
-verified by a real CI E2E run (NOT assumed):
+**Prompt 6D — E2E matrix GREEN (80/80) on `audit/bulletproof`; critical-check verdicts ADOPTED.
+PR #2 ready to promote (pending manual approval — that is the next, separately-approved step).** The
+full 5-browser Playwright matrix (chromium/firefox/webkit/Mobile Chrome/Mobile Safari) passes; the
+aggregate **"All Tests Passed" CI gate is GREEN**.
+
+**Caveat — green WITH retries, not zero-flake.** CI uses playwright `retries:2`. The Mobile Safari
+*live* form-login (`auth:30`) can intermittently trip the BetterAuth rate-limiter (`"Please wait Ns"`)
+under repeated logins; normal CI does ~1 live login per project and `global-setup` reuses
+`storageState` specifically to avoid hammering it, so CI is stable. The two real fixes below are
+`1336a86` (fill-stability) + `07f9e21` (HSTS/nav); `ba62b27` was **reverted** (see below).
+
+The fixes, each verified by a real CI E2E run (NOT assumed):
 - `07f9e21` — prod-gate `Strict-Transport-Security` (next.config.ts) + CSP `upgrade-insecure-requests`
   to `NODE_ENV==='production'`; hamburger-aware `e2e/dashboard.spec.ts` via new `e2e/helpers/nav.ts`.
   Fixed 6 of 8 failures (WebKit/Safari TLS-handshake on example:15/dashboard:32 + 2 Mobile-Chrome
   off-canvas-nav). 72→78.
 - `ba62b27` — `redirectAfterAuth()` helper (full-document nav) routed through all sign-in/up flows.
-  **CORRECTION:** committed on a WRONG hypothesis — it did NOT fix auth:30 (the next run was still
-  78/2 with the identical failure). RETAINED as defensive post-login hardening; **flagged in the
-  critical-check as "verify necessary or revert."**
+  **REVERTED in `6be4ce8`.** Its cookie-commit-race justification was **EMPIRICALLY REFUTED** by the
+  critical-check: in a rate-limit-controlled experiment (warmed dev server, playwright `retries=0`,
+  `rate_limit_entries` truncated before every trial), `router.push` + the `1336a86` fill-fix gave
+  **6/6 webkit + Mobile Safari `auth:30` / 12/12 logins** — identical to the `window.location.assign`
+  arm. The race never reproduces; reverting (restore `router.push` on auth/portal/superadmin sign-in
+  + auth sign-up; `redirectAfterAuth` removed from `auth-client.ts`) keeps the matrix green. Per the
+  audit ethos (evidence over claims; no speculative production changes) the helper was removed as
+  unsubstantiated scope-creep on production auth code. The earlier "still 78/2 after ba62b27"
+  observation was the `1336a86` blank-email bug masking — not evidence either way.
 - `1336a86` — **the real auth:30 fix.** Error-context artifact proved the page was stuck on /sign-in
   with the EMAIL field BLANK → login submitted empty email → BetterAuth rejected → no redirect. Cause:
   WebKit drops Playwright's FIRST controlled-input `fill()` before React commits it. `login()` now
   fills both fields + asserts values stuck in an `expect().toPass()` retry. 78→**80/80**.
-- Only red check left: `codecov/patch` (0% of diff hit) — a coverage-% gate on config/spec/auth-helper
-  files, the same non-blocking codecov artifact as KNOWN_GAPS §7; NOT a correctness regression.
-→ **NEXT: a Cursor critical-check** (adversarial review of the 6D diff — esp. whether `ba62b27` is
-necessary or should be reverted, and whether the fill-stability fix is the minimal correct root cause),
-THEN **promote PR #2 to ready** + drop `continue-on-error` on the Audit Gate, THEN **Prompt 6B (RLS
-fail-closed DB backstop + intra-tenant pass)**. Gates this phase: tsc 0, eslint 0, E2E 80/80, Audit
-Suite green, unit/integration green.
+  **Critical-check CONFIRMED true minimal root cause (harness-only, necessary):** reverting *only*
+  this fill-fix (single fill, HEAD otherwise) reproduced **5/8 webkit/Mobile-Safari `auth:30` blank-
+  email failures, none rate-limit** (error-context: `textbox "Email" [active]` empty); restoring it →
+  6/6. Lives only in `e2e/helpers/auth.ts`; not masking a product bug (real keystroke logins + the
+  12/12 controlled live logins above pass).
+- Only red check left: `codecov/patch` (0% of diff hit) — a coverage-% gate. Addressed: `codecov.yml`
+  `ignore` extended to `e2e/**` + `next.config.ts` so config/test-only changed lines stop dragging
+  patch coverage (separate `chore(ci)` commit); NOT a correctness regression.
+→ **Critical-check DONE (verdicts adopted):** `ba62b27` REVERTED (`6be4ce8`); `1336a86` + `07f9e21`
+confirmed; ledger + codecov corrected. **NEXT (separately-approved): promote PR #2 to ready** + drop
+`continue-on-error` on the Audit Gate, THEN **Prompt 6B (RLS fail-closed DB backstop + intra-tenant
+pass)**. Gates this phase: tsc 0, eslint 0, E2E 80/80, Audit Suite green, unit/integration green.
 
 ### (prior) Prompt 6A.2 — vendors combined-export round-trip data-loss FIXED on `audit/bulletproof`.
 The combined export now feeds per-client `clientVendors`-enriched vendor rows via a shared
