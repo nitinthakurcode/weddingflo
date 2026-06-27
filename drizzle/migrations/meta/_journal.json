@@ -246,6 +246,20 @@
       "when": 1782304888459,
       "tag": "0034_add_gift_required_and_payment_receipt",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1782574686414,
+      "tag": "0035_ensure_app_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1782574686813,
+      "tag": "0036_rls_backstop_policies",
+      "breakpoints": true
     }
   ]
 }
