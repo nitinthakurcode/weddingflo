@@ -52,20 +52,27 @@ export const router = t.router;
  *
  * INERT until 6B.3: the app/CI still connect as a superuser, which BYPASSES RLS
  * entirely, so today this only changes plumbing (GUC set + one txn per
- * procedure), not row visibility. It is composed only into the authenticated
+ * query/mutation), not row visibility. It is composed only into the authenticated
  * builders below; public/unauthenticated procedures get no scope. Onboarding
  * (companyId null) leaves `current_company_id()` NULL, so the `user` table's
  * `OR company_id IS NULL` onboarding policy keeps working. `ctx.role` is always
  * propagated so `is_super_admin()` resolves under future enforcement.
  *
+ * SUBSCRIPTIONS are skipped: a subscription resolver returns a long-lived async
+ * generator that tRPC iterates AFTER `next()` resolves, so wrapping it here would
+ * commit the txn at generator-creation and leave any in-stream `ctx.db` query on
+ * a finalized transaction. Subscriptions must scope explicitly (e.g.
+ * `ctx.withTenantScope`) per yielded batch in 6B.3 — not via this per-call txn.
+ *
  * NOTE: this is a tRPC procedure middleware (the same `t.procedure.use()` seam
  * the auth builders below already use) — NOT Next.js middleware/proxy. CLAUDE
  * rule 15 / CVE-2025-29927 are about `proxy.ts`, which is untouched.
  */
-const tenantScopedMiddleware = t.middleware(async ({ ctx, next }) => {
-  // Defensive: the auth checks below run first and guarantee userId on every
-  // builder this is composed into. Unauthenticated callers get no scope.
-  if (!ctx.userId) {
+const tenantScopedMiddleware = t.middleware(async ({ ctx, next, type }) => {
+  // Skip subscriptions (long-lived generators — see above) and, defensively,
+  // unauthenticated callers (the auth checks below run first and guarantee
+  // userId on every builder this is composed into).
+  if (type === 'subscription' || !ctx.userId) {
     return next();
   }
   return ctx.db.transaction(async (tx) => {

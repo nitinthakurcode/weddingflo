@@ -38,6 +38,12 @@ only step that ENFORCES isolation). PR #2 + PR #3 still OPEN, NOT merged.
   tests (`clients.router.test.ts`, `r2-tenant-isolation.test.ts`) needed `db.transaction`/`.execute`
   modeled. Fixed → unit 429/8skip restored.
 - **Gates:** audit **23/81**, integration **58**, unit **429/8skip**, tsc **0**, eslint **0** (4 files).
+- **Review (PR #4):** /security-review CLEAN; /code-review → **1 fix**: skip `type==='subscription'`
+  in the middleware (`onSync` SSE generator must not be txn-wrapped — would commit at generator
+  creation; tRPC exposes `type` to middleware, verified in installed `.d.mts`). Carry-forward (b)
+  sharpened: outer txn now spans the resolver's `broadcastSync` + any post-write I/O, and
+  `withTransaction`/raw-`db` sites open a SIBLING pooled connection → measure pool pressure before
+  cutover. floor-plans = harmless savepoints; `ctx.withTenantScope` is dead code (no regression).
 - **6B.3 carry-forwards:** (a) **83 files import the raw `db` singleton; ~53 invoke raw `db.*`**
   (cascade-delete `withTransaction` + SSE/cron/webhook/recalc/broadcast/Sheets) → NOT GUC-scoped →
   classify tenant-scoped (wrap `withTenantScope`) vs cross-tenant infra (BYPASSRLS role). (b) the

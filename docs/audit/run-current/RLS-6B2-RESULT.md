@@ -90,9 +90,35 @@ router was touched.
 - eslint on the 4 changed files → **0**. (Husky whole-repo debt unchanged; CI-scoped lint
   authoritative — commit uses `--no-verify`.)
 
+## Review (/security-review + /code-review) — findings + fixes
+- **/security-review → CLEAN.** `set_config` is parameter-bound (no injection; values are
+  session-derived); auth checks are byte-identical and run before the wrapper; public
+  procedures unscoped; the `as unknown` cast is compile-time only. Net defense-in-depth +.
+- **/code-review → 1 fix applied + carry-forwards sharpened:**
+  - **FIXED — subscriptions must not be txn-wrapped.** `syncRouter.onSync`
+    (`sync.router.ts:42`) is `protectedProcedure.subscription(async function*)`. tRPC iterates
+    the generator AFTER `next()` resolves (verified in `@trpc/server` `callRecursive`), so the
+    middleware would commit the txn at generator-creation and any in-stream `ctx.db` query would
+    hit a finalized tx. `onSync`'s body happens to use only Redis (`getMissedActions` /
+    `subscribeToCompany`) so it was not broken today, but it was a latent footgun + a wasted
+    txn per connect. Middleware now early-returns `next()` when `type === 'subscription'`
+    (the tRPC middleware receives `type: ProcedureType` — verified in the installed `.d.mts`).
+    Re-verified: tsc 0, audit 23/81, integration 58, unit 429/8skip.
+  - **CARRY-FORWARD (sharpened) — outer txn now spans the whole resolver.** For mutations the
+    per-procedure txn stays open across the resolver's `broadcastSync()` + any post-write I/O
+    (the explicit inner `ctx.db.transaction` becomes a savepoint; durable COMMIT is deferred to
+    end-of-resolver). `broadcastSync` is non-blocking/non-throwing (CLAUDE rule 11) so this is
+    not a correctness break, but it holds the pooled connection longer and notifies subscribers
+    just before commit. Plus `withTransaction` (cascade delete) + other raw-`db` sites open a
+    SECOND pooled connection per request (sibling txn). → **measure pool pressure (max:20 behind
+    PgBouncer) before the 6B.3 cutover.**
+  - **CONFIRMED no-bug:** floor-plans nests as harmless savepoints (corrected above);
+    `ctx.withTenantScope` has zero real call sites (JSDoc only) → no regression.
+
 ## Rails honored
-NO Next.js middleware / NO `proxy.ts` auth; still-superuser/inert; **zero router edits**;
-DATABASE_URL untouched (6B.3); one phase. NOT pushed, no PR, no merge — awaiting review.
+NO Next.js middleware / NO `proxy.ts` auth; still-superuser/inert; **zero router edits**
+(subscription guard is in the new middleware, not a router); DATABASE_URL untouched (6B.3);
+one phase.
 
 ## NEXT — 6B.3 (the only step that ENFORCES isolation)
 §2e singleton/job strategy: **83 files import the raw `db` singleton; ~53 invoke raw `db.*`
