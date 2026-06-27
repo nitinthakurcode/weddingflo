@@ -43,25 +43,32 @@ T2 propagation is measured END-TO-END across the real `broadcastSync → Redis/S
 ### 4. RLS fail-closed DB backstop — PENDING (Prompt 6B)
 Cluster S is fixed at the **application** layer (every site routes through `assertClientAccess`/`assertEntityAccess`/`withinCompanyClients`). The **DB-level RLS fail-closed backstop** — `app.current_company_id` + RLS policies on the tenant tables that lack an explicit `companyId` (so a future missing app-level check FAILS CLOSED instead of leaking) — is **NOT yet landed**. SCOPE CORRECTION: the "11 child tables" cited earlier (INVENTORY.md) was only the IDOR-sweep-**reachable** child subset; a full schema scan shows **~33+ tables in `schema-features.ts` alone (of ~98 tenant tables total) lack an explicit `companyId`** (parent-FK scoped only). So the 6B RLS backstop must cover the full set, not 11. The test DB role is superuser (RLS bypassed), so this phase proves the app-level scope, which is the prod reality for these tRPC paths today; RLS is defense-in-depth scheduled for **Prompt 6B**. Until then, a NEW unscoped resolver would not be caught by the DB (only by the app-level convergence sweep + the contract test planned for 6B).
 
-### 5. downloadTemplate single-sourcing — 2 by-design exceptions (vendors, gifts)
-[6A.1] `import.router.ts downloadTemplate` now renders its 6 "clean" modules (guests, budget,
+### 5. downloadTemplate single-sourcing — vendor DATA drift FIXED (6A.2); gifts = 1 by-design exception
+[6A.1] `import.router.ts downloadTemplate` renders its 6 "clean" modules (guests, budget,
 hotels, transport, guestGifts, events) from `MODULE_SHAPES` via `buildExportSheet` — so the
 import-template headers ARE the combined-export SSOT headers (guarded by
-`downloadtemplate-shape-contract.test.ts`, 6/6). Two modules stay INLINE **by design** because
-they draw from a different data source than the combined export, so a single shared column shape
-can't represent both:
+`downloadtemplate-shape-contract.test.ts`, 6/6).
 
-- **vendors** — `downloadTemplate('vendors')` is the per-client **`clientVendors` link** view
-  (Event, Contract Amount, Total Paid, Deposit, Service Date, Approval…), whereas the combined
-  export feeds the **global `vendors` table** (`export.router.ts:62`, company-wide master list).
-  `MODULE_SHAPES.vendors` WAS expanded to the handbook §G.6 rich set (so the combined export's
-  shape is handbook-correct), but **its per-link columns are blank in the combined export**
-  (global vendors lack them). CAVEAT: because the vendor importer is non-destructive on
-  HEADER-presence (`excel-parser-server.ts:760`, "column present + blank → unassign"), the
-  **combined export is NOT the round-trip path for per-link vendor fields** — round-trip per-link
-  edits via `downloadTemplate('vendors')` (which carries the populated link data). Folding both
-  surfaces onto one per-client vendor data source (a shared enrichment helper) is a clean future
-  follow-up, deferred (would change the combined export's vendor semantics + needs its own tests).
+- **vendors — FIXED [6A.2].** The combined-export → re-import per-link **data loss** is resolved.
+  Root cause: the combined export read the **bare global `vendors` table** (`export.router.ts:62`),
+  so the §G.6 per-link columns (Event, Contract Amount, Service Date, Deposit, Approval, On-Site
+  POC, Deliverables…) rendered **blank** — and because the importer is non-destructive on
+  HEADER-presence (`buildPresentUpdate`/`excel-parser-server.ts:744`; a present-but-blank column
+  overwrites), a full-workbook re-import silently CLEARED those fields on un-edited vendors. Fix
+  (data-side analogue of Cluster E's shape SSOT): a shared `fetchClientVendorExportRows`
+  (`src/lib/export/vendor-export-data.ts`) fetches per-client `clientVendors`-enriched rows and is
+  used by **BOTH** the combined export (`export.router.ts`) **AND** `downloadTemplate('vendors')`
+  (`import.router.ts`), so the combined export now populates the per-link columns and round-trips
+  them faithfully. The importer's header-presence semantics is **deliberately kept** (verified
+  against handbook §G.3 "non-destructive = a narrower file never nulls *absent* columns", and it is
+  consistent across budget/hotels/transport/vendors/events): clearing a cell remains the intended
+  **explicit per-field unassign**, so blank≠no-change is correct — the bug was the export emitting
+  blanks, not the importer. Regression test:
+  `excel-roundtrip.vendors-combined.test.ts` (combined export POPULATES per-link cols · un-edited
+  re-import KEEPS every per-link field · explicit cell-clear STILL unassigns, others preserved) —
+  proven RED without the export fix. NOTE: the `vendors` column SHAPE stays inline in
+  downloadTemplate (snake_case template vs `MODULE_SHAPES` camelCase) — a cosmetic shape-SSOT
+  follow-up, not data-affecting; the DATA source is now single-sourced.
 - **gifts** — `downloadTemplate('gifts')` is the gift-**REGISTRY** single sheet (the `gifts`
   table: name/value/status/guestId), a different feature/table from the combined export's gift-
   **DELIVERY** sheet (`guest_gifts` → `GiftsGiven`, which IS single-sourced as `guestGifts`).

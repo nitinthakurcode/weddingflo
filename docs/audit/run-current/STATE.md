@@ -10,7 +10,20 @@
 - backup: `../weddingflo-safety-backup-1782390506/` (Rail-1 out-of-tree, 504K)
 
 ## ▶ RESUME HERE (next session)
-**Prompt 6A.1 — downloadTemplate SSOT-bypass fix + ledger hygiene COMPLETE** on `audit/bulletproof`.
+**Prompt 6A.2 — vendors combined-export round-trip data-loss FIXED** on `audit/bulletproof`.
+The combined export now feeds per-client `clientVendors`-enriched vendor rows via a shared
+`fetchClientVendorExportRows` helper (`src/lib/export/vendor-export-data.ts`), used by BOTH the
+combined export AND `downloadTemplate('vendors')` — so the §G.6 per-link columns (Contract
+Amount, Service Date, Deposit, Approval, On-Site POC, Deliverables, Event) populate and round-trip
+instead of being emitted blank and silently cleared on re-import. The importer's header-presence
+non-destructive contract is kept by design (clearing a cell = explicit unassign). New regression
+`excel-roundtrip.vendors-combined.test.ts` (3/3, proven RED without the export fix). KNOWN_GAPS §5
+vendors → **fixed**. Gates: tsc 0, eslint 0 err, **audit 23 files/81**, Cluster-S IDOR 25/25,
+downloadTemplate contract 6/6, integration 58, unit 429/8skip; /code-review (1 stale-comment fix
+applied) + /security-review CLEAN. SHA: `__6A2_SHA__`. → **Next is still Prompt 6B** (RLS
+fail-closed backstop + CI gate).
+
+### (prior) Prompt 6A.1 — downloadTemplate SSOT-bypass fix + ledger hygiene COMPLETE on `audit/bulletproof`.
 `import.router.ts downloadTemplate` no longer authors columns inline for its 6 clean modules
 (guests/budget/hotels/transport/guestGifts/events) — they render from `MODULE_SHAPES` via
 `buildExportSheet` (guarded by `downloadtemplate-shape-contract.test.ts`, 6/6). `MODULE_SHAPES.events`
@@ -332,7 +345,8 @@ Schema: `id | concern | status[pending|verified|fixed|wontfix] | evidence_path |
 | H4   | D1 tripwire keyed on ANY throw (unrelated throw = false "fixed") | **fixed** (assert specific `/Missing required column/i` for guests+gifts) | excel-validation.d1.test.ts | H4 | 3b83ed8 | 2026-06-26T22:42Z |
 | H5   | Sheets non-destructive proof only checked an in-sheet column | **fixed** (absent-column preservation: created_at + is_per_guest_item unchanged across import) | sheets-roundtrip.c1b.test.ts | H5 | 3b83ed8 | 2026-06-26T22:42Z |
 | H6   | determinism overstated (dead faker.seed; comment claimed faker drove it) | **fixed** (removed dead faker.seed + import + FIXED_SEED export; docstring states fixed-literal determinism) | deterministic-seed.ts; full audit suite green (72) | H6 | 3b83ed8 | 2026-06-26T22:42Z |
-| 6A.1 | downloadTemplate authored columns INLINE (Cluster-E SSOT bypass; guests dropped Side+CheckedIn, events Status+Action drift) | **fixed** (6 clean modules → buildExportSheet/MODULE_SHAPES; events §G.8b Action+Status; vendors §G.6 rich; vendors+gifts inline by design) | downloadtemplate-shape-contract.test.ts (6/6) + module-shape-contract + excel-roundtrip.{events,vendors} | 6A1 | (this commit) | 2026-06-27 |
+| 6A.1 | downloadTemplate authored columns INLINE (Cluster-E SSOT bypass; guests dropped Side+CheckedIn, events Status+Action drift) | **fixed** (6 clean modules → buildExportSheet/MODULE_SHAPES; events §G.8b Action+Status; vendors §G.6 rich; vendors+gifts inline by design) | downloadtemplate-shape-contract.test.ts (6/6) + module-shape-contract + excel-roundtrip.{events,vendors} | 6A1 | e272fce | 2026-06-27 |
+| 6A.2 | combined-export vendor round-trip DATA LOSS (read bare global `vendors` → §G.6 per-link cols blank → re-import silently cleared un-edited vendors' contract/deposit/service-date/approval/POC/event) | **fixed** (shared `fetchClientVendorExportRows` feeds per-client `clientVendors`-enriched rows to BOTH combined export + downloadTemplate; importer header-presence kept by design = explicit unassign) | excel-roundtrip.vendors-combined.test.ts (3/3, RED without fix: POPULATES + un-edited KEEPS + explicit-unassign) | 6A2 | `__6A2_SHA__` | 2026-06-27 |
 
 ### Cluster S — per-site fixed map (Prompt 3) — guarding test_id = `tenant-isolation.d4.test.ts` case
 Mechanism column: CHOKE = `assertClientAccess(ctx, clientId)`; DERIVE = `assertEntityAccess` (load
@@ -455,6 +469,25 @@ had drifted as the routers grew during the Cluster-S fixes).
   SHAs → real; per-site IDOR map lines re-verified; INVENTORY/KNOWN_GAPS companyId-less count fixed
   (11 reachable-subset → ~33+ of ~98 tenant tables) for the 6B RLS scope. Gates: tsc 0, eslint 0,
   audit 22 files/78, integration 58, unit 429/8skip. /code-review applied. Resume → Prompt 6B.
+- 2026-06-27 — **Prompt 6A.2 (vendors combined-export round-trip data-loss) COMPLETE.** Skills:
+  grep-loop-review-workflow (loop), service-layer-architecture (shared-helper design),
+  source-code-context (cited handbook §G.6/§G.3 + file:line — export.router:62 bare global vendors,
+  buildPresentUpdate excel-parser.ts:198/excel-parser-server.ts:744, downloadTemplate enrichment).
+  READ-FIRST verdict: the data loss is the EXPORT emitting blank per-link columns (combined export
+  read the global `vendors` table), NOT the importer — whose header-presence non-destructive
+  contract is documented (§G.3 absent-header-safe), cross-module-consistent, and IS the explicit
+  per-field unassign mechanism, so it was deliberately KEPT (verify-then-don't-change the importer).
+  PRIMARY FIX (data-side analogue of Cluster E's shape SSOT): extracted `fetchClientVendorExportRows`
+  (`src/lib/export/vendor-export-data.ts`) — per-client `clientVendors`-enriched vendor rows — used
+  by BOTH `export.router` (combined export) AND `import.router` downloadTemplate; both routers keep
+  their existing client→company tenant verification (helper owns fetch/enrich only; advancePayments
+  now scoped via `inArray(budgetItemId, budgetIds)` — net MORE tenant-restrictive than the old
+  fetch-all). Stale `MODULE_SHAPES.vendors` comment corrected. Regression
+  `excel-roundtrip.vendors-combined.test.ts` (3/3), PROVEN RED with the export fix reverted.
+  Gates: tsc 0, eslint 0 err/98 warn, **audit 23 files/81**, Cluster-S IDOR 25/25, downloadTemplate
+  contract 6/6, integration 58, unit 429/8skip. /code-review (2 independent finder agents: 0
+  correctness bugs; 1 stale-comment fix applied) + /security-review (CLEAN — net more restrictive).
+  KNOWN_GAPS §5 vendors → fixed. Cluster S/R/E/H NOT re-opened (all regressions green). Resume → 6B.
 
 ## NEXT (gate-open phase — after user exports TEST_DB_CONFIRMED=1)
 - Functionally verify SRH ↔ @upstash/redis (PING via REST) before relying on it for T2.

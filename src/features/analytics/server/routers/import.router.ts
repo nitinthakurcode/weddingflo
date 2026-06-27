@@ -37,6 +37,7 @@ import {
   INLINE_IMPORT_VALIDATION,
 } from '@/lib/import/import-cascade'
 import { buildExportSheet, MODULE_SHAPES, type ExportModule } from '@/lib/import/module-shape'
+import { fetchClientVendorExportRows } from '@/lib/export/vendor-export-data'
 
 // [6A.1] downloadTemplate modules whose column SHAPE is single-sourced from MODULE_SHAPES.
 // vendors + gifts stay inline (different data source / table — see KNOWN_GAPS "vendors"/"gifts").
@@ -80,70 +81,11 @@ export const importRouter = router({
           })
           break
         case 'vendors':
-          // Vendors with client-vendor relationship data
-          const vendorsList = await ctx.db.query.vendors.findMany({
-            where: eq(schema.vendors.companyId, ctx.companyId),
-          })
-          // Get client_vendors for this client
-          const clientVendorsList = await ctx.db.query.clientVendors.findMany({
-            where: eq(schema.clientVendors.clientId, input.clientId),
-          })
-          // Get events for this client (for event name lookup)
-          const clientEvents = await ctx.db.query.events.findMany({
-            where: eq(schema.events.clientId, input.clientId),
-          })
-          const eventMap = new Map(clientEvents.map(e => [e.id, e.title]))
-
-          // Get budget items linked to vendors (for total paid from advances)
-          const vendorBudgetItems = await ctx.db.query.budget.findMany({
-            where: eq(schema.budget.clientId, input.clientId),
-          })
-          const budgetByVendor = new Map(vendorBudgetItems.filter(b => b.vendorId).map(b => [b.vendorId, b]))
-
-          // Get advance payments for all budget items
-          const budgetIds = vendorBudgetItems.map(b => b.id)
-          let advancesByBudget = new Map<string, number>()
-          if (budgetIds.length > 0) {
-            const allAdvances = await ctx.db.query.advancePayments.findMany({})
-            // Group advances by budget item and sum amounts
-            for (const adv of allAdvances) {
-              // Skip if budgetItemId is null
-              if (adv.budgetItemId && budgetIds.includes(adv.budgetItemId)) {
-                const current = advancesByBudget.get(adv.budgetItemId) || 0
-                advancesByBudget.set(adv.budgetItemId, current + parseFloat(adv.amount || '0'))
-              }
-            }
-          }
-
-          // Merge vendor data with client_vendor relationship data
-          const clientVendorMap = new Map(clientVendorsList.map(cv => [cv.vendorId, cv]))
-          existingData = vendorsList.map(v => {
-            const cv = clientVendorMap.get(v.id)
-            const budgetItem = budgetByVendor.get(v.id)
-            const totalAdvances = budgetItem ? (advancesByBudget.get(budgetItem.id) || 0) : 0
-            const totalPaid = totalAdvances + parseFloat(budgetItem?.paidAmount || '0')
-            const contractAmt = parseFloat(cv?.contractAmount || '0')
-            const balance = contractAmt - totalPaid
-
-            return {
-              ...v,
-              clientVendorId: cv?.id || null,
-              eventId: cv?.eventId || null,
-              eventName: cv?.eventId ? eventMap.get(cv.eventId) : null,
-              contractAmount: cv?.contractAmount || null,
-              totalPaid: totalPaid > 0 ? String(totalPaid) : null,
-              balanceRemaining: balance > 0 ? String(balance) : '0',
-              depositAmount: cv?.depositAmount || null,
-              depositPaid: cv?.depositPaid || false,
-              paymentStatus: cv?.paymentStatus || 'pending',
-              serviceDate: cv?.serviceDate || null,
-              approvalStatus: cv?.approvalStatus || 'pending',
-              approvalNotes: cv?.approvalComments || null,
-              serviceLocation: cv?.venueAddress || null,
-              onSiteContact: cv?.onsitePocName || null,
-              onSitePhone: cv?.onsitePocPhone || null,
-              servicesProvided: cv?.deliverables || null,
-            }
+          // [6A.2] Per-client `clientVendors`-enriched rows via the shared SSOT helper — the
+          // SAME fetch the combined export now uses, so the two surfaces can't drift.
+          existingData = await fetchClientVendorExportRows(ctx.db, {
+            clientId: input.clientId,
+            companyId: ctx.companyId,
           })
           break
         case 'budget':

@@ -215,12 +215,12 @@ export const MODULE_SHAPES: Record<ExportModule, ModuleShape> = {
   },
 
   // [6A.1] Vendors export shape reconciled to the handbook §G.6 rich set (was a 10-col summary).
-  // toCell uses pick() aliases so the SAME shape renders BOTH the combined export's global
-  // `vendors` rows AND the per-client `clientVendors`-enriched rows (event / contract / approval).
-  // NOTE: the COMBINED export feeds global-vendor rows, so the per-link columns (Event, Contract
-  // Amount, Service Date, Approval…) are blank there — the per-link round-trip path is the
-  // per-module vendor template (`downloadTemplate('vendors')`), NOT the combined export. See
-  // KNOWN_GAPS.md "vendors" for this data-source caveat.
+  // toCell uses pick() aliases so the SAME shape renders BOTH the global `vendors` keys AND the
+  // per-client `clientVendors`-enriched keys (event / contract / approval).
+  // [6A.2] BOTH the combined export AND downloadTemplate('vendors') now feed per-client
+  // `clientVendors`-enriched rows (via the shared `fetchClientVendorExportRows` helper), so the
+  // per-link columns (Event, Contract Amount, Service Date, Approval…) populate and round-trip
+  // from the combined export too — the data-source drift in KNOWN_GAPS §5 is fixed.
   vendors: {
     sheet: 'Vendors',
     columns: [

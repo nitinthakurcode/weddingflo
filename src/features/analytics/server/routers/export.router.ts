@@ -2,6 +2,7 @@ import { router, staffProcedure } from '@/server/trpc/trpc'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { exportToExcel, exportToPDF } from '@/lib/export/export-utils'
+import { fetchClientVendorExportRows } from '@/lib/export/vendor-export-data'
 import { eq, and } from 'drizzle-orm'
 import * as schema from '@/lib/db/schema'
 
@@ -59,8 +60,10 @@ export const exportRouter = router({
           .where(eq(schema.documents.clientId, input.clientId)),
         ctx.db.select().from(schema.guestTransport)
           .where(eq(schema.guestTransport.clientId, input.clientId)),
-        ctx.db.select().from(schema.vendors)
-          .where(eq(schema.vendors.companyId, ctx.companyId)),
+        // [6A.2] Per-client `clientVendors`-enriched rows via the shared SSOT helper (was a
+        // bare global `vendors` fetch → §G.6 per-link columns blank → combined-export →
+        // re-import silently cleared them). Same helper feeds downloadTemplate('vendors').
+        fetchClientVendorExportRows(ctx.db, { clientId: input.clientId, companyId: ctx.companyId }),
       ])
 
       // Create lookup map for guests
