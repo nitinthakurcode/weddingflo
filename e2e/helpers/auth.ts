@@ -10,9 +10,23 @@ export const TEST_PASSWORD = process.env.TEST_USER_PASSWORD || 'E2eTest!Pass123'
  */
 export async function login(page: Page): Promise<void> {
   await page.goto('/en/sign-in')
-  await page.locator('#email').waitFor({ state: 'visible', timeout: 15000 })
-  await page.locator('#email').fill(TEST_EMAIL)
-  await page.locator('#password').fill(TEST_PASSWORD)
+  const email = page.locator('#email')
+  const password = page.locator('#password')
+  await email.waitFor({ state: 'visible', timeout: 15000 })
+
+  // WebKit/Safari drops the FIRST controlled-input fill (email) before React
+  // commits it — the form then submits with a blank email, BetterAuth rejects it,
+  // and no redirect happens (this is what hung auth.spec.ts:30 on webkit + Mobile
+  // Safari; Chromium/Firefox commit the first fill, so they passed). Fill BOTH
+  // fields and assert the values stuck, retrying, and re-verify immediately before
+  // submit so a focus/re-render between fills can't leave email blank.
+  await expect(async () => {
+    await email.fill(TEST_EMAIL)
+    await password.fill(TEST_PASSWORD)
+    await expect(email).toHaveValue(TEST_EMAIL, { timeout: 1000 })
+    await expect(password).toHaveValue(TEST_PASSWORD, { timeout: 1000 })
+  }).toPass({ timeout: 10000 })
+
   await page.getByRole('button', { name: /sign in/i }).click()
   await page.waitForURL(/\/dashboard/, { timeout: 20000 })
   await expect(page).toHaveURL(/\/dashboard/)
